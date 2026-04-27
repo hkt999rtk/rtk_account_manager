@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -71,6 +72,10 @@ func (s *Service) ParseRefreshToken(tokenString string) (*Claims, error) {
 
 func (s *Service) issue(userID string, kind TokenKind, secret []byte, ttl time.Duration) (string, time.Time, error) {
 	expiresAt := time.Now().UTC().Add(ttl)
+	tokenID, err := randomTokenID()
+	if err != nil {
+		return "", time.Time{}, err
+	}
 	claims := Claims{
 		UserID: userID,
 		Kind:   kind,
@@ -78,6 +83,7 @@ func (s *Service) issue(userID string, kind TokenKind, secret []byte, ttl time.D
 			Subject:   userID,
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
+			ID:        tokenID,
 		},
 	}
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(secret)
@@ -102,4 +108,12 @@ func (s *Service) parse(tokenString string, expectedKind TokenKind, secret []byt
 		return nil, fmt.Errorf("invalid token kind")
 	}
 	return claims, nil
+}
+
+func randomTokenID() (string, error) {
+	var data [16]byte
+	if _, err := rand.Read(data[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(data[:]), nil
 }

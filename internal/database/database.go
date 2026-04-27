@@ -27,7 +27,11 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		return err
 	}
 
-	entries, err := os.ReadDir("migrations")
+	migrationDir, err := findMigrationDir()
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(migrationDir)
 	if err != nil {
 		return err
 	}
@@ -49,7 +53,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 			continue
 		}
 
-		sqlBytes, err := os.ReadFile("migrations/" + name)
+		sqlBytes, err := os.ReadFile(migrationDir + "/" + name)
 		if err != nil {
 			return err
 		}
@@ -71,4 +75,15 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 	}
 	return nil
+}
+
+func findMigrationDir() (string, error) {
+	candidates := []string{"migrations", "../../migrations"}
+	for _, candidate := range candidates {
+		info, err := os.Stat(candidate)
+		if err == nil && info.IsDir() {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("migrations directory not found")
 }

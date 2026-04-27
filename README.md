@@ -35,4 +35,50 @@ Backend account and device manager for organization-scoped users and registry-on
    make test
    ```
 
+6. Run Postgres-backed integration tests:
+
+   ```sh
+   TEST_DATABASE_URL='postgres://rtk:rtk_password@localhost:5432/rtk_account_manager?sslmode=disable' go test ./...
+   ```
+
 The API listens on `http://localhost:8080` by default. The OpenAPI contract is in `openapi.yaml`.
+
+## Smoke Test
+
+After starting Postgres and the API, create a user, organization, and device:
+
+```sh
+REGISTER_RESPONSE=$(curl -sS -X POST http://localhost:8080/v1/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "email": "owner@example.com",
+    "password": "password123",
+    "display_name": "Owner",
+    "organization_name": "Owner Org"
+  }')
+
+ACCESS_TOKEN=$(echo "$REGISTER_RESPONSE" | jq -r '.tokens.access_token')
+ORG_ID=$(echo "$REGISTER_RESPONSE" | jq -r '.organization.id')
+
+curl -sS -X POST "http://localhost:8080/v1/orgs/$ORG_ID/devices" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "Lab Camera",
+    "category": "ip_camera",
+    "serial_number": "CAM-001",
+    "metadata": {"location": "lab"}
+  }'
+
+curl -sS "http://localhost:8080/v1/orgs/$ORG_ID/devices" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+Run migrations manually with explicit environment variables:
+
+```sh
+DATABASE_URL='postgres://rtk:rtk_password@localhost:5432/rtk_account_manager?sslmode=disable' \
+JWT_ACCESS_SECRET='dev-access-secret' \
+JWT_REFRESH_SECRET='dev-refresh-secret' \
+go run ./cmd/migrate
+```

@@ -70,6 +70,9 @@ func (s *Server) register(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
+	if !requireNonBlank(c, "organization_name", req.OrganizationName) {
+		return
+	}
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not hash password")
@@ -152,19 +155,33 @@ func (s *Server) refresh(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
+	if !requireNonBlank(c, "refresh_token", req.RefreshToken) {
+		return
+	}
 	claims, err := s.auth.ParseRefreshToken(req.RefreshToken)
 	if err != nil {
 		writeError(c, http.StatusUnauthorized, "invalid_refresh_token", "Invalid refresh token")
 		return
 	}
-	userID, err := s.store.RefreshTokenActive(c.Request.Context(), auth.HashToken(req.RefreshToken))
-	if err != nil || userID != claims.UserID {
-		writeError(c, http.StatusUnauthorized, "invalid_refresh_token", "Invalid refresh token")
-		return
-	}
-	tokens, err := s.issueTokens(c, claims.UserID)
+	accessToken, accessExpiresAt, err := s.auth.IssueAccessToken(claims.UserID)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
+		return
+	}
+	refreshToken, refreshExpiresAt, err := s.auth.IssueRefreshToken(claims.UserID)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
+		return
+	}
+	tokens := tokenResponse{
+		AccessToken:           accessToken,
+		AccessTokenExpiresAt:  accessExpiresAt,
+		RefreshToken:          refreshToken,
+		RefreshTokenExpiresAt: refreshExpiresAt,
+	}
+	err = s.store.RotateRefreshToken(c.Request.Context(), auth.HashToken(req.RefreshToken), auth.HashToken(refreshToken), claims.UserID, refreshExpiresAt)
+	if err != nil {
+		writeError(c, http.StatusUnauthorized, "invalid_refresh_token", "Invalid refresh token")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"tokens": tokens})
@@ -173,6 +190,9 @@ func (s *Server) refresh(c *gin.Context) {
 func (s *Server) logout(c *gin.Context) {
 	var req refreshRequest
 	if !bind(c, &req) {
+		return
+	}
+	if !requireNonBlank(c, "refresh_token", req.RefreshToken) {
 		return
 	}
 	if err := s.store.RevokeRefreshToken(c.Request.Context(), auth.HashToken(req.RefreshToken)); err != nil {
@@ -213,6 +233,9 @@ type orgRequest struct {
 func (s *Server) createOrganization(c *gin.Context) {
 	var req orgRequest
 	if !bind(c, &req) {
+		return
+	}
+	if !requireNonBlank(c, "name", req.Name) {
 		return
 	}
 	org, err := s.store.CreateOrganization(c.Request.Context(), currentUserID(c), strings.TrimSpace(req.Name))
@@ -270,7 +293,7 @@ func (s *Server) updateMemberRole(c *gin.Context) {
 	}
 	member, err := s.store.UpdateMemberRole(c.Request.Context(), c.Param("orgId"), c.Param("userId"), req.Role)
 	if err != nil {
-		if strings.Contains(err.Error(), "last owner") {
+		if errors.Is(err, store.ErrLastOwner) {
 			writeError(c, http.StatusConflict, "last_owner", err.Error())
 			return
 		}
@@ -283,7 +306,7 @@ func (s *Server) updateMemberRole(c *gin.Context) {
 func (s *Server) removeMember(c *gin.Context) {
 	err := s.store.RemoveMember(c.Request.Context(), c.Param("orgId"), c.Param("userId"))
 	if err != nil {
-		if strings.Contains(err.Error(), "last owner") {
+		if errors.Is(err, store.ErrLastOwner) {
 			writeError(c, http.StatusConflict, "last_owner", err.Error())
 			return
 		}
@@ -320,6 +343,9 @@ func (s *Server) createDevice(c *gin.Context) {
 	if !bind(c, &req) || !validCategory(c, req.Category) {
 		return
 	}
+	if !requireNonBlank(c, "name", req.Name) {
+		return
+	}
 	device, err := s.store.CreateDevice(c.Request.Context(), c.Param("orgId"), req.input())
 	if err != nil {
 		writeStoreError(c, err)
@@ -353,6 +379,9 @@ func (s *Server) getDevice(c *gin.Context) {
 func (s *Server) updateDevice(c *gin.Context) {
 	var req deviceRequest
 	if !bind(c, &req) || !validCategory(c, req.Category) {
+		return
+	}
+	if !requireNonBlank(c, "name", req.Name) {
 		return
 	}
 	device, err := s.store.UpdateDevice(c.Request.Context(), c.Param("orgId"), c.Param("deviceId"), req.input())
@@ -468,6 +497,14 @@ func validStatus(c *gin.Context, status model.DeviceStatus) bool {
 	return false
 }
 
+func requireNonBlank(c *gin.Context, field, value string) bool {
+	if strings.TrimSpace(value) != "" {
+		return true
+	}
+	writeError(c, http.StatusBadRequest, "invalid_request", field+" must not be blank")
+	return false
+}
+
 func queryInt(c *gin.Context, name string, fallback int) int {
 	value := c.Query(name)
 	if value == "" {
@@ -495,6 +532,8 @@ func writeStoreError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(c, http.StatusNotFound, "not_found", "Resource not found")
+	case errors.Is(err, store.ErrLastOwner):
+		writeError(c, http.StatusConflict, "last_owner", err.Error())
 	case strings.Contains(err.Error(), "duplicate key"):
 		writeError(c, http.StatusConflict, "conflict", "Resource already exists")
 	default:

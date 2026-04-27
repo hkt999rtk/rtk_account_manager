@@ -12,7 +12,10 @@ import (
 	"github.com/kevinhuang/rtk_account_manager/internal/model"
 )
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound  = errors.New("not found")
+	ErrLastOwner = errors.New("last owner cannot be removed or downgraded")
+)
 
 type Store struct {
 	db *pgxpool.Pool
@@ -109,6 +112,46 @@ func (s *Store) SaveRefreshToken(ctx context.Context, userID, tokenHash string, 
 		VALUES ($1, $2, $3)
 	`, userID, tokenHash, expiresAt)
 	return err
+}
+
+func (s *Store) RotateRefreshToken(ctx context.Context, oldTokenHash, newTokenHash, userID string, newExpiresAt time.Time) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var activeUserID string
+	err = tx.QueryRow(ctx, `
+		SELECT user_id::text
+		FROM refresh_tokens
+		WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
+		FOR UPDATE
+	`, oldTokenHash).Scan(&activeUserID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if activeUserID != userID {
+		return ErrNotFound
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE refresh_tokens
+		SET revoked_at = now()
+		WHERE token_hash = $1 AND revoked_at IS NULL
+	`, oldTokenHash); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+		VALUES ($1, $2, $3)
+	`, userID, newTokenHash, newExpiresAt); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) RefreshTokenActive(ctx context.Context, tokenHash string) (string, error) {
@@ -259,13 +302,19 @@ func (s *Store) AddMember(ctx context.Context, orgID, email string, role model.R
 }
 
 func (s *Store) UpdateMemberRole(ctx context.Context, orgID, userID string, role model.Role) (model.Member, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return model.Member{}, err
+	}
+	defer tx.Rollback(ctx)
+
 	if role != model.RoleOwner {
-		if err := s.ensureNotLastOwner(ctx, orgID, userID); err != nil {
+		if err := ensureNotLastOwnerTx(ctx, tx, orgID, userID); err != nil {
 			return model.Member{}, err
 		}
 	}
 	var member model.Member
-	err := s.db.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		UPDATE organization_members
 		SET role = $3, updated_at = now()
 		WHERE organization_id = $1 AND user_id = $2
@@ -277,20 +326,33 @@ func (s *Store) UpdateMemberRole(ctx context.Context, orgID, userID string, role
 	if err != nil {
 		return model.Member{}, err
 	}
-	user, err := s.GetUser(ctx, userID)
+	var email string
+	var displayName *string
+	err = tx.QueryRow(ctx, `
+		SELECT email, display_name FROM users WHERE id = $1 AND disabled_at IS NULL
+	`, userID).Scan(&email, &displayName)
 	if err != nil {
 		return model.Member{}, err
 	}
-	member.Email = user.Email
-	member.DisplayName = user.DisplayName
+	if err := tx.Commit(ctx); err != nil {
+		return model.Member{}, err
+	}
+	member.Email = email
+	member.DisplayName = displayName
 	return member, nil
 }
 
 func (s *Store) RemoveMember(ctx context.Context, orgID, userID string) error {
-	if err := s.ensureNotLastOwner(ctx, orgID, userID); err != nil {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	tag, err := s.db.Exec(ctx, `
+	defer tx.Rollback(ctx)
+
+	if err := ensureNotLastOwnerTx(ctx, tx, orgID, userID); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `
 		DELETE FROM organization_members WHERE organization_id = $1 AND user_id = $2
 	`, orgID, userID)
 	if err != nil {
@@ -299,17 +361,35 @@ func (s *Store) RemoveMember(ctx context.Context, orgID, userID string) error {
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
-func (s *Store) ensureNotLastOwner(ctx context.Context, orgID, userID string) error {
+func ensureNotLastOwnerTx(ctx context.Context, tx pgx.Tx, orgID, userID string) error {
+	ownerRows, err := tx.Query(ctx, `
+		SELECT user_id FROM organization_members
+		WHERE organization_id = $1 AND role = 'owner'
+		FOR UPDATE
+	`, orgID)
+	if err != nil {
+		return err
+	}
+	ownerCount := 0
+	for ownerRows.Next() {
+		ownerCount++
+	}
+	if err := ownerRows.Err(); err != nil {
+		ownerRows.Close()
+		return err
+	}
+	ownerRows.Close()
+
 	var role model.Role
-	var ownerCount int
-	err := s.db.QueryRow(ctx, `
-		SELECT role, (SELECT count(*) FROM organization_members WHERE organization_id = $1 AND role = 'owner')
+	err = tx.QueryRow(ctx, `
+		SELECT role
 		FROM organization_members
 		WHERE organization_id = $1 AND user_id = $2
-	`, orgID, userID).Scan(&role, &ownerCount)
+		FOR UPDATE
+	`, orgID, userID).Scan(&role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -317,7 +397,7 @@ func (s *Store) ensureNotLastOwner(ctx context.Context, orgID, userID string) er
 		return err
 	}
 	if role == model.RoleOwner && ownerCount <= 1 {
-		return errors.New("last owner cannot be removed or downgraded")
+		return ErrLastOwner
 	}
 	return nil
 }
@@ -399,7 +479,9 @@ func (s *Store) UpdateDevice(ctx context.Context, orgID, deviceID string, in Dev
 
 func (s *Store) DeleteDevice(ctx context.Context, orgID, deviceID string) error {
 	tag, err := s.db.Exec(ctx, `
-		DELETE FROM devices WHERE organization_id = $1 AND id = $2
+		UPDATE devices
+		SET status = 'disabled', disabled_at = COALESCE(disabled_at, now()), updated_at = now()
+		WHERE organization_id = $1 AND id = $2
 	`, orgID, deviceID)
 	if err != nil {
 		return err
