@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/hkt999rtk/rtk_account_manager/internal/model"
+	"rtk_account_manager/internal/model"
 )
 
 var (

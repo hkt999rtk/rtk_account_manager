@@ -9,9 +9,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/hkt999rtk/rtk_account_manager/internal/auth"
-	"github.com/hkt999rtk/rtk_account_manager/internal/model"
-	"github.com/hkt999rtk/rtk_account_manager/internal/store"
+	"rtk_account_manager/internal/auth"
+	"rtk_account_manager/internal/model"
+	"rtk_account_manager/internal/store"
 )
 
 type Server struct {

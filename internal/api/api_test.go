@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hkt999rtk/rtk_account_manager/internal/auth"
+	"rtk_account_manager/internal/auth"
 )
 
 func TestRequireAuthRejectsMissingToken(t *testing.T) {

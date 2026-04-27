@@ -4,8 +4,8 @@ import (
 	"context"
 	"log"
 
-	"github.com/hkt999rtk/rtk_account_manager/internal/config"
-	"github.com/hkt999rtk/rtk_account_manager/internal/database"
+	"rtk_account_manager/internal/config"
+	"rtk_account_manager/internal/database"
 )
 
 func main() {
