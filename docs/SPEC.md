@@ -143,6 +143,7 @@ Refresh tokens must be stored hashed, not in raw form.
 - API access uses JWT bearer tokens.
 - Protected endpoints require `Authorization: Bearer <access_token>`.
 - Refresh tokens may be used to issue new access tokens.
+- Refreshing a session rotates the refresh token. The previous refresh token is revoked and must not be accepted again.
 - Logout revokes the active refresh token.
 
 ## 6. Authorization
@@ -199,7 +200,7 @@ All endpoints are versioned under `/v1`.
 | `GET` | `/v1/orgs/:orgId/devices` | Yes | List devices. |
 | `GET` | `/v1/orgs/:orgId/devices/:deviceId` | Yes | Get device details. |
 | `PATCH` | `/v1/orgs/:orgId/devices/:deviceId` | Yes | Update device fields. |
-| `DELETE` | `/v1/orgs/:orgId/devices/:deviceId` | Yes | Delete or disable device. |
+| `DELETE` | `/v1/orgs/:orgId/devices/:deviceId` | Yes | Soft-disable device by setting `status` to `disabled` and `disabled_at`. |
 | `PATCH` | `/v1/orgs/:orgId/devices/:deviceId/status` | Yes | Update device status. |
 
 ## 8. API Conventions
@@ -272,6 +273,12 @@ Tests should cover:
 - Same `serial_number` may be used in different organizations.
 - Device status can be updated by `owner` or `admin`.
 - Last organization `owner` cannot be removed or downgraded.
+- Refresh token rotation rejects previously used refresh tokens.
+- Logout revokes refresh tokens.
+- Device CRUD tests cover create, list, get, update, status update, and soft-disable.
+- Invalid device category and status values are rejected.
+- Organization and member endpoints reject cross-organization access.
+- SQL migrations are idempotent.
 
 ## 11. Acceptance Criteria
 

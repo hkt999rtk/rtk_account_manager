@@ -41,6 +41,14 @@ Backend account and device manager for organization-scoped users and registry-on
    TEST_DATABASE_URL='postgres://rtk:rtk_password@localhost:5432/rtk_account_manager?sslmode=disable' go test ./...
    ```
 
+   These tests require the Docker Compose Postgres service to be running.
+
+7. Stop local services:
+
+   ```sh
+   make db-down
+   ```
+
 The API listens on `http://localhost:8080` by default. The OpenAPI contract is in `openapi.yaml`.
 
 ## Smoke Test
