@@ -4,11 +4,11 @@ import (
 	"context"
 	"log"
 
-	"github.com/kevinhuang/rtk_account_manager/internal/api"
-	"github.com/kevinhuang/rtk_account_manager/internal/auth"
-	"github.com/kevinhuang/rtk_account_manager/internal/config"
-	"github.com/kevinhuang/rtk_account_manager/internal/database"
-	"github.com/kevinhuang/rtk_account_manager/internal/store"
+	"github.com/hkt999rtk/rtk_account_manager/internal/api"
+	"github.com/hkt999rtk/rtk_account_manager/internal/auth"
+	"github.com/hkt999rtk/rtk_account_manager/internal/config"
+	"github.com/hkt999rtk/rtk_account_manager/internal/database"
+	"github.com/hkt999rtk/rtk_account_manager/internal/store"
 )
 
 func main() {

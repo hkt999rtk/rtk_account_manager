@@ -13,9 +13,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/kevinhuang/rtk_account_manager/internal/auth"
-	"github.com/kevinhuang/rtk_account_manager/internal/database"
-	"github.com/kevinhuang/rtk_account_manager/internal/store"
+	"github.com/hkt999rtk/rtk_account_manager/internal/auth"
+	"github.com/hkt999rtk/rtk_account_manager/internal/database"
+	"github.com/hkt999rtk/rtk_account_manager/internal/store"
 )
 
 type integrationEnv struct {

@@ -1,4 +1,4 @@
-module github.com/kevinhuang/rtk_account_manager
+module github.com/hkt999rtk/rtk_account_manager
 
 go 1.24.4
 
