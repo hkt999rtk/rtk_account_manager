@@ -50,7 +50,15 @@ Backend account and device manager for organization-scoped users and registry-on
 
    These tests require the Docker Compose Postgres service to be running.
 
-8. Stop local services:
+8. Generate the maintained test report:
+
+   ```sh
+   make test-report
+   ```
+
+   The report is written to `docs/TEST_REPORT.md`. Report artifacts are written under `reports/`.
+
+9. Stop local services:
 
    ```sh
    make db-down
@@ -58,6 +66,7 @@ Backend account and device manager for organization-scoped users and registry-on
 
 The API listens on `http://localhost:8080` by default. The OpenAPI contract is in `openapi.yaml`.
 List endpoints accept `limit` and `offset` query parameters and return pagination metadata.
+Testing policy and report maintenance are documented in `docs/TESTING.md`.
 
 ## Smoke Test
 

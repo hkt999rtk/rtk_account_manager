@@ -61,6 +61,15 @@ func TestIntegrationRegisterLoginRefreshAndLogout(t *testing.T) {
 		t.Fatal("expected user and organization IDs")
 	}
 
+	meRes := performJSON(env.router, http.MethodGet, "/v1/me", nil, registered.Tokens.AccessToken)
+	if meRes.Code != http.StatusOK {
+		t.Fatalf("expected me 200, got %d: %s", meRes.Code, meRes.Body.String())
+	}
+	meBody := decodeBody[meBody](t, meRes)
+	if meBody.User.ID != registered.User.ID || len(meBody.Organizations) != 1 || meBody.Organizations[0].ID != registered.Organization.ID {
+		t.Fatalf("unexpected me response: %+v", meBody)
+	}
+
 	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
 		"email":    "owner@example.com",
 		"password": "password123",
@@ -602,6 +611,31 @@ func TestIntegrationCleanupRefreshTokensRemovesExpiredAndRevokedRows(t *testing.
 	}
 }
 
+func TestIntegrationStoreRefreshTokenHelpers(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	tokenHash := auth.HashToken("store-refresh-token")
+	if err := store.New(env.db).SaveRefreshToken(context.Background(), owner.User.ID, tokenHash, time.Now().UTC().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	userID, err := store.New(env.db).RefreshTokenActive(context.Background(), tokenHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if userID != owner.User.ID {
+		t.Fatalf("expected active refresh token user %s, got %s", owner.User.ID, userID)
+	}
+
+	if err := store.New(env.db).RevokeUserRefreshTokens(context.Background(), owner.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.New(env.db).RefreshTokenActive(context.Background(), tokenHash); err == nil {
+		t.Fatal("expected revoked refresh token to be inactive")
+	}
+}
+
 func TestIntegrationLastOwnerCannotBeRemovedOrDowngraded(t *testing.T) {
 	env := newIntegrationEnv(t)
 
@@ -742,6 +776,15 @@ type tokenBody struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
 	} `json:"tokens"`
+}
+
+type meBody struct {
+	User struct {
+		ID string `json:"id"`
+	} `json:"user"`
+	Organizations []struct {
+		ID string `json:"id"`
+	} `json:"organizations"`
 }
 
 type deviceBody struct {

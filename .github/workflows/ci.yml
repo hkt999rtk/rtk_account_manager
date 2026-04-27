@@ -50,8 +50,17 @@ jobs:
       - name: Verify formatting
         run: test -z "$(gofmt -l .)"
 
-      - name: Run tests
-        run: go test ./...
+      - name: Run tests and generate report
+        run: make test-report
 
       - name: Build packages
         run: go build ./...
+
+      - name: Upload test report artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-report
+          path: |
+            docs/TEST_REPORT.md
+            reports/

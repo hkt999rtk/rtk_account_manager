@@ -3,6 +3,8 @@
 bin/
 dist/
 tmp/
+reports/
+coverage.out
 .DS_Store
 .idea/
 .vscode/

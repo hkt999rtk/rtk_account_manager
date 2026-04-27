@@ -1,4 +1,4 @@
-.PHONY: tidy test integration-test run db-up db-down migrate cleanup-tokens
+.PHONY: tidy test integration-test test-report run db-up db-down migrate cleanup-tokens
 
 tidy:
 	go mod tidy
@@ -8,6 +8,9 @@ test:
 
 integration-test:
 	TEST_DATABASE_URL='postgres://rtk:rtk_password@localhost:5432/rtk_account_manager?sslmode=disable' go test ./...
+
+test-report:
+	./scripts/test-report.sh
 
 run:
 	go run ./cmd/server
