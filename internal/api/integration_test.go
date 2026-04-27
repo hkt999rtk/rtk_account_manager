@@ -91,6 +91,28 @@ func TestIntegrationRegisterLoginRefreshAndLogout(t *testing.T) {
 	if logoutRes.Code != http.StatusNoContent {
 		t.Fatalf("expected logout 204, got %d", logoutRes.Code)
 	}
+
+	revokedRefreshRes := performJSON(env.router, http.MethodPost, "/v1/auth/refresh", map[string]any{
+		"refresh_token": refreshedBody.Tokens.RefreshToken,
+	}, "")
+	if revokedRefreshRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected logged-out refresh token 401, got %d", revokedRefreshRes.Code)
+	}
+
+	invalidLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "owner@example.com",
+		"password": "wrong-password",
+	}, "")
+	if invalidLoginRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected invalid login 401, got %d", invalidLoginRes.Code)
+	}
+
+	invalidRefreshRes := performJSON(env.router, http.MethodPost, "/v1/auth/refresh", map[string]any{
+		"refresh_token": "not-a-token",
+	}, "")
+	if invalidRefreshRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected invalid refresh token 401, got %d", invalidRefreshRes.Code)
+	}
 }
 
 func TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness(t *testing.T) {
@@ -98,6 +120,7 @@ func TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness(t *testing.T
 
 	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
 	member := registerUser(t, env.router, "member@example.com", "Member Org")
+	admin := registerUser(t, env.router, "admin@example.com", "Admin Org")
 
 	addMemberRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
 		"email": "member@example.com",
@@ -105,6 +128,34 @@ func TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness(t *testing.T
 	}, owner.Tokens.AccessToken)
 	if addMemberRes.Code != http.StatusCreated {
 		t.Fatalf("expected add member 201, got %d: %s", addMemberRes.Code, addMemberRes.Body.String())
+	}
+
+	addAdminRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
+		"email": "admin@example.com",
+		"role":  "admin",
+	}, owner.Tokens.AccessToken)
+	if addAdminRes.Code != http.StatusCreated {
+		t.Fatalf("expected add admin 201, got %d: %s", addAdminRes.Code, addAdminRes.Body.String())
+	}
+
+	adminAddMemberRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
+		"email": "admin@example.com",
+		"role":  "member",
+	}, admin.Tokens.AccessToken)
+	if adminAddMemberRes.Code != http.StatusForbidden {
+		t.Fatalf("expected admin add member 403, got %d", adminAddMemberRes.Code)
+	}
+
+	adminUpdateMemberRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/members/"+member.User.ID, map[string]any{
+		"role": "admin",
+	}, admin.Tokens.AccessToken)
+	if adminUpdateMemberRes.Code != http.StatusForbidden {
+		t.Fatalf("expected admin update member 403, got %d", adminUpdateMemberRes.Code)
+	}
+
+	adminRemoveMemberRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/members/"+member.User.ID, nil, admin.Tokens.AccessToken)
+	if adminRemoveMemberRes.Code != http.StatusForbidden {
+		t.Fatalf("expected admin remove member 403, got %d", adminRemoveMemberRes.Code)
 	}
 
 	memberCreateRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("cam-1", "SERIAL-1"), member.Tokens.AccessToken)
@@ -116,7 +167,57 @@ func TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness(t *testing.T
 	if deviceRes.Code != http.StatusCreated {
 		t.Fatalf("expected device create 201, got %d: %s", deviceRes.Code, deviceRes.Body.String())
 	}
-	deviceBody := decodeBody[deviceBody](t, deviceRes)
+	createdDeviceBody := decodeBody[deviceBody](t, deviceRes)
+
+	memberListRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices", nil, member.Tokens.AccessToken)
+	if memberListRes.Code != http.StatusOK {
+		t.Fatalf("expected member list devices 200, got %d", memberListRes.Code)
+	}
+
+	memberGetRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/"+createdDeviceBody.Device.ID, nil, member.Tokens.AccessToken)
+	if memberGetRes.Code != http.StatusOK {
+		t.Fatalf("expected member get device 200, got %d", memberGetRes.Code)
+	}
+
+	memberUpdateRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/devices/"+createdDeviceBody.Device.ID, devicePayload("member-update", "SERIAL-2"), member.Tokens.AccessToken)
+	if memberUpdateRes.Code != http.StatusForbidden {
+		t.Fatalf("expected member update device 403, got %d", memberUpdateRes.Code)
+	}
+
+	memberStatusRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/devices/"+createdDeviceBody.Device.ID+"/status", map[string]any{
+		"status": "offline",
+	}, member.Tokens.AccessToken)
+	if memberStatusRes.Code != http.StatusForbidden {
+		t.Fatalf("expected member status update 403, got %d", memberStatusRes.Code)
+	}
+
+	memberDeleteRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/devices/"+createdDeviceBody.Device.ID, nil, member.Tokens.AccessToken)
+	if memberDeleteRes.Code != http.StatusForbidden {
+		t.Fatalf("expected member delete device 403, got %d", memberDeleteRes.Code)
+	}
+
+	adminDeviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("admin-cam", "ADMIN-SERIAL-1"), admin.Tokens.AccessToken)
+	if adminDeviceRes.Code != http.StatusCreated {
+		t.Fatalf("expected admin create device 201, got %d: %s", adminDeviceRes.Code, adminDeviceRes.Body.String())
+	}
+	adminDeviceBody := decodeBody[deviceBody](t, adminDeviceRes)
+
+	adminUpdateDeviceRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/devices/"+adminDeviceBody.Device.ID, devicePayload("admin-cam-updated", "ADMIN-SERIAL-2"), admin.Tokens.AccessToken)
+	if adminUpdateDeviceRes.Code != http.StatusOK {
+		t.Fatalf("expected admin update device 200, got %d", adminUpdateDeviceRes.Code)
+	}
+
+	adminStatusRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/devices/"+adminDeviceBody.Device.ID+"/status", map[string]any{
+		"status": "online",
+	}, admin.Tokens.AccessToken)
+	if adminStatusRes.Code != http.StatusOK {
+		t.Fatalf("expected admin status update 200, got %d", adminStatusRes.Code)
+	}
+
+	adminDeleteRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/devices/"+adminDeviceBody.Device.ID, nil, admin.Tokens.AccessToken)
+	if adminDeleteRes.Code != http.StatusNoContent {
+		t.Fatalf("expected admin delete device 204, got %d", adminDeleteRes.Code)
+	}
 
 	duplicateRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("cam-dup", "SERIAL-1"), owner.Tokens.AccessToken)
 	if duplicateRes.Code != http.StatusConflict {
@@ -128,31 +229,78 @@ func TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness(t *testing.T
 		t.Fatalf("expected same serial in different org 201, got %d: %s", otherOrgRes.Code, otherOrgRes.Body.String())
 	}
 
-	crossOrgRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+member.Organization.ID+"/devices/"+deviceBody.Device.ID, nil, member.Tokens.AccessToken)
+	crossOrgRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+member.Organization.ID+"/devices/"+createdDeviceBody.Device.ID, nil, member.Tokens.AccessToken)
 	if crossOrgRes.Code != http.StatusNotFound {
 		t.Fatalf("expected cross-org device lookup 404, got %d", crossOrgRes.Code)
 	}
 
-	statusRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/devices/"+deviceBody.Device.ID+"/status", map[string]any{
+	otherOrgResByOwner := performJSON(env.router, http.MethodGet, "/v1/orgs/"+member.Organization.ID, nil, owner.Tokens.AccessToken)
+	if otherOrgResByOwner.Code != http.StatusNotFound {
+		t.Fatalf("expected cross-org organization lookup 404, got %d", otherOrgResByOwner.Code)
+	}
+
+	otherOrgMembersRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+member.Organization.ID+"/members", nil, owner.Tokens.AccessToken)
+	if otherOrgMembersRes.Code != http.StatusNotFound {
+		t.Fatalf("expected cross-org member list 404, got %d", otherOrgMembersRes.Code)
+	}
+
+	listBody := decodeBody[devicesBody](t, memberListRes)
+	if len(listBody.Devices) != 1 || listBody.Devices[0].ID != createdDeviceBody.Device.ID {
+		t.Fatalf("expected member list to include created device, got %+v", listBody.Devices)
+	}
+
+	updatedDeviceRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/devices/"+createdDeviceBody.Device.ID, devicePayload("cam-updated", "SERIAL-UPDATED"), owner.Tokens.AccessToken)
+	if updatedDeviceRes.Code != http.StatusOK {
+		t.Fatalf("expected owner update device 200, got %d", updatedDeviceRes.Code)
+	}
+	updatedDeviceBody := decodeBody[deviceBody](t, updatedDeviceRes)
+	if updatedDeviceBody.Device.Name != "cam-updated" || updatedDeviceBody.Device.SerialNumber == nil || *updatedDeviceBody.Device.SerialNumber != "SERIAL-UPDATED" {
+		t.Fatalf("expected updated device fields, got %+v", updatedDeviceBody.Device)
+	}
+
+	invalidCategoryRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", map[string]any{
+		"name":     "bad-category",
+		"category": "bad",
+	}, owner.Tokens.AccessToken)
+	if invalidCategoryRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid category 400, got %d", invalidCategoryRes.Code)
+	}
+
+	statusRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/devices/"+createdDeviceBody.Device.ID+"/status", map[string]any{
 		"status": "online",
 	}, owner.Tokens.AccessToken)
 	if statusRes.Code != http.StatusOK {
 		t.Fatalf("expected status update 200, got %d", statusRes.Code)
 	}
 
-	deleteRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/devices/"+deviceBody.Device.ID, nil, owner.Tokens.AccessToken)
+	invalidStatusRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/devices/"+createdDeviceBody.Device.ID+"/status", map[string]any{
+		"status": "bad",
+	}, owner.Tokens.AccessToken)
+	if invalidStatusRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid status 400, got %d", invalidStatusRes.Code)
+	}
+
+	deleteRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/devices/"+createdDeviceBody.Device.ID, nil, owner.Tokens.AccessToken)
 	if deleteRes.Code != http.StatusNoContent {
 		t.Fatalf("expected delete 204, got %d", deleteRes.Code)
 	}
 
 	var status string
 	var disabledAt *time.Time
-	err := env.db.QueryRow(context.Background(), `SELECT status, disabled_at FROM devices WHERE id = $1`, deviceBody.Device.ID).Scan(&status, &disabledAt)
+	err := env.db.QueryRow(context.Background(), `SELECT status, disabled_at FROM devices WHERE id = $1`, createdDeviceBody.Device.ID).Scan(&status, &disabledAt)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if status != "disabled" || disabledAt == nil {
 		t.Fatalf("expected soft-disabled device, got status=%s disabled_at=%v", status, disabledAt)
+	}
+}
+
+func TestIntegrationMigrationsAreIdempotent(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	if err := database.Migrate(context.Background(), env.db); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -218,8 +366,16 @@ type tokenBody struct {
 
 type deviceBody struct {
 	Device struct {
-		ID string `json:"id"`
+		ID           string  `json:"id"`
+		Name         string  `json:"name"`
+		SerialNumber *string `json:"serial_number"`
 	} `json:"device"`
+}
+
+type devicesBody struct {
+	Devices []struct {
+		ID string `json:"id"`
+	} `json:"devices"`
 }
 
 func registerUser(t *testing.T, router *gin.Engine, email, orgName string) registerBody {
