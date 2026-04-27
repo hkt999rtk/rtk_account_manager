@@ -219,7 +219,8 @@ All endpoints are versioned under `/v1`.
 - Request and response bodies use JSON.
 - IDs are UUID strings.
 - Timestamps use RFC 3339 format.
-- List endpoints should support pagination with `limit` and `offset`.
+- List endpoints support pagination with `limit` and `offset`.
+- List responses include `pagination.limit`, `pagination.offset`, and `pagination.total`.
 - Error responses use a consistent JSON shape:
 
 ```json
@@ -292,7 +293,9 @@ Tests should cover:
 - SQL migrations are idempotent.
 - SQL migrations protect the final organization `owner` invariant at the database layer.
 - SQL migrations enforce normalized user email and non-blank organization/device names.
+- SQL migrations maintain `updated_at` automatically for mutable tables.
 - Disabled users cannot use existing access or refresh tokens.
+- List endpoint tests cover pagination metadata.
 - OpenAPI schema validation passes.
 
 ## 11. Acceptance Criteria

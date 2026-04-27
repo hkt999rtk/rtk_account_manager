@@ -209,21 +209,22 @@ func (s *Server) me(c *gin.Context) {
 		writeStoreError(c, err)
 		return
 	}
-	orgs, err := s.store.ListOrganizations(c.Request.Context(), userID)
+	orgPage, err := s.store.ListOrganizations(c.Request.Context(), userID, 200, 0)
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"user": user, "organizations": orgs})
+	c.JSON(http.StatusOK, gin.H{"user": user, "organizations": orgPage.Organizations})
 }
 
 func (s *Server) listOrganizations(c *gin.Context) {
-	orgs, err := s.store.ListOrganizations(c.Request.Context(), currentUserID(c))
+	limit, offset := pagination(c)
+	orgPage, err := s.store.ListOrganizations(c.Request.Context(), currentUserID(c), limit, offset)
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"organizations": orgs})
+	c.JSON(http.StatusOK, gin.H{"organizations": orgPage.Organizations, "pagination": orgPage.Page})
 }
 
 type orgRequest struct {
@@ -256,12 +257,13 @@ func (s *Server) getOrganization(c *gin.Context) {
 }
 
 func (s *Server) listMembers(c *gin.Context) {
-	members, err := s.store.ListMembers(c.Request.Context(), c.Param("orgId"))
+	limit, offset := pagination(c)
+	memberPage, err := s.store.ListMembers(c.Request.Context(), c.Param("orgId"), limit, offset)
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"members": members})
+	c.JSON(http.StatusOK, gin.H{"members": memberPage.Members, "pagination": memberPage.Page})
 }
 
 type addMemberRequest struct {
@@ -355,16 +357,13 @@ func (s *Server) createDevice(c *gin.Context) {
 }
 
 func (s *Server) listDevices(c *gin.Context) {
-	limit := queryInt(c, "limit", 50)
-	if limit > 200 {
-		limit = 200
-	}
-	devices, err := s.store.ListDevices(c.Request.Context(), c.Param("orgId"), limit, queryInt(c, "offset", 0))
+	limit, offset := pagination(c)
+	devicePage, err := s.store.ListDevices(c.Request.Context(), c.Param("orgId"), limit, offset)
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"devices": devices})
+	c.JSON(http.StatusOK, gin.H{"devices": devicePage.Devices, "pagination": devicePage.Page})
 }
 
 func (s *Server) getDevice(c *gin.Context) {
@@ -522,6 +521,17 @@ func queryInt(c *gin.Context, name string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func pagination(c *gin.Context) (int, int) {
+	limit := queryInt(c, "limit", 50)
+	if limit == 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	return limit, queryInt(c, "offset", 0)
 }
 
 func trimPtr(value *string) *string {

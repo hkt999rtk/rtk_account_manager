@@ -278,6 +278,9 @@ func TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness(t *testing.T
 	if len(listBody.Devices) != 1 || listBody.Devices[0].ID != createdDeviceBody.Device.ID {
 		t.Fatalf("expected member list to include created device, got %+v", listBody.Devices)
 	}
+	if listBody.Pagination.Limit != 50 || listBody.Pagination.Offset != 0 || listBody.Pagination.Total != 1 {
+		t.Fatalf("expected default device pagination, got %+v", listBody.Pagination)
+	}
 
 	updatedDeviceRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/devices/"+createdDeviceBody.Device.ID, devicePayload("cam-updated", "SERIAL-UPDATED"), owner.Tokens.AccessToken)
 	if updatedDeviceRes.Code != http.StatusOK {
@@ -323,6 +326,61 @@ func TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness(t *testing.T
 	}
 	if status != "disabled" || disabledAt == nil {
 		t.Fatalf("expected soft-disabled device, got status=%s disabled_at=%v", status, disabledAt)
+	}
+}
+
+func TestIntegrationListPaginationMetadata(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	secondOrgRes := performJSON(env.router, http.MethodPost, "/v1/orgs", map[string]any{
+		"name": "Second Org",
+	}, owner.Tokens.AccessToken)
+	if secondOrgRes.Code != http.StatusCreated {
+		t.Fatalf("expected second org 201, got %d", secondOrgRes.Code)
+	}
+
+	orgsRes := performJSON(env.router, http.MethodGet, "/v1/orgs?limit=1&offset=1", nil, owner.Tokens.AccessToken)
+	if orgsRes.Code != http.StatusOK {
+		t.Fatalf("expected org list 200, got %d", orgsRes.Code)
+	}
+	orgsBody := decodeBody[organizationsBody](t, orgsRes)
+	if len(orgsBody.Organizations) != 1 || orgsBody.Pagination.Limit != 1 || orgsBody.Pagination.Offset != 1 || orgsBody.Pagination.Total != 2 {
+		t.Fatalf("unexpected org pagination response: %+v", orgsBody)
+	}
+
+	member := registerUser(t, env.router, "member@example.com", "Member Org")
+	addMemberRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
+		"email": "member@example.com",
+		"role":  "member",
+	}, owner.Tokens.AccessToken)
+	if addMemberRes.Code != http.StatusCreated {
+		t.Fatalf("expected add member 201, got %d", addMemberRes.Code)
+	}
+	_ = member
+
+	membersRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/members?limit=1&offset=1", nil, owner.Tokens.AccessToken)
+	if membersRes.Code != http.StatusOK {
+		t.Fatalf("expected member list 200, got %d", membersRes.Code)
+	}
+	membersBody := decodeBody[membersBody](t, membersRes)
+	if len(membersBody.Members) != 1 || membersBody.Pagination.Limit != 1 || membersBody.Pagination.Offset != 1 || membersBody.Pagination.Total != 2 {
+		t.Fatalf("unexpected member pagination response: %+v", membersBody)
+	}
+
+	for i, serial := range []string{"PAGE-1", "PAGE-2", "PAGE-3"} {
+		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("page-device-"+serial, serial), owner.Tokens.AccessToken)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("expected device %d create 201, got %d", i, res.Code)
+		}
+	}
+	devicesRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices?limit=2&offset=1", nil, owner.Tokens.AccessToken)
+	if devicesRes.Code != http.StatusOK {
+		t.Fatalf("expected device list 200, got %d", devicesRes.Code)
+	}
+	devicesBody := decodeBody[devicesBody](t, devicesRes)
+	if len(devicesBody.Devices) != 2 || devicesBody.Pagination.Limit != 2 || devicesBody.Pagination.Offset != 1 || devicesBody.Pagination.Total != 3 {
+		t.Fatalf("unexpected device pagination response: %+v", devicesBody)
 	}
 }
 
@@ -413,6 +471,38 @@ func TestIntegrationDatabaseRejectsInvalidCoreData(t *testing.T) {
 	}
 }
 
+func TestIntegrationDatabaseMaintainsUpdatedAt(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+
+	var updatedAt time.Time
+	if err := env.db.QueryRow(context.Background(), `
+		UPDATE organizations
+		SET name = 'Updated Org', updated_at = '2000-01-01T00:00:00Z'
+		WHERE id = $1
+		RETURNING updated_at
+	`, owner.Organization.ID).Scan(&updatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if updatedAt.Year() == 2000 {
+		t.Fatalf("expected organization updated_at trigger to override manual timestamp, got %s", updatedAt)
+	}
+
+	var userUpdatedAt time.Time
+	if err := env.db.QueryRow(context.Background(), `
+		UPDATE users
+		SET display_name = 'Updated User', updated_at = '2000-01-01T00:00:00Z'
+		WHERE id = $1
+		RETURNING updated_at
+	`, owner.User.ID).Scan(&userUpdatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if userUpdatedAt.Year() == 2000 {
+		t.Fatalf("expected user updated_at trigger to override manual timestamp, got %s", userUpdatedAt)
+	}
+}
+
 type registerBody struct {
 	User struct {
 		ID string `json:"id"`
@@ -445,6 +535,27 @@ type devicesBody struct {
 	Devices []struct {
 		ID string `json:"id"`
 	} `json:"devices"`
+	Pagination paginationBody `json:"pagination"`
+}
+
+type organizationsBody struct {
+	Organizations []struct {
+		ID string `json:"id"`
+	} `json:"organizations"`
+	Pagination paginationBody `json:"pagination"`
+}
+
+type membersBody struct {
+	Members []struct {
+		UserID string `json:"user_id"`
+	} `json:"members"`
+	Pagination paginationBody `json:"pagination"`
+}
+
+type paginationBody struct {
+	Limit  int `json:"limit"`
+	Offset int `json:"offset"`
+	Total  int `json:"total"`
 }
 
 func registerUser(t *testing.T, router *gin.Engine, email, orgName string) registerBody {

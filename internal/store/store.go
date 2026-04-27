@@ -25,6 +25,27 @@ func New(db *pgxpool.Pool) *Store {
 	return &Store{db: db}
 }
 
+type Page struct {
+	Limit  int `json:"limit"`
+	Offset int `json:"offset"`
+	Total  int `json:"total"`
+}
+
+type OrganizationPage struct {
+	Organizations []model.Organization
+	Page          Page
+}
+
+type MemberPage struct {
+	Members []model.Member
+	Page    Page
+}
+
+type DevicePage struct {
+	Devices []model.Device
+	Page    Page
+}
+
 type RegisterInput struct {
 	Email            string
 	PasswordHash     string
@@ -184,7 +205,11 @@ func (s *Store) RevokeRefreshToken(ctx context.Context, tokenHash string) error 
 	return err
 }
 
-func (s *Store) ListOrganizations(ctx context.Context, userID string) ([]model.Organization, error) {
+func (s *Store) ListOrganizations(ctx context.Context, userID string, limit, offset int) (OrganizationPage, error) {
+	total, err := s.countOrganizations(ctx, userID)
+	if err != nil {
+		return OrganizationPage{}, err
+	}
 	rows, err := s.db.Query(ctx, `
 		SELECT o.id::text, o.name, m.role, o.created_at, o.updated_at
 		FROM organizations o
@@ -192,9 +217,10 @@ func (s *Store) ListOrganizations(ctx context.Context, userID string) ([]model.O
 		JOIN users u ON u.id = m.user_id
 		WHERE m.user_id = $1 AND u.disabled_at IS NULL
 		ORDER BY o.created_at ASC
-	`, userID)
+		LIMIT $2 OFFSET $3
+	`, userID, limit, offset)
 	if err != nil {
-		return nil, err
+		return OrganizationPage{}, err
 	}
 	defer rows.Close()
 
@@ -202,11 +228,14 @@ func (s *Store) ListOrganizations(ctx context.Context, userID string) ([]model.O
 	for rows.Next() {
 		var org model.Organization
 		if err := rows.Scan(&org.ID, &org.Name, &org.Role, &org.CreatedAt, &org.UpdatedAt); err != nil {
-			return nil, err
+			return OrganizationPage{}, err
 		}
 		orgs = append(orgs, org)
 	}
-	return orgs, rows.Err()
+	if err := rows.Err(); err != nil {
+		return OrganizationPage{}, err
+	}
+	return OrganizationPage{Organizations: orgs, Page: Page{Limit: limit, Offset: offset, Total: total}}, nil
 }
 
 func (s *Store) CreateOrganization(ctx context.Context, userID, name string) (model.Organization, error) {
@@ -269,16 +298,21 @@ func (s *Store) GetRole(ctx context.Context, orgID, userID string) (model.Role, 
 	return role, err
 }
 
-func (s *Store) ListMembers(ctx context.Context, orgID string) ([]model.Member, error) {
+func (s *Store) ListMembers(ctx context.Context, orgID string, limit, offset int) (MemberPage, error) {
+	total, err := s.countMembers(ctx, orgID)
+	if err != nil {
+		return MemberPage{}, err
+	}
 	rows, err := s.db.Query(ctx, `
 		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at
 		FROM organization_members m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.organization_id = $1 AND u.disabled_at IS NULL
 		ORDER BY m.created_at ASC
-	`, orgID)
+		LIMIT $2 OFFSET $3
+	`, orgID, limit, offset)
 	if err != nil {
-		return nil, err
+		return MemberPage{}, err
 	}
 	defer rows.Close()
 
@@ -286,11 +320,14 @@ func (s *Store) ListMembers(ctx context.Context, orgID string) ([]model.Member, 
 	for rows.Next() {
 		var member model.Member
 		if err := rows.Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &member.CreatedAt, &member.UpdatedAt); err != nil {
-			return nil, err
+			return MemberPage{}, err
 		}
 		members = append(members, member)
 	}
-	return members, rows.Err()
+	if err := rows.Err(); err != nil {
+		return MemberPage{}, err
+	}
+	return MemberPage{Members: members, Page: Page{Limit: limit, Offset: offset, Total: total}}, nil
 }
 
 func (s *Store) AddMember(ctx context.Context, orgID, email string, role model.Role) (model.Member, error) {
@@ -438,7 +475,11 @@ func (s *Store) CreateDevice(ctx context.Context, orgID string, in DeviceInput) 
 	`, orgID, in.Name, in.Category, in.SerialNumber, in.MACAddress, in.Manufacturer, in.Model, metadata))
 }
 
-func (s *Store) ListDevices(ctx context.Context, orgID string, limit, offset int) ([]model.Device, error) {
+func (s *Store) ListDevices(ctx context.Context, orgID string, limit, offset int) (DevicePage, error) {
+	total, err := s.countDevices(ctx, orgID)
+	if err != nil {
+		return DevicePage{}, err
+	}
 	rows, err := s.db.Query(ctx, `
 		SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
 		FROM devices
@@ -447,7 +488,7 @@ func (s *Store) ListDevices(ctx context.Context, orgID string, limit, offset int
 		LIMIT $2 OFFSET $3
 	`, orgID, limit, offset)
 	if err != nil {
-		return nil, err
+		return DevicePage{}, err
 	}
 	defer rows.Close()
 
@@ -455,11 +496,45 @@ func (s *Store) ListDevices(ctx context.Context, orgID string, limit, offset int
 	for rows.Next() {
 		device, err := scanDeviceRows(rows)
 		if err != nil {
-			return nil, err
+			return DevicePage{}, err
 		}
 		devices = append(devices, device)
 	}
-	return devices, rows.Err()
+	if err := rows.Err(); err != nil {
+		return DevicePage{}, err
+	}
+	return DevicePage{Devices: devices, Page: Page{Limit: limit, Offset: offset, Total: total}}, nil
+}
+
+func (s *Store) countOrganizations(ctx context.Context, userID string) (int, error) {
+	var total int
+	err := s.db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM organizations o
+		JOIN organization_members m ON m.organization_id = o.id
+		JOIN users u ON u.id = m.user_id
+		WHERE m.user_id = $1 AND u.disabled_at IS NULL
+	`, userID).Scan(&total)
+	return total, err
+}
+
+func (s *Store) countMembers(ctx context.Context, orgID string) (int, error) {
+	var total int
+	err := s.db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM organization_members m
+		JOIN users u ON u.id = m.user_id
+		WHERE m.organization_id = $1 AND u.disabled_at IS NULL
+	`, orgID).Scan(&total)
+	return total, err
+}
+
+func (s *Store) countDevices(ctx context.Context, orgID string) (int, error) {
+	var total int
+	err := s.db.QueryRow(ctx, `
+		SELECT count(*) FROM devices WHERE organization_id = $1
+	`, orgID).Scan(&total)
+	return total, err
 }
 
 func (s *Store) GetDevice(ctx context.Context, orgID, deviceID string) (model.Device, error) {

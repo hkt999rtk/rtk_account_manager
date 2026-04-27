@@ -111,6 +111,9 @@ paths:
       security:
         - bearerAuth: []
       summary: List current user's organizations.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
       responses:
         "200":
           description: Organization list.
@@ -166,6 +169,8 @@ paths:
       summary: List organization members.
       parameters:
         - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
       responses:
         "200":
           description: Member list.
@@ -264,16 +269,8 @@ paths:
       summary: List organization devices.
       parameters:
         - $ref: "#/components/parameters/OrgId"
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 50
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
       responses:
         "200":
           description: Device list.
@@ -440,6 +437,23 @@ components:
       schema:
         type: string
         format: uuid
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 50
+        minimum: 1
+        maximum: 200
+    Offset:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 0
+        minimum: 0
   responses:
     Error:
       description: Error response.
@@ -573,12 +587,14 @@ components:
             $ref: "#/components/schemas/Organization"
     OrganizationsResponse:
       type: object
-      required: [organizations]
+      required: [organizations, pagination]
       properties:
         organizations:
           type: array
           items:
             $ref: "#/components/schemas/Organization"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
     OrganizationResponse:
       type: object
       required: [organization]
@@ -587,12 +603,14 @@ components:
           $ref: "#/components/schemas/Organization"
     MembersResponse:
       type: object
-      required: [members]
+      required: [members, pagination]
       properties:
         members:
           type: array
           items:
             $ref: "#/components/schemas/Member"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
     MemberResponse:
       type: object
       required: [member]
@@ -601,12 +619,14 @@ components:
           $ref: "#/components/schemas/Member"
     DevicesResponse:
       type: object
-      required: [devices]
+      required: [devices, pagination]
       properties:
         devices:
           type: array
           items:
             $ref: "#/components/schemas/Device"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
     DeviceResponse:
       type: object
       required: [device]
@@ -727,6 +747,16 @@ components:
         refresh_token_expires_at:
           type: string
           format: date-time
+    Pagination:
+      type: object
+      required: [limit, offset, total]
+      properties:
+        limit:
+          type: integer
+        offset:
+          type: integer
+        total:
+          type: integer
     Role:
       type: string
       enum: [owner, admin, member]
