@@ -162,6 +162,33 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update organization details.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateOrganizationRequest"
+      responses:
+        "200":
+          description: Organization updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/members:
     get:
       security:
@@ -244,6 +271,24 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Remove member from organization.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204":
+          description: Member removed.
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/members/{userId}/disable:
     patch:
       security:
@@ -287,24 +332,6 @@ paths:
         "403":
           $ref: "#/components/responses/Error"
         "404":
-          $ref: "#/components/responses/Error"
-    delete:
-      security:
-        - bearerAuth: []
-      summary: Remove member from organization.
-      parameters:
-        - $ref: "#/components/parameters/OrgId"
-        - $ref: "#/components/parameters/UserId"
-      responses:
-        "204":
-          description: Member removed.
-        "401":
-          $ref: "#/components/responses/Error"
-        "403":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
-        "409":
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/devices:
     get:
@@ -545,6 +572,13 @@ components:
           type: string
           minLength: 1
     CreateOrganizationRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+    UpdateOrganizationRequest:
       type: object
       required: [name]
       properties:

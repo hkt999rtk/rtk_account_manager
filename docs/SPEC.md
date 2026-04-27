@@ -19,6 +19,7 @@ The v1 service is a REST API backend only. It stores account and device state in
 - Organization-based account model.
 - Multiple users per organization.
 - Role-based access control with `owner`, `admin`, and `member`.
+- Owner-managed organization profile updates.
 - Organization-owned devices.
 - Device categories:
   - `ip_camera`
@@ -105,6 +106,7 @@ Constraints:
 
 - `(organization_id, user_id)` is unique.
 - Every organization must have at least one `owner`.
+- The database must reject committing an organization without at least one `owner`.
 - The database must reject deleting or downgrading the final `owner` membership for an organization.
 - A user must not access organization resources without an active membership.
 
@@ -158,6 +160,7 @@ Refresh tokens must be stored hashed, not in raw form.
 - Refresh tokens may be used to issue new access tokens.
 - Refreshing a session rotates the refresh token. The previous refresh token is revoked and must not be accepted again.
 - Logout revokes the active refresh token.
+- Expired or revoked refresh tokens may be removed by an explicit maintenance command.
 
 ## 6. Authorization
 
@@ -203,6 +206,7 @@ All endpoints are versioned under `/v1`.
 | `GET` | `/v1/orgs` | Yes | List organizations current user belongs to. |
 | `POST` | `/v1/orgs` | Yes | Create a new organization with current user as `owner`. |
 | `GET` | `/v1/orgs/:orgId` | Yes | Get organization details. |
+| `PATCH` | `/v1/orgs/:orgId` | Yes | Update organization details. |
 | `GET` | `/v1/orgs/:orgId/members` | Yes | List organization members. |
 | `POST` | `/v1/orgs/:orgId/members` | Yes | Add a user to the organization. |
 | `PATCH` | `/v1/orgs/:orgId/members/:userId` | Yes | Update member role. |
@@ -261,6 +265,7 @@ The project should provide:
 - Commands or scripts for:
   - starting Postgres
   - running migrations
+  - cleaning expired or revoked refresh tokens
   - starting the API server
   - running tests
 
@@ -301,12 +306,13 @@ Tests should cover:
 - Invalid device category and status values are rejected.
 - Organization and member endpoints reject cross-organization access.
 - SQL migrations are idempotent.
-- SQL migrations protect the final organization `owner` invariant at the database layer.
+- SQL migrations protect organization `owner` invariants at the database layer.
 - SQL migrations enforce normalized user email and non-blank organization/device names.
 - SQL migrations maintain `updated_at` automatically for mutable tables.
 - Disabled users cannot use existing access or refresh tokens.
 - List endpoint tests cover pagination metadata.
 - OpenAPI schema validation passes.
+- Contract tests validate representative API responses against `openapi.yaml`.
 
 ## 11. Acceptance Criteria
 

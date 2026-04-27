@@ -436,6 +436,69 @@ func TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness(t *testing.T
 	}
 }
 
+func TestIntegrationOwnerCanUpdateOrganization(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	admin := registerUser(t, env.router, "admin@example.com", "Admin Org")
+	member := registerUser(t, env.router, "member@example.com", "Member Org")
+
+	for _, user := range []struct {
+		email string
+		role  string
+	}{
+		{email: "admin@example.com", role: "admin"},
+		{email: "member@example.com", role: "member"},
+	} {
+		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
+			"email": user.email,
+			"role":  user.role,
+		}, owner.Tokens.AccessToken)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("expected add %s member 201, got %d", user.role, res.Code)
+		}
+	}
+
+	adminUpdateRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID, map[string]any{
+		"name": "Admin Rename",
+	}, admin.Tokens.AccessToken)
+	if adminUpdateRes.Code != http.StatusForbidden {
+		t.Fatalf("expected admin organization update 403, got %d", adminUpdateRes.Code)
+	}
+
+	memberUpdateRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID, map[string]any{
+		"name": "Member Rename",
+	}, member.Tokens.AccessToken)
+	if memberUpdateRes.Code != http.StatusForbidden {
+		t.Fatalf("expected member organization update 403, got %d", memberUpdateRes.Code)
+	}
+
+	blankUpdateRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID, map[string]any{
+		"name": "   ",
+	}, owner.Tokens.AccessToken)
+	if blankUpdateRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected blank organization update 400, got %d", blankUpdateRes.Code)
+	}
+
+	updateRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID, map[string]any{
+		"name": "Renamed Org",
+	}, owner.Tokens.AccessToken)
+	if updateRes.Code != http.StatusOK {
+		t.Fatalf("expected owner organization update 200, got %d: %s", updateRes.Code, updateRes.Body.String())
+	}
+	body := decodeBody[organizationBody](t, updateRes)
+	if body.Organization.Name != "Renamed Org" || body.Organization.Role != "owner" {
+		t.Fatalf("unexpected organization update response: %+v", body.Organization)
+	}
+
+	crossOrgUpdateRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+admin.Organization.ID, map[string]any{
+		"name": "Cross Org Rename",
+	}, owner.Tokens.AccessToken)
+	if crossOrgUpdateRes.Code != http.StatusNotFound {
+		t.Fatalf("expected cross-organization update 404, got %d", crossOrgUpdateRes.Code)
+	}
+}
+
 func TestIntegrationListPaginationMetadata(t *testing.T) {
 	env := newIntegrationEnv(t)
 
@@ -496,6 +559,46 @@ func TestIntegrationMigrationsAreIdempotent(t *testing.T) {
 
 	if err := database.Migrate(context.Background(), env.db); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestIntegrationCleanupRefreshTokensRemovesExpiredAndRevokedRows(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	now := time.Now().UTC()
+	for _, token := range []struct {
+		hash      string
+		expiresAt time.Time
+		revokedAt *time.Time
+	}{
+		{hash: "expired", expiresAt: now.Add(-time.Hour)},
+		{hash: "revoked", expiresAt: now.Add(time.Hour), revokedAt: &[]time.Time{now.Add(-time.Minute)}[0]},
+		{hash: "active", expiresAt: now.Add(time.Hour)},
+	} {
+		_, err := env.db.Exec(context.Background(), `
+			INSERT INTO refresh_tokens (user_id, token_hash, expires_at, revoked_at)
+			VALUES ($1, $2, $3, $4)
+		`, owner.User.ID, token.hash, token.expiresAt, token.revokedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	deleted, err := store.New(env.db).CleanupRefreshTokens(context.Background(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 2 {
+		t.Fatalf("expected 2 cleaned tokens, got %d", deleted)
+	}
+
+	var remaining int
+	if err := env.db.QueryRow(context.Background(), `SELECT count(*) FROM refresh_tokens WHERE token_hash = 'active'`).Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 1 {
+		t.Fatalf("expected active token to remain, got %d", remaining)
 	}
 }
 
@@ -573,6 +676,12 @@ func TestIntegrationDatabaseRejectsInvalidCoreData(t *testing.T) {
 		INSERT INTO users (email, password_hash) VALUES ('Upper@Example.com', 'hash')
 	`); err == nil {
 		t.Fatal("expected database to reject non-normalized email")
+	}
+
+	if _, err := env.db.Exec(context.Background(), `
+		INSERT INTO organizations (name) VALUES ('Ownerless Org')
+	`); err == nil {
+		t.Fatal("expected database to reject organization without owner")
 	}
 
 	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
@@ -655,6 +764,14 @@ type organizationsBody struct {
 		ID string `json:"id"`
 	} `json:"organizations"`
 	Pagination paginationBody `json:"pagination"`
+}
+
+type organizationBody struct {
+	Organization struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Role string `json:"role"`
+	} `json:"organization"`
 }
 
 type membersBody struct {

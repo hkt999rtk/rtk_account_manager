@@ -43,6 +43,7 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/orgs", s.listOrganizations)
 	protected.POST("/orgs", s.createOrganization)
 	protected.GET("/orgs/:orgId", s.getOrganization)
+	protected.PATCH("/orgs/:orgId", s.requireOrgRole(model.RoleOwner), s.updateOrganization)
 	protected.GET("/orgs/:orgId/members", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.listMembers)
 	protected.POST("/orgs/:orgId/members", s.requireOrgRole(model.RoleOwner), s.addMember)
 	protected.PATCH("/orgs/:orgId/members/:userId", s.requireOrgRole(model.RoleOwner), s.updateMemberRole)
@@ -251,6 +252,22 @@ func (s *Server) createOrganization(c *gin.Context) {
 
 func (s *Server) getOrganization(c *gin.Context) {
 	org, err := s.store.GetOrganization(c.Request.Context(), c.Param("orgId"), currentUserID(c))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"organization": org})
+}
+
+func (s *Server) updateOrganization(c *gin.Context) {
+	var req orgRequest
+	if !bind(c, &req) {
+		return
+	}
+	if !requireNonBlank(c, "name", req.Name) {
+		return
+	}
+	org, err := s.store.UpdateOrganization(c.Request.Context(), c.Param("orgId"), currentUserID(c), strings.TrimSpace(req.Name))
 	if err != nil {
 		writeStoreError(c, err)
 		return

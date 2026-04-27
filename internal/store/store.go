@@ -215,6 +215,17 @@ func (s *Store) RevokeUserRefreshTokens(ctx context.Context, userID string) erro
 	return err
 }
 
+func (s *Store) CleanupRefreshTokens(ctx context.Context, before time.Time) (int64, error) {
+	tag, err := s.db.Exec(ctx, `
+		DELETE FROM refresh_tokens
+		WHERE expires_at < $1 OR (revoked_at IS NOT NULL AND revoked_at < $1)
+	`, before)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 func (s *Store) ListOrganizations(ctx context.Context, userID string, limit, offset int) (OrganizationPage, error) {
 	total, err := s.countOrganizations(ctx, userID)
 	if err != nil {
@@ -286,6 +297,23 @@ func (s *Store) GetOrganization(ctx context.Context, orgID, userID string) (mode
 		JOIN organization_members m ON m.organization_id = o.id
 		WHERE o.id = $1 AND m.user_id = $2
 	`, orgID, userID).Scan(&org.ID, &org.Name, &org.Role, &org.CreatedAt, &org.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.Organization{}, ErrNotFound
+	}
+	return org, err
+}
+
+func (s *Store) UpdateOrganization(ctx context.Context, orgID, userID, name string) (model.Organization, error) {
+	var org model.Organization
+	err := s.db.QueryRow(ctx, `
+		UPDATE organizations o
+		SET name = $3, updated_at = now()
+		FROM organization_members m
+		WHERE o.id = $1
+		  AND m.organization_id = o.id
+		  AND m.user_id = $2
+		RETURNING o.id::text, o.name, m.role, o.created_at, o.updated_at
+	`, orgID, userID, name).Scan(&org.ID, &org.Name, &org.Role, &org.CreatedAt, &org.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Organization{}, ErrNotFound
 	}

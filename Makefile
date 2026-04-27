@@ -1,4 +1,4 @@
-.PHONY: tidy test integration-test run db-up db-down migrate
+.PHONY: tidy test integration-test run db-up db-down migrate cleanup-tokens
 
 tidy:
 	go mod tidy
@@ -20,3 +20,6 @@ db-down:
 
 migrate:
 	go run ./cmd/migrate
+
+cleanup-tokens:
+	go run ./cmd/cleanup-tokens

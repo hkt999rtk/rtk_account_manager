@@ -8,8 +8,9 @@ Backend account and device manager for organization-scoped users and registry-on
 
    ```sh
    cp .env.example .env
-   export $(grep -v '^#' .env | xargs)
    ```
+
+   The server and maintenance commands load `.env` automatically when it is present.
 
 2. Start Postgres:
 
@@ -29,13 +30,19 @@ Backend account and device manager for organization-scoped users and registry-on
    make run
    ```
 
-5. Run tests:
+5. Clean expired or revoked refresh tokens when needed:
+
+   ```sh
+   make cleanup-tokens
+   ```
+
+6. Run tests:
 
    ```sh
    make test
    ```
 
-6. Run Postgres-backed integration tests:
+7. Run Postgres-backed integration tests:
 
    ```sh
    make integration-test
@@ -43,7 +50,7 @@ Backend account and device manager for organization-scoped users and registry-on
 
    These tests require the Docker Compose Postgres service to be running.
 
-7. Stop local services:
+8. Stop local services:
 
    ```sh
    make db-down
