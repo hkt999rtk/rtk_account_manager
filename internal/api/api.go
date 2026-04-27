@@ -46,6 +46,8 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/orgs/:orgId/members", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.listMembers)
 	protected.POST("/orgs/:orgId/members", s.requireOrgRole(model.RoleOwner), s.addMember)
 	protected.PATCH("/orgs/:orgId/members/:userId", s.requireOrgRole(model.RoleOwner), s.updateMemberRole)
+	protected.PATCH("/orgs/:orgId/members/:userId/disable", s.requireOrgRole(model.RoleOwner), s.disableMemberUser)
+	protected.PATCH("/orgs/:orgId/members/:userId/enable", s.requireOrgRole(model.RoleOwner), s.enableMemberUser)
 	protected.DELETE("/orgs/:orgId/members/:userId", s.requireOrgRole(model.RoleOwner), s.removeMember)
 
 	protected.POST("/orgs/:orgId/devices", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.createDevice)
@@ -316,6 +318,28 @@ func (s *Server) removeMember(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+func (s *Server) disableMemberUser(c *gin.Context) {
+	member, err := s.store.DisableMemberUser(c.Request.Context(), c.Param("orgId"), c.Param("userId"))
+	if err != nil {
+		if errors.Is(err, store.ErrLastOwner) {
+			writeError(c, http.StatusConflict, "last_owner", err.Error())
+			return
+		}
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"member": member})
+}
+
+func (s *Server) enableMemberUser(c *gin.Context) {
+	member, err := s.store.EnableMemberUser(c.Request.Context(), c.Param("orgId"), c.Param("userId"))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"member": member})
 }
 
 type deviceRequest struct {

@@ -172,8 +172,11 @@ Authorization is organization scoped.
 Rules:
 
 - Only `owner` may invite/add members, remove members, or change member roles.
+- Only `owner` may disable or enable member user accounts.
 - Only `owner` may remove another `owner`.
-- The last `owner` in an organization must not be removed or downgraded.
+- The last `owner` in an organization must not be removed, downgraded, or disabled.
+- Disabling a member user sets `users.disabled_at`, revokes that user's active refresh tokens, and prevents login, refresh, and protected API access.
+- Enabling a member user clears `users.disabled_at`.
 - `owner` and `admin` may create, update, disable, delete, and update status for devices.
 - `member` may list and read devices but may not modify them.
 - No user may access an organization without an active membership.
@@ -203,6 +206,8 @@ All endpoints are versioned under `/v1`.
 | `GET` | `/v1/orgs/:orgId/members` | Yes | List organization members. |
 | `POST` | `/v1/orgs/:orgId/members` | Yes | Add a user to the organization. |
 | `PATCH` | `/v1/orgs/:orgId/members/:userId` | Yes | Update member role. |
+| `PATCH` | `/v1/orgs/:orgId/members/:userId/disable` | Yes | Disable a member user account and revoke active refresh tokens. |
+| `PATCH` | `/v1/orgs/:orgId/members/:userId/enable` | Yes | Re-enable a disabled member user account. |
 | `DELETE` | `/v1/orgs/:orgId/members/:userId` | Yes | Remove member from organization. |
 
 ### Devices
@@ -287,6 +292,9 @@ Tests should cover:
 - Same `serial_number` may be used in different organizations.
 - Device status can be updated by `owner` or `admin`.
 - Last organization `owner` cannot be removed or downgraded.
+- Last organization `owner` cannot be disabled.
+- Owner can disable and enable member users.
+- Admin and member cannot disable or enable users.
 - Refresh token rotation rejects previously used refresh tokens.
 - Logout revokes refresh tokens.
 - Device CRUD tests cover create, list, get, update, status update, and soft-disable.

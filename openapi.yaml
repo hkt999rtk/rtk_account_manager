@@ -244,6 +244,50 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/members/{userId}/disable:
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Disable a member user account.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: Member disabled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/members/{userId}/enable:
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Enable a disabled member user account.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: Member enabled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
     delete:
       security:
         - bearerAuth: []
@@ -692,6 +736,9 @@ components:
           type: string
           format: date-time
         updated_at:
+          type: string
+          format: date-time
+        disabled_at:
           type: string
           format: date-time
     Device:

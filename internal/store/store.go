@@ -206,6 +206,15 @@ func (s *Store) RevokeRefreshToken(ctx context.Context, tokenHash string) error 
 	return err
 }
 
+func (s *Store) RevokeUserRefreshTokens(ctx context.Context, userID string) error {
+	_, err := s.db.Exec(ctx, `
+		UPDATE refresh_tokens
+		SET revoked_at = now()
+		WHERE user_id = $1 AND revoked_at IS NULL
+	`, userID)
+	return err
+}
+
 func (s *Store) ListOrganizations(ctx context.Context, userID string, limit, offset int) (OrganizationPage, error) {
 	total, err := s.countOrganizations(ctx, userID)
 	if err != nil {
@@ -305,10 +314,10 @@ func (s *Store) ListMembers(ctx context.Context, orgID string, limit, offset int
 		return MemberPage{}, err
 	}
 	rows, err := s.db.Query(ctx, `
-		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at
+		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, u.disabled_at
 		FROM organization_members m
 		JOIN users u ON u.id = m.user_id
-		WHERE m.organization_id = $1 AND u.disabled_at IS NULL
+		WHERE m.organization_id = $1
 		ORDER BY m.created_at ASC
 		LIMIT $2 OFFSET $3
 	`, orgID, limit, offset)
@@ -320,7 +329,7 @@ func (s *Store) ListMembers(ctx context.Context, orgID string, limit, offset int
 	members := []model.Member{}
 	for rows.Next() {
 		var member model.Member
-		if err := rows.Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &member.CreatedAt, &member.UpdatedAt); err != nil {
+		if err := rows.Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &member.CreatedAt, &member.UpdatedAt, &member.DisabledAt); err != nil {
 			return MemberPage{}, err
 		}
 		members = append(members, member)
@@ -329,6 +338,20 @@ func (s *Store) ListMembers(ctx context.Context, orgID string, limit, offset int
 		return MemberPage{}, err
 	}
 	return MemberPage{Members: members, Page: Page{Limit: limit, Offset: offset, Total: total}}, nil
+}
+
+func (s *Store) getMemberTx(ctx context.Context, tx pgx.Tx, orgID, userID string) (model.Member, error) {
+	var member model.Member
+	err := tx.QueryRow(ctx, `
+		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, u.disabled_at
+		FROM organization_members m
+		JOIN users u ON u.id = m.user_id
+		WHERE m.organization_id = $1 AND m.user_id = $2
+	`, orgID, userID).Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &member.CreatedAt, &member.UpdatedAt, &member.DisabledAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.Member{}, ErrNotFound
+	}
+	return member, err
 }
 
 func (s *Store) AddMember(ctx context.Context, orgID, email string, role model.Role) (model.Member, error) {
@@ -350,6 +373,7 @@ func (s *Store) AddMember(ctx context.Context, orgID, email string, role model.R
 	}
 	member.Email = user.Email
 	member.DisplayName = user.DisplayName
+	member.DisabledAt = user.DisabledAt
 	return member, nil
 }
 
@@ -391,6 +415,63 @@ func (s *Store) UpdateMemberRole(ctx context.Context, orgID, userID string, role
 	}
 	member.Email = email
 	member.DisplayName = displayName
+	return member, nil
+}
+
+func (s *Store) DisableMemberUser(ctx context.Context, orgID, userID string) (model.Member, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return model.Member{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	if err := ensureNotLastOwnerTx(ctx, tx, orgID, userID); err != nil {
+		return model.Member{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE users SET disabled_at = COALESCE(disabled_at, now()) WHERE id = $1
+	`, userID); err != nil {
+		return model.Member{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE refresh_tokens
+		SET revoked_at = now()
+		WHERE user_id = $1 AND revoked_at IS NULL
+	`, userID); err != nil {
+		return model.Member{}, err
+	}
+	member, err := s.getMemberTx(ctx, tx, orgID, userID)
+	if err != nil {
+		return model.Member{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.Member{}, err
+	}
+	return member, nil
+}
+
+func (s *Store) EnableMemberUser(ctx context.Context, orgID, userID string) (model.Member, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return model.Member{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := s.getMemberTx(ctx, tx, orgID, userID); err != nil {
+		return model.Member{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE users SET disabled_at = NULL WHERE id = $1
+	`, userID); err != nil {
+		return model.Member{}, err
+	}
+	member, err := s.getMemberTx(ctx, tx, orgID, userID)
+	if err != nil {
+		return model.Member{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.Member{}, err
+	}
 	return member, nil
 }
 
@@ -525,7 +606,7 @@ func (s *Store) countMembers(ctx context.Context, orgID string) (int, error) {
 		SELECT count(*)
 		FROM organization_members m
 		JOIN users u ON u.id = m.user_id
-		WHERE m.organization_id = $1 AND u.disabled_at IS NULL
+		WHERE m.organization_id = $1
 	`, orgID).Scan(&total)
 	return total, err
 }

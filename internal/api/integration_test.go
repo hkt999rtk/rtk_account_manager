@@ -145,6 +145,91 @@ func TestIntegrationDisabledUserCannotUseExistingTokens(t *testing.T) {
 	}
 }
 
+func TestIntegrationOwnerCanDisableAndEnableMemberUser(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	member := registerUser(t, env.router, "member@example.com", "Member Org")
+	admin := registerUser(t, env.router, "admin@example.com", "Admin Org")
+
+	addMemberRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
+		"email": "member@example.com",
+		"role":  "member",
+	}, owner.Tokens.AccessToken)
+	if addMemberRes.Code != http.StatusCreated {
+		t.Fatalf("expected add member 201, got %d: %s", addMemberRes.Code, addMemberRes.Body.String())
+	}
+	addAdminRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
+		"email": "admin@example.com",
+		"role":  "admin",
+	}, owner.Tokens.AccessToken)
+	if addAdminRes.Code != http.StatusCreated {
+		t.Fatalf("expected add admin 201, got %d: %s", addAdminRes.Code, addAdminRes.Body.String())
+	}
+
+	adminDisableRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/members/"+member.User.ID+"/disable", nil, admin.Tokens.AccessToken)
+	if adminDisableRes.Code != http.StatusForbidden {
+		t.Fatalf("expected admin disable member 403, got %d", adminDisableRes.Code)
+	}
+	memberDisableRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/members/"+member.User.ID+"/disable", nil, member.Tokens.AccessToken)
+	if memberDisableRes.Code != http.StatusForbidden {
+		t.Fatalf("expected member disable member 403, got %d", memberDisableRes.Code)
+	}
+
+	disableRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/members/"+member.User.ID+"/disable", nil, owner.Tokens.AccessToken)
+	if disableRes.Code != http.StatusOK {
+		t.Fatalf("expected owner disable member 200, got %d: %s", disableRes.Code, disableRes.Body.String())
+	}
+	disabledMember := decodeBody[memberBody](t, disableRes)
+	if disabledMember.Member.DisabledAt == nil {
+		t.Fatal("expected disabled member response to include disabled_at")
+	}
+
+	memberMeRes := performJSON(env.router, http.MethodGet, "/v1/me", nil, member.Tokens.AccessToken)
+	if memberMeRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected disabled member access token 401, got %d", memberMeRes.Code)
+	}
+	memberRefreshRes := performJSON(env.router, http.MethodPost, "/v1/auth/refresh", map[string]any{
+		"refresh_token": member.Tokens.RefreshToken,
+	}, "")
+	if memberRefreshRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected disabled member refresh 401, got %d", memberRefreshRes.Code)
+	}
+	memberLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "member@example.com",
+		"password": "password123",
+	}, "")
+	if memberLoginRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected disabled member login 401, got %d", memberLoginRes.Code)
+	}
+
+	membersRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/members", nil, owner.Tokens.AccessToken)
+	if membersRes.Code != http.StatusOK {
+		t.Fatalf("expected member list 200, got %d", membersRes.Code)
+	}
+	members := decodeBody[membersBody](t, membersRes)
+	if members.Pagination.Total != 3 {
+		t.Fatalf("expected disabled member to remain listed, got pagination %+v", members.Pagination)
+	}
+
+	enableRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/members/"+member.User.ID+"/enable", nil, owner.Tokens.AccessToken)
+	if enableRes.Code != http.StatusOK {
+		t.Fatalf("expected owner enable member 200, got %d: %s", enableRes.Code, enableRes.Body.String())
+	}
+	enabledMember := decodeBody[memberBody](t, enableRes)
+	if enabledMember.Member.DisabledAt != nil {
+		t.Fatal("expected enabled member response to clear disabled_at")
+	}
+
+	memberLoginAfterEnableRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "member@example.com",
+		"password": "password123",
+	}, "")
+	if memberLoginAfterEnableRes.Code != http.StatusOK {
+		t.Fatalf("expected enabled member login 200, got %d", memberLoginAfterEnableRes.Code)
+	}
+}
+
 func TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness(t *testing.T) {
 	env := newIntegrationEnv(t)
 
@@ -431,6 +516,11 @@ func TestIntegrationLastOwnerCannotBeRemovedOrDowngraded(t *testing.T) {
 		t.Fatalf("expected last owner remove 409, got %d", removeRes.Code)
 	}
 
+	disableRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/members/"+owner.User.ID+"/disable", nil, owner.Tokens.AccessToken)
+	if disableRes.Code != http.StatusConflict {
+		t.Fatalf("expected last owner disable 409, got %d", disableRes.Code)
+	}
+
 	_, err := env.db.Exec(context.Background(), `
 		UPDATE organization_members SET role = 'admin'
 		WHERE organization_id = $1 AND user_id = $2
@@ -569,9 +659,17 @@ type organizationsBody struct {
 
 type membersBody struct {
 	Members []struct {
-		UserID string `json:"user_id"`
+		UserID     string     `json:"user_id"`
+		DisabledAt *time.Time `json:"disabled_at"`
 	} `json:"members"`
 	Pagination paginationBody `json:"pagination"`
+}
+
+type memberBody struct {
+	Member struct {
+		UserID     string     `json:"user_id"`
+		DisabledAt *time.Time `json:"disabled_at"`
+	} `json:"member"`
 }
 
 type paginationBody struct {

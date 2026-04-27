@@ -45,13 +45,14 @@ type Organization struct {
 }
 
 type Member struct {
-	OrganizationID string    `json:"organization_id"`
-	UserID         string    `json:"user_id"`
-	Email          string    `json:"email"`
-	DisplayName    *string   `json:"display_name,omitempty"`
-	Role           Role      `json:"role"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	OrganizationID string     `json:"organization_id"`
+	UserID         string     `json:"user_id"`
+	Email          string     `json:"email"`
+	DisplayName    *string    `json:"display_name,omitempty"`
+	Role           Role       `json:"role"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	DisabledAt     *time.Time `json:"disabled_at,omitempty"`
 }
 
 type Device struct {
