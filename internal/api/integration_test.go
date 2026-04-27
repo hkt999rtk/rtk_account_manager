@@ -239,6 +239,90 @@ func TestIntegrationOwnerCanDisableAndEnableMemberUser(t *testing.T) {
 	}
 }
 
+func TestIntegrationOwnerCanUpdateAndRemoveMember(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	member := registerUser(t, env.router, "member@example.com", "Member Org")
+
+	addMemberRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
+		"email": "member@example.com",
+		"role":  "member",
+	}, owner.Tokens.AccessToken)
+	if addMemberRes.Code != http.StatusCreated {
+		t.Fatalf("expected add member 201, got %d: %s", addMemberRes.Code, addMemberRes.Body.String())
+	}
+
+	updateRoleRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/members/"+member.User.ID, map[string]any{
+		"role": "admin",
+	}, owner.Tokens.AccessToken)
+	if updateRoleRes.Code != http.StatusOK {
+		t.Fatalf("expected member role update 200, got %d: %s", updateRoleRes.Code, updateRoleRes.Body.String())
+	}
+	updated := decodeBody[memberBody](t, updateRoleRes)
+	if updated.Member.Role != "admin" {
+		t.Fatalf("expected updated role admin, got %+v", updated.Member)
+	}
+
+	removeMemberRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/members/"+member.User.ID, nil, owner.Tokens.AccessToken)
+	if removeMemberRes.Code != http.StatusNoContent {
+		t.Fatalf("expected member remove 204, got %d", removeMemberRes.Code)
+	}
+
+	memberListRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/members", nil, owner.Tokens.AccessToken)
+	if memberListRes.Code != http.StatusOK {
+		t.Fatalf("expected member list 200, got %d", memberListRes.Code)
+	}
+	members := decodeBody[membersBody](t, memberListRes)
+	if members.Pagination.Total != 1 {
+		t.Fatalf("expected only owner after member removal, got pagination %+v", members.Pagination)
+	}
+}
+
+func TestIntegrationValidationAndNotFoundErrors(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+
+	malformedCreateOrgRes := performRaw(env.router, http.MethodPost, "/v1/orgs", []byte(`{"name":`), owner.Tokens.AccessToken)
+	if malformedCreateOrgRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected malformed org create 400, got %d", malformedCreateOrgRes.Code)
+	}
+
+	invalidAddRoleRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
+		"email": "missing@example.com",
+		"role":  "invalid",
+	}, owner.Tokens.AccessToken)
+	if invalidAddRoleRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid add member role 400, got %d", invalidAddRoleRes.Code)
+	}
+
+	invalidUpdateRoleRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/members/"+owner.User.ID, map[string]any{
+		"role": "invalid",
+	}, owner.Tokens.AccessToken)
+	if invalidUpdateRoleRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid update member role 400, got %d", invalidUpdateRoleRes.Code)
+	}
+
+	missingUserRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
+		"email": "missing@example.com",
+		"role":  "member",
+	}, owner.Tokens.AccessToken)
+	if missingUserRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing member user 404, got %d", missingUserRes.Code)
+	}
+
+	removeMissingRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/members/00000000-0000-0000-0000-000000000000", nil, owner.Tokens.AccessToken)
+	if removeMissingRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing member remove 404, got %d", removeMissingRes.Code)
+	}
+
+	deleteMissingDeviceRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/devices/00000000-0000-0000-0000-000000000000", nil, owner.Tokens.AccessToken)
+	if deleteMissingDeviceRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing device delete 404, got %d", deleteMissingDeviceRes.Code)
+	}
+}
+
 func TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness(t *testing.T) {
 	env := newIntegrationEnv(t)
 
@@ -828,6 +912,7 @@ type membersBody struct {
 type memberBody struct {
 	Member struct {
 		UserID     string     `json:"user_id"`
+		Role       string     `json:"role"`
 		DisabledAt *time.Time `json:"disabled_at"`
 	} `json:"member"`
 }
@@ -868,6 +953,10 @@ func performJSON(router *gin.Engine, method, path string, body any, accessToken 
 	if body != nil {
 		payload, _ = json.Marshal(body)
 	}
+	return performRaw(router, method, path, payload, accessToken)
+}
+
+func performRaw(router *gin.Engine, method, path string, payload []byte, accessToken string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	if accessToken != "" {

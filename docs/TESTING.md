@@ -18,10 +18,10 @@ The backend uses three test layers:
 go test -json ./... -coverpkg=./internal/... -coverprofile=reports/coverage.out -covermode=atomic
 ```
 
-The default minimum total coverage is `70.0%`. Override it only when intentionally changing the project baseline:
+The default minimum total coverage is `80.0%`. Override it only when intentionally changing the project baseline:
 
 ```sh
-COVERAGE_THRESHOLD=75.0 make test-report
+COVERAGE_THRESHOLD=82.0 make test-report
 ```
 
 Coverage scope is `./internal/...` because command entry points under `cmd/*` are validated by `go build ./...`.

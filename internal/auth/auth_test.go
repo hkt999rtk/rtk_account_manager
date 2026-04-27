@@ -31,3 +31,24 @@ func TestTokenKindValidation(t *testing.T) {
 		t.Fatal("expected access token to fail refresh parsing")
 	}
 }
+
+func TestExpiredAndWrongSecretTokensFailParsing(t *testing.T) {
+	expiredSvc := NewService("access-secret", "refresh-secret", -time.Minute, time.Hour)
+	expired, _, err := expiredSvc.IssueAccessToken("user-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := expiredSvc.ParseAccessToken(expired); err == nil {
+		t.Fatal("expected expired access token to fail parsing")
+	}
+
+	validSvc := NewService("access-secret", "refresh-secret", time.Minute, time.Hour)
+	token, _, err := validSvc.IssueAccessToken("user-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongSecretSvc := NewService("other-access-secret", "refresh-secret", time.Minute, time.Hour)
+	if _, err := wrongSecretSvc.ParseAccessToken(token); err == nil {
+		t.Fatal("expected token signed with another secret to fail parsing")
+	}
+}

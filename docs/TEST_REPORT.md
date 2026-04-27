@@ -1,6 +1,6 @@
 # Test Report
 
-Generated: 2026-04-27T04:28:23Z
+Generated: 2026-04-27T04:32:13Z
 
 ## Summary
 
@@ -16,8 +16,8 @@ Generated: 2026-04-27T04:28:23Z
 
 | Metric | Value |
 | --- | --- |
-| Total statement coverage | 74.9% |
-| Minimum required coverage | 70.0% |
+| Total statement coverage | 80.5% |
+| Minimum required coverage | 80.0% |
 | Coverage mode | atomic |
 | Coverage scope | ./internal/... |
 
@@ -26,8 +26,8 @@ Generated: 2026-04-27T04:28:23Z
 | Metric | Value |
 | --- | --- |
 | Go packages | 10 |
-| Test cases started | 23 |
-| JSON pass events | 29 |
+| Test cases started | 31 |
+| JSON pass events | 37 |
 | JSON fail events | 0 |
 | Integration database | Postgres via TEST_DATABASE_URL |
 

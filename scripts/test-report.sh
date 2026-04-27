@@ -4,7 +4,7 @@ set -u -o pipefail
 
 REPORT_DIR="${REPORT_DIR:-reports}"
 REPORT_FILE="${REPORT_FILE:-docs/TEST_REPORT.md}"
-COVERAGE_THRESHOLD="${COVERAGE_THRESHOLD:-70.0}"
+COVERAGE_THRESHOLD="${COVERAGE_THRESHOLD:-80.0}"
 TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgres://rtk:rtk_password@localhost:5432/rtk_account_manager?sslmode=disable}"
 
 mkdir -p "$REPORT_DIR" "$(dirname "$REPORT_FILE")"

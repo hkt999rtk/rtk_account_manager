@@ -69,6 +69,25 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	}
 }
 
+func TestLoadFallsBackForInvalidDurations(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("JWT_ACCESS_SECRET", "access")
+	t.Setenv("JWT_REFRESH_SECRET", "refresh")
+	t.Setenv("ACCESS_TOKEN_TTL", "invalid")
+	t.Setenv("REFRESH_TOKEN_TTL", "invalid")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AccessTokenTTL != 15*time.Minute {
+		t.Fatalf("expected default access TTL, got %s", cfg.AccessTokenTTL)
+	}
+	if cfg.RefreshTokenTTL != 30*24*time.Hour {
+		t.Fatalf("expected default refresh TTL, got %s", cfg.RefreshTokenTTL)
+	}
+}
+
 func TestLoadRequiresJWTSecrets(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("JWT_ACCESS_SECRET", "")
