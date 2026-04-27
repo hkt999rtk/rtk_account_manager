@@ -123,9 +123,13 @@ func (s *Store) RotateRefreshToken(ctx context.Context, oldTokenHash, newTokenHa
 
 	var activeUserID string
 	err = tx.QueryRow(ctx, `
-		SELECT user_id::text
-		FROM refresh_tokens
-		WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
+		SELECT rt.user_id::text
+		FROM refresh_tokens rt
+		JOIN users u ON u.id = rt.user_id
+		WHERE rt.token_hash = $1
+		  AND rt.revoked_at IS NULL
+		  AND rt.expires_at > now()
+		  AND u.disabled_at IS NULL
 		FOR UPDATE
 	`, oldTokenHash).Scan(&activeUserID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -157,9 +161,13 @@ func (s *Store) RotateRefreshToken(ctx context.Context, oldTokenHash, newTokenHa
 func (s *Store) RefreshTokenActive(ctx context.Context, tokenHash string) (string, error) {
 	var userID string
 	err := s.db.QueryRow(ctx, `
-		SELECT user_id::text
-		FROM refresh_tokens
-		WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
+		SELECT rt.user_id::text
+		FROM refresh_tokens rt
+		JOIN users u ON u.id = rt.user_id
+		WHERE rt.token_hash = $1
+		  AND rt.revoked_at IS NULL
+		  AND rt.expires_at > now()
+		  AND u.disabled_at IS NULL
 	`, tokenHash).Scan(&userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
@@ -181,7 +189,8 @@ func (s *Store) ListOrganizations(ctx context.Context, userID string) ([]model.O
 		SELECT o.id::text, o.name, m.role, o.created_at, o.updated_at
 		FROM organizations o
 		JOIN organization_members m ON m.organization_id = o.id
-		WHERE m.user_id = $1
+		JOIN users u ON u.id = m.user_id
+		WHERE m.user_id = $1 AND u.disabled_at IS NULL
 		ORDER BY o.created_at ASC
 	`, userID)
 	if err != nil {
@@ -247,7 +256,12 @@ func (s *Store) GetOrganization(ctx context.Context, orgID, userID string) (mode
 func (s *Store) GetRole(ctx context.Context, orgID, userID string) (model.Role, error) {
 	var role model.Role
 	err := s.db.QueryRow(ctx, `
-		SELECT role FROM organization_members WHERE organization_id = $1 AND user_id = $2
+		SELECT m.role
+		FROM organization_members m
+		JOIN users u ON u.id = m.user_id
+		WHERE m.organization_id = $1
+		  AND m.user_id = $2
+		  AND u.disabled_at IS NULL
 	`, orgID, userID).Scan(&role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
@@ -260,7 +274,7 @@ func (s *Store) ListMembers(ctx context.Context, orgID string) ([]model.Member, 
 		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at
 		FROM organization_members m
 		JOIN users u ON u.id = m.user_id
-		WHERE m.organization_id = $1
+		WHERE m.organization_id = $1 AND u.disabled_at IS NULL
 		ORDER BY m.created_at ASC
 	`, orgID)
 	if err != nil {

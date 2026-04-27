@@ -432,6 +432,13 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		if s.store != nil {
+			if _, err := s.store.GetUser(c.Request.Context(), claims.UserID); err != nil {
+				writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
+				c.Abort()
+				return
+			}
+		}
 		c.Set("userID", claims.UserID)
 		c.Next()
 	}

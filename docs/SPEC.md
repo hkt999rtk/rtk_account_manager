@@ -70,6 +70,10 @@ A device is a registry entry owned by an organization. The server assigns each d
 | `created_at` | Timestamp | Yes | Creation timestamp. |
 | `updated_at` | Timestamp | Yes | Last update timestamp. |
 
+Constraints:
+
+- `name` must not be blank after trimming whitespace.
+
 ### `users`
 
 | Field | Type | Required | Notes |
@@ -81,6 +85,11 @@ A device is a registry entry owned by an organization. The server assigns each d
 | `created_at` | Timestamp | Yes | Creation timestamp. |
 | `updated_at` | Timestamp | Yes | Last update timestamp. |
 | `disabled_at` | Timestamp | No | Set when user access is disabled. |
+
+Constraints:
+
+- `email` must be stored lowercase and trimmed.
+- Disabled users must not authenticate, refresh tokens, or access protected organization/device APIs with existing access tokens.
 
 ### `organization_members`
 
@@ -121,6 +130,7 @@ Constraints:
 Constraints:
 
 - Device UUID is the canonical identifier.
+- `name` must not be blank after trimming whitespace.
 - `serial_number` is unique within the same organization when present.
 - Device access is always scoped by `organization_id`.
 
@@ -281,6 +291,8 @@ Tests should cover:
 - Organization and member endpoints reject cross-organization access.
 - SQL migrations are idempotent.
 - SQL migrations protect the final organization `owner` invariant at the database layer.
+- SQL migrations enforce normalized user email and non-blank organization/device names.
+- Disabled users cannot use existing access or refresh tokens.
 - OpenAPI schema validation passes.
 
 ## 11. Acceptance Criteria

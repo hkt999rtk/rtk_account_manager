@@ -115,6 +115,36 @@ func TestIntegrationRegisterLoginRefreshAndLogout(t *testing.T) {
 	}
 }
 
+func TestIntegrationDisabledUserCannotUseExistingTokens(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	registered := registerUser(t, env.router, "disabled@example.com", "Disabled Org")
+	if _, err := env.db.Exec(context.Background(), `
+		UPDATE users SET disabled_at = now() WHERE id = $1
+	`, registered.User.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	meRes := performJSON(env.router, http.MethodGet, "/v1/me", nil, registered.Tokens.AccessToken)
+	if meRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected disabled user access token 401, got %d", meRes.Code)
+	}
+
+	createOrgRes := performJSON(env.router, http.MethodPost, "/v1/orgs", map[string]any{
+		"name": "Should Fail",
+	}, registered.Tokens.AccessToken)
+	if createOrgRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected disabled user org create 401, got %d", createOrgRes.Code)
+	}
+
+	refreshRes := performJSON(env.router, http.MethodPost, "/v1/auth/refresh", map[string]any{
+		"refresh_token": registered.Tokens.RefreshToken,
+	}, "")
+	if refreshRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected disabled user refresh 401, got %d", refreshRes.Code)
+	}
+}
+
 func TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness(t *testing.T) {
 	env := newIntegrationEnv(t)
 
@@ -357,6 +387,29 @@ func TestIntegrationRejectsBlankNames(t *testing.T) {
 	}, owner.Tokens.AccessToken)
 	if blankDeviceRes.Code != http.StatusBadRequest {
 		t.Fatalf("expected blank device name 400, got %d", blankDeviceRes.Code)
+	}
+}
+
+func TestIntegrationDatabaseRejectsInvalidCoreData(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	if _, err := env.db.Exec(context.Background(), `
+		INSERT INTO organizations (name) VALUES ('   ')
+	`); err == nil {
+		t.Fatal("expected database to reject blank organization name")
+	}
+
+	if _, err := env.db.Exec(context.Background(), `
+		INSERT INTO users (email, password_hash) VALUES ('Upper@Example.com', 'hash')
+	`); err == nil {
+		t.Fatal("expected database to reject non-normalized email")
+	}
+
+	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	if _, err := env.db.Exec(context.Background(), `
+		INSERT INTO devices (organization_id, name, category) VALUES ($1, '   ', 'generic')
+	`, owner.Organization.ID); err == nil {
+		t.Fatal("expected database to reject blank device name")
 	}
 }
 
