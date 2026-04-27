@@ -38,7 +38,7 @@ Backend account and device manager for organization-scoped users and registry-on
 6. Run Postgres-backed integration tests:
 
    ```sh
-   TEST_DATABASE_URL='postgres://rtk:rtk_password@localhost:5432/rtk_account_manager?sslmode=disable' go test ./...
+   make integration-test
    ```
 
    These tests require the Docker Compose Postgres service to be running.

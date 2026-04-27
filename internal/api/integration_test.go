@@ -320,6 +320,22 @@ func TestIntegrationLastOwnerCannotBeRemovedOrDowngraded(t *testing.T) {
 	if removeRes.Code != http.StatusConflict {
 		t.Fatalf("expected last owner remove 409, got %d", removeRes.Code)
 	}
+
+	_, err := env.db.Exec(context.Background(), `
+		UPDATE organization_members SET role = 'admin'
+		WHERE organization_id = $1 AND user_id = $2
+	`, owner.Organization.ID, owner.User.ID)
+	if err == nil {
+		t.Fatal("expected direct SQL downgrade of last owner to fail")
+	}
+
+	_, err = env.db.Exec(context.Background(), `
+		DELETE FROM organization_members
+		WHERE organization_id = $1 AND user_id = $2
+	`, owner.Organization.ID, owner.User.ID)
+	if err == nil {
+		t.Fatal("expected direct SQL deletion of last owner to fail")
+	}
 }
 
 func TestIntegrationRejectsBlankNames(t *testing.T) {

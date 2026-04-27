@@ -96,6 +96,7 @@ Constraints:
 
 - `(organization_id, user_id)` is unique.
 - Every organization must have at least one `owner`.
+- The database must reject deleting or downgrading the final `owner` membership for an organization.
 - A user must not access organization resources without an active membership.
 
 ### `devices`
@@ -279,6 +280,8 @@ Tests should cover:
 - Invalid device category and status values are rejected.
 - Organization and member endpoints reject cross-organization access.
 - SQL migrations are idempotent.
+- SQL migrations protect the final organization `owner` invariant at the database layer.
+- OpenAPI schema validation passes.
 
 ## 11. Acceptance Criteria
 
