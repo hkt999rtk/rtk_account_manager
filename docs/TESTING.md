@@ -50,8 +50,21 @@ Update tests whenever changing:
 | `reports/coverage.html` | HTML coverage report. |
 | `reports/gofmt.txt` | Files that need formatting, empty when formatting passes. |
 | `reports/build.txt` | Build output, empty when build passes. |
+| `reports/test-cases.md` | Passing test case list extracted from Go JSON events. |
 
 `reports/` is ignored by git. Commit `docs/TEST_REPORT.md` when intentionally refreshing the maintained report.
+
+## Correctness Versus Coverage
+
+Coverage only proves that statements executed. Correctness comes from assertions that check externally visible behavior and database state. The maintained report includes a correctness validation section that maps tests back to behavior groups from `docs/SPEC.md`.
+
+When adding a feature, do not rely on line coverage alone. Add assertions for:
+
+- HTTP status codes and response bodies.
+- Database side effects and constraints.
+- Role and organization boundary behavior.
+- Token lifecycle behavior.
+- OpenAPI response compatibility when API payloads change.
 
 ## CI
 

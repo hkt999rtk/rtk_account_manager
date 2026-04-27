@@ -15,6 +15,7 @@ COVERAGE_FUNC="$REPORT_DIR/coverage.txt"
 COVERAGE_HTML="$REPORT_DIR/coverage.html"
 FORMAT_OUT="$REPORT_DIR/gofmt.txt"
 BUILD_OUT="$REPORT_DIR/build.txt"
+TEST_CASES_MD="$REPORT_DIR/test-cases.md"
 
 started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
@@ -61,6 +62,10 @@ test_count="$(grep -c '"Action":"run"' "$TEST_EVENTS" 2>/dev/null || true)"
 pass_count="$(grep -c '"Action":"pass"' "$TEST_EVENTS" 2>/dev/null || true)"
 fail_count="$(grep -c '"Action":"fail"' "$TEST_EVENTS" 2>/dev/null || true)"
 
+grep '"Action":"pass".*"Test":' "$TEST_EVENTS" 2>/dev/null \
+	| sed -E 's/.*"Package":"([^"]+)","Test":"([^"]+)".*/- `\1`: `\2`/' \
+	| sort -u >"$TEST_CASES_MD" || true
+
 cat >"$REPORT_FILE" <<EOF
 # Test Report
 
@@ -95,6 +100,26 @@ Generated: $started_at
 | JSON fail events | $fail_count |
 | Integration database | Postgres via TEST_DATABASE_URL |
 
+## Correctness Validation
+
+Coverage is only a signal that code executed. Correctness is validated by assertions in the automated tests. This report confirms the following behavior groups were exercised:
+
+| Behavior group | Evidence |
+| --- | --- |
+| Auth and sessions | Register, login, invalid login, refresh rotation, old refresh rejection, logout revocation, expired token parsing, wrong-secret parsing. |
+| Disabled users | Disabled users cannot use existing access tokens, refresh tokens, or login until re-enabled. |
+| Organization access | Current-user organization listing, organization create/get/update, cross-organization organization access rejection. |
+| Member management | Owner add/update/remove/disable/enable member flows, admin/member forbidden paths, last-owner downgrade/remove/disable protection. |
+| Device lifecycle | Device create/list/get/update/status update/soft-delete, disabled-device read-only behavior, duplicate serial rejection, same serial in another org allowed. |
+| Authorization boundaries | owner/admin/member role permissions and cross-organization device/member access rejection. |
+| Database invariants | Idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, automatic updated_at triggers. |
+| OpenAPI contract | OpenAPI schema validation and representative response validation against \`openapi.yaml\`. |
+| Configuration and maintenance | \`.env\` loading, TTL parsing/fallbacks, required JWT secrets, refresh-token cleanup behavior. |
+
+## Executed Test Cases
+
+$(if [ -s "$TEST_CASES_MD" ]; then cat "$TEST_CASES_MD"; else echo "No test case list was captured."; fi)
+
 ## Commands
 
 \`\`\`sh
@@ -115,6 +140,7 @@ go build ./...
 | $COVERAGE_HTML | HTML coverage report. |
 | $FORMAT_OUT | Files requiring gofmt, empty when formatting passes. |
 | $BUILD_OUT | Build output, empty when build passes. |
+| $TEST_CASES_MD | Markdown list of passing test cases captured from Go JSON events. |
 
 ## Coverage Gaps To Watch
 
