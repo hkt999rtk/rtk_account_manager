@@ -327,6 +327,28 @@ func TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness(t *testing.T
 	if status != "disabled" || disabledAt == nil {
 		t.Fatalf("expected soft-disabled device, got status=%s disabled_at=%v", status, disabledAt)
 	}
+
+	getDisabledRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/"+createdDeviceBody.Device.ID, nil, owner.Tokens.AccessToken)
+	if getDisabledRes.Code != http.StatusOK {
+		t.Fatalf("expected disabled device to remain readable, got %d", getDisabledRes.Code)
+	}
+
+	updateDisabledRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/devices/"+createdDeviceBody.Device.ID, devicePayload("disabled-update", "DISABLED-UPDATED"), owner.Tokens.AccessToken)
+	if updateDisabledRes.Code != http.StatusConflict {
+		t.Fatalf("expected disabled device update 409, got %d", updateDisabledRes.Code)
+	}
+
+	statusDisabledRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/devices/"+createdDeviceBody.Device.ID+"/status", map[string]any{
+		"status": "online",
+	}, owner.Tokens.AccessToken)
+	if statusDisabledRes.Code != http.StatusConflict {
+		t.Fatalf("expected disabled device status update 409, got %d", statusDisabledRes.Code)
+	}
+
+	deleteDisabledRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/devices/"+createdDeviceBody.Device.ID, nil, owner.Tokens.AccessToken)
+	if deleteDisabledRes.Code != http.StatusNoContent {
+		t.Fatalf("expected repeated disabled device delete to remain 204, got %d", deleteDisabledRes.Code)
+	}
 }
 
 func TestIntegrationListPaginationMetadata(t *testing.T) {

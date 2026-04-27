@@ -551,6 +551,8 @@ func writeStoreError(c *gin.Context, err error) {
 		writeError(c, http.StatusNotFound, "not_found", "Resource not found")
 	case errors.Is(err, store.ErrLastOwner):
 		writeError(c, http.StatusConflict, "last_owner", err.Error())
+	case errors.Is(err, store.ErrDisabled):
+		writeError(c, http.StatusConflict, "disabled_resource", err.Error())
 	case strings.Contains(err.Error(), "duplicate key"):
 		writeError(c, http.StatusConflict, "conflict", "Resource already exists")
 	default:

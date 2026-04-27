@@ -15,6 +15,7 @@ import (
 var (
 	ErrNotFound  = errors.New("not found")
 	ErrLastOwner = errors.New("last owner cannot be removed or downgraded")
+	ErrDisabled  = errors.New("resource is disabled")
 )
 
 type Store struct {
@@ -557,10 +558,13 @@ func (s *Store) UpdateDevice(ctx context.Context, orgID, deviceID string, in Dev
 	device, err := s.scanDevice(s.db.QueryRow(ctx, `
 		UPDATE devices
 		SET name = $3, category = $4, serial_number = $5, mac_address = $6, manufacturer = $7, model = $8, metadata = $9, updated_at = now()
-		WHERE organization_id = $1 AND id = $2
+		WHERE organization_id = $1 AND id = $2 AND disabled_at IS NULL
 		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
 	`, orgID, deviceID, in.Name, in.Category, in.SerialNumber, in.MACAddress, in.Manufacturer, in.Model, metadata))
 	if errors.Is(err, pgx.ErrNoRows) {
+		if existing, getErr := s.GetDevice(ctx, orgID, deviceID); getErr == nil && existing.DisabledAt != nil {
+			return model.Device{}, ErrDisabled
+		}
 		return model.Device{}, ErrNotFound
 	}
 	return device, err
@@ -585,10 +589,13 @@ func (s *Store) UpdateDeviceStatus(ctx context.Context, orgID, deviceID string, 
 	device, err := s.scanDevice(s.db.QueryRow(ctx, `
 		UPDATE devices
 		SET status = $3, last_seen_at = COALESCE($4, last_seen_at), disabled_at = CASE WHEN $3 = 'disabled' THEN now() ELSE disabled_at END, updated_at = now()
-		WHERE organization_id = $1 AND id = $2
+		WHERE organization_id = $1 AND id = $2 AND (disabled_at IS NULL OR status <> 'disabled')
 		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
 	`, orgID, deviceID, status, lastSeenAt))
 	if errors.Is(err, pgx.ErrNoRows) {
+		if existing, getErr := s.GetDevice(ctx, orgID, deviceID); getErr == nil && existing.DisabledAt != nil {
+			return model.Device{}, ErrDisabled
+		}
 		return model.Device{}, ErrNotFound
 	}
 	return device, err

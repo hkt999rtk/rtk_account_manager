@@ -133,6 +133,8 @@ Constraints:
 - `name` must not be blank after trimming whitespace.
 - `serial_number` is unique within the same organization when present.
 - Device access is always scoped by `organization_id`.
+- Soft-disabled devices remain readable but cannot be updated or have status changed.
+- Repeating a delete on an already disabled device is idempotent and returns success.
 
 ### `refresh_tokens`
 
