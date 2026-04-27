@@ -1,0 +1,391 @@
+openapi: 3.0.3
+info:
+  title: RTK Account Manager API
+  version: 0.1.0
+servers:
+  - url: http://localhost:8080
+paths:
+  /v1/health:
+    get:
+      responses:
+        "200":
+          description: Service health.
+  /v1/auth/register:
+    post:
+      summary: Register a user and initial organization.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Registered.
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/auth/login:
+    post:
+      summary: Login with email and password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login succeeded.
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/auth/refresh:
+    post:
+      summary: Exchange a refresh token for new tokens.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Token refreshed.
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/auth/logout:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Revoke a refresh token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "204":
+          description: Logged out.
+  /v1/me:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get current user and organization memberships.
+      responses:
+        "200":
+          description: Current user.
+  /v1/orgs:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List current user's organizations.
+      responses:
+        "200":
+          description: Organization list.
+    post:
+      security:
+        - bearerAuth: []
+      summary: Create an organization.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrganizationRequest"
+      responses:
+        "201":
+          description: Organization created.
+  /v1/orgs/{orgId}:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get organization details.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      responses:
+        "200":
+          description: Organization details.
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/members:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List organization members.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      responses:
+        "200":
+          description: Member list.
+    post:
+      security:
+        - bearerAuth: []
+      summary: Add an existing user to an organization.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddMemberRequest"
+      responses:
+        "201":
+          description: Member added.
+  /v1/orgs/{orgId}/members/{userId}:
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update member role.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMemberRequest"
+      responses:
+        "200":
+          description: Member updated.
+        "409":
+          $ref: "#/components/responses/Error"
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Remove member from organization.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204":
+          description: Member removed.
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/devices:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List organization devices.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Device list.
+    post:
+      security:
+        - bearerAuth: []
+      summary: Create device.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceRequest"
+      responses:
+        "201":
+          description: Device created.
+  /v1/orgs/{orgId}/devices/{deviceId}:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get device details.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "200":
+          description: Device details.
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update device.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceRequest"
+      responses:
+        "200":
+          description: Device updated.
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Delete device.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "204":
+          description: Device deleted.
+  /v1/orgs/{orgId}/devices/{deviceId}/status:
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update device status.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDeviceStatusRequest"
+      responses:
+        "200":
+          description: Device status updated.
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    OrgId:
+      name: orgId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    Error:
+      description: Error response.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password, organization_name]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        display_name:
+          type: string
+        organization_name:
+          type: string
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+    CreateOrganizationRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+    AddMemberRequest:
+      type: object
+      required: [email, role]
+      properties:
+        email:
+          type: string
+          format: email
+        role:
+          $ref: "#/components/schemas/Role"
+    UpdateMemberRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: "#/components/schemas/Role"
+    DeviceRequest:
+      type: object
+      required: [name, category]
+      properties:
+        name:
+          type: string
+        category:
+          $ref: "#/components/schemas/DeviceCategory"
+        serial_number:
+          type: string
+        mac_address:
+          type: string
+        manufacturer:
+          type: string
+        model:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+    UpdateDeviceStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/DeviceStatus"
+        last_seen_at:
+          type: string
+          format: date-time
+    Role:
+      type: string
+      enum: [owner, admin, member]
+    DeviceCategory:
+      type: string
+      enum: [ip_camera, mqtt_device, generic]
+    DeviceStatus:
+      type: string
+      enum: [unknown, online, offline, disabled]
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
