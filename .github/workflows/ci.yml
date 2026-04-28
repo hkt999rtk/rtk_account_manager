@@ -9,6 +9,7 @@ on:
 jobs:
   test:
     runs-on: [self-hosted, account-manager-ci]
+    timeout-minutes: 20
 
     services:
       postgres:
