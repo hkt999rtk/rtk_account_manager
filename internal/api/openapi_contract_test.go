@@ -34,12 +34,46 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 
 	deviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices", devicePayload("contract-device", "CONTRACT-001"), registered.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices", deviceRes)
+	device := decodeBody[deviceBody](t, deviceRes)
 
 	badDeviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices", map[string]any{
 		"name":     "contract-device",
 		"category": "invalid",
 	}, registered.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices", badDeviceRes)
+
+	provisionRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/provision", map[string]any{
+		"video_cloud_devid": "contract-video-1",
+		"activity_id":       "contract-activity-1",
+		"clip_public_key":   "contract-clip-key-1",
+		"operation_id":      "contract-provision-op-1",
+	}, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/provision", provisionRes)
+
+	reusedProvisionRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/provision", map[string]any{
+		"video_cloud_devid": "contract-video-1",
+		"activity_id":       "contract-activity-1",
+		"clip_public_key":   "contract-clip-key-1",
+		"operation_id":      "contract-provision-op-1",
+	}, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/provision", reusedProvisionRes)
+
+	provisioningRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/provisioning", nil, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/provisioning", provisioningRes)
+
+	if _, err := env.db.Exec(context.Background(), `
+		UPDATE devices
+		SET metadata = metadata || jsonb_build_object('video_cloud_devid', 'contract-video-1')
+		WHERE id = $1
+	`, device.Device.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	deactivateRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/deactivate", map[string]any{
+		"operation_id": "contract-deactivate-op-1",
+		"reason":       "contract-test",
+	}, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/deactivate", deactivateRes)
 }
 
 type responseContract struct {

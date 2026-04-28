@@ -451,6 +451,101 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/devices/{deviceId}/provision:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Create or reuse a provisioning operation.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProvisionDeviceRequest"
+      responses:
+        "200":
+          description: Existing provisioning operation returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceOperationResponse"
+        "201":
+          description: Provisioning operation created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceOperationResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/devices/{deviceId}/provisioning:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get latest provisioning state and projected video metadata.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "200":
+          description: Provisioning state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProvisioningStateResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/devices/{deviceId}/deactivate:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Create or reuse a deactivation operation.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeactivateDeviceRequest"
+      responses:
+        "200":
+          description: Existing deactivation operation returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceOperationResponse"
+        "201":
+          description: Deactivation operation created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceOperationResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/devices/{deviceId}/status:
     patch:
       security:
@@ -631,6 +726,28 @@ components:
         last_seen_at:
           type: string
           format: date-time
+    ProvisionDeviceRequest:
+      type: object
+      required: [video_cloud_devid, activity_id, clip_public_key]
+      properties:
+        video_cloud_devid:
+          type: string
+          minLength: 1
+        activity_id:
+          type: string
+          minLength: 1
+        clip_public_key:
+          type: string
+          minLength: 1
+        operation_id:
+          type: string
+    DeactivateDeviceRequest:
+      type: object
+      properties:
+        operation_id:
+          type: string
+        reason:
+          type: string
     RegisterResponse:
       type: object
       required: [user, organization, tokens]
@@ -713,6 +830,21 @@ components:
       properties:
         device:
           $ref: "#/components/schemas/Device"
+    DeviceOperationResponse:
+      type: object
+      required: [operation]
+      properties:
+        operation:
+          $ref: "#/components/schemas/DeviceOperationSummary"
+    ProvisioningStateResponse:
+      type: object
+      required: [operation, video_metadata]
+      properties:
+        operation:
+          $ref: "#/components/schemas/DeviceOperationSummary"
+        video_metadata:
+          type: object
+          additionalProperties: true
     User:
       type: object
       required: [id, email, created_at, updated_at]
@@ -816,6 +948,40 @@ components:
         disabled_at:
           type: string
           format: date-time
+    DeviceOperationSummary:
+      type: object
+      required: [operation_id, correlation_id, message_id, device_id, operation_type, status, created_at, updated_at]
+      properties:
+        operation_id:
+          type: string
+        correlation_id:
+          type: string
+        message_id:
+          type: string
+        device_id:
+          type: string
+          format: uuid
+        operation_type:
+          $ref: "#/components/schemas/DeviceOperationType"
+        status:
+          $ref: "#/components/schemas/DeviceOperationStatus"
+        requested_by:
+          type: string
+        error_code:
+          type: string
+        error_message:
+          type: string
+        retryable:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
     Tokens:
       type: object
       required: [access_token, access_token_expires_at, refresh_token, refresh_token_expires_at]
@@ -849,6 +1015,12 @@ components:
     DeviceStatus:
       type: string
       enum: [unknown, online, offline, disabled]
+    DeviceOperationType:
+      type: string
+      enum: [provision, deactivate]
+    DeviceOperationStatus:
+      type: string
+      enum: [pending, published, succeeded, failed, retrying, dead_lettered]
     ErrorResponse:
       type: object
       required: [error]

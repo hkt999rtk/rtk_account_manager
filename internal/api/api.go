@@ -54,6 +54,9 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/orgs/:orgId/devices", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.createDevice)
 	protected.GET("/orgs/:orgId/devices", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.listDevices)
 	protected.GET("/orgs/:orgId/devices/:deviceId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.getDevice)
+	protected.POST("/orgs/:orgId/devices/:deviceId/provision", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.provisionDevice)
+	protected.GET("/orgs/:orgId/devices/:deviceId/provisioning", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.getProvisioningState)
+	protected.POST("/orgs/:orgId/devices/:deviceId/deactivate", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.deactivateDevice)
 	protected.PATCH("/orgs/:orgId/devices/:deviceId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.updateDevice)
 	protected.DELETE("/orgs/:orgId/devices/:deviceId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.deleteDevice)
 	protected.PATCH("/orgs/:orgId/devices/:deviceId/status", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.updateDeviceStatus)
@@ -594,6 +597,8 @@ func writeStoreError(c *gin.Context, err error) {
 		writeError(c, http.StatusConflict, "last_owner", err.Error())
 	case errors.Is(err, store.ErrDisabled):
 		writeError(c, http.StatusConflict, "disabled_resource", err.Error())
+	case errors.Is(err, store.ErrConflict):
+		writeError(c, http.StatusConflict, "conflict", "Resource already exists with conflicting data")
 	case strings.Contains(err.Error(), "duplicate key"):
 		writeError(c, http.StatusConflict, "conflict", "Resource already exists")
 	default:

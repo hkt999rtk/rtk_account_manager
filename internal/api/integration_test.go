@@ -14,7 +14,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"rtk_account_manager/internal/auth"
+	"rtk_account_manager/internal/channel"
 	"rtk_account_manager/internal/database"
+	"rtk_account_manager/internal/model"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/testutil"
 )
@@ -842,6 +844,242 @@ func TestIntegrationDatabaseMaintainsUpdatedAt(t *testing.T) {
 	}
 	if userUpdatedAt.Year() == 2000 {
 		t.Fatalf("expected user updated_at trigger to override manual timestamp, got %s", userUpdatedAt)
+	}
+}
+
+func TestIntegrationProvisioningEndpoints(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	admin := registerUser(t, env.router, "admin@example.com", "Admin Org")
+	member := registerUser(t, env.router, "member@example.com", "Member Org")
+	outsider := registerUser(t, env.router, "outsider@example.com", "Outsider Org")
+
+	for _, membership := range []struct {
+		email string
+		role  string
+	}{
+		{email: "admin@example.com", role: "admin"},
+		{email: "member@example.com", role: "member"},
+	} {
+		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
+			"email": membership.email,
+			"role":  membership.role,
+		}, owner.Tokens.AccessToken)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("expected add member %s 201, got %d: %s", membership.email, res.Code, res.Body.String())
+		}
+	}
+
+	deviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("provision-device", "PROVISION-001"), owner.Tokens.AccessToken)
+	if deviceRes.Code != http.StatusCreated {
+		t.Fatalf("expected create device 201, got %d: %s", deviceRes.Code, deviceRes.Body.String())
+	}
+	device := decodeBody[deviceBody](t, deviceRes)
+
+	memberProvisionRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provision", map[string]any{
+		"video_cloud_devid": "video-device-1",
+		"activity_id":       "activity-1",
+		"clip_public_key":   "clip-key-1",
+	}, member.Tokens.AccessToken)
+	if memberProvisionRes.Code != http.StatusForbidden {
+		t.Fatalf("expected member provision 403, got %d", memberProvisionRes.Code)
+	}
+
+	provisionRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provision", map[string]any{
+		"video_cloud_devid": "video-device-1",
+		"activity_id":       "activity-1",
+		"clip_public_key":   "clip-key-1",
+		"operation_id":      "provision-op-1",
+	}, owner.Tokens.AccessToken)
+	if provisionRes.Code != http.StatusCreated {
+		t.Fatalf("expected provision 201, got %d: %s", provisionRes.Code, provisionRes.Body.String())
+	}
+	provisioned := decodeBody[operationBody](t, provisionRes)
+	if provisioned.Operation.OperationID != "provision-op-1" {
+		t.Fatalf("unexpected operation id: %+v", provisioned.Operation)
+	}
+	if provisioned.Operation.Status != "pending" {
+		t.Fatalf("expected pending operation status, got %+v", provisioned.Operation)
+	}
+
+	reusedRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provision", map[string]any{
+		"video_cloud_devid": "video-device-1",
+		"activity_id":       "activity-1",
+		"clip_public_key":   "clip-key-1",
+		"operation_id":      "provision-op-1",
+	}, owner.Tokens.AccessToken)
+	if reusedRes.Code != http.StatusOK {
+		t.Fatalf("expected idempotent provision 200, got %d: %s", reusedRes.Code, reusedRes.Body.String())
+	}
+	reused := decodeBody[operationBody](t, reusedRes)
+	if reused.Operation.MessageID != provisioned.Operation.MessageID {
+		t.Fatalf("expected reused provision to keep message id, got first=%s second=%s", provisioned.Operation.MessageID, reused.Operation.MessageID)
+	}
+
+	conflictRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provision", map[string]any{
+		"video_cloud_devid": "video-device-1",
+		"activity_id":       "activity-2",
+		"clip_public_key":   "clip-key-1",
+		"operation_id":      "provision-op-1",
+	}, owner.Tokens.AccessToken)
+	if conflictRes.Code != http.StatusConflict {
+		t.Fatalf("expected conflicting provision 409, got %d: %s", conflictRes.Code, conflictRes.Body.String())
+	}
+
+	var operationCount int
+	if err := env.db.QueryRow(context.Background(), `
+		SELECT count(*) FROM device_operations WHERE operation_id = 'provision-op-1'
+	`).Scan(&operationCount); err != nil {
+		t.Fatal(err)
+	}
+	if operationCount != 1 {
+		t.Fatalf("expected one provision operation row, got %d", operationCount)
+	}
+
+	var outboxCount int
+	if err := env.db.QueryRow(context.Background(), `
+		SELECT count(*) FROM device_message_outbox WHERE operation_id = 'provision-op-1'
+	`).Scan(&outboxCount); err != nil {
+		t.Fatal(err)
+	}
+	if outboxCount != 1 {
+		t.Fatalf("expected one outbox row, got %d", outboxCount)
+	}
+
+	memberStateRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provisioning", nil, member.Tokens.AccessToken)
+	if memberStateRes.Code != http.StatusOK {
+		t.Fatalf("expected member provisioning state 200, got %d: %s", memberStateRes.Code, memberStateRes.Body.String())
+	}
+	memberState := decodeBody[provisioningBody](t, memberStateRes)
+	if memberState.Operation.OperationID != "provision-op-1" {
+		t.Fatalf("unexpected provisioning state operation: %+v", memberState.Operation)
+	}
+	if len(memberState.VideoMetadata) != 0 {
+		t.Fatalf("expected empty projected metadata before inbox projection, got %+v", memberState.VideoMetadata)
+	}
+
+	outsiderStateRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provisioning", nil, outsider.Tokens.AccessToken)
+	if outsiderStateRes.Code != http.StatusNotFound {
+		t.Fatalf("expected cross-org provisioning state 404, got %d", outsiderStateRes.Code)
+	}
+
+	disabledDeviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("disabled-device", "PROVISION-002"), owner.Tokens.AccessToken)
+	if disabledDeviceRes.Code != http.StatusCreated {
+		t.Fatalf("expected disabled fixture device 201, got %d: %s", disabledDeviceRes.Code, disabledDeviceRes.Body.String())
+	}
+	disabledDevice := decodeBody[deviceBody](t, disabledDeviceRes)
+	deleteDisabledRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/devices/"+disabledDevice.Device.ID, nil, owner.Tokens.AccessToken)
+	if deleteDisabledRes.Code != http.StatusNoContent {
+		t.Fatalf("expected disable fixture device 204, got %d", deleteDisabledRes.Code)
+	}
+
+	provisionDisabledRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+disabledDevice.Device.ID+"/provision", map[string]any{
+		"video_cloud_devid": "video-device-disabled",
+		"activity_id":       "activity-disabled",
+		"clip_public_key":   "clip-key-disabled",
+	}, owner.Tokens.AccessToken)
+	if provisionDisabledRes.Code != http.StatusConflict {
+		t.Fatalf("expected disabled device provision 409, got %d: %s", provisionDisabledRes.Code, provisionDisabledRes.Body.String())
+	}
+
+	adminDeviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("admin-provision-device", "PROVISION-003"), owner.Tokens.AccessToken)
+	if adminDeviceRes.Code != http.StatusCreated {
+		t.Fatalf("expected admin fixture device 201, got %d: %s", adminDeviceRes.Code, adminDeviceRes.Body.String())
+	}
+	adminDevice := decodeBody[deviceBody](t, adminDeviceRes)
+
+	adminProvisionRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+adminDevice.Device.ID+"/provision", map[string]any{
+		"video_cloud_devid": "video-device-admin",
+		"activity_id":       "activity-admin",
+		"clip_public_key":   "clip-key-admin",
+	}, admin.Tokens.AccessToken)
+	if adminProvisionRes.Code != http.StatusCreated {
+		t.Fatalf("expected admin provision 201, got %d: %s", adminProvisionRes.Code, adminProvisionRes.Body.String())
+	}
+}
+
+func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	deviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("deactivate-device", "DEACTIVATE-001"), owner.Tokens.AccessToken)
+	if deviceRes.Code != http.StatusCreated {
+		t.Fatalf("expected create device 201, got %d: %s", deviceRes.Code, deviceRes.Body.String())
+	}
+	device := decodeBody[deviceBody](t, deviceRes)
+
+	projected, err := store.New(env.db).ProjectDevice(context.Background(), owner.Organization.ID, device.Device.ID, store.ProvisionSucceededProjection(channel.DeviceProvisionSucceededPayload{
+		OrgID:           owner.Organization.ID,
+		AccountDeviceID: device.Device.ID,
+		VideoCloudDevid: "video-device-1",
+		ActivityID:      "activity-1",
+		ActivatedAt:     time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projected.Metadata[model.DeviceMetadataVideoCloudDevid] != "video-device-1" {
+		t.Fatalf("expected projected video metadata, got %+v", projected.Metadata)
+	}
+
+	deactivateRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/deactivate", map[string]any{
+		"operation_id": "deactivate-op-1",
+		"reason":       "user_request",
+	}, owner.Tokens.AccessToken)
+	if deactivateRes.Code != http.StatusCreated {
+		t.Fatalf("expected deactivate 201, got %d: %s", deactivateRes.Code, deactivateRes.Body.String())
+	}
+	deactivated := decodeBody[operationBody](t, deactivateRes)
+	if deactivated.Operation.OperationType != "deactivate" {
+		t.Fatalf("expected deactivate operation type, got %+v", deactivated.Operation)
+	}
+
+	reusedDeactivateRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/deactivate", map[string]any{
+		"operation_id": "deactivate-op-1",
+		"reason":       "user_request",
+	}, owner.Tokens.AccessToken)
+	if reusedDeactivateRes.Code != http.StatusOK {
+		t.Fatalf("expected idempotent deactivate 200, got %d: %s", reusedDeactivateRes.Code, reusedDeactivateRes.Body.String())
+	}
+
+	var messageType string
+	var partitionKey string
+	var payload []byte
+	if err := env.db.QueryRow(context.Background(), `
+		SELECT message_type, partition_key, payload
+		FROM device_message_outbox
+		WHERE operation_id = 'deactivate-op-1'
+	`).Scan(&messageType, &partitionKey, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if messageType != "DeviceDeactivateRequested" {
+		t.Fatalf("expected deactivate outbox message type, got %s", messageType)
+	}
+	if partitionKey != device.Device.ID {
+		t.Fatalf("expected partition key %s, got %s", device.Device.ID, partitionKey)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["video_cloud_devid"] != "video-device-1" {
+		t.Fatalf("expected projected video devid in payload, got %+v", decoded)
+	}
+	if decoded["reason"] != "user_request" {
+		t.Fatalf("expected custom deactivation reason in payload, got %+v", decoded)
+	}
+
+	missingMetadataRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("plain-device", "DEACTIVATE-002"), owner.Tokens.AccessToken)
+	if missingMetadataRes.Code != http.StatusCreated {
+		t.Fatalf("expected plain device 201, got %d: %s", missingMetadataRes.Code, missingMetadataRes.Body.String())
+	}
+	plainDevice := decodeBody[deviceBody](t, missingMetadataRes)
+
+	deactivateMissingMetadataRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+plainDevice.Device.ID+"/deactivate", map[string]any{}, owner.Tokens.AccessToken)
+	if deactivateMissingMetadataRes.Code != http.StatusConflict {
+		t.Fatalf("expected unprojected deactivate 409, got %d: %s", deactivateMissingMetadataRes.Code, deactivateMissingMetadataRes.Body.String())
 	}
 }
 
