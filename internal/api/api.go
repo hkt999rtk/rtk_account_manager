@@ -601,6 +601,8 @@ func writeStoreError(c *gin.Context, err error) {
 		writeError(c, http.StatusConflict, "device_not_provisioned", "Device is missing projected video metadata")
 	case errors.Is(err, store.ErrConflict):
 		writeError(c, http.StatusConflict, "conflict", "Resource already exists with conflicting data")
+	case errors.Is(err, errOperationStateInconsistent):
+		writeError(c, http.StatusInternalServerError, "operation_state_inconsistent", err.Error())
 	case strings.Contains(err.Error(), "duplicate key"):
 		writeError(c, http.StatusConflict, "conflict", "Resource already exists")
 	default:

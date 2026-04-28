@@ -17,6 +17,8 @@ import (
 
 const defaultDeactivationReason = "account_device_disabled"
 
+var errOperationStateInconsistent = errors.New("lifecycle operation is missing an outbox message")
+
 type provisionRequest struct {
 	VideoCloudDevid string `json:"video_cloud_devid" binding:"required"`
 	ActivityID      string `json:"activity_id" binding:"required"`
@@ -150,6 +152,10 @@ func (s *Server) getProvisioningState(c *gin.Context) {
 
 	message, err := s.store.GetLatestOutboxMessageByOperationID(c.Request.Context(), operation.OperationID)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeStoreError(c, errOperationStateInconsistent)
+			return
+		}
 		writeStoreError(c, err)
 		return
 	}
@@ -230,7 +236,7 @@ func (s *Server) writeExistingLifecycleOperationIfMatch(c *gin.Context, operatio
 	message, err := s.store.GetLatestOutboxMessageByOperationID(c.Request.Context(), operationID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return false, errors.New("existing lifecycle operation is missing an outbox message")
+			return false, errOperationStateInconsistent
 		}
 		return false, err
 	}

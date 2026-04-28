@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -124,6 +125,24 @@ func TestValidationHelpersWriteErrors(t *testing.T) {
 	writeStoreError(defaultContext, errors.New("boom"))
 	if defaultRecorder.Code != http.StatusInternalServerError {
 		t.Fatalf("expected internal error 500, got %d", defaultRecorder.Code)
+	}
+
+	inconsistentRecorder := httptest.NewRecorder()
+	inconsistentContext, _ := gin.CreateTestContext(inconsistentRecorder)
+	writeStoreError(inconsistentContext, errOperationStateInconsistent)
+	if inconsistentRecorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected inconsistent operation state 500, got %d", inconsistentRecorder.Code)
+	}
+	var inconsistentBody struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(inconsistentRecorder.Body.Bytes(), &inconsistentBody); err != nil {
+		t.Fatalf("expected JSON error body, got %v", err)
+	}
+	if inconsistentBody.Error.Code != "operation_state_inconsistent" {
+		t.Fatalf("expected operation_state_inconsistent error code, got %+v", inconsistentBody)
 	}
 }
 
