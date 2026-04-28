@@ -343,6 +343,24 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 		}
 	})
 
+	t.Run("target service mismatch", func(t *testing.T) {
+		t.Parallel()
+
+		envelope := validEnvelope(MessageTypeDeviceOnlineChanged, DeviceOnlineChangedPayload{
+			OrgID:           "org-1",
+			AccountDeviceID: "device-1",
+			VideoCloudDevid: "video-1",
+			Status:          OnlineStatusOnline,
+			LastSeenAt:      testTime,
+		})
+		envelope.TargetService = ServiceRealtekVideoCloud
+
+		err := envelope.Validate(StreamVideoAccountEvents)
+		if err == nil || !strings.Contains(err.Error(), `target_service message type "DeviceOnlineChanged" must use "rtk_account_manager"`) {
+			t.Fatalf("expected target service mismatch error, got %v", err)
+		}
+	})
+
 	t.Run("partition key mismatch", func(t *testing.T) {
 		t.Parallel()
 
@@ -496,6 +514,102 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 	})
 }
 
+func TestValidateRejectsMissingEnvelopeFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		mutate      func(*Envelope)
+		wantMessage string
+	}{
+		{
+			name: "message id",
+			mutate: func(envelope *Envelope) {
+				envelope.MessageID = " "
+			},
+			wantMessage: "message_id must be non-empty",
+		},
+		{
+			name: "correlation id",
+			mutate: func(envelope *Envelope) {
+				envelope.CorrelationID = ""
+			},
+			wantMessage: "correlation_id must be non-empty",
+		},
+		{
+			name: "operation id",
+			mutate: func(envelope *Envelope) {
+				envelope.OperationID = ""
+			},
+			wantMessage: "operation_id must be non-empty",
+		},
+		{
+			name: "source service",
+			mutate: func(envelope *Envelope) {
+				envelope.SourceService = ""
+			},
+			wantMessage: "source_service must be non-empty",
+		},
+		{
+			name: "target service",
+			mutate: func(envelope *Envelope) {
+				envelope.TargetService = ""
+			},
+			wantMessage: "target_service must be non-empty",
+		},
+		{
+			name: "schema version",
+			mutate: func(envelope *Envelope) {
+				envelope.SchemaVersion = ""
+			},
+			wantMessage: "schema_version must be non-empty",
+		},
+		{
+			name: "partition key",
+			mutate: func(envelope *Envelope) {
+				envelope.PartitionKey = ""
+			},
+			wantMessage: "partition_key must be non-empty",
+		},
+		{
+			name: "occurred at",
+			mutate: func(envelope *Envelope) {
+				envelope.OccurredAt = time.Time{}
+			},
+			wantMessage: "occurred_at must be set",
+		},
+		{
+			name: "payload",
+			mutate: func(envelope *Envelope) {
+				envelope.Payload = nil
+			},
+			wantMessage: "payload must be set",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			envelope := validEnvelope(MessageTypeDeviceProvisionRequested, DeviceProvisionRequestedPayload{
+				OrgID:           "org-1",
+				AccountDeviceID: "device-1",
+				VideoCloudDevid: "video-1",
+				ActivityID:      "activity-1",
+				ClipPublicKey:   "clip-key",
+				RequestedBy:     "user-1",
+			})
+			tt.mutate(&envelope)
+
+			err := envelope.Validate(StreamAccountVideoCommands)
+			if err == nil || !strings.Contains(err.Error(), tt.wantMessage) {
+				t.Fatalf("expected missing field error %q, got %v", tt.wantMessage, err)
+			}
+		})
+	}
+}
+
 func TestEnvelopeUnmarshalRejectsUnknownFields(t *testing.T) {
 	t.Parallel()
 
@@ -515,6 +629,27 @@ func TestEnvelopeUnmarshalRejectsUnknownFields(t *testing.T) {
 	}`), &envelope)
 	if err == nil || !strings.Contains(err.Error(), `json: unknown field "unexpected"`) {
 		t.Fatalf("expected unknown field error, got %v", err)
+	}
+}
+
+func TestDecodeStrictJSONRejectsMultipleJSONValues(t *testing.T) {
+	t.Parallel()
+
+	var envelope Envelope
+	err := decodeStrictJSON([]byte(`{
+		"message_id":"msg-1",
+		"correlation_id":"corr-1",
+		"operation_id":"op-1",
+		"source_service":"rtk_account_manager",
+		"target_service":"realtek_video_server",
+		"message_type":"DeviceProvisionRequested",
+		"schema_version":"1.0",
+		"partition_key":"device-1",
+		"occurred_at":"2026-04-28T12:00:00Z",
+		"payload":{}
+	} {}`), &envelope)
+	if err == nil || !strings.Contains(err.Error(), "must contain a single JSON value") {
+		t.Fatalf("expected multiple JSON values error, got %v", err)
 	}
 }
 
