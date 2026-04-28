@@ -67,6 +67,24 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	if cfg.Port != "9090" {
 		t.Fatalf("unexpected port: %q", cfg.Port)
 	}
+	if cfg.CrossServiceBroker != "log" {
+		t.Fatalf("unexpected broker: %q", cfg.CrossServiceBroker)
+	}
+	if cfg.AccountVideoCommandsStream != "account.video.commands" {
+		t.Fatalf("unexpected command stream: %q", cfg.AccountVideoCommandsStream)
+	}
+	if cfg.VideoAccountEventsStream != "video.account.events" {
+		t.Fatalf("unexpected event stream: %q", cfg.VideoAccountEventsStream)
+	}
+	if cfg.CrossServiceConsumerGroup != "rtk_account_manager" {
+		t.Fatalf("unexpected consumer group: %q", cfg.CrossServiceConsumerGroup)
+	}
+	if cfg.CrossServiceMaxAttempts != 5 {
+		t.Fatalf("unexpected max attempts: %d", cfg.CrossServiceMaxAttempts)
+	}
+	if cfg.CrossServicePollInterval != 5*time.Second {
+		t.Fatalf("unexpected poll interval: %s", cfg.CrossServicePollInterval)
+	}
 }
 
 func TestLoadFallsBackForInvalidDurations(t *testing.T) {
@@ -85,6 +103,26 @@ func TestLoadFallsBackForInvalidDurations(t *testing.T) {
 	}
 	if cfg.RefreshTokenTTL != 30*24*time.Hour {
 		t.Fatalf("expected default refresh TTL, got %s", cfg.RefreshTokenTTL)
+	}
+}
+
+func TestLoadWorkerAllowsMissingJWTSecrets(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("JWT_ACCESS_SECRET", "")
+	t.Setenv("JWT_REFRESH_SECRET", "")
+	t.Setenv("CROSS_SERVICE_BROKER", "log")
+	t.Setenv("CROSS_SERVICE_MAX_ATTEMPTS", "7")
+	t.Setenv("CROSS_SERVICE_POLL_INTERVAL", "9s")
+
+	cfg, err := LoadWorker()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CrossServiceMaxAttempts != 7 {
+		t.Fatalf("unexpected max attempts: %d", cfg.CrossServiceMaxAttempts)
+	}
+	if cfg.CrossServicePollInterval != 9*time.Second {
+		t.Fatalf("unexpected poll interval: %s", cfg.CrossServicePollInterval)
 	}
 }
 

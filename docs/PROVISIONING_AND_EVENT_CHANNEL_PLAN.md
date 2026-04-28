@@ -41,7 +41,7 @@ Milestone: `v2-provisioning-event-channel`
 | `[Domain] Add cross-service message envelope and payload validation` | P1 | `backend`, `v2` | Docs issues | in_progress | Envelope and payload types validate contract-required fields, stream/message types, schema version, and partition key. |
 | `[Device] Add metadata merge and projection primitives` | P1 | `backend`, `v2` | DB, Domain | in_progress | Store-level partial metadata merge and projection helpers for video metadata and online status. |
 | `[API] Add provisioning and deactivation endpoints` | P1 | `api`, `backend`, `v2` | DB, Domain, Device | in_progress | HTTP endpoints create/reuse operations and enqueue lifecycle command messages. |
-| `[Worker] Implement outbox publisher with local broker adapter` | P1 | `worker`, `backend`, `v2` | DB, Domain | planned | Independent worker publishes pending command messages and records retry/dead-letter state. |
+| `[Worker] Implement outbox publisher with local broker adapter` | P1 | `worker`, `backend`, `v2` | DB, Domain | in_progress | Independent worker publishes pending command messages and records retry/dead-letter state. |
 | `[Worker] Implement inbox consumer and account projection` | P1 | `worker`, `backend`, `v2` | DB, Domain, Device | planned | Independent worker deduplicates events and projects provisioning, deactivation, online, and metadata state. |
 | `[Broker] Add Azure Event Hubs adapter and runtime config` | P2 | `worker`, `backend`, `v2` | Local workers | planned | Event Hubs adapter and configuration without making local tests depend on Azure. |
 | `[Testing] Extend automated test report for v2` | P2 | `testing`, `v2` | API, Workers | planned | `make test-report` includes v2 behavior evidence and keeps coverage at or above 80%. |
