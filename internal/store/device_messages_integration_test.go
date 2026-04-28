@@ -287,6 +287,105 @@ func TestOutboxMessagePersistenceAndReadyList(t *testing.T) {
 	}
 }
 
+func TestClaimOutboxMessagesReadyLeasesRows(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	orgID, userID, deviceID := createDeviceFixture(t, env)
+
+	ctx := context.Background()
+	op, _, err := env.store.CreateOrGetDeviceOperation(ctx, DeviceOperationCreateInput{
+		OperationID:    "op-claim",
+		CorrelationID:  "corr-claim",
+		OrganizationID: orgID,
+		DeviceID:       deviceID,
+		OperationType:  model.DeviceOperationTypeProvision,
+		Status:         model.DeviceOperationStatusPending,
+		RequestedBy:    &userID,
+		RequestPayload: map[string]any{"video_cloud_devid": "device-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	claimUntil := now.Add(5 * time.Minute)
+	for _, message := range []DeviceMessageOutboxCreateInput{
+		{
+			MessageID:     "claim-msg-1",
+			OperationID:   op.OperationID,
+			CorrelationID: op.CorrelationID,
+			Stream:        "account.video.commands",
+			MessageType:   "DeviceProvisionRequested",
+			SchemaVersion: "1.0",
+			PartitionKey:  deviceID,
+			Payload:       map[string]any{"operation_id": op.OperationID},
+			Status:        model.DeviceMessageOutboxStatusPending,
+			AvailableAt:   now.Add(-2 * time.Minute),
+		},
+		{
+			MessageID:     "claim-msg-2",
+			OperationID:   op.OperationID,
+			CorrelationID: op.CorrelationID,
+			Stream:        "account.video.commands",
+			MessageType:   "DeviceDeactivateRequested",
+			SchemaVersion: "1.0",
+			PartitionKey:  deviceID,
+			Payload:       map[string]any{"operation_id": op.OperationID},
+			Status:        model.DeviceMessageOutboxStatusRetrying,
+			AttemptCount:  1,
+			LastError:     stringPtr("temporary failure"),
+			AvailableAt:   now.Add(-time.Minute),
+		},
+		{
+			MessageID:     "claim-msg-3",
+			OperationID:   op.OperationID,
+			CorrelationID: op.CorrelationID,
+			Stream:        "account.video.commands",
+			MessageType:   "DeviceProvisionRequested",
+			SchemaVersion: "1.0",
+			PartitionKey:  deviceID,
+			Payload:       map[string]any{"operation_id": op.OperationID},
+			Status:        model.DeviceMessageOutboxStatusPending,
+			AvailableAt:   now.Add(time.Minute),
+		},
+	} {
+		if _, err := env.store.CreateOutboxMessage(ctx, message); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	claimed, err := env.store.ClaimOutboxMessagesReady(ctx, now, claimUntil, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claimed) != 2 {
+		t.Fatalf("expected two claimed rows, got %+v", claimed)
+	}
+	if claimed[0].MessageID != "claim-msg-1" || claimed[1].MessageID != "claim-msg-2" {
+		t.Fatalf("expected oldest ready rows to be claimed, got %+v", claimed)
+	}
+	for _, message := range claimed {
+		if !message.AvailableAt.Equal(claimUntil) {
+			t.Fatalf("expected claimed row to be leased until %s, got %+v", claimUntil, message)
+		}
+	}
+
+	ready, err := env.store.ListOutboxMessagesReady(ctx, now, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ready) != 0 {
+		t.Fatalf("expected no rows to remain ready after claim, got %+v", ready)
+	}
+
+	claimed, err = env.store.ClaimOutboxMessagesReady(ctx, now, claimUntil.Add(time.Minute), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claimed) != 0 {
+		t.Fatalf("expected leased rows to stay hidden until available_at, got %+v", claimed)
+	}
+}
+
 func TestCreateOrGetInboxMessageDeduplicates(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	orgID, userID, deviceID := createDeviceFixture(t, env)

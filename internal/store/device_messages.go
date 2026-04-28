@@ -241,6 +241,45 @@ func (s *Store) ListOutboxMessagesReady(ctx context.Context, readyBefore time.Ti
 	return messages, nil
 }
 
+func (s *Store) ClaimOutboxMessagesReady(ctx context.Context, readyBefore, claimUntil time.Time, limit int) ([]model.DeviceMessageOutbox, error) {
+	rows, err := s.db.Query(ctx, `
+		WITH candidates AS (
+			SELECT id
+			FROM device_message_outbox
+			WHERE status IN ('pending', 'retrying') AND available_at <= $1
+			ORDER BY available_at ASC, created_at ASC
+			FOR UPDATE SKIP LOCKED
+			LIMIT $2
+		), claimed AS (
+			UPDATE device_message_outbox AS outbox
+			SET available_at = $3
+			FROM candidates
+			WHERE outbox.id = candidates.id
+			RETURNING outbox.id::text, outbox.message_id, outbox.operation_id, outbox.correlation_id, outbox.causation_id, outbox.stream, outbox.message_type, outbox.schema_version, outbox.partition_key, outbox.payload, outbox.status, outbox.attempt_count, outbox.last_error, outbox.available_at, outbox.published_at, outbox.created_at, outbox.updated_at
+		)
+		SELECT id, message_id, operation_id, correlation_id, causation_id, stream, message_type, schema_version, partition_key, payload, status, attempt_count, last_error, available_at, published_at, created_at, updated_at
+		FROM claimed
+		ORDER BY created_at ASC
+	`, readyBefore, limit, claimUntil)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	messages := make([]model.DeviceMessageOutbox, 0)
+	for rows.Next() {
+		message, err := scanDeviceMessageOutbox(rows)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, message)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return messages, nil
+}
+
 func (s *Store) UpdateOutboxMessage(ctx context.Context, messageID string, in DeviceMessageOutboxUpdateInput) (model.DeviceMessageOutbox, error) {
 	message, err := scanDeviceMessageOutbox(s.db.QueryRow(ctx, `
 		UPDATE device_message_outbox
