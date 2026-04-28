@@ -44,6 +44,42 @@ const (
 	DeviceMetadataVideoCloudLastError        = "video_cloud_last_error"
 )
 
+type DeviceOperationType string
+
+const (
+	DeviceOperationTypeProvision  DeviceOperationType = "provision"
+	DeviceOperationTypeDeactivate DeviceOperationType = "deactivate"
+)
+
+type DeviceOperationStatus string
+
+const (
+	DeviceOperationStatusPending      DeviceOperationStatus = "pending"
+	DeviceOperationStatusPublished    DeviceOperationStatus = "published"
+	DeviceOperationStatusSucceeded    DeviceOperationStatus = "succeeded"
+	DeviceOperationStatusFailed       DeviceOperationStatus = "failed"
+	DeviceOperationStatusRetrying     DeviceOperationStatus = "retrying"
+	DeviceOperationStatusDeadLettered DeviceOperationStatus = "dead_lettered"
+)
+
+type DeviceMessageOutboxStatus string
+
+const (
+	DeviceMessageOutboxStatusPending      DeviceMessageOutboxStatus = "pending"
+	DeviceMessageOutboxStatusPublished    DeviceMessageOutboxStatus = "published"
+	DeviceMessageOutboxStatusRetrying     DeviceMessageOutboxStatus = "retrying"
+	DeviceMessageOutboxStatusDeadLettered DeviceMessageOutboxStatus = "dead_lettered"
+)
+
+type DeviceMessageInboxStatus string
+
+const (
+	DeviceMessageInboxStatusProcessed    DeviceMessageInboxStatus = "processed"
+	DeviceMessageInboxStatusFailed       DeviceMessageInboxStatus = "failed"
+	DeviceMessageInboxStatusRetrying     DeviceMessageInboxStatus = "retrying"
+	DeviceMessageInboxStatusDeadLettered DeviceMessageInboxStatus = "dead_lettered"
+)
+
 type User struct {
 	ID          string     `json:"id"`
 	Email       string     `json:"email"`
@@ -87,4 +123,63 @@ type Device struct {
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`
 	DisabledAt     *time.Time     `json:"disabled_at,omitempty"`
+}
+
+type DeviceOperation struct {
+	ID             string                `json:"id"`
+	OperationID    string                `json:"operation_id"`
+	CorrelationID  string                `json:"correlation_id"`
+	OrganizationID string                `json:"organization_id"`
+	DeviceID       string                `json:"device_id"`
+	OperationType  DeviceOperationType   `json:"operation_type"`
+	Status         DeviceOperationStatus `json:"status"`
+	RequestedBy    *string               `json:"requested_by,omitempty"`
+	RequestPayload map[string]any        `json:"request_payload"`
+	ResultPayload  map[string]any        `json:"result_payload"`
+	ErrorCode      *string               `json:"error_code,omitempty"`
+	ErrorMessage   *string               `json:"error_message,omitempty"`
+	Retryable      *bool                 `json:"retryable,omitempty"`
+	CreatedAt      time.Time             `json:"created_at"`
+	UpdatedAt      time.Time             `json:"updated_at"`
+	CompletedAt    *time.Time            `json:"completed_at,omitempty"`
+}
+
+type DeviceMessageOutbox struct {
+	ID            string                    `json:"id"`
+	MessageID     string                    `json:"message_id"`
+	OperationID   string                    `json:"operation_id"`
+	CorrelationID string                    `json:"correlation_id"`
+	CausationID   *string                   `json:"causation_id,omitempty"`
+	Stream        string                    `json:"stream"`
+	MessageType   string                    `json:"message_type"`
+	SchemaVersion string                    `json:"schema_version"`
+	PartitionKey  string                    `json:"partition_key"`
+	Payload       map[string]any            `json:"payload"`
+	Status        DeviceMessageOutboxStatus `json:"status"`
+	AttemptCount  int                       `json:"attempt_count"`
+	LastError     *string                   `json:"last_error,omitempty"`
+	AvailableAt   time.Time                 `json:"available_at"`
+	PublishedAt   *time.Time                `json:"published_at,omitempty"`
+	CreatedAt     time.Time                 `json:"created_at"`
+	UpdatedAt     time.Time                 `json:"updated_at"`
+}
+
+type DeviceMessageInbox struct {
+	ID            string                   `json:"id"`
+	MessageID     string                   `json:"message_id"`
+	OperationID   string                   `json:"operation_id"`
+	CorrelationID string                   `json:"correlation_id"`
+	CausationID   *string                  `json:"causation_id,omitempty"`
+	Stream        string                   `json:"stream"`
+	MessageType   string                   `json:"message_type"`
+	SchemaVersion string                   `json:"schema_version"`
+	PartitionKey  string                   `json:"partition_key"`
+	Payload       map[string]any           `json:"payload"`
+	Status        DeviceMessageInboxStatus `json:"status"`
+	AttemptCount  int                      `json:"attempt_count"`
+	LastError     *string                  `json:"last_error,omitempty"`
+	ReceivedAt    time.Time                `json:"received_at"`
+	ProcessedAt   *time.Time               `json:"processed_at,omitempty"`
+	CreatedAt     time.Time                `json:"created_at"`
+	UpdatedAt     time.Time                `json:"updated_at"`
 }

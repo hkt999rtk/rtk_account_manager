@@ -16,6 +16,7 @@ var (
 	ErrNotFound  = errors.New("not found")
 	ErrLastOwner = errors.New("last owner cannot be removed or downgraded")
 	ErrDisabled  = errors.New("resource is disabled")
+	ErrConflict  = errors.New("conflict")
 )
 
 type Store struct {
