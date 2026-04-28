@@ -16,6 +16,7 @@ import (
 	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/database"
 	"rtk_account_manager/internal/store"
+	"rtk_account_manager/internal/testutil"
 )
 
 type integrationEnv struct {
@@ -37,6 +38,8 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(db.Close)
+
+	testutil.LockIntegrationDatabase(t, db)
 
 	if err := database.Migrate(ctx, db); err != nil {
 		t.Fatal(err)

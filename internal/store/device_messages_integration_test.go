@@ -11,6 +11,7 @@ import (
 
 	"rtk_account_manager/internal/database"
 	"rtk_account_manager/internal/model"
+	"rtk_account_manager/internal/testutil"
 )
 
 type storeIntegrationEnv struct {
@@ -32,6 +33,8 @@ func newStoreIntegrationEnv(t *testing.T) storeIntegrationEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(db.Close)
+
+	testutil.LockIntegrationDatabase(t, db)
 
 	if err := database.Migrate(ctx, db); err != nil {
 		t.Fatal(err)
@@ -151,6 +154,23 @@ func TestCreateOrGetDeviceOperationIsIdempotent(t *testing.T) {
 	if result.UpdatedAt.Before(op.UpdatedAt) {
 		t.Fatalf("expected updated_at to stay monotonic, before=%s after=%s", op.UpdatedAt, result.UpdatedAt)
 	}
+
+	stored, err := env.store.GetDeviceOperation(ctx, op.OperationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ID != op.ID || stored.Status != model.DeviceOperationStatusSucceeded {
+		t.Fatalf("unexpected stored operation: %+v", stored)
+	}
+
+	if _, err := env.store.GetDeviceOperation(ctx, "missing-operation"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing operation to return ErrNotFound, got %v", err)
+	}
+	if _, err := env.store.UpdateDeviceOperation(ctx, "missing-operation", DeviceOperationUpdateInput{
+		Status: model.DeviceOperationStatusFailed,
+	}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing operation update to return ErrNotFound, got %v", err)
+	}
 }
 
 func TestOutboxMessagePersistenceAndReadyList(t *testing.T) {
@@ -232,6 +252,24 @@ func TestOutboxMessagePersistenceAndReadyList(t *testing.T) {
 	}
 	if published.Status != model.DeviceMessageOutboxStatusPublished {
 		t.Fatalf("expected published status, got %s", published.Status)
+	}
+
+	stored, err := env.store.GetOutboxMessage(ctx, first.MessageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ID != first.ID || stored.Status != model.DeviceMessageOutboxStatusPublished {
+		t.Fatalf("unexpected stored outbox message: %+v", stored)
+	}
+
+	if _, err := env.store.GetOutboxMessage(ctx, "missing-message"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing outbox message to return ErrNotFound, got %v", err)
+	}
+	if _, err := env.store.UpdateOutboxMessage(ctx, "missing-message", DeviceMessageOutboxUpdateInput{
+		Status:      model.DeviceMessageOutboxStatusRetrying,
+		AvailableAt: now,
+	}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing outbox update to return ErrNotFound, got %v", err)
 	}
 }
 
@@ -329,6 +367,23 @@ func TestCreateOrGetInboxMessageDeduplicates(t *testing.T) {
 	}
 	if processed.Status != model.DeviceMessageInboxStatusProcessed {
 		t.Fatalf("expected processed status, got %s", processed.Status)
+	}
+
+	stored, err := env.store.GetInboxMessage(ctx, message.MessageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ID != message.ID || stored.Status != model.DeviceMessageInboxStatusProcessed {
+		t.Fatalf("unexpected stored inbox message: %+v", stored)
+	}
+
+	if _, err := env.store.GetInboxMessage(ctx, "missing-event"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing inbox message to return ErrNotFound, got %v", err)
+	}
+	if _, err := env.store.UpdateInboxMessage(ctx, "missing-event", DeviceMessageInboxUpdateInput{
+		Status: model.DeviceMessageInboxStatusFailed,
+	}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing inbox update to return ErrNotFound, got %v", err)
 	}
 }
 
