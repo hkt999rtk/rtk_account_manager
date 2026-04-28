@@ -118,9 +118,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Operation idempotency | Reusing the same lifecycle \`operation_id\` returns the existing operation and preserves the original outbox \`message_id\`, including retries after device disablement or missing live metadata. |
 | Operation conflicts | Reusing a lifecycle \`operation_id\` with conflicting provision activity data or deactivation reason returns \`409 Conflict\`. |
 | Message validation | Envelope fields, supported \`schema_version\`, message-type/stream/service pairing, lifecycle UUIDs, UTC timestamps, and \`partition_key\` validation for cross-service messages. |
+| Broker adapters | \`TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds\`, \`TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds\`, \`TestAzureEventHubsPublisherPublishesJSONRecord\`, and \`TestAzureEventHubsConsumerReadsAcrossPartitions\` verify the local default adapter plus Azure Event Hubs publish/consume behavior without requiring live Azure. |
 | Database invariants | Idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, automatic \`updated_at\` triggers. |
 | OpenAPI contract | OpenAPI schema validation plus representative provisioning, provisioning-state, and deactivation response validation against \`openapi.yaml\`. |
-| Configuration and maintenance | \`.env\` loading, TTL parsing/fallbacks, required JWT secrets, refresh-token cleanup behavior. |
+| Configuration and maintenance | \`.env\` loading, TTL parsing/fallbacks, worker-specific broker config defaults, required JWT secrets, and refresh-token cleanup behavior. |
 
 ## Executed Test Cases
 
