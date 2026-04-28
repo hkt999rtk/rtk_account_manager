@@ -947,6 +947,19 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 		t.Fatalf("expected one outbox row, got %d", outboxCount)
 	}
 
+	provisionMessage, err := store.New(env.db).GetLatestOutboxMessageByOperationID(context.Background(), "provision-op-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provisionPayload := validateAccountCommandEnvelope(t, provisionMessage)
+	provisionCommand, ok := provisionPayload.(*channel.DeviceProvisionRequestedPayload)
+	if !ok {
+		t.Fatalf("expected provision payload type, got %T", provisionPayload)
+	}
+	if provisionCommand.ActivityID != "activity-1" || provisionCommand.ClipPublicKey != "clip-key-1" || provisionCommand.VideoCloudDevid != "video-device-1" {
+		t.Fatalf("unexpected provision command payload: %+v", provisionCommand)
+	}
+
 	memberStateRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provisioning", nil, member.Tokens.AccessToken)
 	if memberStateRes.Code != http.StatusOK {
 		t.Fatalf("expected member provisioning state 200, got %d: %s", memberStateRes.Code, memberStateRes.Body.String())
@@ -1151,6 +1164,19 @@ func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 		t.Fatalf("expected one deactivate outbox row, got %d", outboxCount)
 	}
 
+	deactivateMessage, err := store.New(env.db).GetLatestOutboxMessageByOperationID(context.Background(), "deactivate-op-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deactivatePayload := validateAccountCommandEnvelope(t, deactivateMessage)
+	deactivateCommand, ok := deactivatePayload.(*channel.DeviceDeactivateRequestedPayload)
+	if !ok {
+		t.Fatalf("expected deactivate payload type, got %T", deactivatePayload)
+	}
+	if deactivateCommand.VideoCloudDevid != "video-device-1" || deactivateCommand.Reason != defaultDeactivationReason {
+		t.Fatalf("unexpected deactivate command payload: %+v", deactivateCommand)
+	}
+
 	if _, err := env.db.Exec(context.Background(), `
 		UPDATE devices
 		SET metadata = '{}'::jsonb
@@ -1314,4 +1340,32 @@ func decodeBody[T any](t *testing.T, res *httptest.ResponseRecorder) T {
 		t.Fatalf("decode response: %v: %s", err, res.Body.String())
 	}
 	return out
+}
+
+func validateAccountCommandEnvelope(t *testing.T, message model.DeviceMessageOutbox) channel.Payload {
+	t.Helper()
+
+	payload, err := json.Marshal(message.Payload)
+	if err != nil {
+		t.Fatalf("marshal outbox payload: %v", err)
+	}
+
+	envelope := channel.Envelope{
+		MessageID:     message.MessageID,
+		CorrelationID: message.CorrelationID,
+		OperationID:   message.OperationID,
+		SourceService: channel.ServiceAccountManager,
+		TargetService: channel.ServiceRealtekVideoCloud,
+		MessageType:   channel.MessageType(message.MessageType),
+		SchemaVersion: message.SchemaVersion,
+		PartitionKey:  message.PartitionKey,
+		OccurredAt:    message.CreatedAt.UTC(),
+		Payload:       payload,
+	}
+
+	decoded, err := envelope.ValidateAndDecode(message.Stream)
+	if err != nil {
+		t.Fatalf("validate outbox envelope: %v", err)
+	}
+	return decoded
 }
