@@ -112,6 +112,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Member management | Owner add/update/remove/disable/enable member flows, admin/member forbidden paths, last-owner downgrade/remove/disable protection. |
 | Device lifecycle | Device create/list/get/update/status update/soft-delete, disabled-device read-only behavior, duplicate serial rejection, same serial in another org allowed. |
 | Authorization boundaries | owner/admin/member role permissions and cross-organization device/member access rejection. |
+| Message validation | Envelope fields, supported \`schema_version\`, message-type/stream/service pairing, lifecycle UUIDs, UTC timestamps, and \`partition_key\` validation for cross-service messages. |
 | Database invariants | Idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, automatic updated_at triggers. |
 | OpenAPI contract | OpenAPI schema validation and representative response validation against \`openapi.yaml\`. |
 | Configuration and maintenance | \`.env\` loading, TTL parsing/fallbacks, required JWT secrets, refresh-token cleanup behavior. |
@@ -146,7 +147,7 @@ go build ./...
 
 - Command entry points under \`cmd/*\` are intentionally validated by \`go build ./...\`, not unit coverage.
 - Store and database behavior are primarily covered through API integration tests.
-- Add or update integration tests whenever authorization, membership, token, migration, or device lifecycle behavior changes.
+- Add or update tests whenever authorization, membership, token, migration, device lifecycle, or cross-service channel validation behavior changes.
 EOF
 
 cat "$REPORT_FILE"
