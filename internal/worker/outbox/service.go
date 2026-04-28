@@ -146,7 +146,14 @@ func (s *Service) publishMessage(ctx context.Context, message model.DeviceMessag
 
 	envelope, err := envelopeFromMessage(message)
 	if err != nil {
-		return model.DeviceMessageOutboxStatusDeadLettered, s.recordDeadLetter(ctx, message, attemptCount, attemptedAt, fmt.Errorf("invalid outbox message: %w", err))
+		applied, err := s.recordDeadLetter(ctx, message, attemptCount, attemptedAt, fmt.Errorf("invalid outbox message: %w", err))
+		if err != nil {
+			return "", err
+		}
+		if !applied {
+			return "", nil
+		}
+		return model.DeviceMessageOutboxStatusDeadLettered, nil
 	}
 
 	if err := s.publisher.Publish(ctx, message.Stream, envelope); err != nil {
@@ -154,13 +161,26 @@ func (s *Service) publishMessage(ctx context.Context, message model.DeviceMessag
 			return "", err
 		}
 		if broker.IsTransient(err) && attemptCount < s.maxAttempts {
-			return model.DeviceMessageOutboxStatusRetrying, s.recordRetry(ctx, message, attemptCount, attemptedAt, err)
+			applied, err := s.recordRetry(ctx, message, attemptCount, attemptedAt, err)
+			if err != nil {
+				return "", err
+			}
+			if !applied {
+				return "", nil
+			}
+			return model.DeviceMessageOutboxStatusRetrying, nil
 		}
-		return model.DeviceMessageOutboxStatusDeadLettered, s.recordDeadLetter(ctx, message, attemptCount, attemptedAt, err)
+		applied, err := s.recordDeadLetter(ctx, message, attemptCount, attemptedAt, err)
+		if err != nil {
+			return "", err
+		}
+		if !applied {
+			return "", nil
+		}
+		return model.DeviceMessageOutboxStatusDeadLettered, nil
 	}
 
-	_, err = s.store.RecordOutboxPublishTransition(ctx, store.OutboxPublishTransitionInput{
-		MessageID:       message.MessageID,
+	applied, err := s.recordTransition(ctx, message, store.OutboxPublishTransitionInput{
 		MessageStatus:   model.DeviceMessageOutboxStatusPublished,
 		AttemptCount:    attemptCount,
 		AvailableAt:     attemptedAt,
@@ -170,14 +190,16 @@ func (s *Service) publishMessage(ctx context.Context, message model.DeviceMessag
 	if err != nil {
 		return "", err
 	}
+	if !applied {
+		return "", nil
+	}
 	return model.DeviceMessageOutboxStatusPublished, nil
 }
 
-func (s *Service) recordRetry(ctx context.Context, message model.DeviceMessageOutbox, attemptCount int, attemptedAt time.Time, cause error) error {
+func (s *Service) recordRetry(ctx context.Context, message model.DeviceMessageOutbox, attemptCount int, attemptedAt time.Time, cause error) (bool, error) {
 	lastError := cause.Error()
 	retryable := true
-	_, err := s.store.RecordOutboxPublishTransition(ctx, store.OutboxPublishTransitionInput{
-		MessageID:             message.MessageID,
+	return s.recordTransition(ctx, message, store.OutboxPublishTransitionInput{
 		MessageStatus:         model.DeviceMessageOutboxStatusRetrying,
 		AttemptCount:          attemptCount,
 		LastError:             &lastError,
@@ -187,14 +209,12 @@ func (s *Service) recordRetry(ctx context.Context, message model.DeviceMessageOu
 		OperationErrorMessage: &lastError,
 		OperationRetryable:    &retryable,
 	})
-	return err
 }
 
-func (s *Service) recordDeadLetter(ctx context.Context, message model.DeviceMessageOutbox, attemptCount int, attemptedAt time.Time, cause error) error {
+func (s *Service) recordDeadLetter(ctx context.Context, message model.DeviceMessageOutbox, attemptCount int, attemptedAt time.Time, cause error) (bool, error) {
 	lastError := cause.Error()
 	retryable := false
-	_, err := s.store.RecordOutboxPublishTransition(ctx, store.OutboxPublishTransitionInput{
-		MessageID:             message.MessageID,
+	return s.recordTransition(ctx, message, store.OutboxPublishTransitionInput{
 		MessageStatus:         model.DeviceMessageOutboxStatusDeadLettered,
 		AttemptCount:          attemptCount,
 		LastError:             &lastError,
@@ -205,7 +225,22 @@ func (s *Service) recordDeadLetter(ctx context.Context, message model.DeviceMess
 		OperationRetryable:    &retryable,
 		OperationCompletedAt:  &attemptedAt,
 	})
-	return err
+}
+
+func (s *Service) recordTransition(ctx context.Context, message model.DeviceMessageOutbox, in store.OutboxPublishTransitionInput) (bool, error) {
+	in.MessageID = message.MessageID
+	in.ExpectedMessageStatus = message.Status
+	in.ExpectedAttemptCount = message.AttemptCount
+	in.ExpectedAvailableAt = message.AvailableAt
+
+	_, err := s.store.RecordOutboxPublishTransition(ctx, in)
+	if errors.Is(err, store.ErrConflict) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func envelopeFromMessage(message model.DeviceMessageOutbox) (channel.Envelope, error) {

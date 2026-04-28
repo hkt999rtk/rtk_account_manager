@@ -12,6 +12,9 @@ import (
 
 type OutboxPublishTransitionInput struct {
 	MessageID             string
+	ExpectedMessageStatus model.DeviceMessageOutboxStatus
+	ExpectedAttemptCount  int
+	ExpectedAvailableAt   time.Time
 	MessageStatus         model.DeviceMessageOutboxStatus
 	AttemptCount          int
 	LastError             *string
@@ -39,15 +42,18 @@ func (s *Store) RecordOutboxPublishTransition(ctx context.Context, in OutboxPubl
 	message, err := scanDeviceMessageOutbox(tx.QueryRow(ctx, `
 		UPDATE device_message_outbox
 		SET status = $2,
-			attempt_count = $3,
-			last_error = $4,
-			available_at = $5,
-			published_at = $6
+			attempt_count = $6,
+			last_error = $7,
+			available_at = $8,
+			published_at = $9
 		WHERE message_id = $1
+			AND status = $3
+			AND attempt_count = $4
+			AND available_at = $5
 		RETURNING id::text, message_id, operation_id, correlation_id, causation_id, stream, message_type, schema_version, partition_key, payload, status, attempt_count, last_error, available_at, published_at, created_at, updated_at
-	`, in.MessageID, in.MessageStatus, in.AttemptCount, in.LastError, in.AvailableAt, in.PublishedAt))
+	`, in.MessageID, in.MessageStatus, in.ExpectedMessageStatus, in.ExpectedAttemptCount, in.ExpectedAvailableAt, in.AttemptCount, in.LastError, in.AvailableAt, in.PublishedAt))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return OutboxPublishTransitionResult{}, ErrNotFound
+		return OutboxPublishTransitionResult{}, classifyOutboxPublishTransitionError(ctx, tx, in.MessageID)
 	}
 	if err != nil {
 		return OutboxPublishTransitionResult{}, err
@@ -84,4 +90,21 @@ func (s *Store) RecordOutboxPublishTransition(ctx context.Context, in OutboxPubl
 		Message:   message,
 		Operation: operation,
 	}, nil
+}
+
+func classifyOutboxPublishTransitionError(ctx context.Context, tx pgx.Tx, messageID string) error {
+	var exists bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM device_message_outbox
+			WHERE message_id = $1
+		)
+	`, messageID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return ErrNotFound
+	}
+	return ErrConflict
 }
