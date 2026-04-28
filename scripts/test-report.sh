@@ -111,14 +111,14 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Organization access | Current-user organization listing, organization create/get/update, cross-organization organization access rejection. |
 | Member management | Owner add/update/remove/disable/enable member flows, admin/member forbidden paths, last-owner downgrade/remove/disable protection. |
 | Device lifecycle | Device create/list/get/update/status update/soft-delete, disabled-device read-only behavior, duplicate serial rejection, same serial in another org allowed. |
-| Provisioning API | `TestIntegrationProvisioningEndpoints` verifies owner/admin initiation, member read-only access, transactional `device_operations` plus `device_message_outbox` writes, projected command payload shape, disabled-device rejection, and idempotent `operation_id` reuse. |
-| Deactivation API | `TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata` verifies projected metadata is required for new deactivation work, disabled account devices may still enqueue deactivation, default reason propagation, and transactional outbox creation from projected video metadata. |
+| Provisioning API | \`TestIntegrationProvisioningEndpoints\` verifies owner/admin initiation, member read-only access, transactional \`device_operations\` plus \`device_message_outbox\` writes, projected command payload shape, disabled-device rejection, and idempotent \`operation_id\` reuse. |
+| Deactivation API | \`TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata\` verifies projected metadata is required for new deactivation work, disabled account devices may still enqueue deactivation, default reason propagation, and transactional outbox creation from projected video metadata. |
 | Device scoping | Lifecycle endpoints reject cross-organization reads and writes without leaking foreign device access. |
 | Authorization boundaries | owner/admin/member role permissions are enforced across device CRUD, provisioning, deactivation, and member management paths. |
-| Operation idempotency | Reusing the same lifecycle `operation_id` returns the existing operation and preserves the original outbox `message_id`, including retries after device disablement or missing live metadata. |
-| Operation conflicts | Reusing a lifecycle `operation_id` with conflicting provision activity data or deactivation reason returns `409 Conflict`. |
+| Operation idempotency | Reusing the same lifecycle \`operation_id\` returns the existing operation and preserves the original outbox \`message_id\`, including retries after device disablement or missing live metadata. |
+| Operation conflicts | Reusing a lifecycle \`operation_id\` with conflicting provision activity data or deactivation reason returns \`409 Conflict\`. |
 | Message validation | Envelope fields, supported \`schema_version\`, message-type/stream/service pairing, lifecycle UUIDs, UTC timestamps, and \`partition_key\` validation for cross-service messages. |
-| Database invariants | Idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, automatic `updated_at` triggers. |
+| Database invariants | Idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, automatic \`updated_at\` triggers. |
 | OpenAPI contract | OpenAPI schema validation plus representative provisioning, provisioning-state, and deactivation response validation against \`openapi.yaml\`. |
 | Configuration and maintenance | \`.env\` loading, TTL parsing/fallbacks, required JWT secrets, refresh-token cleanup behavior. |
 
