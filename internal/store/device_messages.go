@@ -333,7 +333,8 @@ func (s *Store) UpdateInboxMessage(ctx context.Context, messageID string, in Dev
 }
 
 func compareOperationCreate(existing model.DeviceOperation, in DeviceOperationCreateInput, requestPayload []byte) error {
-	if existing.OrganizationID != in.OrganizationID ||
+	if existing.CorrelationID != in.CorrelationID ||
+		existing.OrganizationID != in.OrganizationID ||
 		existing.DeviceID != in.DeviceID ||
 		existing.OperationType != in.OperationType ||
 		!sameJSONMap(existing.RequestPayload, requestPayload) {

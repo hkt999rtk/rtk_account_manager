@@ -122,6 +122,20 @@ func TestCreateOrGetDeviceOperationIsIdempotent(t *testing.T) {
 		t.Fatalf("expected same operation row, got %q want %q", same.ID, op.ID)
 	}
 
+	conflictingCorrelation, created, err := env.store.CreateOrGetDeviceOperation(ctx, DeviceOperationCreateInput{
+		OperationID:    "op-1",
+		CorrelationID:  "corr-2",
+		OrganizationID: orgID,
+		DeviceID:       deviceID,
+		OperationType:  model.DeviceOperationTypeProvision,
+		Status:         model.DeviceOperationStatusPending,
+		RequestedBy:    &userID,
+		RequestPayload: map[string]any{"video_cloud_devid": "device-1"},
+	})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected correlation conflict error, got row=%+v created=%v err=%v", conflictingCorrelation, created, err)
+	}
+
 	conflicting, created, err := env.store.CreateOrGetDeviceOperation(ctx, DeviceOperationCreateInput{
 		OperationID:    "op-1",
 		CorrelationID:  "corr-1",

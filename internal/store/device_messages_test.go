@@ -10,6 +10,7 @@ import (
 
 func TestCompareOperationCreate(t *testing.T) {
 	existing := model.DeviceOperation{
+		CorrelationID:  "corr-1",
 		OrganizationID: "org-1",
 		DeviceID:       "device-1",
 		OperationType:  model.DeviceOperationTypeProvision,
@@ -21,6 +22,7 @@ func TestCompareOperationCreate(t *testing.T) {
 	}
 
 	if err := compareOperationCreate(existing, DeviceOperationCreateInput{
+		CorrelationID:  "corr-1",
 		OrganizationID: "org-1",
 		DeviceID:       "device-1",
 		OperationType:  model.DeviceOperationTypeProvision,
@@ -29,6 +31,16 @@ func TestCompareOperationCreate(t *testing.T) {
 	}
 
 	if err := compareOperationCreate(existing, DeviceOperationCreateInput{
+		CorrelationID:  "corr-2",
+		OrganizationID: "org-1",
+		DeviceID:       "device-1",
+		OperationType:  model.DeviceOperationTypeProvision,
+	}, requestPayload); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected correlation mismatch to conflict, got %v", err)
+	}
+
+	if err := compareOperationCreate(existing, DeviceOperationCreateInput{
+		CorrelationID:  "corr-1",
 		OrganizationID: "org-2",
 		DeviceID:       "device-1",
 		OperationType:  model.DeviceOperationTypeProvision,
@@ -37,6 +49,7 @@ func TestCompareOperationCreate(t *testing.T) {
 	}
 
 	if err := compareOperationCreate(existing, DeviceOperationCreateInput{
+		CorrelationID:  "corr-1",
 		OrganizationID: "org-1",
 		DeviceID:       "device-2",
 		OperationType:  model.DeviceOperationTypeProvision,
@@ -45,6 +58,7 @@ func TestCompareOperationCreate(t *testing.T) {
 	}
 
 	if err := compareOperationCreate(existing, DeviceOperationCreateInput{
+		CorrelationID:  "corr-1",
 		OrganizationID: "org-1",
 		DeviceID:       "device-1",
 		OperationType:  model.DeviceOperationTypeDeactivate,
@@ -57,6 +71,7 @@ func TestCompareOperationCreate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := compareOperationCreate(existing, DeviceOperationCreateInput{
+		CorrelationID:  "corr-1",
 		OrganizationID: "org-1",
 		DeviceID:       "device-1",
 		OperationType:  model.DeviceOperationTypeProvision,
