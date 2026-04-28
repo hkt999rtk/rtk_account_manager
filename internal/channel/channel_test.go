@@ -405,6 +405,95 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 			t.Fatalf("expected unknown payload field error, got %v", err)
 		}
 	})
+
+	t.Run("payload timestamps must use UTC", func(t *testing.T) {
+		t.Parallel()
+
+		nonUTC := time.Date(2026, 4, 28, 20, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+		tests := []struct {
+			name        string
+			envelope    Envelope
+			stream      string
+			wantMessage string
+		}{
+			{
+				name: "provision succeeded",
+				envelope: validEnvelope(MessageTypeDeviceProvisionSucceeded, DeviceProvisionSucceededPayload{
+					OrgID:           "org-1",
+					AccountDeviceID: "device-1",
+					VideoCloudDevid: "video-1",
+					ActivityID:      "activity-1",
+					ActivatedAt:     nonUTC,
+				}),
+				stream:      StreamVideoAccountEvents,
+				wantMessage: "payload.activated_at must use UTC",
+			},
+			{
+				name: "provision failed",
+				envelope: validEnvelope(MessageTypeDeviceProvisionFailed, DeviceProvisionFailedPayload{
+					OrgID:           "org-1",
+					AccountDeviceID: "device-1",
+					VideoCloudDevid: "video-1",
+					ActivityID:      "activity-1",
+					ErrorCode:       "activation_failed",
+					ErrorMessage:    "activation failed",
+					Retryable:       true,
+					FailedAt:        nonUTC,
+				}),
+				stream:      StreamVideoAccountEvents,
+				wantMessage: "payload.failed_at must use UTC",
+			},
+			{
+				name: "deactivate succeeded",
+				envelope: validEnvelope(MessageTypeDeviceDeactivateSucceeded, DeviceDeactivateSucceededPayload{
+					OrgID:           "org-1",
+					AccountDeviceID: "device-1",
+					VideoCloudDevid: "video-1",
+					DeactivatedAt:   nonUTC,
+				}),
+				stream:      StreamVideoAccountEvents,
+				wantMessage: "payload.deactivated_at must use UTC",
+			},
+			{
+				name: "deactivate failed",
+				envelope: validEnvelope(MessageTypeDeviceDeactivateFailed, DeviceDeactivateFailedPayload{
+					OrgID:           "org-1",
+					AccountDeviceID: "device-1",
+					VideoCloudDevid: "video-1",
+					ErrorCode:       "deactivation_failed",
+					ErrorMessage:    "deactivation failed",
+					Retryable:       true,
+					FailedAt:        nonUTC,
+				}),
+				stream:      StreamVideoAccountEvents,
+				wantMessage: "payload.failed_at must use UTC",
+			},
+			{
+				name: "online changed",
+				envelope: validEnvelope(MessageTypeDeviceOnlineChanged, DeviceOnlineChangedPayload{
+					OrgID:           "org-1",
+					AccountDeviceID: "device-1",
+					VideoCloudDevid: "video-1",
+					Status:          OnlineStatusOnline,
+					LastSeenAt:      nonUTC,
+				}),
+				stream:      StreamVideoAccountEvents,
+				wantMessage: "payload.last_seen_at must use UTC",
+			},
+		}
+
+		for _, tt := range tests {
+			tt := tt
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				err := tt.envelope.Validate(tt.stream)
+				if err == nil || !strings.Contains(err.Error(), tt.wantMessage) {
+					t.Fatalf("expected UTC payload timestamp error %q, got %v", tt.wantMessage, err)
+				}
+			})
+		}
+	})
 }
 
 func TestEnvelopeUnmarshalRejectsUnknownFields(t *testing.T) {

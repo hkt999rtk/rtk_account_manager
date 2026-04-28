@@ -307,6 +307,9 @@ func (p *DeviceProvisionSucceededPayload) Validate() error {
 	if p.ActivatedAt.IsZero() {
 		return fieldError("payload.activated_at", "must be set")
 	}
+	if err := validateUTC("payload.activated_at", p.ActivatedAt); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -327,6 +330,9 @@ func (p *DeviceProvisionFailedPayload) Validate() error {
 	}
 	if p.FailedAt.IsZero() {
 		return fieldError("payload.failed_at", "must be set")
+	}
+	if err := validateUTC("payload.failed_at", p.FailedAt); err != nil {
+		return err
 	}
 	return nil
 }
@@ -360,6 +366,9 @@ func (p *DeviceDeactivateSucceededPayload) Validate() error {
 	if p.DeactivatedAt.IsZero() {
 		return fieldError("payload.deactivated_at", "must be set")
 	}
+	if err := validateUTC("payload.deactivated_at", p.DeactivatedAt); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -379,6 +388,9 @@ func (p *DeviceDeactivateFailedPayload) Validate() error {
 	}
 	if p.FailedAt.IsZero() {
 		return fieldError("payload.failed_at", "must be set")
+	}
+	if err := validateUTC("payload.failed_at", p.FailedAt); err != nil {
+		return err
 	}
 	return nil
 }
@@ -400,6 +412,9 @@ func (p *DeviceOnlineChangedPayload) Validate() error {
 	}
 	if p.LastSeenAt.IsZero() {
 		return fieldError("payload.last_seen_at", "must be set")
+	}
+	if err := validateUTC("payload.last_seen_at", p.LastSeenAt); err != nil {
+		return err
 	}
 	return nil
 }
