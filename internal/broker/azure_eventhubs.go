@@ -279,7 +279,7 @@ func (c *AzureEventHubsConsumer) Receive(ctx context.Context, limit int) ([]Mess
 			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 				continue
 			}
-			return nil, err
+			return nil, classifyAzureReceiveError(err)
 		}
 
 		for _, event := range events {
@@ -350,6 +350,21 @@ func messageFromAzureEvent(defaultStream string, event *azeventhubs.ReceivedEven
 }
 
 func classifyAzurePublishError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+
+	var eventHubErr *azeventhubs.Error
+	if errors.As(err, &eventHubErr) && eventHubErr.Code != azeventhubs.ErrorCodeUnauthorizedAccess {
+		return Transient(err)
+	}
+	return err
+}
+
+func classifyAzureReceiveError(err error) error {
 	if err == nil {
 		return nil
 	}

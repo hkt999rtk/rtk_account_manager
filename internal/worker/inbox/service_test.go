@@ -64,6 +64,29 @@ func (c fakeConsumer) Close(context.Context) error {
 	return nil
 }
 
+type scriptedConsumer struct {
+	results []scriptedReceiveResult
+	calls   int
+}
+
+type scriptedReceiveResult struct {
+	messages []broker.Message
+	err      error
+}
+
+func (c *scriptedConsumer) Receive(context.Context, int) ([]broker.Message, error) {
+	if c.calls >= len(c.results) {
+		return nil, context.Canceled
+	}
+	result := c.results[c.calls]
+	c.calls++
+	return append([]broker.Message(nil), result.messages...), result.err
+}
+
+func (c *scriptedConsumer) Close(context.Context) error {
+	return nil
+}
+
 func TestRunOnceProcessesProvisionSuccess(t *testing.T) {
 	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
 	inboxStore := &fakeStore{created: true}
@@ -459,6 +482,26 @@ func TestRunOnceUsesWorkerClockWhenEnvelopeTimeIsMissing(t *testing.T) {
 	}
 	if inboxStore.createInputs[0].CausationID == nil || *inboxStore.createInputs[0].CausationID != "cause-1" {
 		t.Fatalf("expected causation id to be preserved, got %+v", inboxStore.createInputs[0].CausationID)
+	}
+}
+
+func TestRunRetriesTransientReceiveErrors(t *testing.T) {
+	consumer := &scriptedConsumer{
+		results: []scriptedReceiveResult{
+			{err: broker.Transient(errors.New("temporary event hubs receive failure"))},
+			{err: context.Canceled},
+		},
+	}
+
+	service := NewService(&fakeStore{}, consumer, Options{
+		PollInterval: time.Millisecond,
+	})
+
+	if err := service.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if consumer.calls != 2 {
+		t.Fatalf("expected service to retry after transient receive failure, got %d calls", consumer.calls)
 	}
 }
 

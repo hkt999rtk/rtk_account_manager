@@ -293,6 +293,27 @@ func TestAzureEventHubsConsumerTreatsReceiveTimeoutAsEmptyPoll(t *testing.T) {
 	}
 }
 
+func TestAzureEventHubsConsumerMarksConnectionLossTransient(t *testing.T) {
+	client := &fakeAzureConsumerClient{
+		properties: azeventhubs.EventHubProperties{PartitionIDs: []string{"0"}},
+		partitions: map[string]*fakeAzurePartitionClient{
+			"0": {
+				err: &azeventhubs.Error{Code: azeventhubs.ErrorCodeConnectionLost},
+			},
+		},
+	}
+
+	consumer, err := newAzureEventHubsConsumer(client, channel.StreamVideoAccountEvents, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = consumer.Receive(context.Background(), 1)
+	if !IsTransient(err) {
+		t.Fatalf("expected transient azure receive error, got %v", err)
+	}
+}
+
 func TestNewAzureEventHubsConsumerClosesClientWhenPartitionOpenFails(t *testing.T) {
 	client := &fakeAzureConsumerClient{
 		properties: azeventhubs.EventHubProperties{PartitionIDs: []string{"0"}},
@@ -398,6 +419,19 @@ func TestClassifyAzurePublishErrorLeavesUnauthorizedPermanent(t *testing.T) {
 
 func TestClassifyAzurePublishErrorLeavesContextErrorsUntouched(t *testing.T) {
 	if err := classifyAzurePublishError(context.Canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected canceled error, got %v", err)
+	}
+}
+
+func TestClassifyAzureReceiveErrorLeavesUnauthorizedPermanent(t *testing.T) {
+	err := classifyAzureReceiveError(&azeventhubs.Error{Code: azeventhubs.ErrorCodeUnauthorizedAccess})
+	if err == nil || IsTransient(err) {
+		t.Fatalf("expected permanent unauthorized error, got %v", err)
+	}
+}
+
+func TestClassifyAzureReceiveErrorLeavesContextErrorsUntouched(t *testing.T) {
+	if err := classifyAzureReceiveError(context.Canceled); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected canceled error, got %v", err)
 	}
 }
