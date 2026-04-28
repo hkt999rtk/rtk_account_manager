@@ -5,14 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"rtk_account_manager/internal/channel"
 )
 
 const AdapterLog = "log"
+const AdapterAzureEventHubs = "azure_eventhubs"
 
 type Publisher interface {
 	Publish(ctx context.Context, stream string, envelope channel.Envelope) error
+	Close(ctx context.Context) error
 }
 
 type Message struct {
@@ -22,6 +25,21 @@ type Message struct {
 
 type Consumer interface {
 	Receive(ctx context.Context, limit int) ([]Message, error)
+	Close(ctx context.Context) error
+}
+
+type PublisherOptions struct {
+	LogWriter                      io.Writer
+	AzureEventHubsConnectionString string
+	Stream                         string
+}
+
+type ConsumerOptions struct {
+	LogReader                      io.Reader
+	AzureEventHubsConnectionString string
+	Stream                         string
+	ConsumerGroup                  string
+	ReceiveTimeout                 time.Duration
 }
 
 type publishError struct {
@@ -59,19 +77,23 @@ func IsTransient(err error) bool {
 	return target.Transient()
 }
 
-func NewPublisher(kind string, writer io.Writer) (Publisher, error) {
+func NewPublisher(kind string, opts PublisherOptions) (Publisher, error) {
 	switch kind {
 	case "", AdapterLog:
-		return NewLogPublisher(writer), nil
+		return NewLogPublisher(opts.LogWriter), nil
+	case AdapterAzureEventHubs:
+		return NewAzureEventHubsPublisherFromConnectionString(opts.AzureEventHubsConnectionString, opts.Stream)
 	default:
 		return nil, fmt.Errorf("unsupported cross-service broker %q", kind)
 	}
 }
 
-func NewConsumer(kind string, reader io.Reader) (Consumer, error) {
+func NewConsumer(kind string, opts ConsumerOptions) (Consumer, error) {
 	switch kind {
 	case "", AdapterLog:
-		return NewLogConsumer(reader), nil
+		return NewLogConsumer(opts.LogReader), nil
+	case AdapterAzureEventHubs:
+		return NewAzureEventHubsConsumerFromConnectionString(opts.AzureEventHubsConnectionString, opts.Stream, opts.ConsumerGroup, opts.ReceiveTimeout)
 	default:
 		return nil, fmt.Errorf("unsupported cross-service broker %q", kind)
 	}

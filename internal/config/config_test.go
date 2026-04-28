@@ -47,6 +47,7 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	t.Setenv("ACCESS_TOKEN_TTL", "10m")
 	t.Setenv("REFRESH_TOKEN_TTL", "24h")
 	t.Setenv("PORT", "9090")
+	t.Setenv("AZURE_EVENTHUB_CONNECTION_STRING", "Endpoint=sb://example/")
 
 	cfg, err := Load()
 	if err != nil {
@@ -69,6 +70,9 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	}
 	if cfg.CrossServiceBroker != "log" {
 		t.Fatalf("unexpected broker: %q", cfg.CrossServiceBroker)
+	}
+	if cfg.AzureEventHubConnectionString != "Endpoint=sb://example/" {
+		t.Fatalf("unexpected azure connection string: %q", cfg.AzureEventHubConnectionString)
 	}
 	if cfg.AccountVideoCommandsStream != "account.video.commands" {
 		t.Fatalf("unexpected command stream: %q", cfg.AccountVideoCommandsStream)

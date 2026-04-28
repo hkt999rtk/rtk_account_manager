@@ -35,6 +35,10 @@ func (p fakePublisher) Publish(context.Context, string, channel.Envelope) error 
 	return p.err
 }
 
+func (p fakePublisher) Close(context.Context) error {
+	return nil
+}
+
 func TestRunOnceMarksSuccessfulPublishes(t *testing.T) {
 	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
 	outboxStore := &fakeStore{

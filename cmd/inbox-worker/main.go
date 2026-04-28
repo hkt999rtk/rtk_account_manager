@@ -29,10 +29,21 @@ func main() {
 	}
 	defer db.Close()
 
-	consumer, err := broker.NewConsumer(cfg.CrossServiceBroker, os.Stdin)
+	consumer, err := broker.NewConsumer(cfg.CrossServiceBroker, broker.ConsumerOptions{
+		LogReader:                      os.Stdin,
+		AzureEventHubsConnectionString: cfg.AzureEventHubConnectionString,
+		Stream:                         cfg.VideoAccountEventsStream,
+		ConsumerGroup:                  cfg.CrossServiceConsumerGroup,
+		ReceiveTimeout:                 cfg.CrossServicePollInterval,
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer func() {
+		if err := consumer.Close(context.Background()); err != nil {
+			log.Printf("close consumer: %v", err)
+		}
+	}()
 
 	service := inbox.NewService(store.New(db), consumer, inbox.Options{
 		Stream:        cfg.VideoAccountEventsStream,

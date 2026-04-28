@@ -60,6 +60,10 @@ func (c fakeConsumer) Receive(context.Context, int) ([]broker.Message, error) {
 	return append([]broker.Message(nil), c.messages...), c.err
 }
 
+func (c fakeConsumer) Close(context.Context) error {
+	return nil
+}
+
 func TestRunOnceProcessesProvisionSuccess(t *testing.T) {
 	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
 	inboxStore := &fakeStore{created: true}
