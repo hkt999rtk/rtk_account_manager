@@ -964,6 +964,25 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 		t.Fatalf("expected cross-org provisioning state 404, got %d", outsiderStateRes.Code)
 	}
 
+	disableProvisionedRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID, nil, owner.Tokens.AccessToken)
+	if disableProvisionedRes.Code != http.StatusNoContent {
+		t.Fatalf("expected disable provisioned device 204, got %d: %s", disableProvisionedRes.Code, disableProvisionedRes.Body.String())
+	}
+
+	reusedDisabledRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provision", map[string]any{
+		"video_cloud_devid": "video-device-1",
+		"activity_id":       "activity-1",
+		"clip_public_key":   "clip-key-1",
+		"operation_id":      "provision-op-1",
+	}, owner.Tokens.AccessToken)
+	if reusedDisabledRes.Code != http.StatusOK {
+		t.Fatalf("expected disabled-device idempotent provision 200, got %d: %s", reusedDisabledRes.Code, reusedDisabledRes.Body.String())
+	}
+	reusedDisabled := decodeBody[operationBody](t, reusedDisabledRes)
+	if reusedDisabled.Operation.MessageID != provisioned.Operation.MessageID {
+		t.Fatalf("expected disabled-device retry to keep message id, got first=%s second=%s", provisioned.Operation.MessageID, reusedDisabled.Operation.MessageID)
+	}
+
 	disabledDeviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("disabled-device", "PROVISION-002"), owner.Tokens.AccessToken)
 	if disabledDeviceRes.Code != http.StatusCreated {
 		t.Fatalf("expected disabled fixture device 201, got %d: %s", disabledDeviceRes.Code, disabledDeviceRes.Body.String())
@@ -1081,6 +1100,10 @@ func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 	if reusedDeactivateRes.Code != http.StatusOK {
 		t.Fatalf("expected idempotent deactivate 200, got %d: %s", reusedDeactivateRes.Code, reusedDeactivateRes.Body.String())
 	}
+	reusedDeactivate := decodeBody[operationBody](t, reusedDeactivateRes)
+	if reusedDeactivate.Operation.MessageID != deactivated.Operation.MessageID {
+		t.Fatalf("expected reused deactivate to keep message id, got first=%s second=%s", deactivated.Operation.MessageID, reusedDeactivate.Operation.MessageID)
+	}
 
 	conflictDeactivateRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/deactivate", map[string]any{
 		"operation_id": "deactivate-op-1",
@@ -1126,6 +1149,25 @@ func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 	}
 	if outboxCount != 1 {
 		t.Fatalf("expected one deactivate outbox row, got %d", outboxCount)
+	}
+
+	if _, err := env.db.Exec(context.Background(), `
+		UPDATE devices
+		SET metadata = '{}'::jsonb
+		WHERE id = $1
+	`, device.Device.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	reusedMissingMetadataRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/deactivate", map[string]any{
+		"operation_id": "deactivate-op-1",
+	}, admin.Tokens.AccessToken)
+	if reusedMissingMetadataRes.Code != http.StatusOK {
+		t.Fatalf("expected missing-metadata idempotent deactivate 200, got %d: %s", reusedMissingMetadataRes.Code, reusedMissingMetadataRes.Body.String())
+	}
+	reusedMissingMetadata := decodeBody[operationBody](t, reusedMissingMetadataRes)
+	if reusedMissingMetadata.Operation.MessageID != deactivated.Operation.MessageID {
+		t.Fatalf("expected missing-metadata retry to keep message id, got first=%s second=%s", deactivated.Operation.MessageID, reusedMissingMetadata.Operation.MessageID)
 	}
 
 	missingMetadataRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("plain-device", "DEACTIVATE-002"), owner.Tokens.AccessToken)

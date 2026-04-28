@@ -119,3 +119,62 @@ func TestValidationHelpersWriteErrors(t *testing.T) {
 		t.Fatalf("expected internal error 500, got %d", defaultRecorder.Code)
 	}
 }
+
+func TestMatchExistingProvisionOperation(t *testing.T) {
+	existing := model.DeviceOperation{
+		OperationID:    "provision-op-1",
+		CorrelationID:  "provision-op-1",
+		OrganizationID: "org-1",
+		DeviceID:       "device-1",
+		OperationType:  model.DeviceOperationTypeProvision,
+		RequestPayload: map[string]any{
+			"video_cloud_devid": "video-device-1",
+			"activity_id":       "activity-1",
+			"clip_public_key":   "clip-key-1",
+		},
+	}
+
+	if err := matchExistingProvisionOperation(existing, "provision-op-1", "org-1", "device-1", map[string]any{
+		"video_cloud_devid": "video-device-1",
+		"activity_id":       "activity-1",
+		"clip_public_key":   "clip-key-1",
+	}); err != nil {
+		t.Fatalf("expected matching provision payload to reuse operation, got %v", err)
+	}
+
+	if err := matchExistingProvisionOperation(existing, "provision-op-1", "org-1", "device-1", map[string]any{
+		"video_cloud_devid": "video-device-1",
+		"activity_id":       "activity-2",
+		"clip_public_key":   "clip-key-1",
+	}); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("expected conflicting provision payload to be rejected, got %v", err)
+	}
+}
+
+func TestMatchExistingDeactivateOperation(t *testing.T) {
+	existing := model.DeviceOperation{
+		OperationID:    "deactivate-op-1",
+		CorrelationID:  "deactivate-op-1",
+		OrganizationID: "org-1",
+		DeviceID:       "device-1",
+		OperationType:  model.DeviceOperationTypeDeactivate,
+		RequestPayload: map[string]any{
+			"video_cloud_devid": "video-device-1",
+			"reason":            "account_device_disabled",
+		},
+	}
+
+	if err := matchExistingDeactivateOperation(existing, "deactivate-op-1", "org-1", "device-1", "account_device_disabled", map[string]any{}); err != nil {
+		t.Fatalf("expected matching deactivate reason to reuse operation without live metadata, got %v", err)
+	}
+
+	if err := matchExistingDeactivateOperation(existing, "deactivate-op-1", "org-1", "device-1", "user_request", map[string]any{}); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("expected conflicting deactivate reason to be rejected, got %v", err)
+	}
+
+	if err := matchExistingDeactivateOperation(existing, "deactivate-op-1", "org-1", "device-1", "account_device_disabled", map[string]any{
+		model.DeviceMetadataVideoCloudDevid: "video-device-2",
+	}); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("expected conflicting live metadata to be rejected, got %v", err)
+	}
+}

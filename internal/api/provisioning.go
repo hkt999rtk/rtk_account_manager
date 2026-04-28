@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -72,17 +73,36 @@ func (s *Server) provisionDevice(c *gin.Context) {
 	if !ok {
 		return
 	}
-	messageID, err := newOpaqueID()
-	if err != nil {
-		writeError(c, http.StatusInternalServerError, "id_generation_failed", "Could not generate outbox message id")
-		return
-	}
+	hasExplicitOperationID := strings.TrimSpace(req.OperationID) != ""
 
 	requestPayload := map[string]any{
 		"video_cloud_devid": videoCloudDevid,
 		"activity_id":       activityID,
 		"clip_public_key":   clipPublicKey,
 	}
+	if hasExplicitOperationID {
+		if _, err := s.store.GetDevice(c.Request.Context(), c.Param("orgId"), c.Param("deviceId")); err != nil {
+			writeStoreError(c, err)
+			return
+		}
+		handled, err := s.writeExistingLifecycleOperationIfMatch(c, operationID, func(existing model.DeviceOperation) error {
+			return matchExistingProvisionOperation(existing, operationID, c.Param("orgId"), c.Param("deviceId"), requestPayload)
+		})
+		if err != nil {
+			writeStoreError(c, err)
+			return
+		}
+		if handled {
+			return
+		}
+	}
+
+	messageID, err := newOpaqueID()
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "id_generation_failed", "Could not generate outbox message id")
+		return
+	}
+
 	result, err := s.store.StartDeviceLifecycleOperation(c.Request.Context(), store.DeviceLifecycleOperationInput{
 		OperationID:       operationID,
 		CorrelationID:     operationID,
@@ -150,11 +170,29 @@ func (s *Server) deactivateDevice(c *gin.Context) {
 	if !ok {
 		return
 	}
+	hasExplicitOperationID := strings.TrimSpace(req.OperationID) != ""
 
 	device, err := s.store.GetDevice(c.Request.Context(), c.Param("orgId"), c.Param("deviceId"))
 	if err != nil {
 		writeStoreError(c, err)
 		return
+	}
+
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" {
+		reason = defaultDeactivationReason
+	}
+	if hasExplicitOperationID {
+		handled, err := s.writeExistingLifecycleOperationIfMatch(c, operationID, func(existing model.DeviceOperation) error {
+			return matchExistingDeactivateOperation(existing, operationID, c.Param("orgId"), c.Param("deviceId"), reason, device.Metadata)
+		})
+		if err != nil {
+			writeStoreError(c, err)
+			return
+		}
+		if handled {
+			return
+		}
 	}
 
 	videoCloudDevid, ok := metadataString(device.Metadata, model.DeviceMetadataVideoCloudDevid)
@@ -167,11 +205,6 @@ func (s *Server) deactivateDevice(c *gin.Context) {
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "id_generation_failed", "Could not generate outbox message id")
 		return
-	}
-
-	reason := strings.TrimSpace(req.Reason)
-	if reason == "" {
-		reason = defaultDeactivationReason
 	}
 
 	requestPayload := map[string]any{
@@ -208,6 +241,80 @@ func (s *Server) deactivateDevice(c *gin.Context) {
 		status = http.StatusOK
 	}
 	c.JSON(status, operationBody{Operation: operationFromResult(result.Operation, result.Message)})
+}
+
+func (s *Server) writeExistingLifecycleOperationIfMatch(c *gin.Context, operationID string, match func(model.DeviceOperation) error) (bool, error) {
+	operation, err := s.store.GetDeviceOperation(c.Request.Context(), operationID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if err := match(operation); err != nil {
+		return false, err
+	}
+
+	message, err := s.store.GetLatestOutboxMessageByOperationID(c.Request.Context(), operationID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return false, errors.New("existing lifecycle operation is missing an outbox message")
+		}
+		return false, err
+	}
+
+	c.JSON(http.StatusOK, operationBody{Operation: operationFromResult(operation, message)})
+	return true, nil
+}
+
+func matchExistingProvisionOperation(existing model.DeviceOperation, operationID, orgID, deviceID string, requestPayload map[string]any) error {
+	if err := matchExistingLifecycleOperation(existing, operationID, orgID, deviceID, model.DeviceOperationTypeProvision); err != nil {
+		return err
+	}
+	if !requestPayloadMatches(existing.RequestPayload, requestPayload, "video_cloud_devid", "activity_id", "clip_public_key") {
+		return store.ErrConflict
+	}
+	return nil
+}
+
+func matchExistingDeactivateOperation(existing model.DeviceOperation, operationID, orgID, deviceID, reason string, deviceMetadata map[string]any) error {
+	if err := matchExistingLifecycleOperation(existing, operationID, orgID, deviceID, model.DeviceOperationTypeDeactivate); err != nil {
+		return err
+	}
+	if !requestPayloadMatches(existing.RequestPayload, map[string]any{"reason": reason}, "reason") {
+		return store.ErrConflict
+	}
+
+	videoCloudDevid, ok := metadataString(deviceMetadata, model.DeviceMetadataVideoCloudDevid)
+	if ok && !requestPayloadMatches(existing.RequestPayload, map[string]any{"video_cloud_devid": videoCloudDevid}, "video_cloud_devid") {
+		return store.ErrConflict
+	}
+	return nil
+}
+
+func matchExistingLifecycleOperation(existing model.DeviceOperation, operationID, orgID, deviceID string, operationType model.DeviceOperationType) error {
+	if existing.OperationID != operationID ||
+		existing.CorrelationID != operationID ||
+		existing.OrganizationID != orgID ||
+		existing.DeviceID != deviceID ||
+		existing.OperationType != operationType {
+		return store.ErrConflict
+	}
+	return nil
+}
+
+func requestPayloadMatches(existing, want map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		existingValue, ok := metadataString(existing, key)
+		if !ok {
+			return false
+		}
+		wantValue, ok := metadataString(want, key)
+		if !ok || existingValue != wantValue {
+			return false
+		}
+	}
+	return true
 }
 
 func operationFromResult(operation model.DeviceOperation, message model.DeviceMessageOutbox) operationResponse {
