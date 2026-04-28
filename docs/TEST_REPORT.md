@@ -1,6 +1,6 @@
 # Test Report
 
-Generated: 2026-04-27T04:34:09Z
+Generated: 2026-04-28T17:26:39Z
 
 ## Summary
 
@@ -16,7 +16,7 @@ Generated: 2026-04-27T04:34:09Z
 
 | Metric | Value |
 | --- | --- |
-| Total statement coverage | 80.5% |
+| Total statement coverage | 81.8% |
 | Minimum required coverage | 80.0% |
 | Coverage mode | atomic |
 | Coverage scope | ./internal/... |
@@ -25,9 +25,9 @@ Generated: 2026-04-27T04:34:09Z
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 10 |
-| Test cases started | 31 |
-| JSON pass events | 37 |
+| Go packages | 12 |
+| Test cases started | 111 |
+| JSON pass events | 119 |
 | JSON fail events | 0 |
 | Integration database | Postgres via TEST_DATABASE_URL |
 
@@ -42,9 +42,15 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Organization access | Current-user organization listing, organization create/get/update, cross-organization organization access rejection. |
 | Member management | Owner add/update/remove/disable/enable member flows, admin/member forbidden paths, last-owner downgrade/remove/disable protection. |
 | Device lifecycle | Device create/list/get/update/status update/soft-delete, disabled-device read-only behavior, duplicate serial rejection, same serial in another org allowed. |
-| Authorization boundaries | owner/admin/member role permissions and cross-organization device/member access rejection. |
-| Database invariants | Idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, automatic updated_at triggers. |
-| OpenAPI contract | OpenAPI schema validation and representative response validation against `openapi.yaml`. |
+| Provisioning API | `TestIntegrationProvisioningEndpoints` verifies owner/admin initiation, member read-only access, transactional `device_operations` plus `device_message_outbox` writes, projected command payload shape, disabled-device rejection, and idempotent `operation_id` reuse. |
+| Deactivation API | `TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata` verifies projected metadata is required for new deactivation work, disabled account devices may still enqueue deactivation, default reason propagation, and transactional outbox creation from projected video metadata. |
+| Device scoping | Lifecycle endpoints reject cross-organization reads and writes without leaking foreign device access. |
+| Authorization boundaries | owner/admin/member role permissions are enforced across device CRUD, provisioning, deactivation, and member management paths. |
+| Operation idempotency | Reusing the same lifecycle `operation_id` returns the existing operation and preserves the original outbox `message_id`, including retries after device disablement or missing live metadata. |
+| Operation conflicts | Reusing a lifecycle `operation_id` with conflicting provision activity data or deactivation reason returns `409 Conflict`. |
+| Message validation | Envelope fields, supported `schema_version`, message-type/stream/service pairing, lifecycle UUIDs, UTC timestamps, and `partition_key` validation for cross-service messages. |
+| Database invariants | Idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, automatic `updated_at` triggers. |
+| OpenAPI contract | OpenAPI schema validation plus representative provisioning, provisioning-state, and deactivation response validation against `openapi.yaml`. |
 | Configuration and maintenance | `.env` loading, TTL parsing/fallbacks, required JWT secrets, refresh-token cleanup behavior. |
 
 ## Executed Test Cases
@@ -52,6 +58,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationCleanupRefreshTokensRemovesExpiredAndRevokedRows`
 - `rtk_account_manager/internal/api`: `TestIntegrationDatabaseMaintainsUpdatedAt`
 - `rtk_account_manager/internal/api`: `TestIntegrationDatabaseRejectsInvalidCoreData`
+- `rtk_account_manager/internal/api`: `TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata`
 - `rtk_account_manager/internal/api`: `TestIntegrationDisabledUserCannotUseExistingTokens`
 - `rtk_account_manager/internal/api`: `TestIntegrationLastOwnerCannotBeRemovedOrDowngraded`
 - `rtk_account_manager/internal/api`: `TestIntegrationListPaginationMetadata`
@@ -59,12 +66,15 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanDisableAndEnableMemberUser`
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanUpdateAndRemoveMember`
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanUpdateOrganization`
+- `rtk_account_manager/internal/api`: `TestIntegrationProvisioningEndpoints`
 - `rtk_account_manager/internal/api`: `TestIntegrationRegisterLoginRefreshAndLogout`
 - `rtk_account_manager/internal/api`: `TestIntegrationRejectsBlankNames`
 - `rtk_account_manager/internal/api`: `TestIntegrationResponsesMatchOpenAPIContract`
 - `rtk_account_manager/internal/api`: `TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness`
 - `rtk_account_manager/internal/api`: `TestIntegrationStoreRefreshTokenHelpers`
 - `rtk_account_manager/internal/api`: `TestIntegrationValidationAndNotFoundErrors`
+- `rtk_account_manager/internal/api`: `TestMatchExistingDeactivateOperation`
+- `rtk_account_manager/internal/api`: `TestMatchExistingProvisionOperation`
 - `rtk_account_manager/internal/api`: `TestPaginationClampsAndDefaultsValues`
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsInvalidToken`
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsMissingToken`
@@ -74,12 +84,88 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/auth`: `TestExpiredAndWrongSecretTokensFailParsing`
 - `rtk_account_manager/internal/auth`: `TestPasswordHashAndCheck`
 - `rtk_account_manager/internal/auth`: `TestTokenKindValidation`
+- `rtk_account_manager/internal/channel`: `TestDecodeStrictJSONRejectsMultipleJSONValues`
+- `rtk_account_manager/internal/channel`: `TestEnvelopeUnmarshalRejectsUnknownFields`
+- `rtk_account_manager/internal/channel`: `TestValidateAcceptsExplicitFalseRetryable/deactivate_failed`
+- `rtk_account_manager/internal/channel`: `TestValidateAcceptsExplicitFalseRetryable/provision_failed`
+- `rtk_account_manager/internal/channel`: `TestValidateAcceptsExplicitFalseRetryable`
+- `rtk_account_manager/internal/channel`: `TestValidateAndDecodeAcceptsEachMessageType/DeviceDeactivateFailed`
+- `rtk_account_manager/internal/channel`: `TestValidateAndDecodeAcceptsEachMessageType/DeviceDeactivateRequested`
+- `rtk_account_manager/internal/channel`: `TestValidateAndDecodeAcceptsEachMessageType/DeviceDeactivateSucceeded`
+- `rtk_account_manager/internal/channel`: `TestValidateAndDecodeAcceptsEachMessageType/DeviceMetadataChanged`
+- `rtk_account_manager/internal/channel`: `TestValidateAndDecodeAcceptsEachMessageType/DeviceOnlineChanged`
+- `rtk_account_manager/internal/channel`: `TestValidateAndDecodeAcceptsEachMessageType/DeviceProvisionFailed`
+- `rtk_account_manager/internal/channel`: `TestValidateAndDecodeAcceptsEachMessageType/DeviceProvisionRequested`
+- `rtk_account_manager/internal/channel`: `TestValidateAndDecodeAcceptsEachMessageType/DeviceProvisionSucceeded`
+- `rtk_account_manager/internal/channel`: `TestValidateAndDecodeAcceptsEachMessageType`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/missing_retryable_field/deactivate_failed`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/missing_retryable_field/provision_failed`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/missing_retryable_field`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/non-UTC_occurred_at`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/partition_key_mismatch`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/payload_timestamps_must_use_UTC/deactivate_failed`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/payload_timestamps_must_use_UTC/deactivate_succeeded`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/payload_timestamps_must_use_UTC/online_changed`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/payload_timestamps_must_use_UTC/provision_failed`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/payload_timestamps_must_use_UTC/provision_succeeded`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/payload_timestamps_must_use_UTC`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/payload_unknown_field`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/source_service_mismatch`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/stream_mismatch`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/target_service_mismatch`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/unknown_message_type`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches/unsupported_schema_version`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsEnvelopeContractMismatches`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsInvalidMessagesForEachType/DeviceDeactivateFailed`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsInvalidMessagesForEachType/DeviceDeactivateRequested`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsInvalidMessagesForEachType/DeviceDeactivateSucceeded`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsInvalidMessagesForEachType/DeviceMetadataChanged`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsInvalidMessagesForEachType/DeviceOnlineChanged`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsInvalidMessagesForEachType/DeviceProvisionFailed`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsInvalidMessagesForEachType/DeviceProvisionRequested`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsInvalidMessagesForEachType/DeviceProvisionSucceeded`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsInvalidMessagesForEachType`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsLifecycleIDsThatAreNotUUIDs/account_device_id/DeviceDeactivateFailed`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsLifecycleIDsThatAreNotUUIDs/account_device_id/DeviceDeactivateRequested`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsLifecycleIDsThatAreNotUUIDs/account_device_id/DeviceDeactivateSucceeded`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsLifecycleIDsThatAreNotUUIDs/account_device_id/DeviceMetadataChanged`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsLifecycleIDsThatAreNotUUIDs/account_device_id/DeviceOnlineChanged`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsLifecycleIDsThatAreNotUUIDs/account_device_id/DeviceProvisionFailed`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsLifecycleIDsThatAreNotUUIDs/account_device_id/DeviceProvisionRequested`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsLifecycleIDsThatAreNotUUIDs/account_device_id/DeviceProvisionSucceeded`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsLifecycleIDsThatAreNotUUIDs/account_device_id`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsLifecycleIDsThatAreNotUUIDs/org_id`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsLifecycleIDsThatAreNotUUIDs`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields/correlation_id`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields/message_id`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields/message_type`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields/occurred_at`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields/operation_id`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields/partition_key`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields/payload`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields/schema_version`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields/source_service`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields/target_service`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields`
 - `rtk_account_manager/internal/config`: `TestLoadDotEnvSetsMissingValuesAndPreservesExistingEnv`
 - `rtk_account_manager/internal/config`: `TestLoadFallsBackForInvalidDurations`
 - `rtk_account_manager/internal/config`: `TestLoadReadsEnvironmentAndDurations`
 - `rtk_account_manager/internal/config`: `TestLoadRequiresJWTSecrets`
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirMissing`
 - `rtk_account_manager/internal/openapi`: `TestOpenAPIContractIsValid`
+- `rtk_account_manager/internal/store`: `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`
+- `rtk_account_manager/internal/store`: `TestClaimOutboxMessagesReadyLeasesRows`
+- `rtk_account_manager/internal/store`: `TestCompareOperationCreate`
+- `rtk_account_manager/internal/store`: `TestCreateOrGetDeviceOperationIsIdempotent`
+- `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessageDeduplicates`
+- `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
+- `rtk_account_manager/internal/store`: `TestJSONHelpers`
+- `rtk_account_manager/internal/store`: `TestMergeDeviceMetadataPreservesUnrelatedFields`
+- `rtk_account_manager/internal/store`: `TestMetadataChangedProjectionFiltersNonVideoCloudKeys`
+- `rtk_account_manager/internal/store`: `TestOnlineChangedProjectionSetsStatusAndLastSeenAt`
+- `rtk_account_manager/internal/store`: `TestOutboxMessagePersistenceAndReadyList`
+- `rtk_account_manager/internal/store`: `TestProjectDeviceProvisioningAndOnlineRules`
+- `rtk_account_manager/internal/store`: `TestProjectDeviceRejectsDisabledDevicesExceptDeactivateResults`
 
 ## Commands
 
@@ -107,4 +193,4 @@ go build ./...
 
 - Command entry points under `cmd/*` are intentionally validated by `go build ./...`, not unit coverage.
 - Store and database behavior are primarily covered through API integration tests.
-- Add or update integration tests whenever authorization, membership, token, migration, or device lifecycle behavior changes.
+- Add or update tests whenever authorization, membership, token, migration, device lifecycle, or cross-service channel validation behavior changes.

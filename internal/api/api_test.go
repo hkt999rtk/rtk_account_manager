@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -112,10 +113,94 @@ func TestValidationHelpersWriteErrors(t *testing.T) {
 		t.Fatalf("expected disabled resource 409, got %d", errRecorder.Code)
 	}
 
+	notProvisionedRecorder := httptest.NewRecorder()
+	notProvisionedContext, _ := gin.CreateTestContext(notProvisionedRecorder)
+	writeStoreError(notProvisionedContext, store.ErrNotProvisioned)
+	if notProvisionedRecorder.Code != http.StatusConflict {
+		t.Fatalf("expected not provisioned resource 409, got %d", notProvisionedRecorder.Code)
+	}
+
 	defaultRecorder := httptest.NewRecorder()
 	defaultContext, _ := gin.CreateTestContext(defaultRecorder)
 	writeStoreError(defaultContext, errors.New("boom"))
 	if defaultRecorder.Code != http.StatusInternalServerError {
 		t.Fatalf("expected internal error 500, got %d", defaultRecorder.Code)
+	}
+
+	inconsistentRecorder := httptest.NewRecorder()
+	inconsistentContext, _ := gin.CreateTestContext(inconsistentRecorder)
+	writeStoreError(inconsistentContext, errOperationStateInconsistent)
+	if inconsistentRecorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected inconsistent operation state 500, got %d", inconsistentRecorder.Code)
+	}
+	var inconsistentBody struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(inconsistentRecorder.Body.Bytes(), &inconsistentBody); err != nil {
+		t.Fatalf("expected JSON error body, got %v", err)
+	}
+	if inconsistentBody.Error.Code != "operation_state_inconsistent" {
+		t.Fatalf("expected operation_state_inconsistent error code, got %+v", inconsistentBody)
+	}
+}
+
+func TestMatchExistingProvisionOperation(t *testing.T) {
+	existing := model.DeviceOperation{
+		OperationID:    "provision-op-1",
+		CorrelationID:  "provision-op-1",
+		OrganizationID: "org-1",
+		DeviceID:       "device-1",
+		OperationType:  model.DeviceOperationTypeProvision,
+		RequestPayload: map[string]any{
+			"video_cloud_devid": "video-device-1",
+			"activity_id":       "activity-1",
+			"clip_public_key":   "clip-key-1",
+		},
+	}
+
+	if err := matchExistingProvisionOperation(existing, "provision-op-1", "org-1", "device-1", map[string]any{
+		"video_cloud_devid": "video-device-1",
+		"activity_id":       "activity-1",
+		"clip_public_key":   "clip-key-1",
+	}); err != nil {
+		t.Fatalf("expected matching provision payload to reuse operation, got %v", err)
+	}
+
+	if err := matchExistingProvisionOperation(existing, "provision-op-1", "org-1", "device-1", map[string]any{
+		"video_cloud_devid": "video-device-1",
+		"activity_id":       "activity-2",
+		"clip_public_key":   "clip-key-1",
+	}); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("expected conflicting provision payload to be rejected, got %v", err)
+	}
+}
+
+func TestMatchExistingDeactivateOperation(t *testing.T) {
+	existing := model.DeviceOperation{
+		OperationID:    "deactivate-op-1",
+		CorrelationID:  "deactivate-op-1",
+		OrganizationID: "org-1",
+		DeviceID:       "device-1",
+		OperationType:  model.DeviceOperationTypeDeactivate,
+		RequestPayload: map[string]any{
+			"video_cloud_devid": "video-device-1",
+			"reason":            "account_device_disabled",
+		},
+	}
+
+	if err := matchExistingDeactivateOperation(existing, "deactivate-op-1", "org-1", "device-1", "account_device_disabled", map[string]any{}); err != nil {
+		t.Fatalf("expected matching deactivate reason to reuse operation without live metadata, got %v", err)
+	}
+
+	if err := matchExistingDeactivateOperation(existing, "deactivate-op-1", "org-1", "device-1", "user_request", map[string]any{}); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("expected conflicting deactivate reason to be rejected, got %v", err)
+	}
+
+	if err := matchExistingDeactivateOperation(existing, "deactivate-op-1", "org-1", "device-1", "account_device_disabled", map[string]any{
+		model.DeviceMetadataVideoCloudDevid: "video-device-2",
+	}); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("expected conflicting live metadata to be rejected, got %v", err)
 	}
 }
