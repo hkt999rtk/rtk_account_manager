@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -13,9 +12,8 @@ import (
 	"rtk_account_manager/internal/channel"
 	"rtk_account_manager/internal/database"
 	"rtk_account_manager/internal/model"
+	"rtk_account_manager/internal/testutil"
 )
-
-var projectionIntegrationLock sync.Mutex
 
 type projectionIntegrationEnv struct {
 	db    *pgxpool.Pool
@@ -37,14 +35,13 @@ func newProjectionIntegrationEnv(t *testing.T) projectionIntegrationEnv {
 	}
 	t.Cleanup(db.Close)
 
-	projectionIntegrationLock.Lock()
-	t.Cleanup(projectionIntegrationLock.Unlock)
+	testutil.LockIntegrationDatabase(t, db)
 
 	if err := database.Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		TRUNCATE refresh_tokens, devices, organization_members, organizations, users
+		TRUNCATE device_message_inbox, device_message_outbox, device_operations, refresh_tokens, devices, organization_members, organizations, users
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatal(err)
