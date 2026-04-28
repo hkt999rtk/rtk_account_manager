@@ -39,7 +39,7 @@ Milestone: `v2-provisioning-event-channel`
 | `[Docs] Add v2 implementation checklist and issue map` | P0 | `docs`, `v2` | None | planned | This document contains the issue map, dependency order, and status tracking. |
 | `[DB] Add device operations, outbox, and inbox persistence` | P1 | `database`, `backend`, `v2` | Docs issues | planned | Migrations and store methods for operation tracking, outbox publication state, and inbox dedupe. |
 | `[Domain] Add cross-service message envelope and payload validation` | P1 | `backend`, `v2` | Docs issues | in_progress | Envelope and payload types validate contract-required fields, stream/message types, schema version, and partition key. |
-| `[Device] Add metadata merge and projection primitives` | P1 | `backend`, `v2` | DB, Domain | planned | Store-level partial metadata merge and projection helpers for video metadata and online status. |
+| `[Device] Add metadata merge and projection primitives` | P1 | `backend`, `v2` | DB, Domain | in_progress | Store-level partial metadata merge and projection helpers for video metadata and online status. |
 | `[API] Add provisioning and deactivation endpoints` | P1 | `api`, `backend`, `v2` | DB, Domain, Device | planned | HTTP endpoints create/reuse operations and enqueue lifecycle command messages. |
 | `[Worker] Implement outbox publisher with local broker adapter` | P1 | `worker`, `backend`, `v2` | DB, Domain | planned | Independent worker publishes pending command messages and records retry/dead-letter state. |
 | `[Worker] Implement inbox consumer and account projection` | P1 | `worker`, `backend`, `v2` | DB, Domain, Device | planned | Independent worker deduplicates events and projects provisioning, deactivation, online, and metadata state. |
