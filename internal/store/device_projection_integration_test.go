@@ -201,6 +201,34 @@ func TestProjectDeviceRejectsDisabledDevicesExceptDeactivateResults(t *testing.T
 	if got := projected.Metadata["location"]; got != "rack-b" {
 		t.Fatalf("expected unrelated metadata to remain, got %+v", got)
 	}
+
+	failedAt := time.Date(2026, 4, 28, 12, 45, 0, 0, time.UTC)
+	failedProjection, err := env.store.ProjectDevice(context.Background(), registered.Organization.ID, device.ID, DeactivateFailedProjection(channel.DeviceDeactivateFailedPayload{
+		VideoCloudDevid: "video-disabled",
+		ErrorCode:       "upstream_timeout",
+		ErrorMessage:    "worker timed out",
+		Retryable:       true,
+		FailedAt:        failedAt,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failedProjection.Status != model.DeviceStatusDisabled {
+		t.Fatalf("expected disabled device status to remain disabled after failed deactivation, got %s", failedProjection.Status)
+	}
+	if got := failedProjection.Metadata["location"]; got != "rack-b" {
+		t.Fatalf("expected unrelated metadata to remain after failed deactivation, got %+v", got)
+	}
+	lastError, ok := failedProjection.Metadata[model.DeviceMetadataVideoCloudLastError].(map[string]any)
+	if !ok {
+		t.Fatalf("expected failed deactivation to record last_error metadata, got %+v", failedProjection.Metadata[model.DeviceMetadataVideoCloudLastError])
+	}
+	if got := lastError["code"]; got != "upstream_timeout" {
+		t.Fatalf("expected failure code in last_error metadata, got %+v", got)
+	}
+	if got, ok := lastError["failed_at"].(time.Time); !ok || !got.Equal(failedAt) {
+		t.Fatalf("expected failure timestamp in last_error metadata, got %+v", lastError["failed_at"])
+	}
 }
 
 func strPtr(value string) *string {

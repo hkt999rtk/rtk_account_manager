@@ -67,6 +67,7 @@ func DeactivateSucceededProjection(payload channel.DeviceDeactivateSucceededPayl
 
 func DeactivateFailedProjection(payload channel.DeviceDeactivateFailedPayload) DeviceProjectionInput {
 	return DeviceProjectionInput{
+		AllowDisabled: true,
 		Metadata: map[string]any{
 			model.DeviceMetadataVideoCloudDevid: payload.VideoCloudDevid,
 			model.DeviceMetadataVideoCloudLastError: map[string]any{
