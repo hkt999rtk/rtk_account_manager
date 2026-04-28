@@ -3,10 +3,12 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"rtk_account_manager/internal/channel"
 	"rtk_account_manager/internal/model"
 )
 
@@ -32,6 +34,17 @@ type DeviceLifecycleOperationResult struct {
 	Created   bool
 }
 
+type DeviceDeactivationOperationInput struct {
+	OperationID    string
+	CorrelationID  string
+	MessageID      string
+	OrganizationID string
+	DeviceID       string
+	RequestedBy    *string
+	Reason         string
+	Now            time.Time
+}
+
 func (s *Store) StartDeviceLifecycleOperation(ctx context.Context, in DeviceLifecycleOperationInput) (DeviceLifecycleOperationResult, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -43,6 +56,49 @@ func (s *Store) StartDeviceLifecycleOperation(ctx context.Context, in DeviceLife
 	if err != nil {
 		return DeviceLifecycleOperationResult{}, err
 	}
+	return startDeviceLifecycleOperationTx(ctx, tx, device, in)
+}
+
+func (s *Store) StartDeviceDeactivationOperation(ctx context.Context, in DeviceDeactivationOperationInput) (DeviceLifecycleOperationResult, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return DeviceLifecycleOperationResult{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	device, err := getDeviceForUpdateTx(ctx, tx, in.OrganizationID, in.DeviceID)
+	if err != nil {
+		return DeviceLifecycleOperationResult{}, err
+	}
+
+	videoCloudDevid, ok := lifecycleMetadataString(device.Metadata, model.DeviceMetadataVideoCloudDevid)
+	if !ok {
+		return DeviceLifecycleOperationResult{}, ErrNotProvisioned
+	}
+
+	return startDeviceLifecycleOperationTx(ctx, tx, device, DeviceLifecycleOperationInput{
+		OperationID:       in.OperationID,
+		CorrelationID:     in.CorrelationID,
+		MessageID:         in.MessageID,
+		OrganizationID:    in.OrganizationID,
+		DeviceID:          in.DeviceID,
+		OperationType:     model.DeviceOperationTypeDeactivate,
+		RequestedBy:       in.RequestedBy,
+		RequestPayload:    map[string]any{"video_cloud_devid": videoCloudDevid, "reason": in.Reason},
+		OutboxMessageType: string(channel.MessageTypeDeviceDeactivateRequested),
+		OutboxPayload: map[string]any{
+			"org_id":            in.OrganizationID,
+			"account_device_id": in.DeviceID,
+			"video_cloud_devid": videoCloudDevid,
+			"requested_by":      stringValue(in.RequestedBy),
+			"reason":            in.Reason,
+		},
+		AllowDisabled: true,
+		Now:           in.Now,
+	})
+}
+
+func startDeviceLifecycleOperationTx(ctx context.Context, tx pgx.Tx, device model.Device, in DeviceLifecycleOperationInput) (DeviceLifecycleOperationResult, error) {
 	if !in.AllowDisabled && device.DisabledAt != nil {
 		return DeviceLifecycleOperationResult{}, ErrDisabled
 	}
@@ -210,4 +266,24 @@ func getLatestOutboxMessageByOperationTx(ctx context.Context, tx pgx.Tx, operati
 		return model.DeviceMessageOutbox{}, ErrNotFound
 	}
 	return message, err
+}
+
+func lifecycleMetadataString(metadata map[string]any, key string) (string, bool) {
+	value, ok := metadata[key]
+	if !ok {
+		return "", false
+	}
+	text, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	text = strings.TrimSpace(text)
+	return text, text != ""
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

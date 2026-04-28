@@ -112,6 +112,13 @@ func TestValidationHelpersWriteErrors(t *testing.T) {
 		t.Fatalf("expected disabled resource 409, got %d", errRecorder.Code)
 	}
 
+	notProvisionedRecorder := httptest.NewRecorder()
+	notProvisionedContext, _ := gin.CreateTestContext(notProvisionedRecorder)
+	writeStoreError(notProvisionedContext, store.ErrNotProvisioned)
+	if notProvisionedRecorder.Code != http.StatusConflict {
+		t.Fatalf("expected not provisioned resource 409, got %d", notProvisionedRecorder.Code)
+	}
+
 	defaultRecorder := httptest.NewRecorder()
 	defaultContext, _ := gin.CreateTestContext(defaultRecorder)
 	writeStoreError(defaultContext, errors.New("boom"))
