@@ -67,6 +67,7 @@ Backend account and device manager for organization-scoped users and registry-on
 The API listens on `http://localhost:8080` by default. The OpenAPI contract is in `openapi.yaml`.
 List endpoints accept `limit` and `offset` query parameters and return pagination metadata.
 Testing policy and report maintenance are documented in `docs/TESTING.md`.
+Provisioning and account/video EventHub-style integration are planned in `docs/PROVISIONING_AND_EVENT_CHANNEL_PLAN.md` and aligned with the `contracts/` submodule.
 
 ## Smoke Test
 

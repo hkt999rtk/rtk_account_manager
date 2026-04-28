@@ -6,6 +6,8 @@ Build a backend account and device manager similar in spirit to Amazon IoT Devic
 
 The v1 service is a REST API backend only. It stores account and device state in Postgres and provides authentication, organization membership, role-based authorization, and registry-only device management.
 
+Provisioning and account/video EventHub-style integration are planned as the next major scope. The implementation plan is maintained in [PROVISIONING_AND_EVENT_CHANNEL_PLAN.md](PROVISIONING_AND_EVENT_CHANNEL_PLAN.md) and must stay aligned with the shared contracts in `contracts/PROVISION.md` and `contracts/CROSS_SERVICE_CHANNEL.md`.
+
 ## 2. V1 Scope
 
 ### Included
@@ -37,10 +39,34 @@ The v1 service is a REST API backend only. It stores account and device state in
 - Camera streaming.
 - Telemetry ingestion.
 - Device command dispatch.
-- Device self-registration or provisioning flows.
+- Device self-registration or provisioning flows in v1.
 - Device certificate management.
 - Custom RBAC permissions.
 - Multi-region deployment concerns.
+
+## 2.1 Planned V2 Scope: Provisioning And Cross-Service Channel
+
+The shared contracts in `contracts/` define the next product-level integration boundary between account manager, Realtek video server, and an independent cross-service channel runtime.
+
+V2 should add:
+
+- Account-side provisioning operation APIs for organization-owned registry devices.
+- Explicit account-manager to Realtek video server identity mapping, especially `video_cloud_devid`.
+- Cross-service command publication to `account.video.commands`.
+- Cross-service event consumption from `video.account.events`.
+- Idempotent operation tracking with `operation_id`.
+- Outbox/inbox persistence for at-least-once delivery.
+- Retry and dead-letter state for failed cross-service messages.
+- Account-side projection of provisioning, deactivation, online-state, and selected metadata events.
+- Metadata merge support so cross-service projections do not overwrite unrelated device metadata.
+- A broker adapter boundary so Azure Event Hubs or an equivalent broker can be used behind the same contract.
+
+V2 must not:
+
+- Merge the cross-service channel runtime into the account-manager API process.
+- Treat Realtek video server activation as equivalent to account-manager `online` status.
+- Use Realtek video server `POST /setup_eventhub` as the account/video cross-service channel.
+- Assume account-manager device UUID and Realtek video server `devid` are the same unless deliberately configured by integration.
 
 ## 3. Core Concepts
 

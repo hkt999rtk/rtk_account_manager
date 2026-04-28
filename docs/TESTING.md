@@ -33,6 +33,7 @@ Update tests whenever changing:
 - Authentication, JWT, refresh-token, logout, or disabled-user behavior.
 - Organization membership, owner/admin/member authorization, or last-owner rules.
 - Device lifecycle behavior, status changes, soft-delete behavior, or organization scoping.
+- Provisioning, deactivation, outbox, inbox, broker adapter, or cross-service projection behavior.
 - SQL migrations, database constraints, or timestamp triggers.
 - OpenAPI request/response contracts.
 - Configuration loading or local development commands.
@@ -64,6 +65,7 @@ When adding a feature, do not rely on line coverage alone. Add assertions for:
 - Database side effects and constraints.
 - Role and organization boundary behavior.
 - Token lifecycle behavior.
+- Outbox/inbox idempotency and retry/dead-letter behavior.
 - OpenAPI response compatibility when API payloads change.
 
 ## CI
