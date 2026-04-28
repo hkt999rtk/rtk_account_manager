@@ -1,9 +1,11 @@
 package channel
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 )
@@ -50,6 +52,18 @@ type Envelope struct {
 	PartitionKey  string          `json:"partition_key"`
 	OccurredAt    time.Time       `json:"occurred_at"`
 	Payload       json.RawMessage `json:"payload"`
+}
+
+func (e *Envelope) UnmarshalJSON(data []byte) error {
+	type envelopeAlias Envelope
+
+	var decoded envelopeAlias
+	if err := decodeStrictJSON(data, &decoded); err != nil {
+		return err
+	}
+
+	*e = Envelope(decoded)
+	return nil
 }
 
 type Payload interface {
@@ -229,6 +243,9 @@ func (e Envelope) ValidateAndDecode(expectedStream string) (Payload, error) {
 	if e.OccurredAt.IsZero() {
 		return nil, fieldError("occurred_at", "must be set")
 	}
+	if err := validateUTC("occurred_at", e.OccurredAt); err != nil {
+		return nil, err
+	}
 	if len(e.Payload) == 0 {
 		return nil, fieldError("payload", "must be set")
 	}
@@ -251,7 +268,7 @@ func (e Envelope) ValidateAndDecode(expectedStream string) (Payload, error) {
 	}
 
 	payload := spec.newPayload()
-	if err := json.Unmarshal(e.Payload, payload); err != nil {
+	if err := decodeStrictJSON(e.Payload, payload); err != nil {
 		return nil, fmt.Errorf("payload: %w", err)
 	}
 	if err := payload.Validate(); err != nil {
@@ -427,6 +444,29 @@ func requireNonBlank(field, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fieldError(field, "must be non-empty")
 	}
+	return nil
+}
+
+func validateUTC(field string, value time.Time) error {
+	_, offset := value.Zone()
+	if offset != 0 {
+		return fieldError(field, "must use UTC")
+	}
+	return nil
+}
+
+func decodeStrictJSON(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return errors.New("must contain a single JSON value")
+	}
+
 	return nil
 }
 

@@ -360,6 +360,73 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 			t.Fatalf("expected partition key mismatch error, got %v", err)
 		}
 	})
+
+	t.Run("non-UTC occurred at", func(t *testing.T) {
+		t.Parallel()
+
+		envelope := validEnvelope(MessageTypeDeviceOnlineChanged, DeviceOnlineChangedPayload{
+			OrgID:           "org-1",
+			AccountDeviceID: "device-1",
+			VideoCloudDevid: "video-1",
+			Status:          OnlineStatusOnline,
+			LastSeenAt:      testTime,
+		})
+		envelope.OccurredAt = time.Date(2026, 4, 28, 20, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+
+		err := envelope.Validate(StreamVideoAccountEvents)
+		if err == nil || !strings.Contains(err.Error(), "occurred_at must use UTC") {
+			t.Fatalf("expected UTC timestamp error, got %v", err)
+		}
+	})
+
+	t.Run("payload unknown field", func(t *testing.T) {
+		t.Parallel()
+
+		envelope := validEnvelope(MessageTypeDeviceProvisionRequested, DeviceProvisionRequestedPayload{
+			OrgID:           "org-1",
+			AccountDeviceID: "device-1",
+			VideoCloudDevid: "video-1",
+			ActivityID:      "activity-1",
+			ClipPublicKey:   "clip-key",
+			RequestedBy:     "user-1",
+		})
+		envelope.Payload = json.RawMessage(`{
+			"org_id":"org-1",
+			"account_device_id":"device-1",
+			"video_cloud_devid":"video-1",
+			"activity_id":"activity-1",
+			"clip_public_key":"clip-key",
+			"requested_by":"user-1",
+			"unexpected":"value"
+		}`)
+
+		err := envelope.Validate(StreamAccountVideoCommands)
+		if err == nil || !strings.Contains(err.Error(), `payload: json: unknown field "unexpected"`) {
+			t.Fatalf("expected unknown payload field error, got %v", err)
+		}
+	})
+}
+
+func TestEnvelopeUnmarshalRejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+
+	var envelope Envelope
+	err := json.Unmarshal([]byte(`{
+		"message_id":"msg-1",
+		"correlation_id":"corr-1",
+		"operation_id":"op-1",
+		"source_service":"rtk_account_manager",
+		"target_service":"realtek_video_server",
+		"message_type":"DeviceProvisionRequested",
+		"schema_version":"1.0",
+		"partition_key":"device-1",
+		"occurred_at":"2026-04-28T12:00:00Z",
+		"payload":{},
+		"unexpected":"value"
+	}`), &envelope)
+	if err == nil || !strings.Contains(err.Error(), `json: unknown field "unexpected"`) {
+		t.Fatalf("expected unknown field error, got %v", err)
+	}
 }
 
 func validEnvelope(messageType MessageType, payload any) Envelope {
