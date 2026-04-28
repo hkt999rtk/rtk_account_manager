@@ -226,8 +226,8 @@ func TestProjectDeviceRejectsDisabledDevicesExceptDeactivateResults(t *testing.T
 	if got := lastError["code"]; got != "upstream_timeout" {
 		t.Fatalf("expected failure code in last_error metadata, got %+v", got)
 	}
-	if got, ok := lastError["failed_at"].(time.Time); !ok || !got.Equal(failedAt) {
-		t.Fatalf("expected failure timestamp in last_error metadata, got %+v", lastError["failed_at"])
+	if got := lastError["failed_at"]; got != failedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("expected failure timestamp in last_error metadata, got %+v", got)
 	}
 }
 
