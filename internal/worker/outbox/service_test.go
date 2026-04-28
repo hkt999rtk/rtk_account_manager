@@ -13,8 +13,9 @@ import (
 )
 
 type fakeStore struct {
-	claimed     []model.DeviceMessageOutbox
-	transitions []store.OutboxPublishTransitionInput
+	claimed       []model.DeviceMessageOutbox
+	transitions   []store.OutboxPublishTransitionInput
+	transitionErr error
 }
 
 func (s *fakeStore) ClaimOutboxMessagesReady(_ context.Context, _ time.Time, _ time.Time, _ int) ([]model.DeviceMessageOutbox, error) {
@@ -23,7 +24,7 @@ func (s *fakeStore) ClaimOutboxMessagesReady(_ context.Context, _ time.Time, _ t
 
 func (s *fakeStore) RecordOutboxPublishTransition(_ context.Context, in store.OutboxPublishTransitionInput) (store.OutboxPublishTransitionResult, error) {
 	s.transitions = append(s.transitions, in)
-	return store.OutboxPublishTransitionResult{}, nil
+	return store.OutboxPublishTransitionResult{}, s.transitionErr
 }
 
 type fakePublisher struct {
@@ -61,6 +62,15 @@ func TestRunOnceMarksSuccessfulPublishes(t *testing.T) {
 	transition := outboxStore.transitions[0]
 	if transition.MessageStatus != model.DeviceMessageOutboxStatusPublished {
 		t.Fatalf("expected published status, got %s", transition.MessageStatus)
+	}
+	if transition.ExpectedMessageStatus != model.DeviceMessageOutboxStatusPending {
+		t.Fatalf("expected pending claim status, got %s", transition.ExpectedMessageStatus)
+	}
+	if transition.ExpectedAttemptCount != 0 {
+		t.Fatalf("expected prior attempt count 0, got %d", transition.ExpectedAttemptCount)
+	}
+	if !transition.ExpectedAvailableAt.Equal(now) {
+		t.Fatalf("expected claim lease timestamp %s, got %s", now, transition.ExpectedAvailableAt)
 	}
 	if transition.OperationStatus != model.DeviceOperationStatusPublished {
 		t.Fatalf("expected operation published status, got %s", transition.OperationStatus)
@@ -149,6 +159,31 @@ func TestRunOnceDeadLettersInvalidOutboxPayload(t *testing.T) {
 	}
 	if stats.DeadLettered != 1 {
 		t.Fatalf("unexpected stats: %+v", stats)
+	}
+}
+
+func TestRunOnceIgnoresStaleLeaseTransitionConflict(t *testing.T) {
+	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	outboxStore := &fakeStore{
+		claimed:       []model.DeviceMessageOutbox{validMessage(now)},
+		transitionErr: store.ErrConflict,
+	}
+
+	service := NewService(outboxStore, fakePublisher{}, Options{
+		MaxAttempts:   5,
+		LeaseDuration: 30 * time.Second,
+		Now:           func() time.Time { return now },
+	})
+
+	stats, err := service.RunOnce(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Claimed != 1 || stats.Published != 0 || stats.Retrying != 0 || stats.DeadLettered != 0 {
+		t.Fatalf("expected stale-lease conflict to be a no-op, got %+v", stats)
+	}
+	if len(outboxStore.transitions) != 1 {
+		t.Fatalf("expected one attempted transition, got %d", len(outboxStore.transitions))
 	}
 }
 

@@ -501,6 +501,9 @@ func TestRecordOutboxPublishTransitionUpdatesOperationState(t *testing.T) {
 	retryable := false
 	result, err := env.store.RecordOutboxPublishTransition(ctx, OutboxPublishTransitionInput{
 		MessageID:             "transition-msg",
+		ExpectedMessageStatus: model.DeviceMessageOutboxStatusPending,
+		ExpectedAttemptCount:  0,
+		ExpectedAvailableAt:   now,
 		MessageStatus:         model.DeviceMessageOutboxStatusDeadLettered,
 		AttemptCount:          3,
 		LastError:             stringPtr("publish failed"),
@@ -522,6 +525,124 @@ func TestRecordOutboxPublishTransitionUpdatesOperationState(t *testing.T) {
 	}
 	if result.Operation.CompletedAt == nil || !result.Operation.CompletedAt.Equal(deadLetterAt) {
 		t.Fatalf("expected completed_at to be set, got %+v", result.Operation.CompletedAt)
+	}
+}
+
+func TestRecordOutboxPublishTransitionRejectsStaleLease(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	orgID, userID, deviceID := createDeviceFixture(t, env)
+
+	ctx := context.Background()
+	op, _, err := env.store.CreateOrGetDeviceOperation(ctx, DeviceOperationCreateInput{
+		OperationID:    "op-stale-transition",
+		CorrelationID:  "corr-stale-transition",
+		OrganizationID: orgID,
+		DeviceID:       deviceID,
+		OperationType:  model.DeviceOperationTypeProvision,
+		Status:         model.DeviceOperationStatusPending,
+		RequestedBy:    &userID,
+		RequestPayload: map[string]any{"video_cloud_devid": "device-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	readyAt := time.Now().UTC().Truncate(time.Microsecond)
+	if _, err := env.store.CreateOutboxMessage(ctx, DeviceMessageOutboxCreateInput{
+		MessageID:     "stale-transition-msg",
+		OperationID:   op.OperationID,
+		CorrelationID: op.CorrelationID,
+		Stream:        "account.video.commands",
+		MessageType:   "DeviceProvisionRequested",
+		SchemaVersion: "1.0",
+		PartitionKey:  deviceID,
+		Payload:       map[string]any{"operation_id": op.OperationID},
+		Status:        model.DeviceMessageOutboxStatusPending,
+		AvailableAt:   readyAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	firstLeaseUntil := readyAt.Add(30 * time.Second)
+	firstClaim, err := env.store.ClaimOutboxMessagesReady(ctx, readyAt, firstLeaseUntil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(firstClaim) != 1 {
+		t.Fatalf("expected one first claim, got %+v", firstClaim)
+	}
+
+	secondLeaseUntil := firstLeaseUntil.Add(30 * time.Second)
+	secondClaim, err := env.store.ClaimOutboxMessagesReady(ctx, firstLeaseUntil, secondLeaseUntil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(secondClaim) != 1 {
+		t.Fatalf("expected lease-expired row to be reclaimable, got %+v", secondClaim)
+	}
+
+	publishedAt := secondLeaseUntil.Add(time.Second)
+	result, err := env.store.RecordOutboxPublishTransition(ctx, OutboxPublishTransitionInput{
+		MessageID:             secondClaim[0].MessageID,
+		ExpectedMessageStatus: secondClaim[0].Status,
+		ExpectedAttemptCount:  secondClaim[0].AttemptCount,
+		ExpectedAvailableAt:   secondClaim[0].AvailableAt,
+		MessageStatus:         model.DeviceMessageOutboxStatusPublished,
+		AttemptCount:          secondClaim[0].AttemptCount + 1,
+		AvailableAt:           publishedAt,
+		PublishedAt:           &publishedAt,
+		OperationStatus:       model.DeviceOperationStatusPublished,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Message.Status != model.DeviceMessageOutboxStatusPublished {
+		t.Fatalf("expected published result, got %+v", result.Message)
+	}
+
+	retryable := false
+	_, staleErr := env.store.RecordOutboxPublishTransition(ctx, OutboxPublishTransitionInput{
+		MessageID:             firstClaim[0].MessageID,
+		ExpectedMessageStatus: firstClaim[0].Status,
+		ExpectedAttemptCount:  firstClaim[0].AttemptCount,
+		ExpectedAvailableAt:   firstClaim[0].AvailableAt,
+		MessageStatus:         model.DeviceMessageOutboxStatusDeadLettered,
+		AttemptCount:          firstClaim[0].AttemptCount + 1,
+		LastError:             stringPtr("stale worker lost lease"),
+		AvailableAt:           publishedAt,
+		OperationStatus:       model.DeviceOperationStatusDeadLettered,
+		OperationErrorCode:    stringPtr("publish_failed"),
+		OperationErrorMessage: stringPtr("stale worker lost lease"),
+		OperationRetryable:    &retryable,
+		OperationCompletedAt:  &publishedAt,
+	})
+	if !errors.Is(staleErr, ErrConflict) {
+		t.Fatalf("expected stale lease conflict, got %v", staleErr)
+	}
+
+	storedMessage, err := env.store.GetOutboxMessage(ctx, "stale-transition-msg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedMessage.Status != model.DeviceMessageOutboxStatusPublished {
+		t.Fatalf("expected published message to remain intact, got %+v", storedMessage)
+	}
+	if storedMessage.AttemptCount != 1 {
+		t.Fatalf("expected published attempt count to stay 1, got %+v", storedMessage)
+	}
+	if storedMessage.PublishedAt == nil || !storedMessage.PublishedAt.Equal(publishedAt) {
+		t.Fatalf("expected published timestamp to be preserved, got %+v", storedMessage.PublishedAt)
+	}
+
+	storedOperation, err := env.store.GetDeviceOperation(ctx, op.OperationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedOperation.Status != model.DeviceOperationStatusPublished {
+		t.Fatalf("expected published operation to remain intact, got %+v", storedOperation)
+	}
+	if storedOperation.CompletedAt != nil {
+		t.Fatalf("expected published operation to remain incomplete, got %+v", storedOperation.CompletedAt)
 	}
 }
 
