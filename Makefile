@@ -1,4 +1,4 @@
-.PHONY: tidy test integration-test test-report run run-outbox-worker db-up db-down migrate cleanup-tokens
+.PHONY: tidy test integration-test test-report run run-outbox-worker run-inbox-worker db-up db-down migrate cleanup-tokens
 
 tidy:
 	go mod tidy
@@ -17,6 +17,9 @@ run:
 
 run-outbox-worker:
 	go run ./cmd/outbox-worker
+
+run-inbox-worker:
+	go run ./cmd/inbox-worker
 
 db-up:
 	docker compose up -d postgres
