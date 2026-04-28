@@ -671,6 +671,13 @@ func TestValidateRejectsMissingEnvelopeFields(t *testing.T) {
 			wantMessage: "schema_version must be non-empty",
 		},
 		{
+			name: "message type",
+			mutate: func(envelope *Envelope) {
+				envelope.MessageType = ""
+			},
+			wantMessage: "message_type must be non-empty",
+		},
+		{
 			name: "partition key",
 			mutate: func(envelope *Envelope) {
 				envelope.PartitionKey = ""

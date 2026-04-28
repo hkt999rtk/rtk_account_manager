@@ -237,6 +237,9 @@ func (e Envelope) ValidateAndDecode(expectedStream string) (Payload, error) {
 	if err := requireNonBlank("target_service", e.TargetService); err != nil {
 		return nil, err
 	}
+	if err := requireNonBlank("message_type", string(e.MessageType)); err != nil {
+		return nil, err
+	}
 	if err := requireNonBlank("schema_version", e.SchemaVersion); err != nil {
 		return nil, err
 	}
