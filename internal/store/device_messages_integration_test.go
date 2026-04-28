@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"rtk_account_manager/internal/channel"
 	"rtk_account_manager/internal/database"
 	"rtk_account_manager/internal/model"
 	"rtk_account_manager/internal/testutil"
@@ -525,6 +526,88 @@ func TestRecordOutboxPublishTransitionUpdatesOperationState(t *testing.T) {
 	}
 }
 
+func TestRecordInboxProcessTransitionUpdatesOperationAndProjection(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	orgID, userID, deviceID := createDeviceFixture(t, env)
+
+	ctx := context.Background()
+	op, _, err := env.store.CreateOrGetDeviceOperation(ctx, DeviceOperationCreateInput{
+		OperationID:    "op-inbox-transition",
+		CorrelationID:  "corr-inbox-transition",
+		OrganizationID: orgID,
+		DeviceID:       deviceID,
+		OperationType:  model.DeviceOperationTypeProvision,
+		Status:         model.DeviceOperationStatusPublished,
+		RequestedBy:    &userID,
+		RequestPayload: map[string]any{"video_cloud_devid": "device-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	receivedAt := time.Now().UTC().Truncate(time.Microsecond)
+	if _, _, err := env.store.CreateOrGetInboxMessage(ctx, DeviceMessageInboxCreateInput{
+		MessageID:     "evt-transition",
+		OperationID:   op.OperationID,
+		CorrelationID: op.CorrelationID,
+		Stream:        "video.account.events",
+		MessageType:   "DeviceProvisionSucceeded",
+		SchemaVersion: "1.0",
+		PartitionKey:  deviceID,
+		Payload: map[string]any{
+			"video_cloud_devid": "device-1",
+			"activity_id":       "activity-1",
+		},
+		Status:       model.DeviceMessageInboxStatusRetrying,
+		AttemptCount: 0,
+		ReceivedAt:   receivedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	activatedAt := receivedAt.Add(time.Minute)
+	processedAt := activatedAt.Add(time.Second)
+	result, err := env.store.RecordInboxProcessTransition(ctx, InboxProcessTransitionInput{
+		MessageID:            "evt-transition",
+		MessageStatus:        model.DeviceMessageInboxStatusProcessed,
+		AttemptCount:         1,
+		ProcessedAt:          &processedAt,
+		OperationStatus:      ptrTo(model.DeviceOperationStatusSucceeded),
+		OperationResult:      map[string]any{"video_cloud_devid": "device-1", "activity_id": "activity-1"},
+		OperationCompletedAt: &activatedAt,
+		OrganizationID:       orgID,
+		DeviceID:             deviceID,
+		Projection:           ptrTo(ProvisionSucceededProjection(channel.DeviceProvisionSucceededPayload{VideoCloudDevid: "device-1", ActivityID: "activity-1", ActivatedAt: activatedAt})),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Message.Status != model.DeviceMessageInboxStatusProcessed {
+		t.Fatalf("expected processed inbox status, got %s", result.Message.Status)
+	}
+	if result.Message.ProcessedAt == nil || !result.Message.ProcessedAt.Equal(processedAt) {
+		t.Fatalf("expected inbox processed_at to be set, got %+v", result.Message.ProcessedAt)
+	}
+	if result.Operation == nil || result.Operation.Status != model.DeviceOperationStatusSucceeded {
+		t.Fatalf("expected succeeded operation, got %+v", result.Operation)
+	}
+	if result.Operation.CompletedAt == nil || !result.Operation.CompletedAt.Equal(activatedAt) {
+		t.Fatalf("expected completed operation timestamp, got %+v", result.Operation.CompletedAt)
+	}
+	if got := result.Operation.ResultPayload["video_cloud_devid"]; got != "device-1" {
+		t.Fatalf("expected operation result payload to be stored, got %+v", result.Operation.ResultPayload)
+	}
+	if result.Device == nil {
+		t.Fatal("expected projected device")
+	}
+	if got := result.Device.Metadata[model.DeviceMetadataVideoCloudDevid]; got != "device-1" {
+		t.Fatalf("expected projected video_cloud_devid, got %+v", got)
+	}
+	if got := result.Device.Metadata[model.DeviceMetadataVideoCloudActivationStatus]; got != string(model.VideoCloudActivationStatusActivated) {
+		t.Fatalf("expected activated projection metadata, got %+v", got)
+	}
+}
+
 func TestCreateOrGetInboxMessageDeduplicates(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	orgID, userID, deviceID := createDeviceFixture(t, env)
@@ -640,6 +723,10 @@ func TestCreateOrGetInboxMessageDeduplicates(t *testing.T) {
 }
 
 func stringPtr(value string) *string {
+	return &value
+}
+
+func ptrTo[T any](value T) *T {
 	return &value
 }
 
