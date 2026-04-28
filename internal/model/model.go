@@ -27,6 +27,23 @@ const (
 	DeviceStatusDisabled DeviceStatus = "disabled"
 )
 
+type VideoCloudActivationStatus string
+
+const (
+	VideoCloudActivationStatusActivated   VideoCloudActivationStatus = "activated"
+	VideoCloudActivationStatusFailed      VideoCloudActivationStatus = "failed"
+	VideoCloudActivationStatusDeactivated VideoCloudActivationStatus = "deactivated"
+)
+
+const (
+	DeviceMetadataVideoCloudDevid            = "video_cloud_devid"
+	DeviceMetadataVideoCloudActivationStatus = "video_cloud_activation_status"
+	DeviceMetadataVideoCloudActivityID       = "video_cloud_activity_id"
+	DeviceMetadataVideoCloudActivatedAt      = "video_cloud_activated_at"
+	DeviceMetadataVideoCloudDeactivatedAt    = "video_cloud_deactivated_at"
+	DeviceMetadataVideoCloudLastError        = "video_cloud_last_error"
+)
+
 type DeviceOperationType string
 
 const (
