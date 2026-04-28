@@ -10,6 +10,11 @@ import (
 
 var testTime = time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
 
+const (
+	testOrgID    = "11111111-1111-1111-1111-111111111111"
+	testDeviceID = "22222222-2222-2222-2222-222222222222"
+)
+
 func TestValidateAndDecodeAcceptsEachMessageType(t *testing.T) {
 	t.Parallel()
 
@@ -22,8 +27,8 @@ func TestValidateAndDecodeAcceptsEachMessageType(t *testing.T) {
 		{
 			name: "DeviceProvisionRequested",
 			envelope: validEnvelope(MessageTypeDeviceProvisionRequested, DeviceProvisionRequestedPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				ActivityID:      "activity-1",
 				ClipPublicKey:   "clip-key",
@@ -35,8 +40,8 @@ func TestValidateAndDecodeAcceptsEachMessageType(t *testing.T) {
 		{
 			name: "DeviceProvisionSucceeded",
 			envelope: validEnvelope(MessageTypeDeviceProvisionSucceeded, DeviceProvisionSucceededPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				ActivityID:      "activity-1",
 				ActivatedAt:     testTime,
@@ -47,8 +52,8 @@ func TestValidateAndDecodeAcceptsEachMessageType(t *testing.T) {
 		{
 			name: "DeviceProvisionFailed",
 			envelope: validEnvelope(MessageTypeDeviceProvisionFailed, DeviceProvisionFailedPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				ActivityID:      "activity-1",
 				ErrorCode:       "activation_failed",
@@ -62,8 +67,8 @@ func TestValidateAndDecodeAcceptsEachMessageType(t *testing.T) {
 		{
 			name: "DeviceDeactivateRequested",
 			envelope: validEnvelope(MessageTypeDeviceDeactivateRequested, DeviceDeactivateRequestedPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				RequestedBy:     "user-1",
 				Reason:          "account_device_disabled",
@@ -74,8 +79,8 @@ func TestValidateAndDecodeAcceptsEachMessageType(t *testing.T) {
 		{
 			name: "DeviceDeactivateSucceeded",
 			envelope: validEnvelope(MessageTypeDeviceDeactivateSucceeded, DeviceDeactivateSucceededPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				DeactivatedAt:   testTime,
 			}),
@@ -85,8 +90,8 @@ func TestValidateAndDecodeAcceptsEachMessageType(t *testing.T) {
 		{
 			name: "DeviceDeactivateFailed",
 			envelope: validEnvelope(MessageTypeDeviceDeactivateFailed, DeviceDeactivateFailedPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				ErrorCode:       "deactivation_failed",
 				ErrorMessage:    "deactivation failed",
@@ -99,8 +104,8 @@ func TestValidateAndDecodeAcceptsEachMessageType(t *testing.T) {
 		{
 			name: "DeviceOnlineChanged",
 			envelope: validEnvelope(MessageTypeDeviceOnlineChanged, DeviceOnlineChangedPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				Status:          OnlineStatusOnline,
 				LastSeenAt:      testTime,
@@ -111,8 +116,8 @@ func TestValidateAndDecodeAcceptsEachMessageType(t *testing.T) {
 		{
 			name: "DeviceMetadataChanged",
 			envelope: validEnvelope(MessageTypeDeviceMetadataChanged, DeviceMetadataChangedPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				Metadata: map[string]any{
 					"video_cloud_activation_status": "activated",
@@ -132,8 +137,8 @@ func TestValidateAndDecodeAcceptsEachMessageType(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ValidateAndDecode() error = %v", err)
 			}
-			if payload.PartitionKey() != "device-1" {
-				t.Fatalf("expected account device id device-1, got %q", payload.PartitionKey())
+			if payload.PartitionKey() != testDeviceID {
+				t.Fatalf("expected account device id %s, got %q", testDeviceID, payload.PartitionKey())
 			}
 			if reflect.TypeOf(payload) != reflect.TypeOf(tt.wantPayload) {
 				t.Fatalf("expected payload type %T, got %T", tt.wantPayload, payload)
@@ -154,8 +159,8 @@ func TestValidateRejectsInvalidMessagesForEachType(t *testing.T) {
 		{
 			name: "DeviceProvisionRequested",
 			envelope: validEnvelope(MessageTypeDeviceProvisionRequested, DeviceProvisionRequestedPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				ActivityID:      "",
 				ClipPublicKey:   "clip-key",
@@ -167,8 +172,8 @@ func TestValidateRejectsInvalidMessagesForEachType(t *testing.T) {
 		{
 			name: "DeviceProvisionSucceeded",
 			envelope: validEnvelope(MessageTypeDeviceProvisionSucceeded, DeviceProvisionSucceededPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				ActivityID:      "activity-1",
 			}),
@@ -178,8 +183,8 @@ func TestValidateRejectsInvalidMessagesForEachType(t *testing.T) {
 		{
 			name: "DeviceProvisionFailed",
 			envelope: validEnvelope(MessageTypeDeviceProvisionFailed, DeviceProvisionFailedPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				ActivityID:      "activity-1",
 				ErrorCode:       "",
@@ -193,8 +198,8 @@ func TestValidateRejectsInvalidMessagesForEachType(t *testing.T) {
 		{
 			name: "DeviceDeactivateRequested",
 			envelope: validEnvelope(MessageTypeDeviceDeactivateRequested, DeviceDeactivateRequestedPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				RequestedBy:     "user-1",
 				Reason:          "",
@@ -205,8 +210,8 @@ func TestValidateRejectsInvalidMessagesForEachType(t *testing.T) {
 		{
 			name: "DeviceDeactivateSucceeded",
 			envelope: validEnvelope(MessageTypeDeviceDeactivateSucceeded, DeviceDeactivateSucceededPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 			}),
 			stream:      StreamVideoAccountEvents,
@@ -215,8 +220,8 @@ func TestValidateRejectsInvalidMessagesForEachType(t *testing.T) {
 		{
 			name: "DeviceDeactivateFailed",
 			envelope: validEnvelope(MessageTypeDeviceDeactivateFailed, DeviceDeactivateFailedPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				ErrorCode:       "deactivation_failed",
 				ErrorMessage:    "",
@@ -229,8 +234,8 @@ func TestValidateRejectsInvalidMessagesForEachType(t *testing.T) {
 		{
 			name: "DeviceOnlineChanged",
 			envelope: validEnvelope(MessageTypeDeviceOnlineChanged, DeviceOnlineChangedPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				Status:          "busy",
 				LastSeenAt:      testTime,
@@ -241,8 +246,8 @@ func TestValidateRejectsInvalidMessagesForEachType(t *testing.T) {
 		{
 			name: "DeviceMetadataChanged",
 			envelope: validEnvelope(MessageTypeDeviceMetadataChanged, DeviceMetadataChangedPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 			}),
 			stream:      StreamVideoAccountEvents,
@@ -277,8 +282,8 @@ func TestValidateAcceptsExplicitFalseRetryable(t *testing.T) {
 		{
 			name: "provision failed",
 			envelope: validEnvelope(MessageTypeDeviceProvisionFailed, DeviceProvisionFailedPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				ActivityID:      "activity-1",
 				ErrorCode:       "activation_failed",
@@ -291,8 +296,8 @@ func TestValidateAcceptsExplicitFalseRetryable(t *testing.T) {
 		{
 			name: "deactivate failed",
 			envelope: validEnvelope(MessageTypeDeviceDeactivateFailed, DeviceDeactivateFailedPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				ErrorCode:       "deactivation_failed",
 				ErrorMessage:    "deactivation failed",
@@ -315,6 +320,145 @@ func TestValidateAcceptsExplicitFalseRetryable(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsLifecycleIDsThatAreNotUUIDs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("org id", func(t *testing.T) {
+		t.Parallel()
+
+		envelope := validEnvelope(MessageTypeDeviceProvisionRequested, DeviceProvisionRequestedPayload{
+			OrgID:           "org-1",
+			AccountDeviceID: testDeviceID,
+			VideoCloudDevid: "video-1",
+			ActivityID:      "activity-1",
+			ClipPublicKey:   "clip-key",
+			RequestedBy:     "user-1",
+		})
+
+		err := envelope.Validate(StreamAccountVideoCommands)
+		if err == nil || !strings.Contains(err.Error(), "payload.org_id must be a UUID") {
+			t.Fatalf("expected invalid org id error, got %v", err)
+		}
+	})
+
+	t.Run("account device id", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name     string
+			envelope Envelope
+			stream   string
+		}{
+			{
+				name: "DeviceProvisionRequested",
+				envelope: validEnvelope(MessageTypeDeviceProvisionRequested, DeviceProvisionRequestedPayload{
+					OrgID:           testOrgID,
+					AccountDeviceID: "device-1",
+					VideoCloudDevid: "video-1",
+					ActivityID:      "activity-1",
+					ClipPublicKey:   "clip-key",
+					RequestedBy:     "user-1",
+				}),
+				stream: StreamAccountVideoCommands,
+			},
+			{
+				name: "DeviceProvisionSucceeded",
+				envelope: validEnvelope(MessageTypeDeviceProvisionSucceeded, DeviceProvisionSucceededPayload{
+					OrgID:           testOrgID,
+					AccountDeviceID: "device-1",
+					VideoCloudDevid: "video-1",
+					ActivityID:      "activity-1",
+					ActivatedAt:     testTime,
+				}),
+				stream: StreamVideoAccountEvents,
+			},
+			{
+				name: "DeviceProvisionFailed",
+				envelope: validEnvelope(MessageTypeDeviceProvisionFailed, DeviceProvisionFailedPayload{
+					OrgID:           testOrgID,
+					AccountDeviceID: "device-1",
+					VideoCloudDevid: "video-1",
+					ActivityID:      "activity-1",
+					ErrorCode:       "activation_failed",
+					ErrorMessage:    "activation failed",
+					Retryable:       true,
+					FailedAt:        testTime,
+				}),
+				stream: StreamVideoAccountEvents,
+			},
+			{
+				name: "DeviceDeactivateRequested",
+				envelope: validEnvelope(MessageTypeDeviceDeactivateRequested, DeviceDeactivateRequestedPayload{
+					OrgID:           testOrgID,
+					AccountDeviceID: "device-1",
+					VideoCloudDevid: "video-1",
+					RequestedBy:     "user-1",
+					Reason:          "account_device_disabled",
+				}),
+				stream: StreamAccountVideoCommands,
+			},
+			{
+				name: "DeviceDeactivateSucceeded",
+				envelope: validEnvelope(MessageTypeDeviceDeactivateSucceeded, DeviceDeactivateSucceededPayload{
+					OrgID:           testOrgID,
+					AccountDeviceID: "device-1",
+					VideoCloudDevid: "video-1",
+					DeactivatedAt:   testTime,
+				}),
+				stream: StreamVideoAccountEvents,
+			},
+			{
+				name: "DeviceDeactivateFailed",
+				envelope: validEnvelope(MessageTypeDeviceDeactivateFailed, DeviceDeactivateFailedPayload{
+					OrgID:           testOrgID,
+					AccountDeviceID: "device-1",
+					VideoCloudDevid: "video-1",
+					ErrorCode:       "deactivation_failed",
+					ErrorMessage:    "deactivation failed",
+					Retryable:       true,
+					FailedAt:        testTime,
+				}),
+				stream: StreamVideoAccountEvents,
+			},
+			{
+				name: "DeviceOnlineChanged",
+				envelope: validEnvelope(MessageTypeDeviceOnlineChanged, DeviceOnlineChangedPayload{
+					OrgID:           testOrgID,
+					AccountDeviceID: "device-1",
+					VideoCloudDevid: "video-1",
+					Status:          OnlineStatusOnline,
+					LastSeenAt:      testTime,
+				}),
+				stream: StreamVideoAccountEvents,
+			},
+			{
+				name: "DeviceMetadataChanged",
+				envelope: validEnvelope(MessageTypeDeviceMetadataChanged, DeviceMetadataChangedPayload{
+					OrgID:           testOrgID,
+					AccountDeviceID: "device-1",
+					VideoCloudDevid: "video-1",
+					Metadata: map[string]any{
+						"video_cloud_activation_status": "activated",
+					},
+				}),
+				stream: StreamVideoAccountEvents,
+			},
+		}
+
+		for _, tt := range tests {
+			tt := tt
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				err := tt.envelope.Validate(tt.stream)
+				if err == nil || !strings.Contains(err.Error(), "payload.account_device_id must be a UUID") {
+					t.Fatalf("expected invalid account device id error, got %v", err)
+				}
+			})
+		}
+	})
+}
+
 func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 	t.Parallel()
 
@@ -322,8 +466,8 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 		t.Parallel()
 
 		envelope := validEnvelope(MessageTypeDeviceProvisionRequested, DeviceProvisionRequestedPayload{
-			OrgID:           "org-1",
-			AccountDeviceID: "device-1",
+			OrgID:           testOrgID,
+			AccountDeviceID: testDeviceID,
 			VideoCloudDevid: "video-1",
 			ActivityID:      "activity-1",
 			ClipPublicKey:   "clip-key",
@@ -341,8 +485,8 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 		t.Parallel()
 
 		envelope := validEnvelope(MessageTypeDeviceProvisionRequested, DeviceProvisionRequestedPayload{
-			OrgID:           "org-1",
-			AccountDeviceID: "device-1",
+			OrgID:           testOrgID,
+			AccountDeviceID: testDeviceID,
 			VideoCloudDevid: "video-1",
 			ActivityID:      "activity-1",
 			ClipPublicKey:   "clip-key",
@@ -360,8 +504,8 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 		t.Parallel()
 
 		envelope := validEnvelope(MessageTypeDeviceProvisionRequested, DeviceProvisionRequestedPayload{
-			OrgID:           "org-1",
-			AccountDeviceID: "device-1",
+			OrgID:           testOrgID,
+			AccountDeviceID: testDeviceID,
 			VideoCloudDevid: "video-1",
 			ActivityID:      "activity-1",
 			ClipPublicKey:   "clip-key",
@@ -378,8 +522,8 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 		t.Parallel()
 
 		envelope := validEnvelope(MessageTypeDeviceOnlineChanged, DeviceOnlineChangedPayload{
-			OrgID:           "org-1",
-			AccountDeviceID: "device-1",
+			OrgID:           testOrgID,
+			AccountDeviceID: testDeviceID,
 			VideoCloudDevid: "video-1",
 			Status:          OnlineStatusOnline,
 			LastSeenAt:      testTime,
@@ -396,8 +540,8 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 		t.Parallel()
 
 		envelope := validEnvelope(MessageTypeDeviceOnlineChanged, DeviceOnlineChangedPayload{
-			OrgID:           "org-1",
-			AccountDeviceID: "device-1",
+			OrgID:           testOrgID,
+			AccountDeviceID: testDeviceID,
 			VideoCloudDevid: "video-1",
 			Status:          OnlineStatusOnline,
 			LastSeenAt:      testTime,
@@ -414,8 +558,8 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 		t.Parallel()
 
 		envelope := validEnvelope(MessageTypeDeviceOnlineChanged, DeviceOnlineChangedPayload{
-			OrgID:           "org-1",
-			AccountDeviceID: "device-1",
+			OrgID:           testOrgID,
+			AccountDeviceID: testDeviceID,
 			VideoCloudDevid: "video-1",
 			Status:          OnlineStatusOnline,
 			LastSeenAt:      testTime,
@@ -432,8 +576,8 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 		t.Parallel()
 
 		envelope := validEnvelope(MessageTypeDeviceOnlineChanged, DeviceOnlineChangedPayload{
-			OrgID:           "org-1",
-			AccountDeviceID: "device-1",
+			OrgID:           testOrgID,
+			AccountDeviceID: testDeviceID,
 			VideoCloudDevid: "video-1",
 			Status:          OnlineStatusOnline,
 			LastSeenAt:      testTime,
@@ -450,16 +594,16 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 		t.Parallel()
 
 		envelope := validEnvelope(MessageTypeDeviceProvisionRequested, DeviceProvisionRequestedPayload{
-			OrgID:           "org-1",
-			AccountDeviceID: "device-1",
+			OrgID:           testOrgID,
+			AccountDeviceID: testDeviceID,
 			VideoCloudDevid: "video-1",
 			ActivityID:      "activity-1",
 			ClipPublicKey:   "clip-key",
 			RequestedBy:     "user-1",
 		})
 		envelope.Payload = json.RawMessage(`{
-			"org_id":"org-1",
-			"account_device_id":"device-1",
+			"org_id":"11111111-1111-1111-1111-111111111111",
+			"account_device_id":"22222222-2222-2222-2222-222222222222",
 			"video_cloud_devid":"video-1",
 			"activity_id":"activity-1",
 			"clip_public_key":"clip-key",
@@ -488,8 +632,8 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 				messageType: MessageTypeDeviceProvisionFailed,
 				stream:      StreamVideoAccountEvents,
 				payload: `{
-					"org_id":"org-1",
-					"account_device_id":"device-1",
+					"org_id":"11111111-1111-1111-1111-111111111111",
+					"account_device_id":"22222222-2222-2222-2222-222222222222",
 					"video_cloud_devid":"video-1",
 					"activity_id":"activity-1",
 					"error_code":"activation_failed",
@@ -503,8 +647,8 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 				messageType: MessageTypeDeviceDeactivateFailed,
 				stream:      StreamVideoAccountEvents,
 				payload: `{
-					"org_id":"org-1",
-					"account_device_id":"device-1",
+					"org_id":"11111111-1111-1111-1111-111111111111",
+					"account_device_id":"22222222-2222-2222-2222-222222222222",
 					"video_cloud_devid":"video-1",
 					"error_code":"deactivation_failed",
 					"error_message":"deactivation failed",
@@ -543,8 +687,8 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 			{
 				name: "provision succeeded",
 				envelope: validEnvelope(MessageTypeDeviceProvisionSucceeded, DeviceProvisionSucceededPayload{
-					OrgID:           "org-1",
-					AccountDeviceID: "device-1",
+					OrgID:           testOrgID,
+					AccountDeviceID: testDeviceID,
 					VideoCloudDevid: "video-1",
 					ActivityID:      "activity-1",
 					ActivatedAt:     nonUTC,
@@ -555,8 +699,8 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 			{
 				name: "provision failed",
 				envelope: validEnvelope(MessageTypeDeviceProvisionFailed, DeviceProvisionFailedPayload{
-					OrgID:           "org-1",
-					AccountDeviceID: "device-1",
+					OrgID:           testOrgID,
+					AccountDeviceID: testDeviceID,
 					VideoCloudDevid: "video-1",
 					ActivityID:      "activity-1",
 					ErrorCode:       "activation_failed",
@@ -570,8 +714,8 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 			{
 				name: "deactivate succeeded",
 				envelope: validEnvelope(MessageTypeDeviceDeactivateSucceeded, DeviceDeactivateSucceededPayload{
-					OrgID:           "org-1",
-					AccountDeviceID: "device-1",
+					OrgID:           testOrgID,
+					AccountDeviceID: testDeviceID,
 					VideoCloudDevid: "video-1",
 					DeactivatedAt:   nonUTC,
 				}),
@@ -581,8 +725,8 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 			{
 				name: "deactivate failed",
 				envelope: validEnvelope(MessageTypeDeviceDeactivateFailed, DeviceDeactivateFailedPayload{
-					OrgID:           "org-1",
-					AccountDeviceID: "device-1",
+					OrgID:           testOrgID,
+					AccountDeviceID: testDeviceID,
 					VideoCloudDevid: "video-1",
 					ErrorCode:       "deactivation_failed",
 					ErrorMessage:    "deactivation failed",
@@ -595,8 +739,8 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 			{
 				name: "online changed",
 				envelope: validEnvelope(MessageTypeDeviceOnlineChanged, DeviceOnlineChangedPayload{
-					OrgID:           "org-1",
-					AccountDeviceID: "device-1",
+					OrgID:           testOrgID,
+					AccountDeviceID: testDeviceID,
 					VideoCloudDevid: "video-1",
 					Status:          OnlineStatusOnline,
 					LastSeenAt:      nonUTC,
@@ -706,8 +850,8 @@ func TestValidateRejectsMissingEnvelopeFields(t *testing.T) {
 			t.Parallel()
 
 			envelope := validEnvelope(MessageTypeDeviceProvisionRequested, DeviceProvisionRequestedPayload{
-				OrgID:           "org-1",
-				AccountDeviceID: "device-1",
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
 				VideoCloudDevid: "video-1",
 				ActivityID:      "activity-1",
 				ClipPublicKey:   "clip-key",
@@ -735,7 +879,7 @@ func TestEnvelopeUnmarshalRejectsUnknownFields(t *testing.T) {
 		"target_service":"realtek_video_server",
 		"message_type":"DeviceProvisionRequested",
 		"schema_version":"1.0",
-		"partition_key":"device-1",
+		"partition_key":"22222222-2222-2222-2222-222222222222",
 		"occurred_at":"2026-04-28T12:00:00Z",
 		"payload":{},
 		"unexpected":"value"
@@ -757,7 +901,7 @@ func TestDecodeStrictJSONRejectsMultipleJSONValues(t *testing.T) {
 		"target_service":"realtek_video_server",
 		"message_type":"DeviceProvisionRequested",
 		"schema_version":"1.0",
-		"partition_key":"device-1",
+		"partition_key":"22222222-2222-2222-2222-222222222222",
 		"occurred_at":"2026-04-28T12:00:00Z",
 		"payload":{}
 	} {}`), &envelope)
@@ -782,7 +926,7 @@ func validEnvelope(messageType MessageType, payload any) Envelope {
 		TargetService: spec.targetService,
 		MessageType:   messageType,
 		SchemaVersion: SchemaVersionV1,
-		PartitionKey:  "device-1",
+		PartitionKey:  testDeviceID,
 		OccurredAt:    testTime,
 		Payload:       raw,
 	}

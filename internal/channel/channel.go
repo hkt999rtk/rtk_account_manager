@@ -2,6 +2,7 @@ package channel
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -290,9 +291,11 @@ func (e Envelope) ValidateAndDecode(expectedStream string) (Payload, error) {
 }
 
 func (p *DeviceProvisionRequestedPayload) Validate() error {
+	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
+		return err
+	}
+
 	return validateRequiredStrings(
-		fieldValue{"payload.org_id", p.OrgID},
-		fieldValue{"payload.account_device_id", p.AccountDeviceID},
 		fieldValue{"payload.video_cloud_devid", p.VideoCloudDevid},
 		fieldValue{"payload.activity_id", p.ActivityID},
 		fieldValue{"payload.clip_public_key", p.ClipPublicKey},
@@ -305,9 +308,10 @@ func (p *DeviceProvisionRequestedPayload) PartitionKey() string {
 }
 
 func (p *DeviceProvisionSucceededPayload) Validate() error {
+	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
+		return err
+	}
 	if err := validateRequiredStrings(
-		fieldValue{"payload.org_id", p.OrgID},
-		fieldValue{"payload.account_device_id", p.AccountDeviceID},
 		fieldValue{"payload.video_cloud_devid", p.VideoCloudDevid},
 		fieldValue{"payload.activity_id", p.ActivityID},
 	); err != nil {
@@ -327,9 +331,10 @@ func (p *DeviceProvisionSucceededPayload) PartitionKey() string {
 }
 
 func (p *DeviceProvisionFailedPayload) Validate() error {
+	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
+		return err
+	}
 	if err := validateRequiredStrings(
-		fieldValue{"payload.org_id", p.OrgID},
-		fieldValue{"payload.account_device_id", p.AccountDeviceID},
 		fieldValue{"payload.video_cloud_devid", p.VideoCloudDevid},
 		fieldValue{"payload.activity_id", p.ActivityID},
 		fieldValue{"payload.error_code", p.ErrorCode},
@@ -351,9 +356,11 @@ func (p *DeviceProvisionFailedPayload) PartitionKey() string {
 }
 
 func (p *DeviceDeactivateRequestedPayload) Validate() error {
+	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
+		return err
+	}
+
 	return validateRequiredStrings(
-		fieldValue{"payload.org_id", p.OrgID},
-		fieldValue{"payload.account_device_id", p.AccountDeviceID},
 		fieldValue{"payload.video_cloud_devid", p.VideoCloudDevid},
 		fieldValue{"payload.requested_by", p.RequestedBy},
 		fieldValue{"payload.reason", p.Reason},
@@ -365,9 +372,10 @@ func (p *DeviceDeactivateRequestedPayload) PartitionKey() string {
 }
 
 func (p *DeviceDeactivateSucceededPayload) Validate() error {
+	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
+		return err
+	}
 	if err := validateRequiredStrings(
-		fieldValue{"payload.org_id", p.OrgID},
-		fieldValue{"payload.account_device_id", p.AccountDeviceID},
 		fieldValue{"payload.video_cloud_devid", p.VideoCloudDevid},
 	); err != nil {
 		return err
@@ -386,9 +394,10 @@ func (p *DeviceDeactivateSucceededPayload) PartitionKey() string {
 }
 
 func (p *DeviceDeactivateFailedPayload) Validate() error {
+	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
+		return err
+	}
 	if err := validateRequiredStrings(
-		fieldValue{"payload.org_id", p.OrgID},
-		fieldValue{"payload.account_device_id", p.AccountDeviceID},
 		fieldValue{"payload.video_cloud_devid", p.VideoCloudDevid},
 		fieldValue{"payload.error_code", p.ErrorCode},
 		fieldValue{"payload.error_message", p.ErrorMessage},
@@ -409,9 +418,10 @@ func (p *DeviceDeactivateFailedPayload) PartitionKey() string {
 }
 
 func (p *DeviceOnlineChangedPayload) Validate() error {
+	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
+		return err
+	}
 	if err := validateRequiredStrings(
-		fieldValue{"payload.org_id", p.OrgID},
-		fieldValue{"payload.account_device_id", p.AccountDeviceID},
 		fieldValue{"payload.video_cloud_devid", p.VideoCloudDevid},
 	); err != nil {
 		return err
@@ -433,9 +443,10 @@ func (p *DeviceOnlineChangedPayload) PartitionKey() string {
 }
 
 func (p *DeviceMetadataChangedPayload) Validate() error {
+	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
+		return err
+	}
 	if err := validateRequiredStrings(
-		fieldValue{"payload.org_id", p.OrgID},
-		fieldValue{"payload.account_device_id", p.AccountDeviceID},
 		fieldValue{"payload.video_cloud_devid", p.VideoCloudDevid},
 	); err != nil {
 		return err
@@ -464,9 +475,29 @@ func validateRequiredStrings(fields ...fieldValue) error {
 	return nil
 }
 
+func validateLifecyclePayloadIDs(orgID, accountDeviceID string) error {
+	if err := requireUUID("payload.org_id", orgID); err != nil {
+		return err
+	}
+	if err := requireUUID("payload.account_device_id", accountDeviceID); err != nil {
+		return err
+	}
+	return nil
+}
+
 func requireNonBlank(field, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fieldError(field, "must be non-empty")
+	}
+	return nil
+}
+
+func requireUUID(field, value string) error {
+	if err := requireNonBlank(field, value); err != nil {
+		return err
+	}
+	if !isUUID(value) {
+		return fieldError(field, "must be a UUID")
 	}
 	return nil
 }
@@ -511,6 +542,29 @@ func requireJSONFields(data []byte, prefix string, fields ...string) error {
 	}
 
 	return nil
+}
+
+func isUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+
+	segments := [5]string{
+		value[0:8],
+		value[9:13],
+		value[14:18],
+		value[19:23],
+		value[24:36],
+	}
+	if value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
+		return false
+	}
+	for _, segment := range segments {
+		if _, err := hex.DecodeString(segment); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func fieldError(field, message string) error {
