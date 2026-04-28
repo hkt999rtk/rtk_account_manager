@@ -112,6 +112,18 @@ func (s *Store) ProjectDevice(ctx context.Context, orgID, deviceID string, in De
 	}
 	defer tx.Rollback(ctx)
 
+	projected, err := projectDeviceTx(ctx, tx, orgID, deviceID, in)
+	if err != nil {
+		return model.Device{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return model.Device{}, err
+	}
+	return projected, nil
+}
+
+func projectDeviceTx(ctx context.Context, tx pgx.Tx, orgID, deviceID string, in DeviceProjectionInput) (model.Device, error) {
 	device, err := scanDevice(tx.QueryRow(ctx, `
 		SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
 		FROM devices
@@ -151,10 +163,6 @@ func (s *Store) ProjectDevice(ctx context.Context, orgID, deviceID string, in De
 		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
 	`, orgID, deviceID, status, lastSeenAt, metadata))
 	if err != nil {
-		return model.Device{}, err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
 		return model.Device{}, err
 	}
 	return projected, nil

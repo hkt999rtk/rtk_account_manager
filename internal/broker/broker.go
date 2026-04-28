@@ -15,6 +15,15 @@ type Publisher interface {
 	Publish(ctx context.Context, stream string, envelope channel.Envelope) error
 }
 
+type Message struct {
+	Stream   string
+	Envelope channel.Envelope
+}
+
+type Consumer interface {
+	Receive(ctx context.Context, limit int) ([]Message, error)
+}
+
 type publishError struct {
 	err       error
 	transient bool
@@ -54,6 +63,15 @@ func NewPublisher(kind string, writer io.Writer) (Publisher, error) {
 	switch kind {
 	case "", AdapterLog:
 		return NewLogPublisher(writer), nil
+	default:
+		return nil, fmt.Errorf("unsupported cross-service broker %q", kind)
+	}
+}
+
+func NewConsumer(kind string, reader io.Reader) (Consumer, error) {
+	switch kind {
+	case "", AdapterLog:
+		return NewLogConsumer(reader), nil
 	default:
 		return nil, fmt.Errorf("unsupported cross-service broker %q", kind)
 	}

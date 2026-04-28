@@ -1,0 +1,377 @@
+package inbox
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"rtk_account_manager/internal/broker"
+	"rtk_account_manager/internal/channel"
+	"rtk_account_manager/internal/model"
+	"rtk_account_manager/internal/store"
+)
+
+type messageStore interface {
+	CreateOrGetInboxMessage(ctx context.Context, in store.DeviceMessageInboxCreateInput) (model.DeviceMessageInbox, bool, error)
+	RecordInboxProcessTransition(ctx context.Context, in store.InboxProcessTransitionInput) (store.InboxProcessTransitionResult, error)
+}
+
+type Options struct {
+	Stream        string
+	ConsumerGroup string
+	MaxAttempts   int
+	PollInterval  time.Duration
+	BatchSize     int
+	Now           func() time.Time
+}
+
+type Service struct {
+	store         messageStore
+	consumer      broker.Consumer
+	stream        string
+	consumerGroup string
+	maxAttempts   int
+	pollInterval  time.Duration
+	batchSize     int
+	now           func() time.Time
+}
+
+type Stats struct {
+	Received     int
+	Processed    int
+	Retrying     int
+	DeadLettered int
+	Skipped      int
+}
+
+var transitionForPayloadFunc = buildTransitionForPayload
+
+func NewService(store messageStore, consumer broker.Consumer, opts Options) *Service {
+	nowFn := opts.Now
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+
+	pollInterval := opts.PollInterval
+	if pollInterval <= 0 {
+		pollInterval = 5 * time.Second
+	}
+
+	batchSize := opts.BatchSize
+	if batchSize <= 0 {
+		batchSize = 20
+	}
+
+	maxAttempts := opts.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 5
+	}
+
+	stream := opts.Stream
+	if stream == "" {
+		stream = channel.StreamVideoAccountEvents
+	}
+
+	return &Service{
+		store:         store,
+		consumer:      consumer,
+		stream:        stream,
+		consumerGroup: opts.ConsumerGroup,
+		maxAttempts:   maxAttempts,
+		pollInterval:  pollInterval,
+		batchSize:     batchSize,
+		now:           nowFn,
+	}
+}
+
+func (s *Service) Run(ctx context.Context) error {
+	for {
+		if _, err := s.RunOnce(ctx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return nil
+			}
+			return err
+		}
+
+		timer := time.NewTimer(s.pollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil
+		case <-timer.C:
+		}
+	}
+}
+
+func (s *Service) RunOnce(ctx context.Context) (Stats, error) {
+	records, err := s.consumer.Receive(ctx, s.batchSize)
+	if err != nil {
+		return Stats{}, err
+	}
+
+	stats := Stats{Received: len(records)}
+	for _, record := range records {
+		if err := ctx.Err(); err != nil {
+			return stats, err
+		}
+
+		outcome, err := s.processMessage(ctx, record)
+		if err != nil {
+			return stats, err
+		}
+
+		switch outcome {
+		case model.DeviceMessageInboxStatusProcessed:
+			stats.Processed++
+		case model.DeviceMessageInboxStatusRetrying:
+			stats.Retrying++
+		case model.DeviceMessageInboxStatusDeadLettered:
+			stats.DeadLettered++
+		case "":
+			stats.Skipped++
+		}
+	}
+
+	return stats, nil
+}
+
+func (s *Service) processMessage(ctx context.Context, record broker.Message) (model.DeviceMessageInboxStatus, error) {
+	receivedAt := s.receivedAt(record.Envelope)
+	payloadMap, err := payloadMapFromEnvelope(record.Envelope)
+	if err != nil {
+		payloadMap = map[string]any{}
+	}
+
+	message, created, err := s.store.CreateOrGetInboxMessage(ctx, store.DeviceMessageInboxCreateInput{
+		MessageID:     record.Envelope.MessageID,
+		OperationID:   record.Envelope.OperationID,
+		CorrelationID: record.Envelope.CorrelationID,
+		CausationID:   causationIDPtr(record.Envelope.CausationID),
+		Stream:        record.Stream,
+		MessageType:   string(record.Envelope.MessageType),
+		SchemaVersion: record.Envelope.SchemaVersion,
+		PartitionKey:  record.Envelope.PartitionKey,
+		Payload:       payloadMap,
+		Status:        model.DeviceMessageInboxStatusRetrying,
+		AttemptCount:  0,
+		ReceivedAt:    receivedAt,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	if !created {
+		switch message.Status {
+		case model.DeviceMessageInboxStatusProcessed, model.DeviceMessageInboxStatusDeadLettered:
+			return "", nil
+		}
+	}
+
+	attemptCount := message.AttemptCount + 1
+
+	if record.Stream != s.stream {
+		return model.DeviceMessageInboxStatusDeadLettered, s.recordDeadLetter(ctx, message, attemptCount, fmt.Errorf("unexpected stream %q", record.Stream))
+	}
+
+	payload, err := record.Envelope.ValidateAndDecode(s.stream)
+	if err != nil {
+		return model.DeviceMessageInboxStatusDeadLettered, s.recordDeadLetter(ctx, message, attemptCount, err)
+	}
+
+	transition, err := transitionForPayloadFunc(record.Envelope, payload)
+	if err != nil {
+		if isTransientProcessingError(err) && attemptCount < s.maxAttempts {
+			return model.DeviceMessageInboxStatusRetrying, s.recordRetry(ctx, message, attemptCount, err)
+		}
+		return model.DeviceMessageInboxStatusDeadLettered, s.recordDeadLetter(ctx, message, attemptCount, err)
+	}
+
+	transition.MessageID = message.MessageID
+	transition.MessageStatus = model.DeviceMessageInboxStatusProcessed
+	transition.AttemptCount = attemptCount
+	processedAt := s.currentTime()
+	transition.ProcessedAt = &processedAt
+
+	if _, err := s.store.RecordInboxProcessTransition(ctx, transition); err != nil {
+		return "", err
+	}
+	return model.DeviceMessageInboxStatusProcessed, nil
+}
+
+func (s *Service) recordRetry(ctx context.Context, message model.DeviceMessageInbox, attemptCount int, cause error) error {
+	lastError := cause.Error()
+	_, err := s.store.RecordInboxProcessTransition(ctx, store.InboxProcessTransitionInput{
+		MessageID:     message.MessageID,
+		MessageStatus: model.DeviceMessageInboxStatusRetrying,
+		AttemptCount:  attemptCount,
+		LastError:     &lastError,
+	})
+	return err
+}
+
+func (s *Service) recordDeadLetter(ctx context.Context, message model.DeviceMessageInbox, attemptCount int, cause error) error {
+	lastError := cause.Error()
+	processedAt := s.currentTime()
+	_, err := s.store.RecordInboxProcessTransition(ctx, store.InboxProcessTransitionInput{
+		MessageID:     message.MessageID,
+		MessageStatus: model.DeviceMessageInboxStatusDeadLettered,
+		AttemptCount:  attemptCount,
+		LastError:     &lastError,
+		ProcessedAt:   &processedAt,
+	})
+	return err
+}
+
+func buildTransitionForPayload(envelope channel.Envelope, payload channel.Payload) (store.InboxProcessTransitionInput, error) {
+	switch typed := payload.(type) {
+	case *channel.DeviceProvisionSucceededPayload:
+		return successTransition(
+			typed.OrgID,
+			typed.AccountDeviceID,
+			typed.ActivatedAt.UTC(),
+			store.ProvisionSucceededProjection(*typed),
+			map[string]any{
+				"video_cloud_devid": typed.VideoCloudDevid,
+				"activity_id":       typed.ActivityID,
+				"activated_at":      typed.ActivatedAt.UTC(),
+			},
+		), nil
+	case *channel.DeviceProvisionFailedPayload:
+		return failureTransition(
+			typed.OrgID,
+			typed.AccountDeviceID,
+			typed.FailedAt.UTC(),
+			store.ProvisionFailedProjection(*typed),
+			map[string]any{
+				"video_cloud_devid": typed.VideoCloudDevid,
+				"activity_id":       typed.ActivityID,
+				"error_code":        typed.ErrorCode,
+				"error_message":     typed.ErrorMessage,
+				"retryable":         typed.Retryable,
+				"failed_at":         typed.FailedAt.UTC(),
+			},
+			typed.ErrorCode,
+			typed.ErrorMessage,
+			typed.Retryable,
+		), nil
+	case *channel.DeviceDeactivateSucceededPayload:
+		return successTransition(
+			typed.OrgID,
+			typed.AccountDeviceID,
+			typed.DeactivatedAt.UTC(),
+			store.DeactivateSucceededProjection(*typed),
+			map[string]any{
+				"video_cloud_devid": typed.VideoCloudDevid,
+				"deactivated_at":    typed.DeactivatedAt.UTC(),
+			},
+		), nil
+	case *channel.DeviceDeactivateFailedPayload:
+		return failureTransition(
+			typed.OrgID,
+			typed.AccountDeviceID,
+			typed.FailedAt.UTC(),
+			store.DeactivateFailedProjection(*typed),
+			map[string]any{
+				"video_cloud_devid": typed.VideoCloudDevid,
+				"error_code":        typed.ErrorCode,
+				"error_message":     typed.ErrorMessage,
+				"retryable":         typed.Retryable,
+				"failed_at":         typed.FailedAt.UTC(),
+			},
+			typed.ErrorCode,
+			typed.ErrorMessage,
+			typed.Retryable,
+		), nil
+	case *channel.DeviceOnlineChangedPayload:
+		return store.InboxProcessTransitionInput{
+			OrganizationID: typed.OrgID,
+			DeviceID:       typed.AccountDeviceID,
+			Projection:     projectionPtr(store.OnlineChangedProjection(*typed)),
+		}, nil
+	case *channel.DeviceMetadataChangedPayload:
+		return store.InboxProcessTransitionInput{
+			OrganizationID: typed.OrgID,
+			DeviceID:       typed.AccountDeviceID,
+			Projection:     projectionPtr(store.MetadataChangedProjection(*typed)),
+		}, nil
+	default:
+		return store.InboxProcessTransitionInput{}, fmt.Errorf("unsupported message type %q", envelope.MessageType)
+	}
+}
+
+func successTransition(orgID, deviceID string, completedAt time.Time, projection store.DeviceProjectionInput, result map[string]any) store.InboxProcessTransitionInput {
+	status := model.DeviceOperationStatusSucceeded
+	return store.InboxProcessTransitionInput{
+		OperationStatus:      &status,
+		OperationResult:      result,
+		OperationCompletedAt: &completedAt,
+		OrganizationID:       orgID,
+		DeviceID:             deviceID,
+		Projection:           projectionPtr(projection),
+	}
+}
+
+func failureTransition(orgID, deviceID string, completedAt time.Time, projection store.DeviceProjectionInput, result map[string]any, errorCode, errorMessage string, retryable bool) store.InboxProcessTransitionInput {
+	status := model.DeviceOperationStatusFailed
+	return store.InboxProcessTransitionInput{
+		OperationStatus:       &status,
+		OperationResult:       result,
+		OperationErrorCode:    stringPtr(errorCode),
+		OperationErrorMessage: stringPtr(errorMessage),
+		OperationRetryable:    boolPtr(retryable),
+		OperationCompletedAt:  &completedAt,
+		OrganizationID:        orgID,
+		DeviceID:              deviceID,
+		Projection:            projectionPtr(projection),
+	}
+}
+
+func payloadMapFromEnvelope(envelope channel.Envelope) (map[string]any, error) {
+	if len(envelope.Payload) == 0 {
+		return map[string]any{}, nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
+		return nil, err
+	}
+	if payload == nil {
+		return map[string]any{}, nil
+	}
+	return payload, nil
+}
+
+func projectionPtr(projection store.DeviceProjectionInput) *store.DeviceProjectionInput {
+	return &projection
+}
+
+func stringPtr(value string) *string {
+	return &value
+}
+
+func boolPtr(value bool) *bool {
+	return &value
+}
+
+func causationIDPtr(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func (s *Service) currentTime() time.Time {
+	return s.now().UTC().Truncate(time.Microsecond)
+}
+
+func (s *Service) receivedAt(envelope channel.Envelope) time.Time {
+	if envelope.OccurredAt.IsZero() {
+		return s.currentTime()
+	}
+	return envelope.OccurredAt.UTC().Truncate(time.Microsecond)
+}
+
+func isTransientProcessingError(err error) bool {
+	return broker.IsTransient(err)
+}
