@@ -64,6 +64,7 @@ type fakeAzureConsumerClient struct {
 	partitions map[string]*fakeAzurePartitionClient
 	propsErr   error
 	newErr     error
+	newErrByID map[string]error
 	closed     bool
 }
 
@@ -82,6 +83,9 @@ func (c *fakeAzureConsumerClient) GetEventHubProperties(context.Context, *azeven
 }
 
 func (c *fakeAzureConsumerClient) NewPartitionClient(partitionID string, _ *azeventhubs.PartitionClientOptions) (azurePartitionClient, error) {
+	if err := c.newErrByID[partitionID]; err != nil {
+		return nil, err
+	}
 	if c.newErr != nil {
 		return nil, c.newErr
 	}
@@ -177,6 +181,52 @@ func TestAzureEventHubsPublisherMarksConnectionLossTransient(t *testing.T) {
 	}
 }
 
+func TestAzureEventHubsPublisherCloseClosesClient(t *testing.T) {
+	client := &fakeAzureProducerClient{}
+	publisher := newAzureEventHubsPublisher(client, channel.StreamAccountVideoCommands)
+
+	if err := publisher.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !client.closed {
+		t.Fatal("expected publisher close to close azure client")
+	}
+}
+
+func TestAzureEventHubsPublisherMarksBatchErrorsTransient(t *testing.T) {
+	t.Run("new batch", func(t *testing.T) {
+		client := &fakeAzureProducerClient{
+			newBatchErr: &azeventhubs.Error{Code: azeventhubs.ErrorCodeConnectionLost},
+		}
+		publisher := newAzureEventHubsPublisher(client, channel.StreamAccountVideoCommands)
+
+		err := publisher.Publish(context.Background(), channel.StreamAccountVideoCommands, channel.Envelope{
+			MessageID:    "msg-batch",
+			PartitionKey: "device-batch",
+		})
+		if !IsTransient(err) {
+			t.Fatalf("expected transient batch error, got %v", err)
+		}
+	})
+
+	t.Run("add event", func(t *testing.T) {
+		client := &fakeAzureProducerClient{
+			batch: &fakeAzureProducerBatch{
+				addErr: &azeventhubs.Error{Code: azeventhubs.ErrorCodeConnectionLost},
+			},
+		}
+		publisher := newAzureEventHubsPublisher(client, channel.StreamAccountVideoCommands)
+
+		err := publisher.Publish(context.Background(), channel.StreamAccountVideoCommands, channel.Envelope{
+			MessageID:    "msg-add",
+			PartitionKey: "device-add",
+		})
+		if !IsTransient(err) {
+			t.Fatalf("expected transient add-event error, got %v", err)
+		}
+	})
+}
+
 func TestAzureEventHubsConsumerReadsAcrossPartitions(t *testing.T) {
 	partitionOne := &fakeAzurePartitionClient{
 		events: []*azeventhubs.ReceivedEventData{
@@ -243,6 +293,48 @@ func TestAzureEventHubsConsumerTreatsReceiveTimeoutAsEmptyPoll(t *testing.T) {
 	}
 }
 
+func TestNewAzureEventHubsConsumerClosesClientWhenPartitionOpenFails(t *testing.T) {
+	client := &fakeAzureConsumerClient{
+		properties: azeventhubs.EventHubProperties{PartitionIDs: []string{"0"}},
+		newErr:     errors.New("open failed"),
+	}
+
+	consumer, err := newAzureEventHubsConsumer(client, channel.StreamVideoAccountEvents, time.Second)
+	if err == nil {
+		t.Fatal("expected consumer construction error")
+	}
+	if consumer != nil {
+		t.Fatalf("expected nil consumer on error, got %+v", consumer)
+	}
+	if !client.closed {
+		t.Fatal("expected constructor failure to close client")
+	}
+}
+
+func TestOpenAzurePartitionsClosesEarlierPartitionsOnFailure(t *testing.T) {
+	first := &fakeAzurePartitionClient{}
+	client := &fakeAzureConsumerClient{
+		properties: azeventhubs.EventHubProperties{PartitionIDs: []string{"1", "0"}},
+		partitions: map[string]*fakeAzurePartitionClient{
+			"0": first,
+		},
+		newErrByID: map[string]error{
+			"1": errors.New("open failed"),
+		},
+	}
+
+	partitions, err := openAzurePartitions(context.Background(), client)
+	if err == nil {
+		t.Fatal("expected partition open error")
+	}
+	if len(partitions) != 0 {
+		t.Fatalf("expected no partitions on error, got %+v", partitions)
+	}
+	if !first.closed {
+		t.Fatal("expected already-opened partition to be closed on failure")
+	}
+}
+
 func TestNewAzureEventHubsConstructorsRequireConfig(t *testing.T) {
 	if _, err := NewAzureEventHubsPublisherFromConnectionString("", "account.video.commands"); err == nil {
 		t.Fatal("expected publisher config error")
@@ -288,6 +380,12 @@ func TestAzureMessageDecodeRejectsInvalidJSON(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected invalid JSON error")
+	}
+}
+
+func TestAzureMessageDecodeRejectsNilEvent(t *testing.T) {
+	if _, err := messageFromAzureEvent(channel.StreamVideoAccountEvents, nil); err == nil {
+		t.Fatal("expected nil event error")
 	}
 }
 

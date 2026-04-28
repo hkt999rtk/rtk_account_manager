@@ -130,6 +130,19 @@ func TestLoadWorkerAllowsMissingJWTSecrets(t *testing.T) {
 	}
 }
 
+func TestLoadWorkerFallsBackForInvalidMaxAttempts(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("CROSS_SERVICE_MAX_ATTEMPTS", "0")
+
+	cfg, err := LoadWorker()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CrossServiceMaxAttempts != 5 {
+		t.Fatalf("expected default max attempts, got %d", cfg.CrossServiceMaxAttempts)
+	}
+}
+
 func TestLoadRequiresJWTSecrets(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("JWT_ACCESS_SECRET", "")
