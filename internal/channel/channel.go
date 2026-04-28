@@ -148,6 +148,12 @@ type messageSpec struct {
 	newPayload         func() Payload
 }
 
+type Route struct {
+	Stream        string
+	SourceService string
+	TargetService string
+}
+
 var messageSpecs = map[MessageType]messageSpec{
 	MessageTypeDeviceProvisionRequested: {
 		stream:        StreamAccountVideoCommands,
@@ -215,6 +221,18 @@ var messageSpecs = map[MessageType]messageSpec{
 			return &DeviceMetadataChangedPayload{}
 		},
 	},
+}
+
+func RouteForMessageType(messageType MessageType) (Route, error) {
+	spec, ok := messageSpecs[messageType]
+	if !ok {
+		return Route{}, fmt.Errorf("unsupported message type %q", messageType)
+	}
+	return Route{
+		Stream:        spec.stream,
+		SourceService: spec.sourceService,
+		TargetService: spec.targetService,
+	}, nil
 }
 
 func (e Envelope) Validate(expectedStream string) error {

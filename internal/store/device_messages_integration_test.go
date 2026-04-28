@@ -462,6 +462,69 @@ func TestClaimOutboxMessagesReadyLeasesRows(t *testing.T) {
 	}
 }
 
+func TestRecordOutboxPublishTransitionUpdatesOperationState(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	orgID, userID, deviceID := createDeviceFixture(t, env)
+
+	ctx := context.Background()
+	op, _, err := env.store.CreateOrGetDeviceOperation(ctx, DeviceOperationCreateInput{
+		OperationID:    "op-transition",
+		CorrelationID:  "corr-transition",
+		OrganizationID: orgID,
+		DeviceID:       deviceID,
+		OperationType:  model.DeviceOperationTypeProvision,
+		Status:         model.DeviceOperationStatusPending,
+		RequestedBy:    &userID,
+		RequestPayload: map[string]any{"video_cloud_devid": "device-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	if _, err := env.store.CreateOutboxMessage(ctx, DeviceMessageOutboxCreateInput{
+		MessageID:     "transition-msg",
+		OperationID:   op.OperationID,
+		CorrelationID: op.CorrelationID,
+		Stream:        "account.video.commands",
+		MessageType:   "DeviceProvisionRequested",
+		SchemaVersion: "1.0",
+		PartitionKey:  deviceID,
+		Payload:       map[string]any{"operation_id": op.OperationID},
+		Status:        model.DeviceMessageOutboxStatusPending,
+		AvailableAt:   now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	deadLetterAt := now.Add(time.Minute)
+	retryable := false
+	result, err := env.store.RecordOutboxPublishTransition(ctx, OutboxPublishTransitionInput{
+		MessageID:             "transition-msg",
+		MessageStatus:         model.DeviceMessageOutboxStatusDeadLettered,
+		AttemptCount:          3,
+		LastError:             stringPtr("publish failed"),
+		AvailableAt:           deadLetterAt,
+		OperationStatus:       model.DeviceOperationStatusDeadLettered,
+		OperationErrorCode:    stringPtr("publish_failed"),
+		OperationErrorMessage: stringPtr("publish failed"),
+		OperationRetryable:    &retryable,
+		OperationCompletedAt:  &deadLetterAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Message.Status != model.DeviceMessageOutboxStatusDeadLettered {
+		t.Fatalf("expected outbox dead-letter status, got %s", result.Message.Status)
+	}
+	if result.Operation.Status != model.DeviceOperationStatusDeadLettered {
+		t.Fatalf("expected operation dead-letter status, got %s", result.Operation.Status)
+	}
+	if result.Operation.CompletedAt == nil || !result.Operation.CompletedAt.Equal(deadLetterAt) {
+		t.Fatalf("expected completed_at to be set, got %+v", result.Operation.CompletedAt)
+	}
+}
+
 func TestCreateOrGetInboxMessageDeduplicates(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	orgID, userID, deviceID := createDeviceFixture(t, env)
