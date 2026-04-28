@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"rtk_account_manager/internal/database"
@@ -185,6 +186,81 @@ func TestCreateOrGetDeviceOperationIsIdempotent(t *testing.T) {
 	}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected missing operation update to return ErrNotFound, got %v", err)
 	}
+}
+
+func TestDeviceMessagePersistenceRejectsInvalidSchemaValues(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	orgID, userID, deviceID := createDeviceFixture(t, env)
+
+	ctx := context.Background()
+	_, _, err := env.store.CreateOrGetDeviceOperation(ctx, DeviceOperationCreateInput{
+		OperationID:    "op-invalid-status",
+		CorrelationID:  "corr-invalid-status",
+		OrganizationID: orgID,
+		DeviceID:       deviceID,
+		OperationType:  model.DeviceOperationTypeProvision,
+		Status:         model.DeviceOperationStatus("unknown-status"),
+		RequestedBy:    &userID,
+		RequestPayload: map[string]any{"video_cloud_devid": "device-1"},
+	})
+	requirePGErrorCode(t, err, "23514")
+
+	op, _, err := env.store.CreateOrGetDeviceOperation(ctx, DeviceOperationCreateInput{
+		OperationID:    "op-schema-checks",
+		CorrelationID:  "corr-schema-checks",
+		OrganizationID: orgID,
+		DeviceID:       deviceID,
+		OperationType:  model.DeviceOperationTypeProvision,
+		Status:         model.DeviceOperationStatusPending,
+		RequestedBy:    &userID,
+		RequestPayload: map[string]any{"video_cloud_devid": "device-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	_, err = env.store.CreateOutboxMessage(ctx, DeviceMessageOutboxCreateInput{
+		MessageID:     "missing-op-message",
+		OperationID:   "missing-operation",
+		CorrelationID: op.CorrelationID,
+		Stream:        "account.video.commands",
+		MessageType:   "DeviceProvisionRequested",
+		SchemaVersion: "1.0",
+		PartitionKey:  deviceID,
+		Payload:       map[string]any{"operation_id": "missing-operation"},
+		Status:        model.DeviceMessageOutboxStatusPending,
+		AvailableAt:   now,
+	})
+	requirePGErrorCode(t, err, "23503")
+
+	_, err = env.store.CreateOutboxMessage(ctx, DeviceMessageOutboxCreateInput{
+		MessageID:     "blank-partition-key",
+		OperationID:   op.OperationID,
+		CorrelationID: op.CorrelationID,
+		Stream:        "account.video.commands",
+		MessageType:   "DeviceProvisionRequested",
+		SchemaVersion: "1.0",
+		PartitionKey:  "   ",
+		Payload:       map[string]any{"operation_id": op.OperationID},
+		Status:        model.DeviceMessageOutboxStatusPending,
+		AvailableAt:   now,
+	})
+	requirePGErrorCode(t, err, "23514")
+
+	_, _, err = env.store.CreateOrGetInboxMessage(ctx, DeviceMessageInboxCreateInput{
+		MessageID:     "invalid-inbox-type",
+		OperationID:   op.OperationID,
+		CorrelationID: op.CorrelationID,
+		Stream:        "video.account.events",
+		MessageType:   "UnknownMessageType",
+		SchemaVersion: "1.0",
+		PartitionKey:  deviceID,
+		Payload:       map[string]any{"video_cloud_devid": "device-1"},
+		Status:        model.DeviceMessageInboxStatusRetrying,
+		ReceivedAt:    now,
+	})
+	requirePGErrorCode(t, err, "23514")
 }
 
 func TestOutboxMessagePersistenceAndReadyList(t *testing.T) {
@@ -502,4 +578,16 @@ func TestCreateOrGetInboxMessageDeduplicates(t *testing.T) {
 
 func stringPtr(value string) *string {
 	return &value
+}
+
+func requirePGErrorCode(t *testing.T, err error, want string) {
+	t.Helper()
+
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		t.Fatalf("expected pg error %s, got %v", want, err)
+	}
+	if pgErr.Code != want {
+		t.Fatalf("expected pg error %s, got %s (%s)", want, pgErr.Code, pgErr.Message)
+	}
 }
