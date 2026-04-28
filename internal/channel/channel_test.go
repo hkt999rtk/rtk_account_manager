@@ -266,6 +266,55 @@ func TestValidateRejectsInvalidMessagesForEachType(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsExplicitFalseRetryable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		envelope Envelope
+		stream   string
+	}{
+		{
+			name: "provision failed",
+			envelope: validEnvelope(MessageTypeDeviceProvisionFailed, DeviceProvisionFailedPayload{
+				OrgID:           "org-1",
+				AccountDeviceID: "device-1",
+				VideoCloudDevid: "video-1",
+				ActivityID:      "activity-1",
+				ErrorCode:       "activation_failed",
+				ErrorMessage:    "activation failed",
+				Retryable:       false,
+				FailedAt:        testTime,
+			}),
+			stream: StreamVideoAccountEvents,
+		},
+		{
+			name: "deactivate failed",
+			envelope: validEnvelope(MessageTypeDeviceDeactivateFailed, DeviceDeactivateFailedPayload{
+				OrgID:           "org-1",
+				AccountDeviceID: "device-1",
+				VideoCloudDevid: "video-1",
+				ErrorCode:       "deactivation_failed",
+				ErrorMessage:    "deactivation failed",
+				Retryable:       false,
+				FailedAt:        testTime,
+			}),
+			stream: StreamVideoAccountEvents,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if err := tt.envelope.Validate(tt.stream); err != nil {
+				t.Fatalf("Validate() error = %v", err)
+			}
+		})
+	}
+}
+
 func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 	t.Parallel()
 
@@ -421,6 +470,63 @@ func TestValidateRejectsEnvelopeContractMismatches(t *testing.T) {
 		err := envelope.Validate(StreamAccountVideoCommands)
 		if err == nil || !strings.Contains(err.Error(), `payload: json: unknown field "unexpected"`) {
 			t.Fatalf("expected unknown payload field error, got %v", err)
+		}
+	})
+
+	t.Run("missing retryable field", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name        string
+			messageType MessageType
+			stream      string
+			payload     string
+			wantMessage string
+		}{
+			{
+				name:        "provision failed",
+				messageType: MessageTypeDeviceProvisionFailed,
+				stream:      StreamVideoAccountEvents,
+				payload: `{
+					"org_id":"org-1",
+					"account_device_id":"device-1",
+					"video_cloud_devid":"video-1",
+					"activity_id":"activity-1",
+					"error_code":"activation_failed",
+					"error_message":"activation failed",
+					"failed_at":"2026-04-28T12:00:00Z"
+				}`,
+				wantMessage: "payload.retryable must be set",
+			},
+			{
+				name:        "deactivate failed",
+				messageType: MessageTypeDeviceDeactivateFailed,
+				stream:      StreamVideoAccountEvents,
+				payload: `{
+					"org_id":"org-1",
+					"account_device_id":"device-1",
+					"video_cloud_devid":"video-1",
+					"error_code":"deactivation_failed",
+					"error_message":"deactivation failed",
+					"failed_at":"2026-04-28T12:00:00Z"
+				}`,
+				wantMessage: "payload.retryable must be set",
+			},
+		}
+
+		for _, tt := range tests {
+			tt := tt
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				envelope := validEnvelope(tt.messageType, DeviceProvisionRequestedPayload{})
+				envelope.Payload = json.RawMessage(tt.payload)
+
+				err := envelope.Validate(tt.stream)
+				if err == nil || !strings.Contains(err.Error(), tt.wantMessage) {
+					t.Fatalf("expected missing retryable error %q, got %v", tt.wantMessage, err)
+				}
+			})
 		}
 	})
 

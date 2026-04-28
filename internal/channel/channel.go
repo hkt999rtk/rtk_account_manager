@@ -140,10 +140,11 @@ type DeviceMetadataChangedPayload struct {
 }
 
 type messageSpec struct {
-	stream        string
-	sourceService string
-	targetService string
-	newPayload    func() Payload
+	stream             string
+	sourceService      string
+	targetService      string
+	requiredJSONFields []string
+	newPayload         func() Payload
 }
 
 var messageSpecs = map[MessageType]messageSpec{
@@ -164,9 +165,10 @@ var messageSpecs = map[MessageType]messageSpec{
 		},
 	},
 	MessageTypeDeviceProvisionFailed: {
-		stream:        StreamVideoAccountEvents,
-		sourceService: ServiceRealtekVideoCloud,
-		targetService: ServiceAccountManager,
+		stream:             StreamVideoAccountEvents,
+		sourceService:      ServiceRealtekVideoCloud,
+		targetService:      ServiceAccountManager,
+		requiredJSONFields: []string{"retryable"},
 		newPayload: func() Payload {
 			return &DeviceProvisionFailedPayload{}
 		},
@@ -188,9 +190,10 @@ var messageSpecs = map[MessageType]messageSpec{
 		},
 	},
 	MessageTypeDeviceDeactivateFailed: {
-		stream:        StreamVideoAccountEvents,
-		sourceService: ServiceRealtekVideoCloud,
-		targetService: ServiceAccountManager,
+		stream:             StreamVideoAccountEvents,
+		sourceService:      ServiceRealtekVideoCloud,
+		targetService:      ServiceAccountManager,
+		requiredJSONFields: []string{"retryable"},
 		newPayload: func() Payload {
 			return &DeviceDeactivateFailedPayload{}
 		},
@@ -265,6 +268,9 @@ func (e Envelope) ValidateAndDecode(expectedStream string) (Payload, error) {
 	}
 	if e.TargetService != spec.targetService {
 		return nil, fieldError("target_service", fmt.Sprintf("message type %q must use %q", e.MessageType, spec.targetService))
+	}
+	if err := requireJSONFields(e.Payload, "payload", spec.requiredJSONFields...); err != nil {
+		return nil, err
 	}
 
 	payload := spec.newPayload()
@@ -480,6 +486,25 @@ func decodeStrictJSON(data []byte, target any) error {
 
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return errors.New("must contain a single JSON value")
+	}
+
+	return nil
+}
+
+func requireJSONFields(data []byte, prefix string, fields ...string) error {
+	if len(fields) == 0 {
+		return nil
+	}
+
+	var decoded map[string]json.RawMessage
+	if err := decodeStrictJSON(data, &decoded); err != nil {
+		return err
+	}
+
+	for _, field := range fields {
+		if _, ok := decoded[field]; !ok {
+			return fieldError(prefix+"."+field, "must be set")
+		}
 	}
 
 	return nil
