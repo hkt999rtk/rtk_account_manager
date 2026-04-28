@@ -1003,6 +1003,25 @@ func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 	env := newIntegrationEnv(t)
 
 	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	admin := registerUser(t, env.router, "admin@example.com", "Admin Org")
+	member := registerUser(t, env.router, "member@example.com", "Member Org")
+	outsider := registerUser(t, env.router, "outsider@example.com", "Outsider Org")
+	for _, membership := range []struct {
+		email string
+		role  string
+	}{
+		{email: "admin@example.com", role: "admin"},
+		{email: "member@example.com", role: "member"},
+	} {
+		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
+			"email": membership.email,
+			"role":  membership.role,
+		}, owner.Tokens.AccessToken)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("expected add member %s 201, got %d: %s", membership.email, res.Code, res.Body.String())
+		}
+	}
+
 	deviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("deactivate-device", "DEACTIVATE-001"), owner.Tokens.AccessToken)
 	if deviceRes.Code != http.StatusCreated {
 		t.Fatalf("expected create device 201, got %d: %s", deviceRes.Code, deviceRes.Body.String())
@@ -1023,10 +1042,28 @@ func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 		t.Fatalf("expected projected video metadata, got %+v", projected.Metadata)
 	}
 
+	memberDeactivateRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/deactivate", map[string]any{
+		"operation_id": "member-deactivate-op-1",
+	}, member.Tokens.AccessToken)
+	if memberDeactivateRes.Code != http.StatusForbidden {
+		t.Fatalf("expected member deactivate 403, got %d", memberDeactivateRes.Code)
+	}
+
+	outsiderDeactivateRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/deactivate", map[string]any{
+		"operation_id": "outsider-deactivate-op-1",
+	}, outsider.Tokens.AccessToken)
+	if outsiderDeactivateRes.Code != http.StatusNotFound {
+		t.Fatalf("expected cross-org deactivate 404, got %d", outsiderDeactivateRes.Code)
+	}
+
+	disableRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID, nil, owner.Tokens.AccessToken)
+	if disableRes.Code != http.StatusNoContent {
+		t.Fatalf("expected disable device 204, got %d: %s", disableRes.Code, disableRes.Body.String())
+	}
+
 	deactivateRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/deactivate", map[string]any{
 		"operation_id": "deactivate-op-1",
-		"reason":       "user_request",
-	}, owner.Tokens.AccessToken)
+	}, admin.Tokens.AccessToken)
 	if deactivateRes.Code != http.StatusCreated {
 		t.Fatalf("expected deactivate 201, got %d: %s", deactivateRes.Code, deactivateRes.Body.String())
 	}
@@ -1034,13 +1071,23 @@ func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 	if deactivated.Operation.OperationType != "deactivate" {
 		t.Fatalf("expected deactivate operation type, got %+v", deactivated.Operation)
 	}
+	if deactivated.Operation.RequestedBy == nil || *deactivated.Operation.RequestedBy != admin.User.ID {
+		t.Fatalf("expected admin requester in operation, got %+v", deactivated.Operation)
+	}
 
 	reusedDeactivateRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/deactivate", map[string]any{
 		"operation_id": "deactivate-op-1",
-		"reason":       "user_request",
-	}, owner.Tokens.AccessToken)
+	}, admin.Tokens.AccessToken)
 	if reusedDeactivateRes.Code != http.StatusOK {
 		t.Fatalf("expected idempotent deactivate 200, got %d: %s", reusedDeactivateRes.Code, reusedDeactivateRes.Body.String())
+	}
+
+	conflictDeactivateRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/deactivate", map[string]any{
+		"operation_id": "deactivate-op-1",
+		"reason":       "user_request",
+	}, admin.Tokens.AccessToken)
+	if conflictDeactivateRes.Code != http.StatusConflict {
+		t.Fatalf("expected conflicting deactivate 409, got %d: %s", conflictDeactivateRes.Code, conflictDeactivateRes.Body.String())
 	}
 
 	var messageType string
@@ -1067,8 +1114,18 @@ func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 	if decoded["video_cloud_devid"] != "video-device-1" {
 		t.Fatalf("expected projected video devid in payload, got %+v", decoded)
 	}
-	if decoded["reason"] != "user_request" {
-		t.Fatalf("expected custom deactivation reason in payload, got %+v", decoded)
+	if decoded["reason"] != defaultDeactivationReason {
+		t.Fatalf("expected default deactivation reason in payload, got %+v", decoded)
+	}
+
+	var outboxCount int
+	if err := env.db.QueryRow(context.Background(), `
+		SELECT count(*) FROM device_message_outbox WHERE operation_id = 'deactivate-op-1'
+	`).Scan(&outboxCount); err != nil {
+		t.Fatal(err)
+	}
+	if outboxCount != 1 {
+		t.Fatalf("expected one deactivate outbox row, got %d", outboxCount)
 	}
 
 	missingMetadataRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("plain-device", "DEACTIVATE-002"), owner.Tokens.AccessToken)
