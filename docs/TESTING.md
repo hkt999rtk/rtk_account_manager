@@ -68,6 +68,31 @@ When adding a feature, do not rely on line coverage alone. Add assertions for:
 - Outbox/inbox idempotency and retry/dead-letter behavior.
 - OpenAPI response compatibility when API payloads change.
 
+## V2 Provisioning And Event Channel Test Matrix
+
+When implementing the v2 provisioning/event-channel milestone, the maintained report must add evidence for these behavior groups:
+
+| Group | Required evidence |
+| --- | --- |
+| Provisioning API | Creating a provision operation writes `device_operations` and `device_message_outbox` in one transaction. |
+| Deactivation API | Creating a deactivation operation writes the correct operation and outbox command. |
+| Authorization | `owner` and `admin` may initiate lifecycle operations; `member` may only read provisioning state. |
+| Device scoping | Cross-organization and missing devices are rejected without leaking resource existence. |
+| Disabled devices | Disabled devices cannot be provisioned. |
+| Operation idempotency | Reusing `operation_id` with the same payload returns the existing operation. |
+| Operation conflicts | Reusing `operation_id` with a different payload returns `409 Conflict`. |
+| Message validation | Required envelope fields, supported `schema_version`, message type, stream, and partition key are validated. |
+| Outbox worker | Publish success marks rows `published`; transient failure retries; exhausted failure becomes `dead_lettered`. |
+| Inbox worker | Duplicate `message_id` is ignored safely and does not repeat side effects. |
+| Projection idempotency | Replayed events with the same `operation_id` do not corrupt final state. |
+| Metadata merge | `video_cloud_*` projections preserve unrelated device metadata. |
+| Activation projection | `DeviceProvisionSucceeded` updates video metadata but does not set account-manager `status=online`. |
+| Online projection | `DeviceOnlineChanged` updates account-manager `status` and `last_seen_at`. |
+| Failure projection | Provision/deactivation failures record stable error metadata and operation failure state. |
+| Broker adapters | Local broker tests are deterministic; Azure Event Hubs tests do not run unless explicitly configured. |
+
+The v2 test report must distinguish coverage from correctness by naming representative tests for each group above.
+
 ## CI
 
 GitHub Actions runs `make test-report` on pushes to `main` and on pull requests. The workflow starts a Postgres service, runs the report, builds all packages, and uploads the report artifacts.

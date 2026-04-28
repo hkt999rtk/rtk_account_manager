@@ -29,6 +29,37 @@ The contracts require additional account-side behavior:
 - Avoid treating activation success as account-manager `online` status.
 - Keep the cross-service channel runtime as an independent process.
 
+## Milestone And Issue Map
+
+Milestone: `v2-provisioning-event-channel`
+
+| Issue | Priority | Labels | Depends on | Status | Deliverable |
+| --- | --- | --- | --- | --- | --- |
+| `[Docs] Align SPEC with provisioning/event-channel v2 scope` | P0 | `docs`, `v2` | None | planned | `docs/SPEC.md` describes v2 APIs, data model, streams, statuses, metadata keys, and acceptance criteria. |
+| `[Docs] Add v2 implementation checklist and issue map` | P0 | `docs`, `v2` | None | planned | This document contains the issue map, dependency order, and status tracking. |
+| `[DB] Add device operations, outbox, and inbox persistence` | P1 | `database`, `backend`, `v2` | Docs issues | planned | Migrations and store methods for operation tracking, outbox publication state, and inbox dedupe. |
+| `[Domain] Add cross-service message envelope and payload validation` | P1 | `backend`, `v2` | Docs issues | planned | Envelope and payload types validate contract-required fields, stream/message types, schema version, and partition key. |
+| `[Device] Add metadata merge and projection primitives` | P1 | `backend`, `v2` | DB, Domain | planned | Store-level partial metadata merge and projection helpers for video metadata and online status. |
+| `[API] Add provisioning and deactivation endpoints` | P1 | `api`, `backend`, `v2` | DB, Domain, Device | planned | HTTP endpoints create/reuse operations and enqueue lifecycle command messages. |
+| `[Worker] Implement outbox publisher with local broker adapter` | P1 | `worker`, `backend`, `v2` | DB, Domain | planned | Independent worker publishes pending command messages and records retry/dead-letter state. |
+| `[Worker] Implement inbox consumer and account projection` | P1 | `worker`, `backend`, `v2` | DB, Domain, Device | planned | Independent worker deduplicates events and projects provisioning, deactivation, online, and metadata state. |
+| `[Broker] Add Azure Event Hubs adapter and runtime config` | P2 | `worker`, `backend`, `v2` | Local workers | planned | Event Hubs adapter and configuration without making local tests depend on Azure. |
+| `[Testing] Extend automated test report for v2` | P2 | `testing`, `v2` | API, Workers | planned | `make test-report` includes v2 behavior evidence and keeps coverage at or above 80%. |
+| `[Docs] Add local runbook for provisioning/event workers` | P2 | `docs`, `v2` | API, Workers, Broker config | planned | Local runbook for Postgres, API server, outbox worker, inbox worker, and local broker flow. |
+
+Status values:
+
+- `planned`: issue is defined but implementation has not started.
+- `in_progress`: implementation PR is active.
+- `implemented`: code is merged but final report/runbook may still need update.
+- `verified`: tests and maintained documentation are complete.
+
+Documentation-first rule:
+
+- The first change set updates `docs/SPEC.md`, this plan, and `docs/TESTING.md`.
+- `openapi.yaml` is updated with the provisioning API implementation so the contract matches live handler behavior.
+- README/runbook updates happen after worker commands and runtime configuration exist.
+
 ## Target Architecture
 
 ```mermaid

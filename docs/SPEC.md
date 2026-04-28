@@ -6,7 +6,7 @@ Build a backend account and device manager similar in spirit to Amazon IoT Devic
 
 The v1 service is a REST API backend only. It stores account and device state in Postgres and provides authentication, organization membership, role-based authorization, and registry-only device management.
 
-Provisioning and account/video EventHub-style integration are planned as the next major scope. The implementation plan is maintained in [PROVISIONING_AND_EVENT_CHANNEL_PLAN.md](PROVISIONING_AND_EVENT_CHANNEL_PLAN.md) and must stay aligned with the shared contracts in `contracts/PROVISION.md` and `contracts/CROSS_SERVICE_CHANNEL.md`.
+Provisioning and account/video EventHub-style integration are the v2 scope. The implementation plan is maintained in [PROVISIONING_AND_EVENT_CHANNEL_PLAN.md](PROVISIONING_AND_EVENT_CHANNEL_PLAN.md) and must stay aligned with the shared contracts in `contracts/PROVISION.md` and `contracts/CROSS_SERVICE_CHANNEL.md`.
 
 ## 2. V1 Scope
 
@@ -44,11 +44,11 @@ Provisioning and account/video EventHub-style integration are planned as the nex
 - Custom RBAC permissions.
 - Multi-region deployment concerns.
 
-## 2.1 Planned V2 Scope: Provisioning And Cross-Service Channel
+## 2.1 V2 Scope: Provisioning And Cross-Service Channel
 
-The shared contracts in `contracts/` define the next product-level integration boundary between account manager, Realtek video server, and an independent cross-service channel runtime.
+The shared contracts in `contracts/` define the product-level integration boundary between account manager, Realtek video server, and an independent cross-service channel runtime.
 
-V2 should add:
+V2 adds:
 
 - Account-side provisioning operation APIs for organization-owned registry devices.
 - Explicit account-manager to Realtek video server identity mapping, especially `video_cloud_devid`.
@@ -67,6 +67,42 @@ V2 must not:
 - Treat Realtek video server activation as equivalent to account-manager `online` status.
 - Use Realtek video server `POST /setup_eventhub` as the account/video cross-service channel.
 - Assume account-manager device UUID and Realtek video server `devid` are the same unless deliberately configured by integration.
+
+V2 logical streams:
+
+| Stream | Direction | Purpose |
+| --- | --- | --- |
+| `account.video.commands` | Account manager to video-side integration worker | Device lifecycle commands that request Realtek video server side effects. |
+| `video.account.events` | Video-side integration worker to account manager | Device lifecycle results and state projections consumed by account manager. |
+
+V2 message types:
+
+- `DeviceProvisionRequested`
+- `DeviceProvisionSucceeded`
+- `DeviceProvisionFailed`
+- `DeviceDeactivateRequested`
+- `DeviceDeactivateSucceeded`
+- `DeviceDeactivateFailed`
+- `DeviceOnlineChanged`
+- `DeviceMetadataChanged`
+
+V2 operation and message statuses:
+
+- `pending`
+- `published`
+- `succeeded`
+- `failed`
+- `retrying`
+- `dead_lettered`
+
+Account-manager-owned video metadata keys:
+
+- `video_cloud_devid`
+- `video_cloud_activation_status`
+- `video_cloud_activity_id`
+- `video_cloud_activated_at`
+- `video_cloud_deactivated_at`
+- `video_cloud_last_error`
 
 ## 3. Core Concepts
 
@@ -177,6 +213,93 @@ Constraints:
 
 Refresh tokens must be stored hashed, not in raw form.
 
+### `device_operations` (V2)
+
+Tracks idempotent provisioning and deactivation operations.
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | UUID | Yes | Primary key. |
+| `operation_id` | Text | Yes | Unique business idempotency key. |
+| `correlation_id` | Text | Yes | Groups cross-service workflow messages. |
+| `organization_id` | UUID | Yes | References `organizations.id`. |
+| `device_id` | UUID | Yes | References `devices.id`. |
+| `operation_type` | Text | Yes | One of `provision`, `deactivate`. |
+| `status` | Text | Yes | One of the V2 operation statuses. |
+| `requested_by` | UUID | No | User or service that requested the operation. |
+| `request_payload` | JSONB | Yes | Original normalized request payload. |
+| `result_payload` | JSONB | Yes | Result payload, default `{}`. |
+| `error_code` | Text | No | Stable error code from projection or worker failure. |
+| `error_message` | Text | No | Human-readable error details. |
+| `retryable` | Boolean | No | Whether the failure may be retried. |
+| `created_at` | Timestamp | Yes | Creation timestamp. |
+| `updated_at` | Timestamp | Yes | Last update timestamp. |
+| `completed_at` | Timestamp | No | Set when operation reaches a terminal state. |
+
+Constraints:
+
+- `operation_id` is unique and prevents duplicate business side effects.
+- Duplicate `operation_id` with the same normalized request payload returns the existing operation.
+- Duplicate `operation_id` with a conflicting payload returns `409 Conflict`.
+
+### `device_message_outbox` (V2)
+
+Stores account-side commands before broker publication.
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | UUID | Yes | Primary key. |
+| `message_id` | Text | Yes | Unique delivery message ID. |
+| `operation_id` | Text | Yes | References the business operation. |
+| `correlation_id` | Text | Yes | Cross-service workflow correlation ID. |
+| `causation_id` | Text | No | Message that caused this message, when known. |
+| `stream` | Text | Yes | Expected `account.video.commands`. |
+| `message_type` | Text | Yes | Supported account-to-video command type. |
+| `schema_version` | Text | Yes | Supported payload schema version. |
+| `partition_key` | Text | Yes | Account-manager `device_id`. |
+| `payload` | JSONB | Yes | Message payload. |
+| `status` | Text | Yes | One of `pending`, `published`, `retrying`, `dead_lettered`. |
+| `attempt_count` | Integer | Yes | Publish attempts. |
+| `last_error` | Text | No | Last publish error. |
+| `available_at` | Timestamp | Yes | Earliest retry/publish time. |
+| `published_at` | Timestamp | No | Successful publish time. |
+| `created_at` | Timestamp | Yes | Creation timestamp. |
+| `updated_at` | Timestamp | Yes | Last update timestamp. |
+
+Constraints:
+
+- `message_id` is unique.
+- Device lifecycle `partition_key` must equal account-manager `device_id`.
+
+### `device_message_inbox` (V2)
+
+Stores consumed video-side events and deduplication state.
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | UUID | Yes | Primary key. |
+| `message_id` | Text | Yes | Unique broker message ID used for deduplication. |
+| `operation_id` | Text | Yes | Business operation ID. |
+| `correlation_id` | Text | Yes | Cross-service workflow correlation ID. |
+| `causation_id` | Text | No | Message that caused this event, when known. |
+| `stream` | Text | Yes | Expected `video.account.events`. |
+| `message_type` | Text | Yes | Supported video-to-account event type. |
+| `schema_version` | Text | Yes | Supported payload schema version. |
+| `partition_key` | Text | Yes | Account-manager `device_id`. |
+| `payload` | JSONB | Yes | Message payload. |
+| `status` | Text | Yes | One of `processed`, `failed`, `retrying`, `dead_lettered`. |
+| `attempt_count` | Integer | Yes | Projection attempts. |
+| `last_error` | Text | No | Last projection error. |
+| `received_at` | Timestamp | Yes | Broker receive time. |
+| `processed_at` | Timestamp | No | Successful projection time. |
+| `created_at` | Timestamp | Yes | Creation timestamp. |
+| `updated_at` | Timestamp | Yes | Last update timestamp. |
+
+Constraints:
+
+- `message_id` is unique and deduplicates broker redelivery.
+- Unknown message types, invalid schema versions, and unmapped devices must not be silently dropped.
+
 ## 5. Authentication
 
 - Users authenticate with email and password.
@@ -207,7 +330,9 @@ Rules:
 - Disabling a member user sets `users.disabled_at`, revokes that user's active refresh tokens, and prevents login, refresh, and protected API access.
 - Enabling a member user clears `users.disabled_at`.
 - `owner` and `admin` may create, update, disable, delete, and update status for devices.
+- `owner` and `admin` may initiate provisioning and deactivation operations for devices.
 - `member` may list and read devices but may not modify them.
+- `member` may read provisioning state but may not initiate provisioning or deactivation.
 - No user may access an organization without an active membership.
 - No endpoint may allow cross-organization device access.
 
@@ -250,6 +375,48 @@ All endpoints are versioned under `/v1`.
 | `PATCH` | `/v1/orgs/:orgId/devices/:deviceId` | Yes | Update device fields. |
 | `DELETE` | `/v1/orgs/:orgId/devices/:deviceId` | Yes | Soft-disable device by setting `status` to `disabled` and `disabled_at`. |
 | `PATCH` | `/v1/orgs/:orgId/devices/:deviceId/status` | Yes | Update device status. |
+
+### Device Provisioning (V2)
+
+| Method | Path | Auth | Role | Description |
+| --- | --- | --- | --- | --- |
+| `POST` | `/v1/orgs/:orgId/devices/:deviceId/provision` | Yes | `owner`, `admin` | Create or reuse a provisioning operation and enqueue `DeviceProvisionRequested`. |
+| `GET` | `/v1/orgs/:orgId/devices/:deviceId/provisioning` | Yes | `owner`, `admin`, `member` | Return latest provisioning operation and projected video metadata. |
+| `POST` | `/v1/orgs/:orgId/devices/:deviceId/deactivate` | Yes | `owner`, `admin` | Create or reuse a deactivation operation and enqueue `DeviceDeactivateRequested`. |
+
+Provision request body:
+
+```json
+{
+  "video_cloud_devid": "device-1",
+  "activity_id": "activity-1",
+  "clip_public_key": "<clip-public-key>",
+  "operation_id": "optional-client-idempotency-key"
+}
+```
+
+Provision/deactivation response body:
+
+```json
+{
+  "operation": {
+    "operation_id": "op-01H...",
+    "status": "pending",
+    "device_id": "account-device-uuid",
+    "message_id": "msg-01H..."
+  }
+}
+```
+
+Provisioning rules:
+
+- The API writes the operation row and outbox row transactionally.
+- Disabled devices cannot be provisioned.
+- The API must not directly call Realtek video server.
+- Product-level deactivation and account registry soft-delete are distinct operations.
+- `DELETE /devices/:deviceId` remains account-registry soft-disable unless product policy explicitly changes it later.
+- `DeviceProvisionSucceeded` sets video activation metadata but does not set account-manager `status=online`.
+- `DeviceOnlineChanged` is the only video-side event that may project account-manager `status=online|offline`.
 
 ## 8. API Conventions
 
@@ -306,6 +473,18 @@ Required configuration:
 | `REFRESH_TOKEN_TTL` | Refresh token lifetime. |
 | `PORT` | HTTP server port. |
 
+V2 cross-service configuration:
+
+| Variable | Description |
+| --- | --- |
+| `CROSS_SERVICE_BROKER` | Broker adapter, such as `log`, `file`, or `azure_eventhubs`. |
+| `ACCOUNT_VIDEO_COMMANDS_STREAM` | Logical command stream, default `account.video.commands`. |
+| `VIDEO_ACCOUNT_EVENTS_STREAM` | Logical event stream, default `video.account.events`. |
+| `CROSS_SERVICE_CONSUMER_GROUP` | Consumer group for account-side event projection. |
+| `CROSS_SERVICE_MAX_ATTEMPTS` | Retry limit before dead-letter. |
+| `CROSS_SERVICE_POLL_INTERVAL` | Worker polling interval. |
+| `AZURE_EVENTHUB_CONNECTION_STRING` | Azure Event Hubs connection string when using Azure. |
+
 ## 10. Testing Expectations
 
 Tests should cover:
@@ -339,6 +518,18 @@ Tests should cover:
 - List endpoint tests cover pagination metadata.
 - OpenAPI schema validation passes.
 - Contract tests validate representative API responses against `openapi.yaml`.
+- Provisioning creates operation and outbox records transactionally.
+- Provisioning rejects disabled devices and cross-organization devices.
+- Provisioning enforces `owner`/`admin` write permissions and `member` read-only permissions.
+- Duplicate provisioning/deactivation `operation_id` is idempotent for the same payload and conflicts for a different payload.
+- Outbox worker publish success, retry, and dead-letter behavior is covered.
+- Inbox worker deduplicates by `message_id`.
+- Inbox projection is idempotent by `operation_id`.
+- Provisioning success/failure projections update video metadata without replacing unrelated metadata.
+- `DeviceProvisionSucceeded` does not set account-manager `status=online`.
+- `DeviceOnlineChanged` updates account-manager status and `last_seen_at`.
+- Unknown message types and invalid schema versions are rejected or dead-lettered.
+- The maintained test report maps v2 behavior groups to correctness assertions, not only coverage.
 
 ## 11. Acceptance Criteria
 
@@ -352,3 +543,18 @@ The v1 backend is acceptable when:
 - Role-based authorization is enforced.
 - Device records are scoped to organizations.
 - Automated tests cover the core authorization and device-management scenarios.
+
+The v2 provisioning/event-channel implementation is acceptable when:
+
+- Account-side provisioning and deactivation APIs are documented in OpenAPI.
+- Provisioning creates idempotent operation records.
+- Account-side lifecycle commands are persisted in an outbox before publication.
+- Outbox worker publishes `DeviceProvisionRequested` and `DeviceDeactivateRequested`.
+- Inbox worker consumes all v2 video/account event types.
+- Duplicate message delivery does not cause duplicate side effects.
+- Projection merges metadata safely.
+- Activation success does not imply account-manager `online`.
+- Online/offline projection updates account-manager status only from `DeviceOnlineChanged`.
+- Retry and dead-letter state are inspectable in the database.
+- Local development can run without Azure using a local broker adapter.
+- Automated tests cover the v2 behavior matrix and report correctness evidence.
