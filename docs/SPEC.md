@@ -461,6 +461,63 @@ Provisioning rules:
 - `DeviceProvisionSucceeded` replaces the pending activation metadata with the terminal activation result but does not set account-manager `status=online`.
 - `DeviceOnlineChanged` is the only video-side event that may project account-manager `status=online|offline`.
 
+### Product Readiness Contract
+
+`rtk_account_manager` does not currently own one aggregate "product readiness"
+boolean or API. Product readiness crosses multiple service boundaries, so the
+current owner of readiness aggregation is the integrating client or service
+that can read both account-manager projections and the remaining video-side
+bootstrap inputs.
+
+Current readiness inputs:
+
+| Input | Source of truth | Meaning |
+| --- | --- | --- |
+| Account registry record exists and is enabled | `rtk_account_manager` device APIs | The organization-scoped device record exists and is not soft-disabled. |
+| Provisioning operation accepted | `POST /provision`, `GET /provisioning` | Account side persisted the lifecycle operation and outbox command. |
+| Video activation result projected | `GET /provisioning`, device `video_cloud_*` metadata | Realtek video activation succeeded or failed for the mapped device identity. |
+| Subject-bound token issuance completed | Video-side or integration-service auth surface | The device or app has the credentials required for product use. |
+| Video-side bootstrap prerequisites completed when required | Video-side APIs | Device info/config setup or equivalent downstream bootstrap state is available. |
+| Owner transport connected | Account-manager device `status`, projected from `DeviceOnlineChanged` | The device has actually come online through its supported owner transport. |
+
+Client consumption rules:
+
+- Treat `GET /v1/orgs/:orgId/devices/:deviceId/provisioning` as the
+  account-side lifecycle projection, not as a full readiness endpoint.
+- Do not treat `DeviceProvisionSucceeded` by itself as product-ready; it only
+  proves activation metadata was projected.
+- Do not treat account-manager `status=online` by itself as product-ready; it
+  does not prove activation or token issuance completed.
+- Compose the final readiness view from account-manager lifecycle state plus
+  the required video-side credential and bootstrap signals.
+
+Recommended composed readiness states:
+
+| State | Required signals | Meaning |
+| --- | --- | --- |
+| `registry_only` | Device record exists, no accepted provisioning operation | The device exists only as an account-side registry record. |
+| `activation_pending` | Provisioning operation is `pending`, `published`, or `retrying` | Account side accepted provisioning, but no terminal activation result is projected yet. |
+| `activation_failed` | Provisioning operation is `failed` or `dead_lettered`, or projected metadata records `video_cloud_last_error` | Activation did not complete; clients must surface the failure instead of claiming readiness. |
+| `activation_succeeded` | Provisioning operation is `succeeded` and activation metadata is present | Video activation completed, but downstream readiness steps may still be missing. |
+| `credentials_pending` | Activation succeeded, but required token issuance is not confirmed | The device is activated but not yet ready to authenticate for product use. |
+| `transport_pending` | Activation and credentials are ready, but the device is not yet projected `online` | Bootstrap is almost complete, but the device has not connected through owner transport yet. |
+| `ready` | Activation succeeded, credentials/bootstrap are ready, and the device is projected `online` | The product can treat the device as provisioned and currently connected. |
+| `degraded` | The device was previously `ready` but later projects `offline` or another required dependency regresses | Product readiness was reached earlier, but current usability degraded. |
+
+Failure handling rules:
+
+- If activation fails, surface the provisioning operation error fields and
+  projected `video_cloud_last_error`; do not silently collapse back to
+  `registry_only`.
+- If token issuance or other video-side bootstrap fails after activation,
+  surface that as a post-activation readiness failure rather than rewriting the
+  account-manager provisioning result.
+- If the device never projects `online`, keep the readiness view in
+  `transport_pending` or a more specific post-activation state instead of
+  claiming full success.
+- A future unified readiness endpoint would require a separate API/OpenAPI/test
+  change set; this repository does not currently expose one.
+
 ## 8. API Conventions
 
 - Request and response bodies use JSON.

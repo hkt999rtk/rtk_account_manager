@@ -11,7 +11,7 @@ This plan is derived from:
 - `contracts/CONTRACT_OVERVIEW.md`
 - `docs/SPEC.md`
 
-As of April 29, 2026, `origin/main` already includes the merged persistence, API, worker, broker, test-report, and runbook slices for this milestone. The remaining account-manager work is contract follow-up hardening around cross-repository integration boundaries and operational maintenance surfaces.
+As of April 30, 2026, `origin/main` already includes the merged persistence, API, worker, broker, test-report, and runbook slices for this milestone. The remaining account-manager work is contract and operations follow-up around cross-repository integration boundaries, lifecycle maintenance tooling, and delete semantics.
 
 ## Current Implementation Snapshot
 
@@ -27,10 +27,8 @@ The current account manager now implements:
 Residual contract follow-up gaps for this milestone snapshot:
 
 - Define and hand off the video-side lifecycle integration worker that consumes `account.video.commands`, calls Realtek video server APIs, and publishes `video.account.events`.
-- Decide whether provisioning should persist the pending `video_cloud_devid` mapping to device metadata before video-side success/failure projection.
 - Add an operational surface for inspecting and requeueing retry/dead-letter lifecycle messages without direct SQL.
 - Final policy: keep `DELETE /devices/:deviceId` as a registry-only soft-disable and require explicit `POST /deactivate` for product-level video teardown.
-- Decide whether account manager should expose a product-level readiness view, or whether readiness remains owned by an integration service.
 
 ## Milestone And Issue Map
 
@@ -420,6 +418,44 @@ Final policy: keep account-registry deletion and product-level deactivation dist
 - `DELETE /devices/:deviceId` remains an account-registry soft-disable and does not enqueue `DeviceDeactivateRequested`.
 - If the product-side device must be torn down, call `POST /deactivate`, wait for the corresponding terminal video-side result event, then optionally soft-delete the registry record.
 - A failed deactivation must remain visible in metadata and operation state; registry delete alone must not be presented as completed product disablement.
+
+## Phase 9.1: Product Readiness Contract
+
+Product-level readiness is a composed multi-service state, not an
+account-manager-owned boolean.
+
+Contract rules:
+
+- `rtk_account_manager` owns registry state, provisioning operation state,
+  projected `video_cloud_*` metadata, and projected account-side
+  `online|offline` status.
+- Realtek video server or the video-side integration layer owns token issuance,
+  video-side bootstrap prerequisites, and transport/session readiness inputs
+  that do not live in account-manager state.
+- `GET /provisioning` is the account-side lifecycle projection surface; it is
+  not a unified product-readiness endpoint.
+- Clients or an integrating service must compose readiness from both account
+  and video-side signals until a future dedicated readiness API is explicitly
+  designed and implemented.
+
+Recommended composed readiness states:
+
+- `registry_only`
+- `activation_pending`
+- `activation_failed`
+- `activation_succeeded`
+- `credentials_pending`
+- `transport_pending`
+- `ready`
+- `degraded`
+
+Failure handling:
+
+- Activation failure must stay visible through operation error fields and
+  projected metadata.
+- Missing token/bootstrap prerequisites after activation must surface as
+  post-activation readiness gaps, not as fake activation success.
+- `status=online` alone does not prove full provisioning readiness.
 
 ## Phase 10: Testing And Reporting
 
