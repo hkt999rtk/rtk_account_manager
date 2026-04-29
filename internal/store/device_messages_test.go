@@ -1,9 +1,12 @@
 package store
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"rtk_account_manager/internal/model"
 )
@@ -77,6 +80,76 @@ func TestCompareOperationCreate(t *testing.T) {
 		OperationType:  model.DeviceOperationTypeProvision,
 	}, differentPayload); !errors.Is(err, ErrConflict) {
 		t.Fatalf("expected payload mismatch to conflict, got %v", err)
+	}
+}
+
+func TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshot(t *testing.T) {
+	existing := model.DeviceMessageInbox{
+		OperationID:   "op-1",
+		CorrelationID: "corr-1",
+		Stream:        "video.account.events",
+		MessageType:   "DeviceProvisionSucceeded",
+		SchemaVersion: "1.0",
+		PartitionKey:  "device-1",
+		Payload: map[string]any{
+			inboxPayloadSnapshotRawKey:   "{not-json",
+			inboxPayloadSnapshotErrorKey: "invalid character 'n' looking for beginning of object key string",
+		},
+	}
+
+	wantPayload, err := json.Marshal(map[string]any{
+		inboxPayloadSnapshotRawKey:    "{not-json",
+		inboxPayloadSnapshotBase64Key: base64.StdEncoding.EncodeToString([]byte("{not-json")),
+		inboxPayloadSnapshotErrorKey:  "invalid character 'n' looking for beginning of object key string",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := compareInboxCreate(existing, DeviceMessageInboxCreateInput{
+		OperationID:   "op-1",
+		CorrelationID: "corr-1",
+		Stream:        "video.account.events",
+		MessageType:   "DeviceProvisionSucceeded",
+		SchemaVersion: "1.0",
+		PartitionKey:  "device-1",
+	}, wantPayload); err != nil {
+		t.Fatalf("expected legacy malformed payload snapshot to match, got %v", err)
+	}
+}
+
+func TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshotWithLossyUTF8(t *testing.T) {
+	legacyBytes := []byte{0xff, 0xfe, '{', 'b', 'a', 'd', '}'}
+	existing := model.DeviceMessageInbox{
+		OperationID:   "op-1",
+		CorrelationID: "corr-1",
+		Stream:        "video.account.events",
+		MessageType:   "DeviceProvisionSucceeded",
+		SchemaVersion: "1.0",
+		PartitionKey:  "device-1",
+		Payload: map[string]any{
+			inboxPayloadSnapshotRawKey:   strings.ToValidUTF8(string(legacyBytes), string(utf8.RuneError)),
+			inboxPayloadSnapshotErrorKey: "invalid character 'ÿ' looking for beginning of value",
+		},
+	}
+
+	wantPayload, err := json.Marshal(map[string]any{
+		inboxPayloadSnapshotBase64Key: base64.StdEncoding.EncodeToString(legacyBytes),
+		inboxPayloadSnapshotErrorKey:  "invalid character 'ÿ' looking for beginning of value",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := compareInboxCreate(existing, DeviceMessageInboxCreateInput{
+		OperationID:   "op-1",
+		CorrelationID: "corr-1",
+		Stream:        "video.account.events",
+		MessageType:   "DeviceProvisionSucceeded",
+		SchemaVersion: "1.0",
+		PartitionKey:  "device-1",
+	}, wantPayload); err != nil {
+		t.Fatalf("expected legacy lossy UTF-8 payload snapshot to match, got %v", err)
 	}
 }
 

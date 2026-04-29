@@ -305,7 +305,7 @@ func TestDeviceMessagePersistenceRejectsInvalidSchemaValues(t *testing.T) {
 	})
 	requirePGErrorCode(t, err, "23514")
 
-	_, _, err = env.store.CreateOrGetInboxMessage(ctx, DeviceMessageInboxCreateInput{
+	inboxMessage, created, err := env.store.CreateOrGetInboxMessage(ctx, DeviceMessageInboxCreateInput{
 		MessageID:     "wrong-inbox-partition-key",
 		OperationID:   op.OperationID,
 		CorrelationID: op.CorrelationID,
@@ -318,7 +318,13 @@ func TestDeviceMessagePersistenceRejectsInvalidSchemaValues(t *testing.T) {
 		ReceivedAt:    now,
 	})
 	if err != nil {
-		t.Fatalf("expected mismatched inbox partition key to persist for dead-letter handling, got %v", err)
+		t.Fatalf("expected inbox partition-key mismatch to remain persistable for dead-lettering, got %v", err)
+	}
+	if !created {
+		t.Fatal("expected inbox partition-key mismatch to create a row")
+	}
+	if inboxMessage.PartitionKey != "device-other" {
+		t.Fatalf("expected inbox partition key to preserve malformed value, got %q", inboxMessage.PartitionKey)
 	}
 }
 

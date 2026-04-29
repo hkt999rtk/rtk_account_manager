@@ -3,10 +3,12 @@ package store
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 
@@ -79,6 +81,12 @@ type DeviceMessageInboxCreateInput struct {
 	ReceivedAt    time.Time
 	ProcessedAt   *time.Time
 }
+
+const (
+	inboxPayloadSnapshotRawKey    = "_raw_payload"
+	inboxPayloadSnapshotBase64Key = "_raw_payload_base64"
+	inboxPayloadSnapshotErrorKey  = "_payload_decode_error"
+)
 
 type DeviceMessageInboxUpdateInput struct {
 	Status       model.DeviceMessageInboxStatus
@@ -394,7 +402,7 @@ func compareInboxCreate(existing model.DeviceMessageInbox, in DeviceMessageInbox
 		existing.MessageType != in.MessageType ||
 		existing.SchemaVersion != in.SchemaVersion ||
 		existing.PartitionKey != in.PartitionKey ||
-		!sameJSONMap(existing.Payload, payload) {
+		!sameInboxPayload(existing.Payload, payload) {
 		return ErrConflict
 	}
 	return nil
@@ -436,6 +444,82 @@ func sameJSONMap(existing map[string]any, want []byte) bool {
 		return false
 	}
 	return bytes.Equal(got, want)
+}
+
+func sameInboxPayload(existing map[string]any, want []byte) bool {
+	if sameJSONMap(existing, want) {
+		return true
+	}
+
+	decoded, err := unmarshalJSONMap(want)
+	if err != nil {
+		return false
+	}
+
+	return sameLegacyMalformedInboxPayload(existing, decoded)
+}
+
+func sameLegacyMalformedInboxPayload(existing, want map[string]any) bool {
+	if !hasOnlyJSONKeys(existing, inboxPayloadSnapshotRawKey, inboxPayloadSnapshotErrorKey) {
+		return false
+	}
+	if !hasOnlyJSONKeys(want, inboxPayloadSnapshotRawKey, inboxPayloadSnapshotBase64Key, inboxPayloadSnapshotErrorKey) &&
+		!hasOnlyJSONKeys(want, inboxPayloadSnapshotBase64Key, inboxPayloadSnapshotErrorKey) {
+		return false
+	}
+
+	existingRaw, ok := jsonStringValue(existing, inboxPayloadSnapshotRawKey)
+	if !ok {
+		return false
+	}
+	existingError, ok := jsonStringValue(existing, inboxPayloadSnapshotErrorKey)
+	if !ok {
+		return false
+	}
+	wantError, ok := jsonStringValue(want, inboxPayloadSnapshotErrorKey)
+	if !ok || wantError != existingError {
+		return false
+	}
+
+	if wantRaw, ok := jsonStringValue(want, inboxPayloadSnapshotRawKey); ok {
+		return wantRaw == existingRaw
+	}
+
+	wantBase64, ok := jsonStringValue(want, inboxPayloadSnapshotBase64Key)
+	if !ok {
+		return false
+	}
+	payloadBytes, err := base64.StdEncoding.DecodeString(wantBase64)
+	if err != nil {
+		return false
+	}
+
+	return strings.ToValidUTF8(string(payloadBytes), string(utf8.RuneError)) == existingRaw
+}
+
+func hasOnlyJSONKeys(value map[string]any, allowed ...string) bool {
+	if len(value) != len(allowed) {
+		return false
+	}
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, key := range allowed {
+		allowedSet[key] = struct{}{}
+	}
+	for key := range value {
+		if _, ok := allowedSet[key]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func jsonStringValue(value map[string]any, key string) (string, bool) {
+	raw, ok := value[key]
+	if !ok {
+		return "", false
+	}
+	text, ok := raw.(string)
+	return text, ok
 }
 
 func marshalJSONMap(value map[string]any) ([]byte, error) {

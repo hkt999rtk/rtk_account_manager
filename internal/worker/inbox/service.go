@@ -53,9 +53,10 @@ type Stats struct {
 var transitionForPayloadFunc = buildTransitionForPayload
 
 const (
-	payloadSnapshotRawKey    = "_raw_payload"
-	payloadSnapshotBase64Key = "_raw_payload_base64"
-	payloadSnapshotErrorKey  = "_payload_decode_error"
+	payloadSnapshotRawKey               = "_raw_payload"
+	payloadSnapshotBase64Key            = "_raw_payload_base64"
+	payloadSnapshotErrorKey             = "_payload_decode_error"
+	payloadSnapshotEnvelopePartitionKey = "_envelope_partition_key"
 )
 
 func NewService(store messageStore, consumer broker.Consumer, opts Options) *Service {
@@ -156,7 +157,7 @@ func (s *Service) processMessage(ctx context.Context, record broker.Message) (mo
 	receivedAt := s.receivedAt(record.Envelope)
 	payloadMap, payloadErr := payloadMapFromEnvelope(record.Envelope)
 
-	message, created, err := s.store.CreateOrGetInboxMessage(ctx, store.DeviceMessageInboxCreateInput{
+	message, created, err := s.createInboxMessage(ctx, store.DeviceMessageInboxCreateInput{
 		MessageID:     record.Envelope.MessageID,
 		OperationID:   record.Envelope.OperationID,
 		CorrelationID: record.Envelope.CorrelationID,
@@ -229,6 +230,21 @@ func (s *Service) processMessage(ctx context.Context, record broker.Message) (mo
 		return "", err
 	}
 	return model.DeviceMessageInboxStatusProcessed, nil
+}
+
+func (s *Service) createInboxMessage(ctx context.Context, in store.DeviceMessageInboxCreateInput) (model.DeviceMessageInbox, bool, error) {
+	if strings.TrimSpace(in.PartitionKey) == "" {
+		originalPartitionKey := in.PartitionKey
+		operation, err := s.store.GetDeviceOperation(ctx, in.OperationID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return model.DeviceMessageInbox{}, false, err
+		}
+		if err == nil {
+			in.PartitionKey = operation.DeviceID
+			in.Payload = withEnvelopePartitionKeySnapshot(in.Payload, originalPartitionKey, in.PartitionKey)
+		}
+	}
+	return s.store.CreateOrGetInboxMessage(ctx, in)
 }
 
 func (s *Service) markProcessedWithoutProjection(ctx context.Context, message model.DeviceMessageInbox, attemptCount int) error {
@@ -405,6 +421,28 @@ func payloadMapFromEnvelope(envelope channel.Envelope) (map[string]any, error) {
 		return map[string]any{}, nil
 	}
 	return payload, nil
+}
+
+func withEnvelopePartitionKeySnapshot(payload map[string]any, originalPartitionKey, persistedPartitionKey string) map[string]any {
+	if originalPartitionKey == persistedPartitionKey {
+		return payload
+	}
+
+	snapshot := clonePayloadMap(payload)
+	snapshot[payloadSnapshotEnvelopePartitionKey] = originalPartitionKey
+	return snapshot
+}
+
+func clonePayloadMap(payload map[string]any) map[string]any {
+	if len(payload) == 0 {
+		return map[string]any{}
+	}
+
+	cloned := make(map[string]any, len(payload))
+	for key, value := range payload {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func isCompletedLifecycleOperation(operation model.DeviceOperation) bool {
