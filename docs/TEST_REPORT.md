@@ -1,6 +1,6 @@
 # Test Report
 
-Generated: 2026-04-28T17:26:39Z
+Generated: 2026-04-29T01:32:40Z
 
 ## Summary
 
@@ -16,7 +16,7 @@ Generated: 2026-04-28T17:26:39Z
 
 | Metric | Value |
 | --- | --- |
-| Total statement coverage | 81.8% |
+| Total statement coverage | 81.1% |
 | Minimum required coverage | 80.0% |
 | Coverage mode | atomic |
 | Coverage scope | ./internal/... |
@@ -25,9 +25,9 @@ Generated: 2026-04-28T17:26:39Z
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 12 |
-| Test cases started | 111 |
-| JSON pass events | 119 |
+| Go packages | 17 |
+| Test cases started | 165 |
+| JSON pass events | 176 |
 | JSON fail events | 0 |
 | Integration database | Postgres via TEST_DATABASE_URL |
 
@@ -49,9 +49,15 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Operation idempotency | Reusing the same lifecycle `operation_id` returns the existing operation and preserves the original outbox `message_id`, including retries after device disablement or missing live metadata. |
 | Operation conflicts | Reusing a lifecycle `operation_id` with conflicting provision activity data or deactivation reason returns `409 Conflict`. |
 | Message validation | Envelope fields, supported `schema_version`, message-type/stream/service pairing, lifecycle UUIDs, UTC timestamps, and `partition_key` validation for cross-service messages. |
+| Outbox worker | `TestRunOnceMarksSuccessfulPublishes`, `TestRunOnceSchedulesTransientRetry`, `TestRunOnceDeadLettersExhaustedPublishFailures`, and `TestRunOnceIgnoresStaleLeaseTransitionConflict` verify publish success, retry, dead-letter, and stale-lease protection. |
+| Inbox worker | `TestRunOnceSkipsPreviouslyProcessedDuplicates`, `TestRunOnceDeadLettersInvalidMessages`, and `TestRunOnceRetriesTransientProjectionFailures` verify dedupe, dead-lettering, and transient projection retry behavior. |
+| Projection idempotency and metadata merge | `TestRunOnceProcessesProvisionSuccess`, `TestRunOnceProcessesFailureAndProjectionEvents`, `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`, and `TestMetadataChangedProjectionFiltersNonVideoCloudKeys` cover replay-safe projection and selective `video_cloud_*` metadata updates. |
+| Activation and online projection | `TestProjectDeviceProvisioningAndOnlineRules` proves provisioning success does not set account-manager `status=online`, while `DeviceOnlineChanged` remains the only event that updates `status` and `last_seen_at`. |
+| Failure projection | `TestProjectDeviceRejectsDisabledDevicesExceptDeactivateResults` and `TestRunOnceProcessesFailureAndProjectionEvents` verify provision/deactivation failures keep stable error metadata and terminal operation state, including disabled-device deactivation results. |
+| Broker adapters | `TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds`, `TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds`, `TestLogPublisherWritesEnvelopeJSON`, `TestLogConsumerReadsEnvelopeJSON`, `TestAzureEventHubsPublisherPublishesJSONRecord`, and `TestAzureEventHubsConsumerReadsAcrossPartitions` cover the deterministic local default adapter plus Azure Event Hubs publish/consume behavior without requiring live Azure. |
 | Database invariants | Idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, automatic `updated_at` triggers. |
 | OpenAPI contract | OpenAPI schema validation plus representative provisioning, provisioning-state, and deactivation response validation against `openapi.yaml`. |
-| Configuration and maintenance | `.env` loading, TTL parsing/fallbacks, required JWT secrets, refresh-token cleanup behavior. |
+| Configuration and maintenance | `.env` loading, TTL parsing/fallbacks, worker-specific broker config defaults, required JWT secrets, and refresh-token cleanup behavior. |
 
 ## Executed Test Cases
 
@@ -84,6 +90,32 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/auth`: `TestExpiredAndWrongSecretTokensFailParsing`
 - `rtk_account_manager/internal/auth`: `TestPasswordHashAndCheck`
 - `rtk_account_manager/internal/auth`: `TestTokenKindValidation`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerCloseClosesPartitions`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerMarksConnectionLossTransient`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerReadsAcrossPartitions`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerTreatsReceiveTimeoutAsEmptyPoll`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsPublisherCloseClosesClient`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsPublisherMarksBatchErrorsTransient/add_event`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsPublisherMarksBatchErrorsTransient/new_batch`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsPublisherMarksBatchErrorsTransient`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsPublisherMarksConnectionLossTransient`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsPublisherPublishesJSONRecord`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsPublisherRejectsUnexpectedStream`
+- `rtk_account_manager/internal/broker`: `TestAzureMessageDecodeRejectsInvalidJSON`
+- `rtk_account_manager/internal/broker`: `TestAzureMessageDecodeRejectsNilEvent`
+- `rtk_account_manager/internal/broker`: `TestClassifyAzurePublishErrorLeavesContextErrorsUntouched`
+- `rtk_account_manager/internal/broker`: `TestClassifyAzurePublishErrorLeavesUnauthorizedPermanent`
+- `rtk_account_manager/internal/broker`: `TestClassifyAzureReceiveErrorLeavesContextErrorsUntouched`
+- `rtk_account_manager/internal/broker`: `TestClassifyAzureReceiveErrorLeavesUnauthorizedPermanent`
+- `rtk_account_manager/internal/broker`: `TestLogConsumerReadsEnvelopeJSON`
+- `rtk_account_manager/internal/broker`: `TestLogPublisherWritesEnvelopeJSON`
+- `rtk_account_manager/internal/broker`: `TestNewAzureEventHubsConstructorsRequireConfig`
+- `rtk_account_manager/internal/broker`: `TestNewAzureEventHubsConsumerClosesClientWhenPartitionOpenFails`
+- `rtk_account_manager/internal/broker`: `TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds`
+- `rtk_account_manager/internal/broker`: `TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds`
+- `rtk_account_manager/internal/broker`: `TestOpenAzurePartitionsClosesEarlierPartitionsOnFailure`
+- `rtk_account_manager/internal/broker`: `TestTransientHelpersExposeWrappedError`
+- `rtk_account_manager/internal/broker`: `TestTransientMarker`
 - `rtk_account_manager/internal/channel`: `TestDecodeStrictJSONRejectsMultipleJSONValues`
 - `rtk_account_manager/internal/channel`: `TestEnvelopeUnmarshalRejectsUnknownFields`
 - `rtk_account_manager/internal/channel`: `TestValidateAcceptsExplicitFalseRetryable/deactivate_failed`
@@ -151,6 +183,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/config`: `TestLoadFallsBackForInvalidDurations`
 - `rtk_account_manager/internal/config`: `TestLoadReadsEnvironmentAndDurations`
 - `rtk_account_manager/internal/config`: `TestLoadRequiresJWTSecrets`
+- `rtk_account_manager/internal/config`: `TestLoadWorkerAllowsMissingJWTSecrets`
+- `rtk_account_manager/internal/config`: `TestLoadWorkerFallsBackForInvalidMaxAttempts`
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirMissing`
 - `rtk_account_manager/internal/openapi`: `TestOpenAPIContractIsValid`
 - `rtk_account_manager/internal/store`: `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`
@@ -166,6 +200,32 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestOutboxMessagePersistenceAndReadyList`
 - `rtk_account_manager/internal/store`: `TestProjectDeviceProvisioningAndOnlineRules`
 - `rtk_account_manager/internal/store`: `TestProjectDeviceRejectsDisabledDevicesExceptDeactivateResults`
+- `rtk_account_manager/internal/store`: `TestRecordInboxProcessTransitionUpdatesOperationAndProjection`
+- `rtk_account_manager/internal/store`: `TestRecordOutboxPublishTransitionRejectsStaleLease`
+- `rtk_account_manager/internal/store`: `TestRecordOutboxPublishTransitionUpdatesOperationState`
+- `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationRejectsMissingProjectedMetadata`
+- `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationUsesProjectedMetadata`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidMessages`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersMalformedAndUnmappedMessages/command-only_message_on_events_stream_dead-letters`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersMalformedAndUnmappedMessages/malformed_payload_keeps_inspectable_inbox_row`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersMalformedAndUnmappedMessages`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersTransientProjectionFailureAtAttemptLimit`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents/deactivate_failure_records_retryable_error`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents/deactivate_success_keeps_deactivation_projection`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents/metadata_changed_filters_non_video-cloud_keys`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents/online_changed_updates_device_status_projection_only`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents/provision_failure_marks_operation_failed`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesProvisionSuccess`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceRetriesTransientProjectionFailures`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceSkipsPreviouslyProcessedDuplicates`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceUsesWorkerClockWhenEnvelopeTimeIsMissing`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunRetriesTransientReceiveErrors`
+- `rtk_account_manager/internal/worker/outbox`: `TestRunOnceDeadLettersExhaustedPublishFailures`
+- `rtk_account_manager/internal/worker/outbox`: `TestRunOnceDeadLettersInvalidOutboxPayload`
+- `rtk_account_manager/internal/worker/outbox`: `TestRunOnceIgnoresStaleLeaseTransitionConflict`
+- `rtk_account_manager/internal/worker/outbox`: `TestRunOnceMarksSuccessfulPublishes`
+- `rtk_account_manager/internal/worker/outbox`: `TestRunOnceSchedulesTransientRetry`
 
 ## Commands
 
