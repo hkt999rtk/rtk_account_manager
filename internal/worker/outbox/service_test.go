@@ -191,6 +191,34 @@ func TestRunOnceIgnoresStaleLeaseTransitionConflict(t *testing.T) {
 	}
 }
 
+func TestRunOnceIgnoresConflictWhenRetryLosesToPublished(t *testing.T) {
+	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	outboxStore := &fakeStore{
+		claimed:       []model.DeviceMessageOutbox{validMessage(now)},
+		transitionErr: store.ErrConflict,
+	}
+
+	service := NewService(outboxStore, fakePublisher{err: broker.Transient(errors.New("publish already succeeded elsewhere"))}, Options{
+		MaxAttempts: 5,
+		RetryDelay:  time.Minute,
+		Now:         func() time.Time { return now },
+	})
+
+	stats, err := service.RunOnce(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Claimed != 1 || stats.Published != 0 || stats.Retrying != 0 || stats.DeadLettered != 0 {
+		t.Fatalf("expected conflicting retry transition to be a no-op, got %+v", stats)
+	}
+	if len(outboxStore.transitions) != 1 {
+		t.Fatalf("expected one attempted transition, got %d", len(outboxStore.transitions))
+	}
+	if outboxStore.transitions[0].MessageStatus != model.DeviceMessageOutboxStatusRetrying {
+		t.Fatalf("expected retry transition attempt, got %+v", outboxStore.transitions[0])
+	}
+}
+
 func validMessage(createdAt time.Time) model.DeviceMessageOutbox {
 	return model.DeviceMessageOutbox{
 		MessageID:     "msg-1",
