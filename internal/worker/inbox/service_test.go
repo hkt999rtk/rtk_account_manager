@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -630,6 +631,92 @@ func TestRunOnceDeadLettersMalformedAndUnmappedMessages(t *testing.T) {
 				t.Fatalf("expected dead-lettered status, got %s", got)
 			}
 			tc.assertion(t, inboxStore)
+		})
+	}
+}
+
+func TestRunOnceDeadLettersInvalidPartitionKeysAfterPersistingInboxRow(t *testing.T) {
+	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	deviceID := "11111111-1111-1111-1111-111111111111"
+	tests := []struct {
+		name              string
+		message           broker.Message
+		store             *fakeStore
+		wantPartitionKey  string
+		wantSnapshotValue any
+		wantErrorFragment string
+	}{
+		{
+			name: "nonblank mismatched partition key dead-letters",
+			message: eventMessage(t, "msg-mismatch", channel.MessageTypeDeviceMetadataChanged, now, channel.DeviceMetadataChangedPayload{
+				OrgID:           "00000000-0000-0000-0000-000000000001",
+				AccountDeviceID: deviceID,
+				VideoCloudDevid: "video-1",
+				Metadata:        map[string]any{},
+			}),
+			store:             &fakeStore{created: true},
+			wantPartitionKey:  "22222222-2222-2222-2222-222222222222",
+			wantSnapshotValue: nil,
+			wantErrorFragment: "partition_key must equal payload.account_device_id",
+		},
+		{
+			name: "blank partition key is normalized for storage and dead-lettered",
+			message: eventMessage(t, "msg-blank", channel.MessageTypeDeviceMetadataChanged, now, channel.DeviceMetadataChangedPayload{
+				OrgID:           "00000000-0000-0000-0000-000000000001",
+				AccountDeviceID: deviceID,
+				VideoCloudDevid: "video-1",
+				Metadata:        map[string]any{},
+			}),
+			store: &fakeStore{
+				created: true,
+				operation: model.DeviceOperation{
+					OperationID: "op-msg-blank",
+					DeviceID:    deviceID,
+				},
+			},
+			wantPartitionKey:  deviceID,
+			wantSnapshotValue: "   ",
+			wantErrorFragment: "partition_key must be non-empty",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.wantSnapshotValue == nil {
+				tc.message.Envelope.PartitionKey = tc.wantPartitionKey
+			} else {
+				tc.message.Envelope.PartitionKey = tc.wantSnapshotValue.(string)
+			}
+
+			service := NewService(tc.store, fakeConsumer{messages: []broker.Message{tc.message}}, Options{
+				Now: func() time.Time { return now },
+			})
+
+			stats, err := service.RunOnce(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stats.DeadLettered != 1 || stats.Processed != 0 || stats.Retrying != 0 {
+				t.Fatalf("unexpected stats: %+v", stats)
+			}
+			if len(tc.store.createInputs) != 1 {
+				t.Fatalf("expected one create input, got %d", len(tc.store.createInputs))
+			}
+			if got := tc.store.createInputs[0].PartitionKey; got != tc.wantPartitionKey {
+				t.Fatalf("expected persisted partition key %q, got %q", tc.wantPartitionKey, got)
+			}
+			if got := tc.store.createInputs[0].Payload[payloadSnapshotEnvelopePartitionKey]; got != tc.wantSnapshotValue {
+				t.Fatalf("expected partition-key snapshot %+v, got %+v", tc.wantSnapshotValue, got)
+			}
+			if len(tc.store.transitions) != 1 {
+				t.Fatalf("expected one transition, got %d", len(tc.store.transitions))
+			}
+			if got := tc.store.transitions[0].MessageStatus; got != model.DeviceMessageInboxStatusDeadLettered {
+				t.Fatalf("expected dead-lettered status, got %s", got)
+			}
+			if tc.store.transitions[0].LastError == nil || !strings.Contains(*tc.store.transitions[0].LastError, tc.wantErrorFragment) {
+				t.Fatalf("expected dead-letter error containing %q, got %+v", tc.wantErrorFragment, tc.store.transitions[0].LastError)
+			}
 		})
 	}
 }

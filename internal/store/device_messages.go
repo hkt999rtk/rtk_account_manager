@@ -306,9 +306,6 @@ func (s *Store) CreateOrGetInboxMessage(ctx context.Context, in DeviceMessageInb
 	if err != nil {
 		return model.DeviceMessageInbox{}, false, err
 	}
-	if err := s.validatePartitionKeyMatchesOperation(ctx, in.OperationID, in.PartitionKey); err != nil && !errors.Is(err, ErrNotFound) {
-		return model.DeviceMessageInbox{}, false, err
-	}
 
 	row := s.db.QueryRow(ctx, `
 		INSERT INTO device_message_inbox (
