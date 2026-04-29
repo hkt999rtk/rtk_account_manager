@@ -15,11 +15,13 @@ import (
 
 type fakeStore struct {
 	message       model.DeviceMessageInbox
+	operation     model.DeviceOperation
 	created       bool
 	createInputs  []store.DeviceMessageInboxCreateInput
 	transitions   []store.InboxProcessTransitionInput
 	createErr     error
 	transitionErr error
+	operationErr  error
 }
 
 func (s *fakeStore) CreateOrGetInboxMessage(_ context.Context, in store.DeviceMessageInboxCreateInput) (model.DeviceMessageInbox, bool, error) {
@@ -49,6 +51,19 @@ func (s *fakeStore) RecordInboxProcessTransition(_ context.Context, in store.Inb
 	}
 	s.transitions = append(s.transitions, in)
 	return store.InboxProcessTransitionResult{}, nil
+}
+
+func (s *fakeStore) GetDeviceOperation(_ context.Context, operationID string) (model.DeviceOperation, error) {
+	if s.operationErr != nil {
+		return model.DeviceOperation{}, s.operationErr
+	}
+	if s.operation.OperationID == "" {
+		return model.DeviceOperation{}, store.ErrNotFound
+	}
+	if s.operation.OperationID != operationID {
+		return model.DeviceOperation{}, store.ErrNotFound
+	}
+	return s.operation, nil
 }
 
 type fakeConsumer struct {
@@ -143,6 +158,44 @@ func TestRunOnceSkipsPreviouslyProcessedDuplicates(t *testing.T) {
 	}
 	if len(inboxStore.transitions) != 0 {
 		t.Fatalf("expected no transitions, got %d", len(inboxStore.transitions))
+	}
+}
+
+func TestRunOnceSkipsCompletedLifecycleReplayWithNewMessageID(t *testing.T) {
+	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	inboxStore := &fakeStore{
+		created: true,
+		operation: model.DeviceOperation{
+			OperationID:   "op-1",
+			OperationType: model.DeviceOperationTypeProvision,
+			Status:        model.DeviceOperationStatusSucceeded,
+		},
+	}
+	service := NewService(inboxStore, fakeConsumer{
+		messages: []broker.Message{validProvisionSucceededMessage(now)},
+	}, Options{
+		Now: func() time.Time { return now },
+	})
+
+	stats, err := service.RunOnce(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Processed != 1 || stats.DeadLettered != 0 || stats.Retrying != 0 {
+		t.Fatalf("unexpected stats: %+v", stats)
+	}
+	if len(inboxStore.transitions) != 1 {
+		t.Fatalf("expected one transition, got %d", len(inboxStore.transitions))
+	}
+	transition := inboxStore.transitions[0]
+	if transition.MessageStatus != model.DeviceMessageInboxStatusProcessed {
+		t.Fatalf("expected replay inbox row to be marked processed, got %s", transition.MessageStatus)
+	}
+	if transition.OperationStatus != nil {
+		t.Fatalf("expected completed operation replay to skip operation update, got %+v", transition.OperationStatus)
+	}
+	if transition.Projection != nil {
+		t.Fatalf("expected completed operation replay to skip device projection, got %+v", transition.Projection)
 	}
 }
 
@@ -375,8 +428,12 @@ func TestRunOnceDeadLettersMalformedAndUnmappedMessages(t *testing.T) {
 			},
 			assertion: func(t *testing.T, inboxStore *fakeStore) {
 				t.Helper()
-				if got := inboxStore.createInputs[0].Payload; len(got) != 0 {
-					t.Fatalf("expected malformed payload to persist as empty map, got %+v", got)
+				got := inboxStore.createInputs[0].Payload
+				if got[payloadSnapshotRawKey] != "{not-json" {
+					t.Fatalf("expected raw malformed payload to be preserved, got %+v", got)
+				}
+				if got[payloadSnapshotErrorKey] == nil {
+					t.Fatalf("expected payload decode error metadata, got %+v", got)
 				}
 			},
 		},

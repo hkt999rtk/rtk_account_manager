@@ -15,6 +15,7 @@ import (
 
 type messageStore interface {
 	CreateOrGetInboxMessage(ctx context.Context, in store.DeviceMessageInboxCreateInput) (model.DeviceMessageInbox, bool, error)
+	GetDeviceOperation(ctx context.Context, operationID string) (model.DeviceOperation, error)
 	RecordInboxProcessTransition(ctx context.Context, in store.InboxProcessTransitionInput) (store.InboxProcessTransitionResult, error)
 }
 
@@ -47,6 +48,11 @@ type Stats struct {
 }
 
 var transitionForPayloadFunc = buildTransitionForPayload
+
+const (
+	payloadSnapshotRawKey   = "_raw_payload"
+	payloadSnapshotErrorKey = "_payload_decode_error"
+)
 
 func NewService(store messageStore, consumer broker.Consumer, opts Options) *Service {
 	nowFn := opts.Now
@@ -141,10 +147,7 @@ func (s *Service) RunOnce(ctx context.Context) (Stats, error) {
 
 func (s *Service) processMessage(ctx context.Context, record broker.Message) (model.DeviceMessageInboxStatus, error) {
 	receivedAt := s.receivedAt(record.Envelope)
-	payloadMap, err := payloadMapFromEnvelope(record.Envelope)
-	if err != nil {
-		payloadMap = map[string]any{}
-	}
+	payloadMap, payloadErr := payloadMapFromEnvelope(record.Envelope)
 
 	message, created, err := s.store.CreateOrGetInboxMessage(ctx, store.DeviceMessageInboxCreateInput{
 		MessageID:     record.Envelope.MessageID,
@@ -179,6 +182,9 @@ func (s *Service) processMessage(ctx context.Context, record broker.Message) (mo
 
 	payload, err := record.Envelope.ValidateAndDecode(s.stream)
 	if err != nil {
+		if payloadErr != nil {
+			err = payloadErr
+		}
 		return model.DeviceMessageInboxStatusDeadLettered, s.recordDeadLetter(ctx, message, attemptCount, err)
 	}
 
@@ -188,6 +194,19 @@ func (s *Service) processMessage(ctx context.Context, record broker.Message) (mo
 			return model.DeviceMessageInboxStatusRetrying, s.recordRetry(ctx, message, attemptCount, err)
 		}
 		return model.DeviceMessageInboxStatusDeadLettered, s.recordDeadLetter(ctx, message, attemptCount, err)
+	}
+
+	if created {
+		operation, err := s.store.GetDeviceOperation(ctx, message.OperationID)
+		switch {
+		case err == nil:
+			if isCompletedLifecycleOperation(operation) {
+				return model.DeviceMessageInboxStatusProcessed, s.markProcessedWithoutProjection(ctx, message, attemptCount)
+			}
+		case errors.Is(err, store.ErrNotFound):
+		default:
+			return "", err
+		}
 	}
 
 	transition.MessageID = message.MessageID
@@ -200,6 +219,17 @@ func (s *Service) processMessage(ctx context.Context, record broker.Message) (mo
 		return "", err
 	}
 	return model.DeviceMessageInboxStatusProcessed, nil
+}
+
+func (s *Service) markProcessedWithoutProjection(ctx context.Context, message model.DeviceMessageInbox, attemptCount int) error {
+	processedAt := s.currentTime()
+	_, err := s.store.RecordInboxProcessTransition(ctx, store.InboxProcessTransitionInput{
+		MessageID:     message.MessageID,
+		MessageStatus: model.DeviceMessageInboxStatusProcessed,
+		AttemptCount:  attemptCount,
+		ProcessedAt:   &processedAt,
+	})
+	return err
 }
 
 func (s *Service) recordRetry(ctx context.Context, message model.DeviceMessageInbox, attemptCount int, cause error) error {
@@ -348,12 +378,24 @@ func payloadMapFromEnvelope(envelope channel.Envelope) (map[string]any, error) {
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
-		return nil, err
+		return map[string]any{
+			payloadSnapshotRawKey:   string(envelope.Payload),
+			payloadSnapshotErrorKey: err.Error(),
+		}, err
 	}
 	if payload == nil {
 		return map[string]any{}, nil
 	}
 	return payload, nil
+}
+
+func isCompletedLifecycleOperation(operation model.DeviceOperation) bool {
+	switch operation.Status {
+	case model.DeviceOperationStatusSucceeded, model.DeviceOperationStatusFailed:
+		return operation.OperationType == model.DeviceOperationTypeProvision || operation.OperationType == model.DeviceOperationTypeDeactivate
+	default:
+		return false
+	}
 }
 
 func projectionPtr(projection store.DeviceProjectionInput) *store.DeviceProjectionInput {

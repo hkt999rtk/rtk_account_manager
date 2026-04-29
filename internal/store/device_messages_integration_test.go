@@ -1113,6 +1113,63 @@ func TestCreateOrGetInboxMessageDeduplicates(t *testing.T) {
 	}
 }
 
+func TestCreateOrGetInboxMessagePreservesDeadLetterPayloadSnapshot(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	orgID, userID, deviceID := createDeviceFixture(t, env)
+
+	ctx := context.Background()
+	_, _, err := env.store.CreateOrGetDeviceOperation(ctx, DeviceOperationCreateInput{
+		OperationID:    "op-dead-letter-payload",
+		CorrelationID:  "corr-dead-letter-payload",
+		OrganizationID: orgID,
+		DeviceID:       deviceID,
+		OperationType:  model.DeviceOperationTypeProvision,
+		Status:         model.DeviceOperationStatusPublished,
+		RequestedBy:    &userID,
+		RequestPayload: map[string]any{"video_cloud_devid": "device-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	receivedAt := time.Now().UTC().Truncate(time.Microsecond)
+	message, created, err := env.store.CreateOrGetInboxMessage(ctx, DeviceMessageInboxCreateInput{
+		MessageID:     "evt-dead-letter-payload",
+		OperationID:   "op-dead-letter-payload",
+		CorrelationID: "corr-dead-letter-payload",
+		Stream:        "video.account.events",
+		MessageType:   "DeviceProvisionSucceeded",
+		SchemaVersion: "1.0",
+		PartitionKey:  deviceID,
+		Payload: map[string]any{
+			"_raw_payload":          "{not-json",
+			"_payload_decode_error": "invalid character 'n' looking for beginning of object key string",
+		},
+		Status:       model.DeviceMessageInboxStatusDeadLettered,
+		AttemptCount: 1,
+		LastError:    stringPtr("invalid payload"),
+		ReceivedAt:   receivedAt,
+		ProcessedAt:  &receivedAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Fatal("expected first inbox insert to create a row")
+	}
+
+	stored, err := env.store.GetInboxMessage(ctx, message.MessageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stored.Payload["_raw_payload"]; got != "{not-json" {
+		t.Fatalf("expected raw payload snapshot, got %+v", stored.Payload)
+	}
+	if got := stored.Payload["_payload_decode_error"]; got == nil {
+		t.Fatalf("expected payload decode error snapshot, got %+v", stored.Payload)
+	}
+}
+
 func stringPtr(value string) *string {
 	return &value
 }
