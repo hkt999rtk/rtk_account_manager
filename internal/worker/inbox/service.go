@@ -2,10 +2,12 @@ package inbox
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"rtk_account_manager/internal/broker"
 	"rtk_account_manager/internal/channel"
@@ -50,8 +52,9 @@ type Stats struct {
 var transitionForPayloadFunc = buildTransitionForPayload
 
 const (
-	payloadSnapshotRawKey   = "_raw_payload"
-	payloadSnapshotErrorKey = "_payload_decode_error"
+	payloadSnapshotRawKey    = "_raw_payload"
+	payloadSnapshotBase64Key = "_raw_payload_base64"
+	payloadSnapshotErrorKey  = "_payload_decode_error"
 )
 
 func NewService(store messageStore, consumer broker.Consumer, opts Options) *Service {
@@ -378,10 +381,14 @@ func payloadMapFromEnvelope(envelope channel.Envelope) (map[string]any, error) {
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
-		return map[string]any{
-			payloadSnapshotRawKey:   string(envelope.Payload),
-			payloadSnapshotErrorKey: err.Error(),
-		}, err
+		snapshot := map[string]any{
+			payloadSnapshotBase64Key: base64.StdEncoding.EncodeToString(envelope.Payload),
+			payloadSnapshotErrorKey:  err.Error(),
+		}
+		if utf8.Valid(envelope.Payload) {
+			snapshot[payloadSnapshotRawKey] = string(envelope.Payload)
+		}
+		return snapshot, err
 	}
 	if payload == nil {
 		return map[string]any{}, nil

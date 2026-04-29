@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"os"
 	"testing"
@@ -1143,6 +1144,7 @@ func TestCreateOrGetInboxMessagePreservesDeadLetterPayloadSnapshot(t *testing.T)
 		PartitionKey:  deviceID,
 		Payload: map[string]any{
 			"_raw_payload":          "{not-json",
+			"_raw_payload_base64":   base64.StdEncoding.EncodeToString([]byte("{not-json")),
 			"_payload_decode_error": "invalid character 'n' looking for beginning of object key string",
 		},
 		Status:       model.DeviceMessageInboxStatusDeadLettered,
@@ -1164,6 +1166,9 @@ func TestCreateOrGetInboxMessagePreservesDeadLetterPayloadSnapshot(t *testing.T)
 	}
 	if got := stored.Payload["_raw_payload"]; got != "{not-json" {
 		t.Fatalf("expected raw payload snapshot, got %+v", stored.Payload)
+	}
+	if got := stored.Payload["_raw_payload_base64"]; got != base64.StdEncoding.EncodeToString([]byte("{not-json")) {
+		t.Fatalf("expected raw payload bytes snapshot, got %+v", stored.Payload)
 	}
 	if got := stored.Payload["_payload_decode_error"]; got == nil {
 		t.Fatalf("expected payload decode error snapshot, got %+v", stored.Payload)

@@ -2,6 +2,7 @@ package inbox
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -431,6 +432,40 @@ func TestRunOnceDeadLettersMalformedAndUnmappedMessages(t *testing.T) {
 				got := inboxStore.createInputs[0].Payload
 				if got[payloadSnapshotRawKey] != "{not-json" {
 					t.Fatalf("expected raw malformed payload to be preserved, got %+v", got)
+				}
+				if got[payloadSnapshotBase64Key] != base64.StdEncoding.EncodeToString([]byte("{not-json")) {
+					t.Fatalf("expected raw malformed payload bytes to be preserved, got %+v", got)
+				}
+				if got[payloadSnapshotErrorKey] == nil {
+					t.Fatalf("expected payload decode error metadata, got %+v", got)
+				}
+			},
+		},
+		{
+			name: "malformed payload with invalid utf-8 keeps exact bytes",
+			message: broker.Message{
+				Stream: channel.StreamVideoAccountEvents,
+				Envelope: channel.Envelope{
+					MessageID:     "msg-invalid-utf8",
+					CorrelationID: "corr-invalid-utf8",
+					OperationID:   "op-invalid-utf8",
+					SourceService: channel.ServiceRealtekVideoCloud,
+					TargetService: channel.ServiceAccountManager,
+					MessageType:   channel.MessageTypeDeviceProvisionSucceeded,
+					SchemaVersion: channel.SchemaVersionV1,
+					PartitionKey:  "11111111-1111-1111-1111-111111111111",
+					OccurredAt:    now,
+					Payload:       []byte{0xff, 0xfe, '{', 'b', 'a', 'd', '}'},
+				},
+			},
+			assertion: func(t *testing.T, inboxStore *fakeStore) {
+				t.Helper()
+				got := inboxStore.createInputs[0].Payload
+				if _, ok := got[payloadSnapshotRawKey]; ok {
+					t.Fatalf("expected lossy raw payload string to be omitted for invalid utf-8, got %+v", got)
+				}
+				if got[payloadSnapshotBase64Key] != base64.StdEncoding.EncodeToString([]byte{0xff, 0xfe, '{', 'b', 'a', 'd', '}'}) {
+					t.Fatalf("expected exact malformed payload bytes to be preserved, got %+v", got)
 				}
 				if got[payloadSnapshotErrorKey] == nil {
 					t.Fatalf("expected payload decode error metadata, got %+v", got)
