@@ -1,6 +1,6 @@
 # Test Report
 
-Generated: 2026-04-29T01:32:40Z
+Generated: 2026-04-29T04:07:22Z
 
 ## Summary
 
@@ -16,7 +16,7 @@ Generated: 2026-04-29T01:32:40Z
 
 | Metric | Value |
 | --- | --- |
-| Total statement coverage | 81.1% |
+| Total statement coverage | 80.7% |
 | Minimum required coverage | 80.0% |
 | Coverage mode | atomic |
 | Coverage scope | ./internal/... |
@@ -26,8 +26,8 @@ Generated: 2026-04-29T01:32:40Z
 | Metric | Value |
 | --- | --- |
 | Go packages | 17 |
-| Test cases started | 165 |
-| JSON pass events | 176 |
+| Test cases started | 176 |
+| JSON pass events | 187 |
 | JSON fail events | 0 |
 | Integration database | Postgres via TEST_DATABASE_URL |
 
@@ -49,12 +49,14 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Operation idempotency | Reusing the same lifecycle `operation_id` returns the existing operation and preserves the original outbox `message_id`, including retries after device disablement or missing live metadata. |
 | Operation conflicts | Reusing a lifecycle `operation_id` with conflicting provision activity data or deactivation reason returns `409 Conflict`. |
 | Message validation | Envelope fields, supported `schema_version`, message-type/stream/service pairing, lifecycle UUIDs, UTC timestamps, and `partition_key` validation for cross-service messages. |
-| Outbox worker | `TestRunOnceMarksSuccessfulPublishes`, `TestRunOnceSchedulesTransientRetry`, `TestRunOnceDeadLettersExhaustedPublishFailures`, and `TestRunOnceIgnoresStaleLeaseTransitionConflict` verify publish success, retry, dead-letter, and stale-lease protection. |
-| Inbox worker | `TestRunOnceSkipsPreviouslyProcessedDuplicates`, `TestRunOnceDeadLettersInvalidMessages`, and `TestRunOnceRetriesTransientProjectionFailures` verify dedupe, dead-lettering, and transient projection retry behavior. |
+| Outbox worker | `TestRunOnceMarksSuccessfulPublishes`, `TestRunOnceSchedulesTransientRetry`, `TestRunOnceDeadLettersExhaustedPublishFailures`, `TestRunOnceIgnoresStaleLeaseTransitionConflict`, and `TestRunOnceIgnoresConflictWhenRetryLosesToPublished` verify publish success, retry, dead-letter, and stale-lease conflict handling when another worker already won the publish race. |
+| Outbox publish race recovery | `TestRecordOutboxPublishTransitionRejectsStaleLease`, `TestRecordOutboxPublishTransitionLetsPublishedOutcomeOverrideLaterFailure`, and `TestRecordOutboxPublishTransitionPreservesInboxCompletedOperation` verify stale workers cannot roll back a published outbox row or overwrite an inbox-completed device operation. |
+| Inbox worker | `TestRunOnceSkipsPreviouslyProcessedDuplicates`, `TestRunOnceDeadLettersInvalidMessages`, and `TestRunOnceRetriesTransientProjectionFailures` verify message-id dedupe, dead-lettering, and transient projection retry behavior. |
+| Inbox replay guards and dead-letter payloads | `TestRunOnceSkipsCompletedLifecycleReplayWithNewMessageID`, `TestRunOnceSkipsCompletedLifecycleReplayForRetryingMessage`, `TestRunOnceDeadLettersMalformedAndUnmappedMessages/malformed_payload_keeps_inspectable_inbox_row`, and `TestCreateOrGetInboxMessagePreservesDeadLetterPayloadSnapshot` verify terminal lifecycle replays stay side-effect free and malformed payload bytes remain inspectable in persisted inbox rows. |
 | Projection idempotency and metadata merge | `TestRunOnceProcessesProvisionSuccess`, `TestRunOnceProcessesFailureAndProjectionEvents`, `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`, and `TestMetadataChangedProjectionFiltersNonVideoCloudKeys` cover replay-safe projection and selective `video_cloud_*` metadata updates. |
 | Activation and online projection | `TestProjectDeviceProvisioningAndOnlineRules` proves provisioning success does not set account-manager `status=online`, while `DeviceOnlineChanged` remains the only event that updates `status` and `last_seen_at`. |
 | Failure projection | `TestProjectDeviceRejectsDisabledDevicesExceptDeactivateResults` and `TestRunOnceProcessesFailureAndProjectionEvents` verify provision/deactivation failures keep stable error metadata and terminal operation state, including disabled-device deactivation results. |
-| Broker adapters | `TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds`, `TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds`, `TestLogPublisherWritesEnvelopeJSON`, `TestLogConsumerReadsEnvelopeJSON`, `TestAzureEventHubsPublisherPublishesJSONRecord`, and `TestAzureEventHubsConsumerReadsAcrossPartitions` cover the deterministic local default adapter plus Azure Event Hubs publish/consume behavior without requiring live Azure. |
+| Broker adapters | `TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds`, `TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds`, `TestLogPublisherWritesEnvelopeJSON`, `TestLogConsumerReadsEnvelopeJSON`, `TestAzureEventHubsPublisherPublishesJSONRecord`, `TestAzureEventHubsConsumerReadsAcrossPartitions`, `TestAzureEventHubsConsumerAcknowledgesAndResumesFromCheckpoint`, and `TestOpenAzurePartitionsUsesStoredCheckpointWhenPresent` cover the deterministic local default adapter plus Azure Event Hubs publish/consume and durable checkpoint resume behavior without requiring live Azure. |
 | Database invariants | Idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, automatic `updated_at` triggers. |
 | OpenAPI contract | OpenAPI schema validation plus representative provisioning, provisioning-state, and deactivation response validation against `openapi.yaml`. |
 | Configuration and maintenance | `.env` loading, TTL parsing/fallbacks, worker-specific broker config defaults, required JWT secrets, and refresh-token cleanup behavior. |
@@ -90,6 +92,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/auth`: `TestExpiredAndWrongSecretTokensFailParsing`
 - `rtk_account_manager/internal/auth`: `TestPasswordHashAndCheck`
 - `rtk_account_manager/internal/auth`: `TestTokenKindValidation`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerAcknowledgesAndResumesFromCheckpoint`
 - `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerCloseClosesPartitions`
 - `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerMarksConnectionLossTransient`
 - `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerReadsAcrossPartitions`
@@ -114,6 +117,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/broker`: `TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds`
 - `rtk_account_manager/internal/broker`: `TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds`
 - `rtk_account_manager/internal/broker`: `TestOpenAzurePartitionsClosesEarlierPartitionsOnFailure`
+- `rtk_account_manager/internal/broker`: `TestOpenAzurePartitionsUsesStoredCheckpointWhenPresent`
 - `rtk_account_manager/internal/broker`: `TestTransientHelpersExposeWrappedError`
 - `rtk_account_manager/internal/broker`: `TestTransientMarker`
 - `rtk_account_manager/internal/channel`: `TestDecodeStrictJSONRejectsMultipleJSONValues`
@@ -192,6 +196,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestCompareOperationCreate`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetDeviceOperationIsIdempotent`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessageDeduplicates`
+- `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessagePreservesDeadLetterPayloadSnapshot`
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
 - `rtk_account_manager/internal/store`: `TestJSONHelpers`
 - `rtk_account_manager/internal/store`: `TestMergeDeviceMetadataPreservesUnrelatedFields`
@@ -201,6 +206,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestProjectDeviceProvisioningAndOnlineRules`
 - `rtk_account_manager/internal/store`: `TestProjectDeviceRejectsDisabledDevicesExceptDeactivateResults`
 - `rtk_account_manager/internal/store`: `TestRecordInboxProcessTransitionUpdatesOperationAndProjection`
+- `rtk_account_manager/internal/store`: `TestRecordOutboxPublishTransitionLetsPublishedOutcomeOverrideLaterFailure`
+- `rtk_account_manager/internal/store`: `TestRecordOutboxPublishTransitionPreservesInboxCompletedOperation`
 - `rtk_account_manager/internal/store`: `TestRecordOutboxPublishTransitionRejectsStaleLease`
 - `rtk_account_manager/internal/store`: `TestRecordOutboxPublishTransitionUpdatesOperationState`
 - `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationRejectsMissingProjectedMetadata`
@@ -208,21 +215,27 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidMessages`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersMalformedAndUnmappedMessages/command-only_message_on_events_stream_dead-letters`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersMalformedAndUnmappedMessages/malformed_payload_keeps_inspectable_inbox_row`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersMalformedAndUnmappedMessages/malformed_payload_with_invalid_utf-8_keeps_exact_bytes`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersMalformedAndUnmappedMessages`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersTransientProjectionFailureAtAttemptLimit`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDoesNotAcknowledgeWhenTransitionFails`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents/deactivate_failure_records_retryable_error`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents/deactivate_success_keeps_deactivation_projection`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents/metadata_changed_filters_non_video-cloud_keys`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents/online_changed_updates_device_status_projection_only`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents/provision_failure_marks_operation_failed`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesOnlineProjectionWhenOperationAlreadyCompleted`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesProvisionSuccess`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceRetriesTransientProjectionFailures`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceSkipsCompletedLifecycleReplayForRetryingMessage`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceSkipsCompletedLifecycleReplayWithNewMessageID`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceSkipsPreviouslyProcessedDuplicates`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceUsesWorkerClockWhenEnvelopeTimeIsMissing`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunRetriesTransientReceiveErrors`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceDeadLettersExhaustedPublishFailures`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceDeadLettersInvalidOutboxPayload`
+- `rtk_account_manager/internal/worker/outbox`: `TestRunOnceIgnoresConflictWhenRetryLosesToPublished`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceIgnoresStaleLeaseTransitionConflict`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceMarksSuccessfulPublishes`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceSchedulesTransientRetry`
