@@ -662,12 +662,14 @@ The v2 provisioning/event-channel implementation is acceptable when:
 
 ## 12. Contract Follow-Up Scope
 
-The account-manager implementation owns the account-side API, persistence, outbox, inbox, projection, and broker adapter surfaces. The broader product-level provisioning contract still depends on follow-up work outside or adjacent to this service.
+The account-manager implementation owns the account-side API, persistence, outbox, inbox, projection, and broker adapter surfaces. The broader product-level provisioning contract still depends on one external runtime plus a small set of follow-up surfaces outside the core account-manager API/store path.
 
-Known follow-up items:
+Current external dependency:
 
 - The video-side lifecycle integration worker now lives in the separate `rtk_video_cloud` `cmd/crossservice` runtime. Account manager depends on that external service to consume `account.video.commands`, call Realtek video server `POST /activate_camera` and `POST /deactivate_camera`, and publish `video.account.events`.
-- Provisioning may need to persist the requested `video_cloud_devid` mapping to device metadata immediately when a provisioning request is accepted, while still leaving activation status pending until video-side projection.
+
+Remaining follow-up items:
+
 - Retry and dead-letter rows are inspectable in Postgres today, but an admin maintenance command should expose list, inspect, and safe requeue workflows for operators.
 - Account registry soft-delete and product-level video deactivation remain separate. Product teardown requires explicit `POST /deactivate`; `DELETE /devices/:deviceId` only disables the account-side registry record.
-- Product-level readiness is not an account-manager-only state. A complete readiness contract should define how account record, video activation, subject-bound token issuance, device info/config, and transport ownership are aggregated.
+- Account manager still does not own one aggregate "product readiness" endpoint. Any future readiness surface must compose account record, video activation, subject-bound token issuance, device info/config, and transport ownership across service boundaries.
