@@ -454,7 +454,7 @@ Provisioning rules:
 - Disabled devices cannot be provisioned.
 - The API must not directly call Realtek video server.
 - Product-level deactivation and account registry soft-delete are distinct operations.
-- `DELETE /devices/:deviceId` remains account-registry soft-disable unless product policy explicitly changes it later.
+- `DELETE /devices/:deviceId` remains an account-registry soft-disable and does not enqueue `DeviceDeactivateRequested`.
 - Omitting the deactivation `reason` defaults the outbox payload to `account_device_disabled`.
 - Reusing an explicit `operation_id` returns the existing operation when the normalized request matches and returns `409 Conflict` when it does not.
 - Operation responses may also include `error_code`, `error_message`, `retryable`, and `completed_at` once the inbox projection records a terminal result.
@@ -669,5 +669,5 @@ Known follow-up items:
 - A video-side lifecycle integration worker must consume `account.video.commands`, call Realtek video server `POST /activate_camera` and `POST /deactivate_camera`, then publish `video.account.events`.
 - Provisioning may need to persist the requested `video_cloud_devid` mapping to device metadata immediately when a provisioning request is accepted, while still leaving activation status pending until video-side projection.
 - Retry and dead-letter rows are inspectable in Postgres today, but an admin maintenance command should expose list, inspect, and safe requeue workflows for operators.
-- Account registry soft-delete and product-level video deactivation remain separate. If product policy changes so delete also requires video deactivation, `DELETE /devices/:deviceId` must enqueue `DeviceDeactivateRequested` before claiming product-level disablement.
+- Account registry soft-delete and product-level video deactivation remain separate. Product teardown requires explicit `POST /deactivate`; `DELETE /devices/:deviceId` only disables the account-side registry record.
 - Product-level readiness is not an account-manager-only state. A complete readiness contract should define how account record, video activation, subject-bound token issuance, device info/config, and transport ownership are aggregated.

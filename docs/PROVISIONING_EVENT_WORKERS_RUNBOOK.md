@@ -287,7 +287,7 @@ The local `log` publisher itself is deterministic and does not manufacture trans
 - `POST /v1/orgs/:orgId/devices/:deviceId/deactivate` is the product-side teardown path. It creates a lifecycle operation and emits `DeviceDeactivateRequested` for the downstream video service.
 - `DELETE /v1/orgs/:orgId/devices/:deviceId` is the account-manager registry delete path. It disables the account-side device record; it does not send a cross-service deactivation command by itself.
 
-If the product-side device should be torn down, run deactivation first and confirm the matching video-side result event. Use the registry delete endpoint only for account-manager record lifecycle.
+If the product-side device should be torn down, run deactivation first and confirm the matching video-side result event before treating the device as fully disabled at product level. Use the registry delete endpoint only for account-manager record lifecycle.
 
 ## Shutdown
 
