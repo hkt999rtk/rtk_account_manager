@@ -484,6 +484,7 @@ V2 cross-service configuration:
 | `CROSS_SERVICE_MAX_ATTEMPTS` | Retry limit before dead-letter. |
 | `CROSS_SERVICE_POLL_INTERVAL` | Worker polling interval. |
 | `AZURE_EVENTHUB_CONNECTION_STRING` | Azure Event Hubs connection string when using Azure. |
+| `AZURE_EVENTHUB_CHECKPOINT_FILE` | Optional durable checkpoint file for the Azure inbox consumer. Defaults to `.state/azure_eventhubs/<stream>__<consumer-group>.json`. |
 
 ## 10. Testing Expectations
 

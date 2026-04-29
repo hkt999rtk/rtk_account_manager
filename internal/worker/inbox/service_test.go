@@ -90,8 +90,12 @@ func (c *scriptedConsumer) Close(context.Context) error {
 func TestRunOnceProcessesProvisionSuccess(t *testing.T) {
 	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
 	inboxStore := &fakeStore{created: true}
+	acked := 0
 	service := NewService(inboxStore, fakeConsumer{
-		messages: []broker.Message{validProvisionSucceededMessage(now)},
+		messages: []broker.Message{validProvisionSucceededMessage(now).WithAck(func(context.Context) error {
+			acked++
+			return nil
+		})},
 	}, Options{
 		Now: func() time.Time { return now },
 	})
@@ -106,6 +110,9 @@ func TestRunOnceProcessesProvisionSuccess(t *testing.T) {
 	if len(inboxStore.transitions) != 1 {
 		t.Fatalf("expected one transition, got %d", len(inboxStore.transitions))
 	}
+	if acked != 1 {
+		t.Fatalf("expected processed message to be acknowledged once, got %d", acked)
+	}
 	transition := inboxStore.transitions[0]
 	if transition.MessageStatus != model.DeviceMessageInboxStatusProcessed {
 		t.Fatalf("expected processed status, got %s", transition.MessageStatus)
@@ -115,6 +122,30 @@ func TestRunOnceProcessesProvisionSuccess(t *testing.T) {
 	}
 	if transition.Projection == nil {
 		t.Fatal("expected device projection")
+	}
+}
+
+func TestRunOnceDoesNotAcknowledgeWhenTransitionFails(t *testing.T) {
+	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	inboxStore := &fakeStore{
+		created:       true,
+		transitionErr: errors.New("write failed"),
+	}
+	acked := 0
+	service := NewService(inboxStore, fakeConsumer{
+		messages: []broker.Message{validProvisionSucceededMessage(now).WithAck(func(context.Context) error {
+			acked++
+			return nil
+		})},
+	}, Options{
+		Now: func() time.Time { return now },
+	})
+
+	if _, err := service.RunOnce(context.Background()); err == nil {
+		t.Fatal("expected transition failure")
+	}
+	if acked != 0 {
+		t.Fatalf("expected message to remain unacknowledged on transition failure, got %d", acked)
 	}
 }
 

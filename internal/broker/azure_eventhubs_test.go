@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,12 +63,13 @@ func (b *fakeAzureProducerBatch) NumEvents() int {
 }
 
 type fakeAzureConsumerClient struct {
-	properties azeventhubs.EventHubProperties
-	partitions map[string]*fakeAzurePartitionClient
-	propsErr   error
-	newErr     error
-	newErrByID map[string]error
-	closed     bool
+	properties  azeventhubs.EventHubProperties
+	partitions  map[string]*fakeAzurePartitionClient
+	propsErr    error
+	newErr      error
+	newErrByID  map[string]error
+	optionsByID map[string]azeventhubs.PartitionClientOptions
+	closed      bool
 }
 
 type fakeAzurePartitionClient struct {
@@ -82,12 +86,18 @@ func (c *fakeAzureConsumerClient) GetEventHubProperties(context.Context, *azeven
 	return c.properties, nil
 }
 
-func (c *fakeAzureConsumerClient) NewPartitionClient(partitionID string, _ *azeventhubs.PartitionClientOptions) (azurePartitionClient, error) {
+func (c *fakeAzureConsumerClient) NewPartitionClient(partitionID string, options *azeventhubs.PartitionClientOptions) (azurePartitionClient, error) {
 	if err := c.newErrByID[partitionID]; err != nil {
 		return nil, err
 	}
 	if c.newErr != nil {
 		return nil, c.newErr
+	}
+	if options != nil {
+		if c.optionsByID == nil {
+			c.optionsByID = make(map[string]azeventhubs.PartitionClientOptions)
+		}
+		c.optionsByID[partitionID] = *options
 	}
 	return c.partitions[partitionID], nil
 }
@@ -251,7 +261,7 @@ func TestAzureEventHubsConsumerReadsAcrossPartitions(t *testing.T) {
 		},
 	}
 
-	consumer, err := newAzureEventHubsConsumer(client, channel.StreamVideoAccountEvents, 50*time.Millisecond)
+	consumer, err := newAzureEventHubsConsumer(client, channel.StreamVideoAccountEvents, 50*time.Millisecond, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,6 +281,112 @@ func TestAzureEventHubsConsumerReadsAcrossPartitions(t *testing.T) {
 	}
 }
 
+func TestAzureEventHubsConsumerAcknowledgesAndResumesFromCheckpoint(t *testing.T) {
+	checkpointFile := filepath.Join(t.TempDir(), "consumer-checkpoints.json")
+	client := &fakeAzureConsumerClient{
+		properties: azeventhubs.EventHubProperties{PartitionIDs: []string{"0"}},
+		partitions: map[string]*fakeAzurePartitionClient{
+			"0": {
+				events: []*azeventhubs.ReceivedEventData{
+					{
+						EventData:      azeventhubs.EventData{Body: []byte(`{"stream":"video.account.events","envelope":{"message_id":"msg-1","correlation_id":"corr-1","operation_id":"op-1","source_service":"realtek_video_server","target_service":"rtk_account_manager","message_type":"DeviceOnlineChanged","schema_version":"1.0","partition_key":"device-1","occurred_at":"2026-04-29T12:00:00Z","payload":{"status":"online"}}}`)},
+						SequenceNumber: 41,
+					},
+				},
+			},
+		},
+	}
+
+	consumer, err := newAzureEventHubsConsumer(
+		client,
+		channel.StreamVideoAccountEvents,
+		50*time.Millisecond,
+		newAzureFileCheckpointStore(checkpointFile),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	messages, err := consumer.Receive(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("expected one message, got %d", len(messages))
+	}
+	if err := messages[0].Acknowledge(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(checkpointFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"sequence_number": 41`) {
+		t.Fatalf("expected checkpoint file to persist the acknowledged sequence number, got %s", string(data))
+	}
+
+	resumedClient := &fakeAzureConsumerClient{
+		properties: azeventhubs.EventHubProperties{PartitionIDs: []string{"0", "1"}},
+		partitions: map[string]*fakeAzurePartitionClient{
+			"0": {},
+			"1": {},
+		},
+	}
+
+	if _, err := newAzureEventHubsConsumer(
+		resumedClient,
+		channel.StreamVideoAccountEvents,
+		50*time.Millisecond,
+		newAzureFileCheckpointStore(checkpointFile),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	resumed := resumedClient.optionsByID["0"].StartPosition
+	if resumed.SequenceNumber == nil || *resumed.SequenceNumber != 41 || resumed.Inclusive {
+		t.Fatalf("expected partition 0 to resume after sequence 41, got %+v", resumedClient.optionsByID["0"].StartPosition)
+	}
+
+	unseen := resumedClient.optionsByID["1"].StartPosition
+	if unseen.Earliest == nil || !*unseen.Earliest {
+		t.Fatalf("expected partition 1 without a checkpoint to start from earliest, got %+v", unseen)
+	}
+}
+
+func TestOpenAzurePartitionsUsesStoredCheckpointWhenPresent(t *testing.T) {
+	checkpointFile := filepath.Join(t.TempDir(), "consumer-checkpoints.json")
+	if err := os.WriteFile(checkpointFile, []byte("{\n  \"partitions\": {\n    \"1\": {\n      \"sequence_number\": 17,\n      \"updated_at\": \"2026-04-29T12:00:00Z\"\n    }\n  }\n}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	client := &fakeAzureConsumerClient{
+		properties: azeventhubs.EventHubProperties{PartitionIDs: []string{"1", "0"}},
+		partitions: map[string]*fakeAzurePartitionClient{
+			"0": {},
+			"1": {},
+		},
+	}
+
+	partitions, err := openAzurePartitions(context.Background(), client, newAzureFileCheckpointStore(checkpointFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(partitions) != 2 {
+		t.Fatalf("expected two partitions, got %d", len(partitions))
+	}
+
+	partitionZero := client.optionsByID["0"].StartPosition
+	if partitionZero.Earliest == nil || !*partitionZero.Earliest {
+		t.Fatalf("expected missing checkpoint partition to start from earliest, got %+v", partitionZero)
+	}
+
+	partitionOne := client.optionsByID["1"].StartPosition
+	if partitionOne.SequenceNumber == nil || *partitionOne.SequenceNumber != 17 || partitionOne.Inclusive {
+		t.Fatalf("expected checkpointed partition to resume after sequence 17, got %+v", partitionOne)
+	}
+}
+
 func TestAzureEventHubsConsumerTreatsReceiveTimeoutAsEmptyPoll(t *testing.T) {
 	client := &fakeAzureConsumerClient{
 		properties: azeventhubs.EventHubProperties{PartitionIDs: []string{"0"}},
@@ -279,7 +395,7 @@ func TestAzureEventHubsConsumerTreatsReceiveTimeoutAsEmptyPoll(t *testing.T) {
 		},
 	}
 
-	consumer, err := newAzureEventHubsConsumer(client, channel.StreamVideoAccountEvents, 10*time.Millisecond)
+	consumer, err := newAzureEventHubsConsumer(client, channel.StreamVideoAccountEvents, 10*time.Millisecond, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +419,7 @@ func TestAzureEventHubsConsumerMarksConnectionLossTransient(t *testing.T) {
 		},
 	}
 
-	consumer, err := newAzureEventHubsConsumer(client, channel.StreamVideoAccountEvents, time.Second)
+	consumer, err := newAzureEventHubsConsumer(client, channel.StreamVideoAccountEvents, time.Second, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +436,7 @@ func TestNewAzureEventHubsConsumerClosesClientWhenPartitionOpenFails(t *testing.
 		newErr:     errors.New("open failed"),
 	}
 
-	consumer, err := newAzureEventHubsConsumer(client, channel.StreamVideoAccountEvents, time.Second)
+	consumer, err := newAzureEventHubsConsumer(client, channel.StreamVideoAccountEvents, time.Second, nil)
 	if err == nil {
 		t.Fatal("expected consumer construction error")
 	}
@@ -344,7 +460,7 @@ func TestOpenAzurePartitionsClosesEarlierPartitionsOnFailure(t *testing.T) {
 		},
 	}
 
-	partitions, err := openAzurePartitions(context.Background(), client)
+	partitions, err := openAzurePartitions(context.Background(), client, nil)
 	if err == nil {
 		t.Fatal("expected partition open error")
 	}
@@ -360,7 +476,7 @@ func TestNewAzureEventHubsConstructorsRequireConfig(t *testing.T) {
 	if _, err := NewAzureEventHubsPublisherFromConnectionString("", "account.video.commands"); err == nil {
 		t.Fatal("expected publisher config error")
 	}
-	if _, err := NewAzureEventHubsConsumerFromConnectionString("", "video.account.events", "group", time.Second); err == nil {
+	if _, err := NewAzureEventHubsConsumerFromConnectionString("", "video.account.events", "group", time.Second, ""); err == nil {
 		t.Fatal("expected consumer config error")
 	}
 }
@@ -374,7 +490,7 @@ func TestAzureEventHubsConsumerCloseClosesPartitions(t *testing.T) {
 		},
 	}
 
-	consumer, err := newAzureEventHubsConsumer(client, channel.StreamVideoAccountEvents, time.Second)
+	consumer, err := newAzureEventHubsConsumer(client, channel.StreamVideoAccountEvents, time.Second, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,16 +512,16 @@ func TestAzureEventHubsPublisherRejectsUnexpectedStream(t *testing.T) {
 }
 
 func TestAzureMessageDecodeRejectsInvalidJSON(t *testing.T) {
-	_, err := messageFromAzureEvent(channel.StreamVideoAccountEvents, &azeventhubs.ReceivedEventData{
+	_, err := messageFromAzureEvent(channel.StreamVideoAccountEvents, "0", &azeventhubs.ReceivedEventData{
 		EventData: azeventhubs.EventData{Body: []byte("not-json")},
-	})
+	}, nil)
 	if err == nil {
 		t.Fatal("expected invalid JSON error")
 	}
 }
 
 func TestAzureMessageDecodeRejectsNilEvent(t *testing.T) {
-	if _, err := messageFromAzureEvent(channel.StreamVideoAccountEvents, nil); err == nil {
+	if _, err := messageFromAzureEvent(channel.StreamVideoAccountEvents, "0", nil, nil); err == nil {
 		t.Fatal("expected nil event error")
 	}
 }

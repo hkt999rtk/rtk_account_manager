@@ -48,6 +48,7 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	t.Setenv("REFRESH_TOKEN_TTL", "24h")
 	t.Setenv("PORT", "9090")
 	t.Setenv("AZURE_EVENTHUB_CONNECTION_STRING", "Endpoint=sb://example/")
+	t.Setenv("AZURE_EVENTHUB_CHECKPOINT_FILE", "/tmp/eventhub-checkpoints.json")
 
 	cfg, err := Load()
 	if err != nil {
@@ -73,6 +74,9 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	}
 	if cfg.AzureEventHubConnectionString != "Endpoint=sb://example/" {
 		t.Fatalf("unexpected azure connection string: %q", cfg.AzureEventHubConnectionString)
+	}
+	if cfg.AzureEventHubCheckpointFile != "/tmp/eventhub-checkpoints.json" {
+		t.Fatalf("unexpected azure checkpoint file: %q", cfg.AzureEventHubCheckpointFile)
 	}
 	if cfg.AccountVideoCommandsStream != "account.video.commands" {
 		t.Fatalf("unexpected command stream: %q", cfg.AccountVideoCommandsStream)
