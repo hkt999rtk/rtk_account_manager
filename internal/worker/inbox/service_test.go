@@ -166,6 +166,47 @@ func TestRunOnceDoesNotAcknowledgeWhenTransitionFails(t *testing.T) {
 	}
 }
 
+func TestRunOnceDoesNotAcknowledgeRetryingMessages(t *testing.T) {
+	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	inboxStore := &fakeStore{
+		created: true,
+		operation: model.DeviceOperation{
+			OperationID: "op-1",
+			DeviceID:    "11111111-1111-1111-1111-111111111111",
+		},
+	}
+	acked := 0
+	service := NewService(inboxStore, fakeConsumer{
+		messages: []broker.Message{validProvisionSucceededMessage(now).WithAck(func(context.Context) error {
+			acked++
+			return nil
+		})},
+	}, Options{
+		Now:         func() time.Time { return now },
+		MaxAttempts: 3,
+	})
+
+	original := transitionForPayloadFunc
+	defer func() { transitionForPayloadFunc = original }()
+	transitionForPayloadFunc = func(channel.Envelope, channel.Payload) (store.InboxProcessTransitionInput, error) {
+		return store.InboxProcessTransitionInput{}, broker.Transient(errors.New("temporary projection failure"))
+	}
+
+	stats, err := service.RunOnce(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Retrying != 1 {
+		t.Fatalf("unexpected stats: %+v", stats)
+	}
+	if acked != 0 {
+		t.Fatalf("expected retrying message to remain unacknowledged, got %d", acked)
+	}
+	if got := inboxStore.transitions[0].MessageStatus; got != model.DeviceMessageInboxStatusRetrying {
+		t.Fatalf("expected retrying status, got %s", got)
+	}
+}
+
 func TestRunOnceSkipsPreviouslyProcessedDuplicates(t *testing.T) {
 	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
 	inboxStore := &fakeStore{
@@ -176,8 +217,12 @@ func TestRunOnceSkipsPreviouslyProcessedDuplicates(t *testing.T) {
 			AttemptCount: 1,
 		},
 	}
+	acked := 0
 	service := NewService(inboxStore, fakeConsumer{
-		messages: []broker.Message{validProvisionSucceededMessage(now)},
+		messages: []broker.Message{validProvisionSucceededMessage(now).WithAck(func(context.Context) error {
+			acked++
+			return nil
+		})},
 	}, Options{
 		Now: func() time.Time { return now },
 	})
@@ -191,6 +236,9 @@ func TestRunOnceSkipsPreviouslyProcessedDuplicates(t *testing.T) {
 	}
 	if len(inboxStore.transitions) != 0 {
 		t.Fatalf("expected no transitions, got %d", len(inboxStore.transitions))
+	}
+	if acked != 1 {
+		t.Fatalf("expected skipped duplicate to be acknowledged once, got %d", acked)
 	}
 }
 
@@ -335,8 +383,12 @@ func TestRunOnceDeadLettersInvalidMessages(t *testing.T) {
 			DeviceID:    "11111111-1111-1111-1111-111111111111",
 		},
 	}
+	acked := 0
 	service := NewService(inboxStore, fakeConsumer{
-		messages: []broker.Message{message},
+		messages: []broker.Message{message.WithAck(func(context.Context) error {
+			acked++
+			return nil
+		})},
 	}, Options{
 		Now: func() time.Time { return now },
 	})
@@ -350,6 +402,9 @@ func TestRunOnceDeadLettersInvalidMessages(t *testing.T) {
 	}
 	if got := inboxStore.transitions[0].MessageStatus; got != model.DeviceMessageInboxStatusDeadLettered {
 		t.Fatalf("expected dead-lettered status, got %s", got)
+	}
+	if acked != 1 {
+		t.Fatalf("expected dead-lettered message to be acknowledged once, got %d", acked)
 	}
 }
 
