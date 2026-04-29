@@ -392,6 +392,7 @@ Suggested variables:
 | `CROSS_SERVICE_MAX_ATTEMPTS` | Retry limit before dead-letter. |
 | `CROSS_SERVICE_POLL_INTERVAL` | Worker polling interval. |
 | `AZURE_EVENTHUB_CONNECTION_STRING` | Azure Event Hubs connection string when using Azure. |
+| `AZURE_EVENTHUB_CHECKPOINT_FILE` | Optional durable checkpoint file for Azure inbox-consumer progress across worker restarts. |
 
 Do not reuse Realtek video server `POST /setup_eventhub` configuration for this channel.
 

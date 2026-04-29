@@ -70,7 +70,7 @@ List endpoints accept `limit` and `offset` query parameters and return paginatio
 Testing policy and report maintenance are documented in `docs/TESTING.md`.
 Provisioning and account/video EventHub-style integration are planned in `docs/PROVISIONING_AND_EVENT_CHANNEL_PLAN.md` and aligned with the `contracts/` submodule.
 The local provisioning and worker flow, including the `log` broker adapter runbook, is documented in `docs/PROVISIONING_EVENT_WORKERS_RUNBOOK.md`.
-Set `CROSS_SERVICE_BROKER=azure_eventhubs` plus `AZURE_EVENTHUB_CONNECTION_STRING` to run the workers against Azure Event Hubs instead of the local `log` adapter.
+Set `CROSS_SERVICE_BROKER=azure_eventhubs` plus `AZURE_EVENTHUB_CONNECTION_STRING` to run the workers against Azure Event Hubs instead of the local `log` adapter. The inbox worker persists Azure consumer checkpoints under `.state/azure_eventhubs/` by default; set `AZURE_EVENTHUB_CHECKPOINT_FILE` to override that path.
 
 ## Smoke Test
 

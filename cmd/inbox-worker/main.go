@@ -35,6 +35,7 @@ func main() {
 		Stream:                         cfg.VideoAccountEventsStream,
 		ConsumerGroup:                  cfg.CrossServiceConsumerGroup,
 		ReceiveTimeout:                 cfg.CrossServicePollInterval,
+		CheckpointFile:                 cfg.AzureEventHubCheckpointFile,
 	})
 	if err != nil {
 		log.Fatal(err)

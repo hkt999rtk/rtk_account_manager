@@ -21,6 +21,19 @@ type Publisher interface {
 type Message struct {
 	Stream   string
 	Envelope channel.Envelope
+	ack      func(context.Context) error
+}
+
+func (m Message) Acknowledge(ctx context.Context) error {
+	if m.ack == nil {
+		return nil
+	}
+	return m.ack(ctx)
+}
+
+func (m Message) WithAck(ack func(context.Context) error) Message {
+	m.ack = ack
+	return m
 }
 
 type Consumer interface {
@@ -40,6 +53,7 @@ type ConsumerOptions struct {
 	Stream                         string
 	ConsumerGroup                  string
 	ReceiveTimeout                 time.Duration
+	CheckpointFile                 string
 }
 
 type publishError struct {
@@ -93,7 +107,13 @@ func NewConsumer(kind string, opts ConsumerOptions) (Consumer, error) {
 	case "", AdapterLog:
 		return NewLogConsumer(opts.LogReader), nil
 	case AdapterAzureEventHubs:
-		return NewAzureEventHubsConsumerFromConnectionString(opts.AzureEventHubsConnectionString, opts.Stream, opts.ConsumerGroup, opts.ReceiveTimeout)
+		return NewAzureEventHubsConsumerFromConnectionString(
+			opts.AzureEventHubsConnectionString,
+			opts.Stream,
+			opts.ConsumerGroup,
+			opts.ReceiveTimeout,
+			opts.CheckpointFile,
+		)
 	default:
 		return nil, fmt.Errorf("unsupported cross-service broker %q", kind)
 	}

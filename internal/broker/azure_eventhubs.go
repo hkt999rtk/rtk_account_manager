@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +18,7 @@ import (
 )
 
 const defaultAzureReceiveTimeout = time.Second
+const defaultAzureCheckpointDir = ".state/azure_eventhubs"
 
 type azureProducerBatch interface {
 	AddEventData(*azeventhubs.EventData, *azeventhubs.AddEventDataOptions) error
@@ -184,17 +188,40 @@ type azurePartitionReceiver struct {
 	client azurePartitionClient
 }
 
+type azureCheckpointStore interface {
+	startPosition(partitionID string) azeventhubs.StartPosition
+	record(ctx context.Context, partitionID string, sequenceNumber int64) error
+}
+
+type azureCheckpointFile struct {
+	Partitions map[string]azureCheckpoint `json:"partitions"`
+}
+
+type azureCheckpoint struct {
+	SequenceNumber int64     `json:"sequence_number"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type azureFileCheckpointStore struct {
+	path string
+
+	mu         sync.Mutex
+	loaded     bool
+	partitions map[string]azureCheckpoint
+}
+
 type AzureEventHubsConsumer struct {
 	client         azureConsumerClient
 	stream         string
 	receiveTimeout time.Duration
+	checkpoints    azureCheckpointStore
 
 	mu         sync.Mutex
 	partitions []azurePartitionReceiver
 	nextIndex  int
 }
 
-func NewAzureEventHubsConsumerFromConnectionString(connectionString, stream, consumerGroup string, receiveTimeout time.Duration) (*AzureEventHubsConsumer, error) {
+func NewAzureEventHubsConsumerFromConnectionString(connectionString, stream, consumerGroup string, receiveTimeout time.Duration, checkpointFile string) (*AzureEventHubsConsumer, error) {
 	if connectionString == "" {
 		return nil, fmt.Errorf("AZURE_EVENTHUB_CONNECTION_STRING is required when CROSS_SERVICE_BROKER=%q", AdapterAzureEventHubs)
 	}
@@ -212,11 +239,16 @@ func NewAzureEventHubsConsumerFromConnectionString(connectionString, stream, con
 	if err != nil {
 		return nil, err
 	}
-	return newAzureEventHubsConsumer(sdkConsumerClient{client: client}, stream, receiveTimeout)
+	return newAzureEventHubsConsumer(
+		sdkConsumerClient{client: client},
+		stream,
+		receiveTimeout,
+		newAzureFileCheckpointStore(resolveAzureCheckpointFile(checkpointFile, stream, consumerGroup)),
+	)
 }
 
-func newAzureEventHubsConsumer(client azureConsumerClient, stream string, receiveTimeout time.Duration) (*AzureEventHubsConsumer, error) {
-	partitions, err := openAzurePartitions(context.Background(), client)
+func newAzureEventHubsConsumer(client azureConsumerClient, stream string, receiveTimeout time.Duration, checkpoints azureCheckpointStore) (*AzureEventHubsConsumer, error) {
+	partitions, err := openAzurePartitions(context.Background(), client, checkpoints)
 	if err != nil {
 		_ = client.Close(context.Background())
 		return nil, err
@@ -226,11 +258,12 @@ func newAzureEventHubsConsumer(client azureConsumerClient, stream string, receiv
 		client:         client,
 		stream:         stream,
 		receiveTimeout: receiveTimeout,
+		checkpoints:    checkpoints,
 		partitions:     partitions,
 	}, nil
 }
 
-func openAzurePartitions(ctx context.Context, client azureConsumerClient) ([]azurePartitionReceiver, error) {
+func openAzurePartitions(ctx context.Context, client azureConsumerClient, checkpoints azureCheckpointStore) ([]azurePartitionReceiver, error) {
 	properties, err := client.GetEventHubProperties(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -242,7 +275,7 @@ func openAzurePartitions(ctx context.Context, client azureConsumerClient) ([]azu
 	partitions := make([]azurePartitionReceiver, 0, len(partitionIDs))
 	for _, partitionID := range partitionIDs {
 		partitionClient, err := client.NewPartitionClient(partitionID, &azeventhubs.PartitionClientOptions{
-			StartPosition: azeventhubs.StartPosition{Earliest: boolPtr(true)},
+			StartPosition: startPositionForPartition(checkpoints, partitionID),
 		})
 		if err != nil {
 			closeAzurePartitions(context.Background(), partitions)
@@ -283,7 +316,7 @@ func (c *AzureEventHubsConsumer) Receive(ctx context.Context, limit int) ([]Mess
 		}
 
 		for _, event := range events {
-			message, err := messageFromAzureEvent(c.stream, event)
+			message, err := messageFromAzureEvent(c.stream, partition.id, event, c.checkpoints)
 			if err != nil {
 				return nil, err
 			}
@@ -331,7 +364,7 @@ func closeAzurePartitions(ctx context.Context, partitions []azurePartitionReceiv
 	}
 }
 
-func messageFromAzureEvent(defaultStream string, event *azeventhubs.ReceivedEventData) (Message, error) {
+func messageFromAzureEvent(defaultStream, partitionID string, event *azeventhubs.ReceivedEventData, checkpoints azureCheckpointStore) (Message, error) {
 	if event == nil {
 		return Message{}, errors.New("received nil azure event")
 	}
@@ -346,6 +379,12 @@ func messageFromAzureEvent(defaultStream string, event *azeventhubs.ReceivedEven
 	return Message{
 		Stream:   record.Stream,
 		Envelope: record.Envelope,
+		ack: func(ctx context.Context) error {
+			if checkpoints == nil {
+				return nil
+			}
+			return checkpoints.record(ctx, partitionID, event.SequenceNumber)
+		},
 	}, nil
 }
 
@@ -381,4 +420,132 @@ func classifyAzureReceiveError(err error) error {
 
 func boolPtr(value bool) *bool {
 	return &value
+}
+
+func startPositionForPartition(checkpoints azureCheckpointStore, partitionID string) azeventhubs.StartPosition {
+	if checkpoints == nil {
+		return azeventhubs.StartPosition{Earliest: boolPtr(true)}
+	}
+	return checkpoints.startPosition(partitionID)
+}
+
+func resolveAzureCheckpointFile(path, stream, consumerGroup string) string {
+	if path != "" {
+		return path
+	}
+	return filepath.Join(defaultAzureCheckpointDir, sanitizeAzureCheckpointComponent(stream)+"__"+sanitizeAzureCheckpointComponent(consumerGroup)+".json")
+}
+
+func sanitizeAzureCheckpointComponent(value string) string {
+	var builder strings.Builder
+	builder.Grow(len(value))
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			builder.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			builder.WriteRune(r)
+		case r >= '0' && r <= '9':
+			builder.WriteRune(r)
+		default:
+			builder.WriteByte('_')
+		}
+	}
+	if builder.Len() == 0 {
+		return "default"
+	}
+	return builder.String()
+}
+
+func newAzureFileCheckpointStore(path string) *azureFileCheckpointStore {
+	return &azureFileCheckpointStore{path: path}
+}
+
+func (s *azureFileCheckpointStore) startPosition(partitionID string) azeventhubs.StartPosition {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.loadLocked(); err != nil {
+		return azeventhubs.StartPosition{Earliest: boolPtr(true)}
+	}
+
+	checkpoint, ok := s.partitions[partitionID]
+	if !ok {
+		return azeventhubs.StartPosition{Earliest: boolPtr(true)}
+	}
+	sequenceNumber := checkpoint.SequenceNumber
+	return azeventhubs.StartPosition{
+		SequenceNumber: &sequenceNumber,
+		Inclusive:      false,
+	}
+}
+
+func (s *azureFileCheckpointStore) record(_ context.Context, partitionID string, sequenceNumber int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.loadLocked(); err != nil {
+		return err
+	}
+
+	current, ok := s.partitions[partitionID]
+	if ok && sequenceNumber <= current.SequenceNumber {
+		return nil
+	}
+
+	s.partitions[partitionID] = azureCheckpoint{
+		SequenceNumber: sequenceNumber,
+		UpdatedAt:      time.Now().UTC(),
+	}
+	return s.persistLocked()
+}
+
+func (s *azureFileCheckpointStore) loadLocked() error {
+	if s.loaded {
+		return nil
+	}
+
+	s.loaded = true
+	s.partitions = make(map[string]azureCheckpoint)
+	if s.path == "" {
+		return nil
+	}
+
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	var file azureCheckpointFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return err
+	}
+	if file.Partitions != nil {
+		s.partitions = file.Partitions
+	}
+	return nil
+}
+
+func (s *azureFileCheckpointStore) persistLocked() error {
+	if s.path == "" {
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(azureCheckpointFile{Partitions: s.partitions}, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	tempFile := s.path + ".tmp"
+	if err := os.WriteFile(tempFile, append(data, '\n'), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tempFile, s.path)
 }

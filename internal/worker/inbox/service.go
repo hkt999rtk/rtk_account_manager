@@ -132,6 +132,9 @@ func (s *Service) RunOnce(ctx context.Context) (Stats, error) {
 		if err != nil {
 			return stats, err
 		}
+		if err := record.Acknowledge(ctx); err != nil {
+			return stats, err
+		}
 
 		switch outcome {
 		case model.DeviceMessageInboxStatusProcessed:
