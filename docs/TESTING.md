@@ -10,6 +10,10 @@ The backend uses three test layers:
 | Integration tests | `make integration-test` | Runs the API, store, migrations, auth, authorization, and device lifecycle tests against Postgres. |
 | Full report | `make test-report` | Runs formatting, integration-aware tests, coverage, build validation, and writes `docs/TEST_REPORT.md`. |
 
+`make integration-test` and `make test-report` expect Postgres to be reachable at `TEST_DATABASE_URL`.
+For the default local setup, start it first with `make db-up`.
+`make test-report` now fails fast with that prerequisite message instead of overwriting `docs/TEST_REPORT.md` with a misleading low-coverage report.
+
 ## Coverage Policy
 
 `make test-report` measures statement coverage with:

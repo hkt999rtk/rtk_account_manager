@@ -19,10 +19,36 @@ TEST_CASES_MD="$REPORT_DIR/test-cases.md"
 
 started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
+require_postgres() {
+	local authority host port
+
+	authority="${TEST_DATABASE_URL#*@}"
+	if [ "$authority" = "$TEST_DATABASE_URL" ]; then
+		return 0
+	fi
+	authority="${authority%%/*}"
+	host="${authority%%:*}"
+	port="${authority##*:}"
+	if [ "$port" = "$authority" ]; then
+		port=5432
+	fi
+	if [ -z "$host" ]; then
+		return 0
+	fi
+
+	if ! ( : >/dev/tcp/"$host"/"$port" ) >/dev/null 2>&1; then
+		echo "Postgres is unreachable at $host:$port from TEST_DATABASE_URL." >&2
+		echo "Start the local database with 'make db-up' or point TEST_DATABASE_URL at a reachable Postgres instance before running make test-report." >&2
+		exit 1
+	fi
+}
+
 format_status=0
 test_status=0
 build_status=0
 coverage_status=0
+
+require_postgres
 
 gofmt -l . >"$FORMAT_OUT"
 if [ -s "$FORMAT_OUT" ]; then
