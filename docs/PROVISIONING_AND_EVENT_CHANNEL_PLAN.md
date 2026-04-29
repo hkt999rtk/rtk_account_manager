@@ -11,7 +11,7 @@ This plan is derived from:
 - `contracts/CONTRACT_OVERVIEW.md`
 - `docs/SPEC.md`
 
-As of April 29, 2026, `origin/main` already includes the merged persistence, API, worker, broker, test-report, and runbook slices for this milestone. The remaining repo-visible gap is workflow hygiene: several GitHub issues still remain open even though their linked implementation PRs are already merged.
+As of April 29, 2026, `origin/main` already includes the merged persistence, API, worker, broker, test-report, and runbook slices for this milestone. The remaining account-manager work is contract follow-up hardening around cross-repository integration boundaries and operational maintenance surfaces.
 
 ## Current Implementation Snapshot
 
@@ -24,10 +24,13 @@ The current account manager now implements:
 - Local `log` broker support plus Azure Event Hubs adapter wiring.
 - Maintained v2 test reporting and a local worker runbook.
 
-Residual workflow gap for this milestone snapshot:
+Residual contract follow-up gaps for this milestone snapshot:
 
-- Keep this document aligned with merged scope on `main`.
-- Close or split stale GitHub issue metadata when the engineering scope is already merged.
+- Define and hand off the video-side lifecycle integration worker that consumes `account.video.commands`, calls Realtek video server APIs, and publishes `video.account.events`.
+- Decide whether provisioning should persist the pending `video_cloud_devid` mapping to device metadata before video-side success/failure projection.
+- Add an operational surface for inspecting and requeueing retry/dead-letter lifecycle messages without direct SQL.
+- Keep `DELETE /devices/:deviceId` registry soft-delete explicitly separate from product-level `POST /deactivate`, unless product policy later requires delete to enqueue deactivation.
+- Decide whether account manager should expose a product-level readiness view, or whether readiness remains owned by an integration service.
 
 ## Milestone And Issue Map
 
@@ -46,6 +49,18 @@ Milestone: `v2-provisioning-event-channel`
 | #9 `[Broker] Add Azure Event Hubs adapter and runtime config` | P2 | `worker`, `backend`, `v2` | #7, #8 | implemented | PR #22 | Event Hubs adapter and configuration without making local tests depend on Azure. |
 | #10 `[Testing] Extend automated test report for v2` | P2 | `testing`, `v2` | #6, #7, #8 | verified | PR #23, `docs/TEST_REPORT.md` | `make test-report` includes v2 behavior evidence and keeps coverage at or above 80%. |
 | #11 `[Docs] Add local runbook for provisioning/event workers` | P2 | `docs`, `v2` | #6, #7, #8, #9 | verified | PR #25, `README.md` | Local runbook for Postgres, API server, outbox worker, inbox worker, and local broker flow. |
+
+## Contract Follow-Up Issue Map
+
+These issues are follow-ups to the merged account-manager v2 implementation. They are intentionally separate from the original v2 rollout issues above.
+
+| Issue | Priority | Suggested labels | Repo ownership | Deliverable |
+| --- | --- | --- | --- | --- |
+| `[Integration] Implement video-side account/video lifecycle worker` | P1 | `integration`, `worker`, `v2` | Likely `video_cloud` or a dedicated integration repo | Worker consumes `DeviceProvisionRequested` / `DeviceDeactivateRequested`, calls Realtek video server `POST /activate_camera` / `POST /deactivate_camera`, and publishes success/failure events. |
+| `[API] Persist pending video_cloud_devid mapping on provisioning request` | P2 | `api`, `backend`, `v2` | `rtk_account_manager` | Provisioning request records the requested mapping in account-manager metadata before the video-side result arrives, without treating activation as complete. |
+| `[Ops] Add lifecycle dead-letter and retry management commands` | P2 | `ops`, `worker`, `backend`, `v2` | `rtk_account_manager` | Admin CLI or maintenance commands list failed lifecycle messages, inspect payload/error context, and safely requeue eligible rows. |
+| `[Docs] Finalize delete versus product deactivation policy` | P2 | `docs`, `api`, `v2` | `rtk_account_manager` plus product owner | Document whether registry delete stays soft-delete only or also enqueues `DeviceDeactivateRequested`; update API behavior only if product policy changes. |
+| `[Integration] Define product-level provisioning readiness contract` | P3 | `integration`, `docs`, `v2` | Integration service or cross-repo contracts | Define the aggregate readiness signal spanning account record, video activation, subject-bound tokens, device info/config, and transport online state. |
 
 Status values:
 

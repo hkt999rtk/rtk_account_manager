@@ -601,3 +601,15 @@ The v2 provisioning/event-channel implementation is acceptable when:
 - Retry and dead-letter state are inspectable in the database.
 - Local development can run without Azure using a local broker adapter.
 - Automated tests cover the v2 behavior matrix and report correctness evidence.
+
+## 12. Contract Follow-Up Scope
+
+The account-manager implementation owns the account-side API, persistence, outbox, inbox, projection, and broker adapter surfaces. The broader product-level provisioning contract still depends on follow-up work outside or adjacent to this service.
+
+Known follow-up items:
+
+- A video-side lifecycle integration worker must consume `account.video.commands`, call Realtek video server `POST /activate_camera` and `POST /deactivate_camera`, then publish `video.account.events`.
+- Provisioning may need to persist the requested `video_cloud_devid` mapping to device metadata immediately when a provisioning request is accepted, while still leaving activation status pending until video-side projection.
+- Retry and dead-letter rows are inspectable in Postgres today, but an admin maintenance command should expose list, inspect, and safe requeue workflows for operators.
+- Account registry soft-delete and product-level video deactivation remain separate. If product policy changes so delete also requires video deactivation, `DELETE /devices/:deviceId` must enqueue `DeviceDeactivateRequested` before claiming product-level disablement.
+- Product-level readiness is not an account-manager-only state. A complete readiness contract should define how account record, video activation, subject-bound token issuance, device info/config, and transport ownership are aggregated.
