@@ -1,6 +1,6 @@
 # Test Report
 
-Generated: 2026-04-29T04:07:22Z
+Generated: 2026-04-29T06:58:30Z
 
 ## Summary
 
@@ -16,7 +16,7 @@ Generated: 2026-04-29T04:07:22Z
 
 | Metric | Value |
 | --- | --- |
-| Total statement coverage | 80.7% |
+| Total statement coverage | 80.8% |
 | Minimum required coverage | 80.0% |
 | Coverage mode | atomic |
 | Coverage scope | ./internal/... |
@@ -26,8 +26,8 @@ Generated: 2026-04-29T04:07:22Z
 | Metric | Value |
 | --- | --- |
 | Go packages | 17 |
-| Test cases started | 176 |
-| JSON pass events | 187 |
+| Test cases started | 184 |
+| JSON pass events | 195 |
 | JSON fail events | 0 |
 | Integration database | Postgres via TEST_DATABASE_URL |
 
@@ -193,8 +193,11 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/openapi`: `TestOpenAPIContractIsValid`
 - `rtk_account_manager/internal/store`: `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`
 - `rtk_account_manager/internal/store`: `TestClaimOutboxMessagesReadyLeasesRows`
+- `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshotWithLossyUTF8`
+- `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshot`
 - `rtk_account_manager/internal/store`: `TestCompareOperationCreate`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetDeviceOperationIsIdempotent`
+- `rtk_account_manager/internal/store`: `TestCreateOrGetDeviceOperationRejectsMismatchedDeviceOrganization`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessageDeduplicates`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessagePreservesDeadLetterPayloadSnapshot`
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
@@ -212,7 +215,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestRecordOutboxPublishTransitionUpdatesOperationState`
 - `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationRejectsMissingProjectedMetadata`
 - `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationUsesProjectedMetadata`
+- `rtk_account_manager/internal/store`: `TestValidatePartitionKeyMatchesOperationSkipsBlankValues`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidMessages`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidPartitionKeysAfterPersistingInboxRow/blank_partition_key_is_normalized_for_storage_and_dead-lettered`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidPartitionKeysAfterPersistingInboxRow/nonblank_mismatched_partition_key_dead-letters`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidPartitionKeysAfterPersistingInboxRow`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersLifecycleMessagesWithMismatchedPartitionKeys`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersMalformedAndUnmappedMessages/command-only_message_on_events_stream_dead-letters`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersMalformedAndUnmappedMessages/malformed_payload_keeps_inspectable_inbox_row`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersMalformedAndUnmappedMessages/malformed_payload_with_invalid_utf-8_keeps_exact_bytes`
