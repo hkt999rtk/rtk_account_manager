@@ -134,8 +134,10 @@ func (s *Service) RunOnce(ctx context.Context) (Stats, error) {
 		if err != nil {
 			return stats, err
 		}
-		if err := record.Acknowledge(ctx); err != nil {
-			return stats, err
+		if shouldAcknowledgeOutcome(outcome) {
+			if err := record.Acknowledge(ctx); err != nil {
+				return stats, err
+			}
 		}
 
 		switch outcome {
@@ -151,6 +153,12 @@ func (s *Service) RunOnce(ctx context.Context) (Stats, error) {
 	}
 
 	return stats, nil
+}
+
+func shouldAcknowledgeOutcome(outcome model.DeviceMessageInboxStatus) bool {
+	// Retrying outcomes must remain unacknowledged so broker-backed consumers
+	// such as Azure Event Hubs can redeliver transient failures.
+	return outcome != model.DeviceMessageInboxStatusRetrying
 }
 
 func (s *Service) processMessage(ctx context.Context, record broker.Message) (model.DeviceMessageInboxStatus, error) {
