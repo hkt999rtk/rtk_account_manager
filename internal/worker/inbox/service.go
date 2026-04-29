@@ -208,6 +208,9 @@ func (s *Service) processMessage(ctx context.Context, record broker.Message) (mo
 		operation, err := s.store.GetDeviceOperation(ctx, message.OperationID)
 		switch {
 		case err == nil:
+			if !partitionKeyMatchesOperationDevice(message.PartitionKey, operation.DeviceID) {
+				return model.DeviceMessageInboxStatusDeadLettered, s.recordDeadLetter(ctx, message, attemptCount, fmt.Errorf("partition key %q does not match operation device %q", message.PartitionKey, operation.DeviceID))
+			}
 			if isCompletedLifecycleOperation(operation) {
 				return model.DeviceMessageInboxStatusProcessed, s.markProcessedWithoutProjection(ctx, message, attemptCount)
 			}
@@ -289,6 +292,10 @@ func sleepContext(ctx context.Context, delay time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func partitionKeyMatchesOperationDevice(partitionKey, deviceID string) bool {
+	return strings.TrimSpace(partitionKey) != "" && partitionKey == deviceID
 }
 
 func buildTransitionForPayload(envelope channel.Envelope, payload channel.Payload) (store.InboxProcessTransitionInput, error) {

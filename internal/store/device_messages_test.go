@@ -206,3 +206,9 @@ func TestJSONHelpers(t *testing.T) {
 		t.Fatal("expected invalid JSON payload to fail")
 	}
 }
+
+func TestValidatePartitionKeyMatchesOperationSkipsBlankValues(t *testing.T) {
+	if err := (*Store)(nil).validatePartitionKeyMatchesOperation(nil, "op-1", "   "); err != nil {
+		t.Fatalf("expected blank partition key to skip prevalidation, got %v", err)
+	}
+}
