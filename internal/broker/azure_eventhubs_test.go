@@ -354,6 +354,73 @@ func TestAzureEventHubsConsumerAcknowledgesAndResumesFromCheckpoint(t *testing.T
 	}
 }
 
+func TestAzureEventHubsConsumerDoesNotAdvanceCheckpointPastEarlierUnacknowledgedMessage(t *testing.T) {
+	checkpointFile := filepath.Join(t.TempDir(), "consumer-checkpoints.json")
+	if err := os.WriteFile(checkpointFile, []byte("{\n  \"partitions\": {\n    \"0\": {\n      \"sequence_number\": 40,\n      \"updated_at\": \"2026-04-29T12:00:00Z\"\n    }\n  }\n}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	client := &fakeAzureConsumerClient{
+		properties: azeventhubs.EventHubProperties{PartitionIDs: []string{"0"}},
+		partitions: map[string]*fakeAzurePartitionClient{
+			"0": {
+				events: []*azeventhubs.ReceivedEventData{
+					{
+						EventData:      azeventhubs.EventData{Body: []byte(`{"stream":"video.account.events","envelope":{"message_id":"msg-41","correlation_id":"corr-41","operation_id":"op-41","source_service":"realtek_video_server","target_service":"rtk_account_manager","message_type":"DeviceOnlineChanged","schema_version":"1.0","partition_key":"device-1","occurred_at":"2026-04-29T12:00:00Z","payload":{"status":"online"}}}`)},
+						SequenceNumber: 41,
+					},
+					{
+						EventData:      azeventhubs.EventData{Body: []byte(`{"stream":"video.account.events","envelope":{"message_id":"msg-42","correlation_id":"corr-42","operation_id":"op-42","source_service":"realtek_video_server","target_service":"rtk_account_manager","message_type":"DeviceMetadataChanged","schema_version":"1.0","partition_key":"device-1","occurred_at":"2026-04-29T12:00:01Z","payload":{"video_cloud_devid":"vc-42"}}}`)},
+						SequenceNumber: 42,
+					},
+				},
+			},
+		},
+	}
+
+	consumer, err := newAzureEventHubsConsumer(
+		client,
+		channel.StreamVideoAccountEvents,
+		50*time.Millisecond,
+		newAzureFileCheckpointStore(checkpointFile),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	messages, err := consumer.Receive(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected two messages, got %d", len(messages))
+	}
+
+	if err := messages[1].Acknowledge(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(checkpointFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"sequence_number": 40`) {
+		t.Fatalf("expected checkpoint to remain at 40 until the earlier message is acknowledged, got %s", string(data))
+	}
+
+	if err := messages[0].Acknowledge(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err = os.ReadFile(checkpointFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"sequence_number": 42`) {
+		t.Fatalf("expected checkpoint to advance to 42 after the ordered prefix is acknowledged, got %s", string(data))
+	}
+}
+
 func TestOpenAzurePartitionsUsesStoredCheckpointWhenPresent(t *testing.T) {
 	checkpointFile := filepath.Join(t.TempDir(), "consumer-checkpoints.json")
 	if err := os.WriteFile(checkpointFile, []byte("{\n  \"partitions\": {\n    \"1\": {\n      \"sequence_number\": 17,\n      \"updated_at\": \"2026-04-29T12:00:00Z\"\n    }\n  }\n}\n"), 0o600); err != nil {
@@ -512,7 +579,7 @@ func TestAzureEventHubsPublisherRejectsUnexpectedStream(t *testing.T) {
 }
 
 func TestAzureMessageDecodeRejectsInvalidJSON(t *testing.T) {
-	_, err := messageFromAzureEvent(channel.StreamVideoAccountEvents, "0", &azeventhubs.ReceivedEventData{
+	_, err := messageFromAzureEvent(channel.StreamVideoAccountEvents, &azeventhubs.ReceivedEventData{
 		EventData: azeventhubs.EventData{Body: []byte("not-json")},
 	}, nil)
 	if err == nil {
@@ -521,7 +588,7 @@ func TestAzureMessageDecodeRejectsInvalidJSON(t *testing.T) {
 }
 
 func TestAzureMessageDecodeRejectsNilEvent(t *testing.T) {
-	if _, err := messageFromAzureEvent(channel.StreamVideoAccountEvents, "0", nil, nil); err == nil {
+	if _, err := messageFromAzureEvent(channel.StreamVideoAccountEvents, nil, nil); err == nil {
 		t.Fatal("expected nil event error")
 	}
 }

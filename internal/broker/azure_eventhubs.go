@@ -184,8 +184,9 @@ func (p *AzureEventHubsPublisher) Close(ctx context.Context) error {
 }
 
 type azurePartitionReceiver struct {
-	id     string
-	client azurePartitionClient
+	id      string
+	client  azurePartitionClient
+	tracker *azurePartitionCheckpointTracker
 }
 
 type azureCheckpointStore interface {
@@ -200,6 +201,21 @@ type azureCheckpointFile struct {
 type azureCheckpoint struct {
 	SequenceNumber int64     `json:"sequence_number"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type azureDeliveredSequence struct {
+	sequenceNumber int64
+	acknowledged   bool
+}
+
+type azurePartitionCheckpointTracker struct {
+	partitionID string
+	store       azureCheckpointStore
+
+	mu           sync.Mutex
+	committedSet bool
+	committedSeq int64
+	delivered    []azureDeliveredSequence
 }
 
 type azureFileCheckpointStore struct {
@@ -274,16 +290,19 @@ func openAzurePartitions(ctx context.Context, client azureConsumerClient, checkp
 
 	partitions := make([]azurePartitionReceiver, 0, len(partitionIDs))
 	for _, partitionID := range partitionIDs {
+		startPosition := startPositionForPartition(checkpoints, partitionID)
+		tracker := newAzurePartitionCheckpointTracker(partitionID, checkpoints, startPosition)
 		partitionClient, err := client.NewPartitionClient(partitionID, &azeventhubs.PartitionClientOptions{
-			StartPosition: startPositionForPartition(checkpoints, partitionID),
+			StartPosition: startPosition,
 		})
 		if err != nil {
 			closeAzurePartitions(context.Background(), partitions)
 			return nil, err
 		}
 		partitions = append(partitions, azurePartitionReceiver{
-			id:     partitionID,
-			client: partitionClient,
+			id:      partitionID,
+			client:  partitionClient,
+			tracker: tracker,
 		})
 	}
 	return partitions, nil
@@ -316,7 +335,7 @@ func (c *AzureEventHubsConsumer) Receive(ctx context.Context, limit int) ([]Mess
 		}
 
 		for _, event := range events {
-			message, err := messageFromAzureEvent(c.stream, partition.id, event, c.checkpoints)
+			message, err := messageFromAzureEvent(c.stream, event, partition.tracker)
 			if err != nil {
 				return nil, err
 			}
@@ -364,9 +383,12 @@ func closeAzurePartitions(ctx context.Context, partitions []azurePartitionReceiv
 	}
 }
 
-func messageFromAzureEvent(defaultStream, partitionID string, event *azeventhubs.ReceivedEventData, checkpoints azureCheckpointStore) (Message, error) {
+func messageFromAzureEvent(defaultStream string, event *azeventhubs.ReceivedEventData, tracker *azurePartitionCheckpointTracker) (Message, error) {
 	if event == nil {
 		return Message{}, errors.New("received nil azure event")
+	}
+	if tracker != nil {
+		tracker.track(event.SequenceNumber)
 	}
 
 	var record logRecord
@@ -380,10 +402,10 @@ func messageFromAzureEvent(defaultStream, partitionID string, event *azeventhubs
 		Stream:   record.Stream,
 		Envelope: record.Envelope,
 		ack: func(ctx context.Context) error {
-			if checkpoints == nil {
+			if tracker == nil {
 				return nil
 			}
-			return checkpoints.record(ctx, partitionID, event.SequenceNumber)
+			return tracker.acknowledge(ctx, event.SequenceNumber)
 		},
 	}, nil
 }
@@ -420,6 +442,90 @@ func classifyAzureReceiveError(err error) error {
 
 func boolPtr(value bool) *bool {
 	return &value
+}
+
+func newAzurePartitionCheckpointTracker(partitionID string, store azureCheckpointStore, startPosition azeventhubs.StartPosition) *azurePartitionCheckpointTracker {
+	tracker := &azurePartitionCheckpointTracker{
+		partitionID: partitionID,
+		store:       store,
+	}
+	if startPosition.SequenceNumber != nil && !startPosition.Inclusive {
+		tracker.committedSet = true
+		tracker.committedSeq = *startPosition.SequenceNumber
+	}
+	return tracker
+}
+
+func (t *azurePartitionCheckpointTracker) track(sequenceNumber int64) {
+	if t == nil {
+		return
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.committedSet && sequenceNumber <= t.committedSeq {
+		return
+	}
+	for _, delivered := range t.delivered {
+		if delivered.sequenceNumber == sequenceNumber {
+			return
+		}
+	}
+	t.delivered = append(t.delivered, azureDeliveredSequence{sequenceNumber: sequenceNumber})
+}
+
+func (t *azurePartitionCheckpointTracker) acknowledge(ctx context.Context, sequenceNumber int64) error {
+	if t == nil {
+		return nil
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.committedSet && sequenceNumber <= t.committedSeq {
+		return nil
+	}
+
+	found := false
+	for i := range t.delivered {
+		if t.delivered[i].sequenceNumber == sequenceNumber {
+			t.delivered[i].acknowledged = true
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.delivered = append(t.delivered, azureDeliveredSequence{
+			sequenceNumber: sequenceNumber,
+			acknowledged:   true,
+		})
+	}
+
+	commitSequence, prefixLen, ok := t.acknowledgedPrefixLocked()
+	if !ok {
+		return nil
+	}
+	if t.store != nil {
+		if err := t.store.record(ctx, t.partitionID, commitSequence); err != nil {
+			return err
+		}
+	}
+
+	t.delivered = append([]azureDeliveredSequence(nil), t.delivered[prefixLen:]...)
+	t.committedSet = true
+	t.committedSeq = commitSequence
+	return nil
+}
+
+func (t *azurePartitionCheckpointTracker) acknowledgedPrefixLocked() (int64, int, bool) {
+	prefixLen := 0
+	var commitSequence int64
+	for prefixLen < len(t.delivered) && t.delivered[prefixLen].acknowledged {
+		commitSequence = t.delivered[prefixLen].sequenceNumber
+		prefixLen++
+	}
+	return commitSequence, prefixLen, prefixLen > 0
 }
 
 func startPositionForPartition(checkpoints azureCheckpointStore, partitionID string) azeventhubs.StartPosition {
