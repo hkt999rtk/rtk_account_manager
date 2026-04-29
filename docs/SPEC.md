@@ -6,7 +6,7 @@ Build a backend account and device manager similar in spirit to Amazon IoT Devic
 
 The v1 service is a REST API backend only. It stores account and device state in Postgres and provides authentication, organization membership, role-based authorization, and registry-only device management.
 
-Provisioning and account/video EventHub-style integration are the v2 scope. The implementation plan is maintained in [PROVISIONING_AND_EVENT_CHANNEL_PLAN.md](PROVISIONING_AND_EVENT_CHANNEL_PLAN.md) and must stay aligned with the shared contracts in `contracts/PROVISION.md` and `contracts/CROSS_SERVICE_CHANNEL.md`.
+Provisioning and account/video event-channel integration are the v2 surface implemented by this repository. [PROVISIONING_AND_EVENT_CHANNEL_PLAN.md](PROVISIONING_AND_EVENT_CHANNEL_PLAN.md) tracks rollout history and verification status, and this spec must stay aligned with the shared contracts in `contracts/PROVISION.md` and `contracts/CROSS_SERVICE_CHANNEL.md`.
 
 ## 2. V1 Scope
 
@@ -395,15 +395,54 @@ Provision request body:
 }
 ```
 
-Provision/deactivation response body:
+Deactivation request body:
+
+```json
+{
+  "reason": "user_request",
+  "operation_id": "optional-client-idempotency-key"
+}
+```
+
+Operation response body for `POST .../provision` and `POST .../deactivate`:
 
 ```json
 {
   "operation": {
     "operation_id": "op-01H...",
-    "status": "pending",
+    "correlation_id": "op-01H...",
+    "message_id": "msg-01H...",
     "device_id": "account-device-uuid",
-    "message_id": "msg-01H..."
+    "operation_type": "provision",
+    "status": "pending",
+    "requested_by": "user-uuid",
+    "created_at": "2026-04-29T04:00:00Z",
+    "updated_at": "2026-04-29T04:00:00Z"
+  }
+}
+```
+
+Provisioning-state response body for `GET .../provisioning`:
+
+```json
+{
+  "operation": {
+    "operation_id": "op-01H...",
+    "correlation_id": "op-01H...",
+    "message_id": "msg-01H...",
+    "device_id": "account-device-uuid",
+    "operation_type": "provision",
+    "status": "succeeded",
+    "requested_by": "user-uuid",
+    "created_at": "2026-04-29T04:00:00Z",
+    "updated_at": "2026-04-29T04:01:30Z",
+    "completed_at": "2026-04-29T04:01:30Z"
+  },
+  "video_metadata": {
+    "video_cloud_devid": "device-1",
+    "video_cloud_activation_status": "activated",
+    "video_cloud_activity_id": "activity-1",
+    "video_cloud_activated_at": "2026-04-29T04:01:30Z"
   }
 }
 ```
@@ -415,6 +454,9 @@ Provisioning rules:
 - The API must not directly call Realtek video server.
 - Product-level deactivation and account registry soft-delete are distinct operations.
 - `DELETE /devices/:deviceId` remains account-registry soft-disable unless product policy explicitly changes it later.
+- Omitting the deactivation `reason` defaults the outbox payload to `account_device_disabled`.
+- Reusing an explicit `operation_id` returns the existing operation when the normalized request matches and returns `409 Conflict` when it does not.
+- Operation responses may also include `error_code`, `error_message`, `retryable`, and `completed_at` once the inbox projection records a terminal result.
 - `DeviceProvisionSucceeded` sets video activation metadata but does not set account-manager `status=online`.
 - `DeviceOnlineChanged` is the only video-side event that may project account-manager `status=online|offline`.
 
