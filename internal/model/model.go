@@ -30,6 +30,7 @@ const (
 type VideoCloudActivationStatus string
 
 const (
+	VideoCloudActivationStatusPending     VideoCloudActivationStatus = "pending"
 	VideoCloudActivationStatusActivated   VideoCloudActivationStatus = "activated"
 	VideoCloudActivationStatusFailed      VideoCloudActivationStatus = "failed"
 	VideoCloudActivationStatusDeactivated VideoCloudActivationStatus = "deactivated"

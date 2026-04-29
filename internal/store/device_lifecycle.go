@@ -23,6 +23,7 @@ type DeviceLifecycleOperationInput struct {
 	RequestPayload    map[string]any
 	OutboxMessageType string
 	OutboxPayload     map[string]any
+	MetadataPatch     map[string]any
 	AllowDisabled     bool
 	Now               time.Time
 }
@@ -116,6 +117,16 @@ func startDeviceLifecycleOperationTx(ctx context.Context, tx pgx.Tx, device mode
 	}
 	if err != nil {
 		return DeviceLifecycleOperationResult{}, err
+	}
+
+	if created && len(in.MetadataPatch) > 0 {
+		device, err = projectDeviceTx(ctx, tx, device.OrganizationID, device.ID, DeviceProjectionInput{
+			Metadata:      in.MetadataPatch,
+			AllowDisabled: in.AllowDisabled,
+		})
+		if err != nil {
+			return DeviceLifecycleOperationResult{}, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

@@ -262,6 +262,7 @@ Rules:
 - `member` may read provisioning state but may not initiate lifecycle commands.
 - Device must exist in the organization.
 - Disabled devices cannot be provisioned.
+- Accepting provisioning immediately exposes pending `video_cloud_devid`, `video_cloud_activity_id`, and `video_cloud_activation_status=pending` in projected device metadata.
 - Duplicate `operation_id` with the same payload returns the existing operation.
 - Duplicate `operation_id` with a conflicting payload returns `409 Conflict`.
 - The API must not directly call Realtek video server.

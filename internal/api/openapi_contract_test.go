@@ -61,14 +61,6 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	provisioningRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/provisioning", nil, registered.Tokens.AccessToken)
 	contract.validate(t, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/provisioning", provisioningRes)
 
-	if _, err := env.db.Exec(context.Background(), `
-		UPDATE devices
-		SET metadata = metadata || jsonb_build_object('video_cloud_devid', 'contract-video-1')
-		WHERE id = $1
-	`, device.Device.ID); err != nil {
-		t.Fatal(err)
-	}
-
 	deactivateRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/deactivate", map[string]any{
 		"operation_id": "contract-deactivate-op-1",
 		"reason":       "contract-test",

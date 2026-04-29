@@ -450,6 +450,7 @@ Provisioning-state response body for `GET .../provisioning`:
 Provisioning rules:
 
 - The API writes the operation row and outbox row transactionally.
+- Accepting a provisioning request immediately merges pending `video_cloud_devid`, `video_cloud_activity_id`, and `video_cloud_activation_status=pending` into device metadata without implying activation success.
 - Disabled devices cannot be provisioned.
 - The API must not directly call Realtek video server.
 - Product-level deactivation and account registry soft-delete are distinct operations.
@@ -457,7 +458,7 @@ Provisioning rules:
 - Omitting the deactivation `reason` defaults the outbox payload to `account_device_disabled`.
 - Reusing an explicit `operation_id` returns the existing operation when the normalized request matches and returns `409 Conflict` when it does not.
 - Operation responses may also include `error_code`, `error_message`, `retryable`, and `completed_at` once the inbox projection records a terminal result.
-- `DeviceProvisionSucceeded` sets video activation metadata but does not set account-manager `status=online`.
+- `DeviceProvisionSucceeded` replaces the pending activation metadata with the terminal activation result but does not set account-manager `status=online`.
 - `DeviceOnlineChanged` is the only video-side event that may project account-manager `status=online|offline`.
 
 ## 8. API Conventions

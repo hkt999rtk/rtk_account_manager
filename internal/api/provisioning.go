@@ -123,7 +123,8 @@ func (s *Server) provisionDevice(c *gin.Context) {
 			"clip_public_key":   clipPublicKey,
 			"requested_by":      currentUserID(c),
 		},
-		Now: time.Now().UTC().Truncate(time.Microsecond),
+		MetadataPatch: store.PendingProvisionMetadata(videoCloudDevid, activityID),
+		Now:           time.Now().UTC().Truncate(time.Microsecond),
 	})
 	if err != nil {
 		writeStoreError(c, err)

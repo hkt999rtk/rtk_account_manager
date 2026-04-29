@@ -968,8 +968,22 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 	if memberState.Operation.OperationID != "provision-op-1" {
 		t.Fatalf("unexpected provisioning state operation: %+v", memberState.Operation)
 	}
-	if len(memberState.VideoMetadata) != 0 {
-		t.Fatalf("expected empty projected metadata before inbox projection, got %+v", memberState.VideoMetadata)
+	if got := memberState.VideoMetadata[model.DeviceMetadataVideoCloudDevid]; got != "video-device-1" {
+		t.Fatalf("expected pending devid in provisioning state, got %+v", got)
+	}
+	if got := memberState.VideoMetadata[model.DeviceMetadataVideoCloudActivityID]; got != "activity-1" {
+		t.Fatalf("expected pending activity id in provisioning state, got %+v", got)
+	}
+	if got := memberState.VideoMetadata[model.DeviceMetadataVideoCloudActivationStatus]; got != string(model.VideoCloudActivationStatusPending) {
+		t.Fatalf("expected pending activation status in provisioning state, got %+v", got)
+	}
+
+	pendingDevice, err := store.New(env.db).GetDevice(context.Background(), owner.Organization.ID, device.Device.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pendingDevice.Status != model.DeviceStatusUnknown {
+		t.Fatalf("expected accepted provisioning not to set device online, got %s", pendingDevice.Status)
 	}
 
 	outsiderStateRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provisioning", nil, outsider.Tokens.AccessToken)
