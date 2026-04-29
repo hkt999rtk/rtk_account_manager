@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -403,6 +404,10 @@ func compareInboxCreate(existing model.DeviceMessageInbox, in DeviceMessageInbox
 }
 
 func (s *Store) validatePartitionKeyMatchesOperation(ctx context.Context, operationID, partitionKey string) error {
+	if strings.TrimSpace(partitionKey) == "" {
+		return nil
+	}
+
 	var deviceID string
 	err := s.db.QueryRow(ctx, `
 		SELECT device_id::text
