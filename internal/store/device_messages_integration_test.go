@@ -55,9 +55,15 @@ func newStoreIntegrationEnv(t *testing.T) storeIntegrationEnv {
 func createDeviceFixture(t *testing.T, env storeIntegrationEnv) (string, string, string) {
 	t.Helper()
 
+	return createDeviceFixtureForEmail(t, env, "owner@example.com")
+}
+
+func createDeviceFixtureForEmail(t *testing.T, env storeIntegrationEnv, email string) (string, string, string) {
+	t.Helper()
+
 	ctx := context.Background()
 	registered, err := env.store.Register(ctx, RegisterInput{
-		Email:            "owner@example.com",
+		Email:            email,
 		PasswordHash:     "hash",
 		OrganizationName: "Owner Org",
 	})
@@ -190,6 +196,25 @@ func TestCreateOrGetDeviceOperationIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestCreateOrGetDeviceOperationRejectsMismatchedDeviceOrganization(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	orgID, userID, _ := createDeviceFixtureForEmail(t, env, "owner-one@example.com")
+	_, _, otherDeviceID := createDeviceFixtureForEmail(t, env, "owner-two@example.com")
+
+	ctx := context.Background()
+	_, _, err := env.store.CreateOrGetDeviceOperation(ctx, DeviceOperationCreateInput{
+		OperationID:    "op-org-mismatch",
+		CorrelationID:  "corr-org-mismatch",
+		OrganizationID: orgID,
+		DeviceID:       otherDeviceID,
+		OperationType:  model.DeviceOperationTypeProvision,
+		Status:         model.DeviceOperationStatusPending,
+		RequestedBy:    &userID,
+		RequestPayload: map[string]any{"video_cloud_devid": "device-1"},
+	})
+	requirePGErrorCode(t, err, "23503")
+}
+
 func TestDeviceMessagePersistenceRejectsInvalidSchemaValues(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	orgID, userID, deviceID := createDeviceFixture(t, env)
@@ -250,6 +275,22 @@ func TestDeviceMessagePersistenceRejectsInvalidSchemaValues(t *testing.T) {
 	})
 	requirePGErrorCode(t, err, "23514")
 
+	_, err = env.store.CreateOutboxMessage(ctx, DeviceMessageOutboxCreateInput{
+		MessageID:     "wrong-device-partition-key",
+		OperationID:   op.OperationID,
+		CorrelationID: op.CorrelationID,
+		Stream:        "account.video.commands",
+		MessageType:   "DeviceProvisionRequested",
+		SchemaVersion: "1.0",
+		PartitionKey:  "device-other",
+		Payload:       map[string]any{"operation_id": op.OperationID},
+		Status:        model.DeviceMessageOutboxStatusPending,
+		AvailableAt:   now,
+	})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected outbox partition-key conflict, got %v", err)
+	}
+
 	_, _, err = env.store.CreateOrGetInboxMessage(ctx, DeviceMessageInboxCreateInput{
 		MessageID:     "invalid-inbox-type",
 		OperationID:   op.OperationID,
@@ -263,6 +304,22 @@ func TestDeviceMessagePersistenceRejectsInvalidSchemaValues(t *testing.T) {
 		ReceivedAt:    now,
 	})
 	requirePGErrorCode(t, err, "23514")
+
+	_, _, err = env.store.CreateOrGetInboxMessage(ctx, DeviceMessageInboxCreateInput{
+		MessageID:     "wrong-inbox-partition-key",
+		OperationID:   op.OperationID,
+		CorrelationID: op.CorrelationID,
+		Stream:        "video.account.events",
+		MessageType:   "DeviceProvisionSucceeded",
+		SchemaVersion: "1.0",
+		PartitionKey:  "device-other",
+		Payload:       map[string]any{"video_cloud_devid": "device-1"},
+		Status:        model.DeviceMessageInboxStatusRetrying,
+		ReceivedAt:    now,
+	})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected inbox partition-key conflict, got %v", err)
+	}
 }
 
 func TestOutboxMessagePersistenceAndReadyList(t *testing.T) {
