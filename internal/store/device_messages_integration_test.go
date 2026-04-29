@@ -317,8 +317,8 @@ func TestDeviceMessagePersistenceRejectsInvalidSchemaValues(t *testing.T) {
 		Status:        model.DeviceMessageInboxStatusRetrying,
 		ReceivedAt:    now,
 	})
-	if !errors.Is(err, ErrConflict) {
-		t.Fatalf("expected inbox partition-key conflict, got %v", err)
+	if err != nil {
+		t.Fatalf("expected mismatched inbox partition key to persist for dead-letter handling, got %v", err)
 	}
 }
 

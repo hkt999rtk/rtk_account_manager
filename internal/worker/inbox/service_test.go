@@ -199,6 +199,7 @@ func TestRunOnceSkipsCompletedLifecycleReplayWithNewMessageID(t *testing.T) {
 		created: true,
 		operation: model.DeviceOperation{
 			OperationID:   "op-1",
+			DeviceID:      "11111111-1111-1111-1111-111111111111",
 			OperationType: model.DeviceOperationTypeProvision,
 			Status:        model.DeviceOperationStatusSucceeded,
 		},
@@ -237,6 +238,7 @@ func TestRunOnceProcessesOnlineProjectionWhenOperationAlreadyCompleted(t *testin
 		created: true,
 		operation: model.DeviceOperation{
 			OperationID:   "op-1",
+			DeviceID:      "11111111-1111-1111-1111-111111111111",
 			OperationType: model.DeviceOperationTypeProvision,
 			Status:        model.DeviceOperationStatusSucceeded,
 		},
@@ -282,11 +284,13 @@ func TestRunOnceSkipsCompletedLifecycleReplayForRetryingMessage(t *testing.T) {
 		message: model.DeviceMessageInbox{
 			MessageID:    "msg-1",
 			OperationID:  "op-1",
+			PartitionKey: "11111111-1111-1111-1111-111111111111",
 			Status:       model.DeviceMessageInboxStatusRetrying,
 			AttemptCount: 1,
 		},
 		operation: model.DeviceOperation{
 			OperationID:   "op-1",
+			DeviceID:      "11111111-1111-1111-1111-111111111111",
 			OperationType: model.DeviceOperationTypeProvision,
 			Status:        model.DeviceOperationStatusSucceeded,
 		},
@@ -323,7 +327,13 @@ func TestRunOnceDeadLettersInvalidMessages(t *testing.T) {
 	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
 	message := validProvisionSucceededMessage(now)
 	message.Stream = "wrong.stream"
-	inboxStore := &fakeStore{created: true}
+	inboxStore := &fakeStore{
+		created: true,
+		operation: model.DeviceOperation{
+			OperationID: "op-1",
+			DeviceID:    "11111111-1111-1111-1111-111111111111",
+		},
+	}
 	service := NewService(inboxStore, fakeConsumer{
 		messages: []broker.Message{message},
 	}, Options{
@@ -342,9 +352,48 @@ func TestRunOnceDeadLettersInvalidMessages(t *testing.T) {
 	}
 }
 
+func TestRunOnceDeadLettersLifecycleMessagesWithMismatchedPartitionKeys(t *testing.T) {
+	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	inboxStore := &fakeStore{
+		created: true,
+		operation: model.DeviceOperation{
+			OperationID: "op-1",
+			DeviceID:    "device-other",
+		},
+	}
+	service := NewService(inboxStore, fakeConsumer{
+		messages: []broker.Message{validProvisionSucceededMessage(now)},
+	}, Options{
+		Now: func() time.Time { return now },
+	})
+
+	stats, err := service.RunOnce(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.DeadLettered != 1 || stats.Processed != 0 || stats.Retrying != 0 {
+		t.Fatalf("unexpected stats: %+v", stats)
+	}
+	if len(inboxStore.transitions) != 1 {
+		t.Fatalf("expected one transition, got %d", len(inboxStore.transitions))
+	}
+	if got := inboxStore.transitions[0].MessageStatus; got != model.DeviceMessageInboxStatusDeadLettered {
+		t.Fatalf("expected dead-lettered status, got %s", got)
+	}
+	if inboxStore.transitions[0].LastError == nil || *inboxStore.transitions[0].LastError == "" {
+		t.Fatalf("expected dead-letter to record a partition-key error, got %+v", inboxStore.transitions[0].LastError)
+	}
+}
+
 func TestRunOnceRetriesTransientProjectionFailures(t *testing.T) {
 	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
-	inboxStore := &fakeStore{created: true}
+	inboxStore := &fakeStore{
+		created: true,
+		operation: model.DeviceOperation{
+			OperationID: "op-1",
+			DeviceID:    "11111111-1111-1111-1111-111111111111",
+		},
+	}
 	service := NewService(inboxStore, fakeConsumer{
 		messages: []broker.Message{validProvisionSucceededMessage(now)},
 	}, Options{
@@ -497,7 +546,13 @@ func TestRunOnceProcessesFailureAndProjectionEvents(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			inboxStore := &fakeStore{created: true}
+			inboxStore := &fakeStore{
+				created: true,
+				operation: model.DeviceOperation{
+					OperationID: "op-1",
+					DeviceID:    "11111111-1111-1111-1111-111111111111",
+				},
+			}
 			service := NewService(inboxStore, fakeConsumer{messages: []broker.Message{tc.message}}, Options{
 				Now: func() time.Time { return now },
 			})

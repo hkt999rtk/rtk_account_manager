@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -305,9 +306,6 @@ func (s *Store) CreateOrGetInboxMessage(ctx context.Context, in DeviceMessageInb
 	if err != nil {
 		return model.DeviceMessageInbox{}, false, err
 	}
-	if err := s.validatePartitionKeyMatchesOperation(ctx, in.OperationID, in.PartitionKey); err != nil && !errors.Is(err, ErrNotFound) {
-		return model.DeviceMessageInbox{}, false, err
-	}
 
 	row := s.db.QueryRow(ctx, `
 		INSERT INTO device_message_inbox (
@@ -403,6 +401,10 @@ func compareInboxCreate(existing model.DeviceMessageInbox, in DeviceMessageInbox
 }
 
 func (s *Store) validatePartitionKeyMatchesOperation(ctx context.Context, operationID, partitionKey string) error {
+	if strings.TrimSpace(partitionKey) == "" {
+		return nil
+	}
+
 	var deviceID string
 	err := s.db.QueryRow(ctx, `
 		SELECT device_id::text
