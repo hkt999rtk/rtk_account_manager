@@ -57,6 +57,7 @@ Backend account and device manager for organization-scoped users and registry-on
    ```
 
    The report is written to `docs/TEST_REPORT.md`. Report artifacts are written under `reports/`.
+   This command also requires the Postgres service from `make db-up`.
 
 9. Stop local services:
 

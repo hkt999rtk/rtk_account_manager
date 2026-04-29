@@ -19,10 +19,36 @@ TEST_CASES_MD="$REPORT_DIR/test-cases.md"
 
 started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
+require_postgres() {
+	local authority host port
+
+	authority="${TEST_DATABASE_URL#*@}"
+	if [ "$authority" = "$TEST_DATABASE_URL" ]; then
+		return 0
+	fi
+	authority="${authority%%/*}"
+	host="${authority%%:*}"
+	port="${authority##*:}"
+	if [ "$port" = "$authority" ]; then
+		port=5432
+	fi
+	if [ -z "$host" ]; then
+		return 0
+	fi
+
+	if ! ( : >/dev/tcp/"$host"/"$port" ) >/dev/null 2>&1; then
+		echo "Postgres is unreachable at $host:$port from TEST_DATABASE_URL." >&2
+		echo "Start the local database with 'make db-up' or point TEST_DATABASE_URL at a reachable Postgres instance before running make test-report." >&2
+		exit 1
+	fi
+}
+
 format_status=0
 test_status=0
 build_status=0
 coverage_status=0
+
+require_postgres
 
 gofmt -l . >"$FORMAT_OUT"
 if [ -s "$FORMAT_OUT" ]; then
@@ -118,9 +144,15 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Operation idempotency | Reusing the same lifecycle \`operation_id\` returns the existing operation and preserves the original outbox \`message_id\`, including retries after device disablement or missing live metadata. |
 | Operation conflicts | Reusing a lifecycle \`operation_id\` with conflicting provision activity data or deactivation reason returns \`409 Conflict\`. |
 | Message validation | Envelope fields, supported \`schema_version\`, message-type/stream/service pairing, lifecycle UUIDs, UTC timestamps, and \`partition_key\` validation for cross-service messages. |
+| Outbox worker | \`TestRunOnceMarksSuccessfulPublishes\`, \`TestRunOnceSchedulesTransientRetry\`, \`TestRunOnceDeadLettersExhaustedPublishFailures\`, and \`TestRunOnceIgnoresStaleLeaseTransitionConflict\` verify publish success, retry, dead-letter, and stale-lease protection. |
+| Inbox worker | \`TestRunOnceSkipsPreviouslyProcessedDuplicates\`, \`TestRunOnceDeadLettersInvalidMessages\`, and \`TestRunOnceRetriesTransientProjectionFailures\` verify dedupe, dead-lettering, and transient projection retry behavior. |
+| Projection idempotency and metadata merge | \`TestRunOnceProcessesProvisionSuccess\`, \`TestRunOnceProcessesFailureAndProjectionEvents\`, \`TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil\`, and \`TestMetadataChangedProjectionFiltersNonVideoCloudKeys\` cover replay-safe projection and selective \`video_cloud_*\` metadata updates. |
+| Activation and online projection | \`TestProjectDeviceProvisioningAndOnlineRules\` proves provisioning success does not set account-manager \`status=online\`, while \`DeviceOnlineChanged\` remains the only event that updates \`status\` and \`last_seen_at\`. |
+| Failure projection | \`TestProjectDeviceRejectsDisabledDevicesExceptDeactivateResults\` and \`TestRunOnceProcessesFailureAndProjectionEvents\` verify provision/deactivation failures keep stable error metadata and terminal operation state, including disabled-device deactivation results. |
+| Broker adapters | \`TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds\`, \`TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds\`, \`TestLogPublisherWritesEnvelopeJSON\`, and \`TestLogConsumerReadsEnvelopeJSON\` cover the deterministic local adapter used by default for tests and local development. |
 | Database invariants | Idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, automatic \`updated_at\` triggers. |
 | OpenAPI contract | OpenAPI schema validation plus representative provisioning, provisioning-state, and deactivation response validation against \`openapi.yaml\`. |
-| Configuration and maintenance | \`.env\` loading, TTL parsing/fallbacks, required JWT secrets, refresh-token cleanup behavior. |
+| Configuration and maintenance | \`.env\` loading, TTL parsing/fallbacks, worker-specific broker defaults, required JWT secrets, and refresh-token cleanup behavior. |
 
 ## Executed Test Cases
 
