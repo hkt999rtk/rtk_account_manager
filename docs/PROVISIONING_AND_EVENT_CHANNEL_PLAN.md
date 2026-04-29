@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning document for the next implementation phase after the current v1 registry-only backend.
+Living milestone tracker for the v2 provisioning and event-channel rollout.
 
 This plan is derived from:
 
@@ -11,54 +11,55 @@ This plan is derived from:
 - `contracts/CONTRACT_OVERVIEW.md`
 - `docs/SPEC.md`
 
-The current codebase does not yet implement provisioning, broker publication, event consumption, or cross-service projection.
+As of April 29, 2026, `origin/main` already includes the merged persistence, API, worker, broker, test-report, and runbook slices for this milestone. The remaining repo-visible gap is workflow hygiene: several GitHub issues still remain open even though their linked implementation PRs are already merged.
 
-## Current Gap Summary
+## Current Implementation Snapshot
 
-The current account manager implements organization-scoped users, roles, JWT auth, refresh tokens, device registry CRUD, device status updates, OpenAPI validation, and automated tests.
+The current account manager now implements:
 
-The contracts require additional account-side behavior:
+- Account-side provisioning and deactivation APIs with idempotent `device_operations`.
+- Transactional outbox writes to `device_message_outbox`.
+- Inbox deduplication and account-side projection from `video.account.events`.
+- Metadata merge helpers for `video_cloud_*` fields and online/offline projection.
+- Local `log` broker support plus Azure Event Hubs adapter wiring.
+- Maintained v2 test reporting and a local worker runbook.
 
-- Publish account-side lifecycle commands to `account.video.commands`.
-- Consume video-side results and projections from `video.account.events`.
-- Track provisioning/deactivation operations using `operation_id`.
-- Treat delivery as at-least-once and handle duplicate messages safely.
-- Store retryable and dead-letter states for failed cross-service messages.
-- Map account-manager device IDs to Realtek video server `devid` values.
-- Merge provisioning metadata without overwriting unrelated account-manager metadata.
-- Avoid treating activation success as account-manager `online` status.
-- Keep the cross-service channel runtime as an independent process.
+Residual workflow gap for this milestone snapshot:
+
+- Keep this document aligned with merged scope on `main`.
+- Close or split stale GitHub issue metadata when the engineering scope is already merged.
 
 ## Milestone And Issue Map
 
 Milestone: `v2-provisioning-event-channel`
 
-| Issue | Priority | Labels | Depends on | Status | Deliverable |
-| --- | --- | --- | --- | --- | --- |
-| `[Docs] Align SPEC with provisioning/event-channel v2 scope` | P0 | `docs`, `v2` | None | planned | `docs/SPEC.md` describes v2 APIs, data model, streams, statuses, metadata keys, and acceptance criteria. |
-| `[Docs] Add v2 implementation checklist and issue map` | P0 | `docs`, `v2` | None | planned | This document contains the issue map, dependency order, and status tracking. |
-| `[DB] Add device operations, outbox, and inbox persistence` | P1 | `database`, `backend`, `v2` | Docs issues | in_progress | Migrations and store methods for operation tracking, outbox publication state, and inbox dedupe. |
-| `[Domain] Add cross-service message envelope and payload validation` | P1 | `backend`, `v2` | Docs issues | in_progress | Envelope and payload types validate contract-required fields, stream/message types, schema version, and partition key. |
-| `[Device] Add metadata merge and projection primitives` | P1 | `backend`, `v2` | DB, Domain | in_progress | Store-level partial metadata merge and projection helpers for video metadata and online status. |
-| `[API] Add provisioning and deactivation endpoints` | P1 | `api`, `backend`, `v2` | DB, Domain, Device | in_progress | HTTP endpoints create/reuse operations and enqueue lifecycle command messages. |
-| `[Worker] Implement outbox publisher with local broker adapter` | P1 | `worker`, `backend`, `v2` | DB, Domain | in_progress | Independent worker publishes pending command messages and records retry/dead-letter state. |
-| `[Worker] Implement inbox consumer and account projection` | P1 | `worker`, `backend`, `v2` | DB, Domain, Device | in_progress | Independent worker deduplicates events and projects provisioning, deactivation, online, and metadata state. |
-| `[Broker] Add Azure Event Hubs adapter and runtime config` | P2 | `worker`, `backend`, `v2` | Local workers | planned | Event Hubs adapter and configuration without making local tests depend on Azure. |
-| `[Testing] Extend automated test report for v2` | P2 | `testing`, `v2` | API, Workers | planned | `make test-report` includes v2 behavior evidence and keeps coverage at or above 80%. |
-| `[Docs] Add local runbook for provisioning/event workers` | P2 | `docs`, `v2` | API, Workers, Broker config | planned | Local runbook for Postgres, API server, outbox worker, inbox worker, and local broker flow. |
+| Issue | Priority | Labels | Depends on | Status | Evidence on `main` | Deliverable |
+| --- | --- | --- | --- | --- | --- | --- |
+| #1 `[Docs] Align SPEC with provisioning/event-channel v2 scope` | P0 | `docs`, `v2` | None | verified | `docs/SPEC.md`, `docs/TESTING.md` | `docs/SPEC.md` describes v2 APIs, data model, streams, statuses, metadata keys, and acceptance criteria. |
+| #2 `[Docs] Add v2 implementation checklist and issue map` | P0 | `docs`, `v2` | None | in_progress | This tracker refresh | This document contains the issue map, dependency order, and status tracking. |
+| #3 `[DB] Add device operations, outbox, and inbox persistence` | P1 | `database`, `backend`, `v2` | #1, #2 | implemented | PR #13 | Migrations and store methods for operation tracking, outbox publication state, and inbox dedupe. |
+| #4 `[Domain] Add cross-service message envelope and payload validation` | P1 | `backend`, `v2` | #1, #2 | implemented | PR #12 | Envelope and payload types validate contract-required fields, stream/message types, schema version, and partition key. |
+| #5 `[Device] Add metadata merge and projection primitives` | P1 | `backend`, `v2` | #3, #4 | implemented | PRs #14, #16, #17 | Store-level partial metadata merge and projection helpers for video metadata and online status. |
+| #6 `[API] Add provisioning and deactivation endpoints` | P1 | `api`, `backend`, `v2` | #3, #4, #5 | implemented | PR #15 | HTTP endpoints create/reuse operations and enqueue lifecycle command messages. |
+| #7 `[Worker] Implement outbox publisher with local broker adapter` | P1 | `worker`, `backend`, `v2` | #3, #4 | implemented | PRs #18, #21, #24, #26 | Independent worker publishes pending command messages and records retry/dead-letter state. |
+| #8 `[Worker] Implement inbox consumer and account projection` | P1 | `worker`, `backend`, `v2` | #3, #4, #5 | implemented | PRs #19, #20 | Independent worker deduplicates events and projects provisioning, deactivation, online, and metadata state. |
+| #9 `[Broker] Add Azure Event Hubs adapter and runtime config` | P2 | `worker`, `backend`, `v2` | #7, #8 | implemented | PR #22 | Event Hubs adapter and configuration without making local tests depend on Azure. |
+| #10 `[Testing] Extend automated test report for v2` | P2 | `testing`, `v2` | #6, #7, #8 | verified | PR #23, `docs/TEST_REPORT.md` | `make test-report` includes v2 behavior evidence and keeps coverage at or above 80%. |
+| #11 `[Docs] Add local runbook for provisioning/event workers` | P2 | `docs`, `v2` | #6, #7, #8, #9 | verified | PR #25, `README.md` | Local runbook for Postgres, API server, outbox worker, inbox worker, and local broker flow. |
 
 Status values:
 
-- `planned`: issue is defined but implementation has not started.
-- `in_progress`: implementation PR is active.
-- `implemented`: code is merged but final report/runbook may still need update.
-- `verified`: tests and maintained documentation are complete.
+- `planned`: issue is defined but no implementation branch has started.
+- `in_progress`: implementation is actively being updated on a branch or PR.
+- `implemented`: the linked engineering slice is merged on `main`, but issue close-out may still lag in GitHub metadata.
+- `verified`: merged scope is also reflected in maintained docs and test/report artifacts.
 
 Documentation-first rule:
 
 - The first change set updates `docs/SPEC.md`, this plan, and `docs/TESTING.md`.
 - `openapi.yaml` is updated with the provisioning API implementation so the contract matches live handler behavior.
 - README/runbook updates happen after worker commands and runtime configuration exist.
+- After the initial rollout, subsequent milestone updates should refresh this tracker whenever merged scope changes on `main`.
 
 ## Target Architecture
 
