@@ -39,22 +39,38 @@ func (s *Store) RecordOutboxPublishTransition(ctx context.Context, in OutboxPubl
 	}
 	defer tx.Rollback(ctx)
 
+	current, err := scanDeviceMessageOutbox(tx.QueryRow(ctx, `
+		SELECT id::text, message_id, operation_id, correlation_id, causation_id, stream, message_type, schema_version, partition_key, payload, status, attempt_count, last_error, available_at, published_at, created_at, updated_at
+		FROM device_message_outbox
+		WHERE message_id = $1
+		FOR UPDATE
+	`, in.MessageID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return OutboxPublishTransitionResult{}, ErrNotFound
+	}
+	if err != nil {
+		return OutboxPublishTransitionResult{}, err
+	}
+
+	if !shouldApplyOutboxPublishTransition(current, in) {
+		return OutboxPublishTransitionResult{}, ErrConflict
+	}
+
+	attemptCount := in.AttemptCount
+	if in.MessageStatus == model.DeviceMessageOutboxStatusPublished && current.AttemptCount > attemptCount {
+		attemptCount = current.AttemptCount
+	}
+
 	message, err := scanDeviceMessageOutbox(tx.QueryRow(ctx, `
 		UPDATE device_message_outbox
 		SET status = $2,
-			attempt_count = $6,
-			last_error = $7,
-			available_at = $8,
-			published_at = $9
+			attempt_count = $3,
+			last_error = $4,
+			available_at = $5,
+			published_at = $6
 		WHERE message_id = $1
-			AND status = $3
-			AND attempt_count = $4
-			AND available_at = $5
 		RETURNING id::text, message_id, operation_id, correlation_id, causation_id, stream, message_type, schema_version, partition_key, payload, status, attempt_count, last_error, available_at, published_at, created_at, updated_at
-	`, in.MessageID, in.MessageStatus, in.ExpectedMessageStatus, in.ExpectedAttemptCount, in.ExpectedAvailableAt, in.AttemptCount, in.LastError, in.AvailableAt, in.PublishedAt))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return OutboxPublishTransitionResult{}, classifyOutboxPublishTransitionError(ctx, tx, in.MessageID)
-	}
+	`, in.MessageID, in.MessageStatus, attemptCount, in.LastError, in.AvailableAt, in.PublishedAt))
 	if err != nil {
 		return OutboxPublishTransitionResult{}, err
 	}
@@ -92,19 +108,12 @@ func (s *Store) RecordOutboxPublishTransition(ctx context.Context, in OutboxPubl
 	}, nil
 }
 
-func classifyOutboxPublishTransitionError(ctx context.Context, tx pgx.Tx, messageID string) error {
-	var exists bool
-	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1
-			FROM device_message_outbox
-			WHERE message_id = $1
-		)
-	`, messageID).Scan(&exists); err != nil {
-		return err
+func shouldApplyOutboxPublishTransition(current model.DeviceMessageOutbox, in OutboxPublishTransitionInput) bool {
+	if current.Status == in.ExpectedMessageStatus &&
+		current.AttemptCount == in.ExpectedAttemptCount &&
+		current.AvailableAt.Equal(in.ExpectedAvailableAt) {
+		return true
 	}
-	if !exists {
-		return ErrNotFound
-	}
-	return ErrConflict
+	return in.MessageStatus == model.DeviceMessageOutboxStatusPublished &&
+		current.Status != model.DeviceMessageOutboxStatusPublished
 }
