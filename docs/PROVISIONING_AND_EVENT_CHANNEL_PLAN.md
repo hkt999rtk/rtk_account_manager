@@ -11,7 +11,7 @@ This plan is derived from:
 - `contracts/CONTRACT_OVERVIEW.md`
 - `docs/SPEC.md`
 
-As of April 30, 2026, `origin/main` already includes the merged persistence, API, worker, broker, test-report, runbook, pending-metadata, lifecycle-admin, delete-policy, and readiness-contract slices for this milestone. The remaining follow-up around the video-side lifecycle path is owner-repo worker hardening in `rtk_video_cloud` (`#128`, `#129`, and `#131` / draft PR `#146`), not additional account-manager implementation or documentation alignment.
+As of April 30, 2026, `origin/main` already includes the merged persistence, API, worker, broker, test-report, runbook, pending-metadata, lifecycle-admin, delete-policy, and readiness-contract slices for this milestone. The remaining follow-up around the video-side lifecycle path is owner-repo worker hardening in `hkt999rtk/rtk_video_cloud#128`, `hkt999rtk/rtk_video_cloud#129`, `hkt999rtk/rtk_video_cloud#131`, and draft PR `hkt999rtk/rtk_video_cloud#146`, not additional account-manager implementation or documentation alignment.
 
 ## Current Implementation Snapshot
 
@@ -26,7 +26,7 @@ The current account manager now implements:
 
 Residual contract follow-up gaps for this milestone snapshot:
 
-- Track the remaining `rtk_video_cloud` worker acceptance hardening for invalid-payload failure correlation, retryable deactivation redelivery, and durable `operation_id` / dead-letter behavior in issues `#128`, `#129`, and `#131` / draft PR `#146`.
+- Track the remaining `rtk_video_cloud` worker acceptance hardening for invalid-payload failure correlation, retryable deactivation redelivery, and durable `operation_id` / dead-letter behavior in `hkt999rtk/rtk_video_cloud#128`, `hkt999rtk/rtk_video_cloud#129`, `hkt999rtk/rtk_video_cloud#131`, and draft PR `hkt999rtk/rtk_video_cloud#146`.
 - Keep this repo's contract docs explicit that `DELETE /devices/:deviceId` remains registry-only while product teardown still requires `POST /deactivate`, unless product policy changes later.
 
 ## Milestone And Issue Map
@@ -53,7 +53,7 @@ These issues are follow-ups to the merged account-manager v2 implementation. The
 
 | Issue | Priority | Suggested labels | Repo ownership | Deliverable |
 | --- | --- | --- | --- | --- |
-| `[Integration] Implement video-side account/video lifecycle worker` | P1 | `integration`, `worker`, `v2` | `rtk_video_cloud` `cmd/crossservice` runtime | Standalone cross-service worker consumes `DeviceProvisionRequested` / `DeviceDeactivateRequested`, calls Realtek video server `POST /activate_camera` / `POST /deactivate_camera`, and publishes success/failure events back to account manager. Remaining acceptance hardening lives in `rtk_video_cloud#128`, `#129`, and `#131` / PR `#146`. |
+| `[Integration] Implement video-side account/video lifecycle worker` | P1 | `integration`, `worker`, `v2` | `rtk_video_cloud` `cmd/crossservice` runtime | Standalone cross-service worker consumes `DeviceProvisionRequested` / `DeviceDeactivateRequested`, calls Realtek video server `POST /activate_camera` / `POST /deactivate_camera`, and publishes success/failure events back to account manager. Remaining acceptance hardening lives in `hkt999rtk/rtk_video_cloud#128`, `hkt999rtk/rtk_video_cloud#129`, `hkt999rtk/rtk_video_cloud#131`, and PR `hkt999rtk/rtk_video_cloud#146`. |
 | `[API] Persist pending video_cloud_devid mapping on provisioning request` | P2 | `api`, `backend`, `v2` | `rtk_account_manager` | Provisioning request records the requested mapping in account-manager metadata before the video-side result arrives, without treating activation as complete. |
 | `[Ops] Add lifecycle dead-letter and retry management commands` | P2 | `ops`, `worker`, `backend`, `v2` | `rtk_account_manager` | Admin CLI or maintenance commands list failed lifecycle messages, inspect payload/error context, and safely requeue eligible rows. |
 | `[Docs] Finalize delete versus product deactivation policy` | P2 | `docs`, `api`, `v2` | `rtk_account_manager` | Document the final policy that registry delete stays soft-delete only while explicit `POST /deactivate` owns product teardown. |
