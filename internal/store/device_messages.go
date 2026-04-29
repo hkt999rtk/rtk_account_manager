@@ -175,6 +175,9 @@ func (s *Store) CreateOutboxMessage(ctx context.Context, in DeviceMessageOutboxC
 	if err != nil {
 		return model.DeviceMessageOutbox{}, err
 	}
+	if err := s.validatePartitionKeyMatchesOperation(ctx, in.OperationID, in.PartitionKey); err != nil && !errors.Is(err, ErrNotFound) {
+		return model.DeviceMessageOutbox{}, err
+	}
 
 	message, err := scanDeviceMessageOutbox(s.db.QueryRow(ctx, `
 		INSERT INTO device_message_outbox (
@@ -302,6 +305,9 @@ func (s *Store) CreateOrGetInboxMessage(ctx context.Context, in DeviceMessageInb
 	if err != nil {
 		return model.DeviceMessageInbox{}, false, err
 	}
+	if err := s.validatePartitionKeyMatchesOperation(ctx, in.OperationID, in.PartitionKey); err != nil && !errors.Is(err, ErrNotFound) {
+		return model.DeviceMessageInbox{}, false, err
+	}
 
 	row := s.db.QueryRow(ctx, `
 		INSERT INTO device_message_inbox (
@@ -391,6 +397,25 @@ func compareInboxCreate(existing model.DeviceMessageInbox, in DeviceMessageInbox
 		existing.SchemaVersion != in.SchemaVersion ||
 		existing.PartitionKey != in.PartitionKey ||
 		!sameJSONMap(existing.Payload, payload) {
+		return ErrConflict
+	}
+	return nil
+}
+
+func (s *Store) validatePartitionKeyMatchesOperation(ctx context.Context, operationID, partitionKey string) error {
+	var deviceID string
+	err := s.db.QueryRow(ctx, `
+		SELECT device_id::text
+		FROM device_operations
+		WHERE operation_id = $1
+	`, operationID).Scan(&deviceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if deviceID != partitionKey {
 		return ErrConflict
 	}
 	return nil
