@@ -44,6 +44,9 @@ The local `log` broker adapter is intentionally simple:
 | `CROSS_SERVICE_MAX_ATTEMPTS` | workers | Retry / dead-letter threshold. |
 | `CROSS_SERVICE_POLL_INTERVAL` | workers | Poll interval and local retry delay. |
 | `AZURE_EVENTHUB_CONNECTION_STRING` | workers | Leave empty for the local `log` adapter. |
+| `AZURE_EVENTHUB_CHECKPOINT_FILE` | inbox worker | Optional Azure-only override for the durable checkpoint file. Defaults to `.state/azure_eventhubs/<stream>__<consumer-group>.json` so restarts resume after the last acknowledged sequence number. |
+
+This runbook uses `CROSS_SERVICE_BROKER=log`, so no Azure checkpoint file is needed for the local FIFO-based flow. If you switch the inbox worker to `azure_eventhubs`, keep the default checkpoint path on persistent storage or set `AZURE_EVENTHUB_CHECKPOINT_FILE` explicitly before restarting workers.
 
 ## Start The Local Stack
 
