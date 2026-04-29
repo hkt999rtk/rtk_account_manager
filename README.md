@@ -36,13 +36,20 @@ Backend account and device manager for organization-scoped users and registry-on
    make cleanup-tokens
    ```
 
-6. Run tests:
+6. Inspect or requeue lifecycle outbox/inbox rows when worker failures need investigation:
+
+   ```sh
+   go run ./cmd/lifecycle-admin outbox list
+   go run ./cmd/lifecycle-admin inbox list
+   ```
+
+7. Run tests:
 
    ```sh
    make test
    ```
 
-7. Run Postgres-backed integration tests:
+8. Run Postgres-backed integration tests:
 
    ```sh
    make integration-test
@@ -50,7 +57,7 @@ Backend account and device manager for organization-scoped users and registry-on
 
    These tests require the Docker Compose Postgres service to be running.
 
-8. Generate the maintained test report:
+9. Generate the maintained test report:
 
    ```sh
    make test-report
@@ -59,7 +66,7 @@ Backend account and device manager for organization-scoped users and registry-on
    The report is written to `docs/TEST_REPORT.md`. Report artifacts are written under `reports/`.
    This command also requires the Postgres service from `make db-up`.
 
-9. Stop local services:
+10. Stop local services:
 
    ```sh
    make db-down

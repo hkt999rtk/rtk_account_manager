@@ -139,17 +139,8 @@ DEVICE_ID=$(echo "$DEVICE_RESPONSE" | jq -r '.device.id')
 3. Inspect the persisted operation and outbox row:
 
    ```sh
-   docker compose exec postgres psql -U rtk -d rtk_account_manager -c "
-   SELECT operation_id, operation_type, status, retryable, error_code, created_at, completed_at
-   FROM device_operations
-   ORDER BY created_at DESC
-   LIMIT 5;"
-
-   docker compose exec postgres psql -U rtk -d rtk_account_manager -c "
-   SELECT message_id, operation_id, status, attempt_count, last_error, available_at, published_at
-   FROM device_message_outbox
-   ORDER BY created_at DESC
-   LIMIT 5;"
+   go run ./cmd/lifecycle-admin outbox list | jq .
+   go run ./cmd/lifecycle-admin outbox show -message-id "$PROVISION_MESSAGE_ID" | jq .
    ```
 
 4. Inject a matching video-side success event into the inbox worker:
@@ -166,11 +157,7 @@ DEVICE_ID=$(echo "$DEVICE_RESPONSE" | jq -r '.device.id')
    curl -sS "http://localhost:8080/v1/orgs/$ORG_ID/devices/$DEVICE_ID/provisioning" \
      -H "Authorization: Bearer $ACCESS_TOKEN" | jq .
 
-   docker compose exec postgres psql -U rtk -d rtk_account_manager -c "
-   SELECT message_id, operation_id, status, attempt_count, last_error, processed_at
-   FROM device_message_inbox
-   ORDER BY created_at DESC
-   LIMIT 5;"
+   go run ./cmd/lifecycle-admin inbox list | jq .
 
    docker compose exec postgres psql -U rtk -d rtk_account_manager -c "
    SELECT status, last_seen_at, metadata
@@ -221,27 +208,35 @@ Re-run the device query above and confirm `status=online`.
 
 ## Inspect Retries And Dead Letters
 
-Use these queries while debugging worker failures:
+Use the maintenance CLI while debugging worker failures:
 
 ```sh
-docker compose exec postgres psql -U rtk -d rtk_account_manager -c "
-SELECT operation_id, status, retryable, error_code, error_message, updated_at
-FROM device_operations
-WHERE status IN ('retrying', 'dead_lettered', 'failed')
-ORDER BY updated_at DESC;"
-
-docker compose exec postgres psql -U rtk -d rtk_account_manager -c "
-SELECT message_id, status, attempt_count, last_error, available_at, published_at
-FROM device_message_outbox
-WHERE status IN ('retrying', 'dead_lettered')
-ORDER BY updated_at DESC;"
-
-docker compose exec postgres psql -U rtk -d rtk_account_manager -c "
-SELECT message_id, status, attempt_count, last_error, processed_at
-FROM device_message_inbox
-WHERE status IN ('retrying', 'dead_lettered')
-ORDER BY updated_at DESC;"
+go run ./cmd/lifecycle-admin outbox list | jq .
+go run ./cmd/lifecycle-admin inbox list | jq .
 ```
+
+Inspect a single failed row with its related operation:
+
+```sh
+go run ./cmd/lifecycle-admin outbox show -message-id "$PROVISION_MESSAGE_ID" | jq .
+go run ./cmd/lifecycle-admin inbox show -message-id "evt-bad-online-1" | jq .
+```
+
+Requeue a failed outbox row after fixing the publication problem:
+
+```sh
+go run ./cmd/lifecycle-admin outbox requeue -message-id "$PROVISION_MESSAGE_ID" | jq .
+```
+
+That resets the outbox row to `pending`, clears the publish error fields, and reopens the related lifecycle operation unless it already completed successfully or failed terminally.
+
+Requeue a dead-lettered inbox row when you are also replaying the broker message:
+
+```sh
+go run ./cmd/lifecycle-admin inbox requeue -message-id "evt-bad-online-1" | jq .
+```
+
+Inbox requeue only reopens the persisted deduplication row. If the worker already acknowledged the broker delivery, you still need a real broker replay or manual event reinjection before the inbox worker can process that message again.
 
 To force a local inbox dead-letter row, inject a structurally valid event with an invalid `DeviceOnlineChanged.status` value:
 
