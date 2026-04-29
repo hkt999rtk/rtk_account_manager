@@ -47,7 +47,7 @@ The local `log` broker adapter is intentionally simple:
 
 ## Start The Local Stack
 
-Run the API and workers in separate terminals.
+Run the API and workers in separate terminals, then keep one extra shell open as the event writer.
 
 Terminal 1:
 
@@ -70,7 +70,15 @@ mkdir -p tmp
 make run-inbox-worker < tmp/video-account-events.pipe
 ```
 
-`tmp/account-video-commands.log` becomes the local command-stream audit log. The named pipe lets you push video-side events into the inbox worker on demand.
+Terminal 4:
+
+```sh
+mkdir -p tmp
+[ -p tmp/video-account-events.pipe ] || mkfifo tmp/video-account-events.pipe
+exec 3> tmp/video-account-events.pipe
+```
+
+`tmp/account-video-commands.log` becomes the local command-stream audit log. The named pipe lets you push video-side events into the inbox worker on demand, but the writer must stay open for the whole session because the local `log` consumer exits after `stdin` reaches EOF. Every event injection below writes to file descriptor `3` from Terminal 4.
 
 ## Create A User, Organization, And Device
 
@@ -144,7 +152,7 @@ DEVICE_ID=$(echo "$DEVICE_RESPONSE" | jq -r '.device.id')
 4. Inject a matching video-side success event into the inbox worker:
 
    ```sh
-   cat <<EOF > tmp/video-account-events.pipe
+   cat <<EOF >&3
    {"stream":"video.account.events","envelope":{"message_id":"evt-provision-succeeded-1","correlation_id":"$PROVISION_OPERATION_ID","causation_id":"$PROVISION_MESSAGE_ID","operation_id":"$PROVISION_OPERATION_ID","source_service":"realtek_video_server","target_service":"rtk_account_manager","message_type":"DeviceProvisionSucceeded","schema_version":"1.0","partition_key":"$DEVICE_ID","occurred_at":"2026-04-29T10:00:00Z","payload":{"org_id":"$ORG_ID","account_device_id":"$DEVICE_ID","video_cloud_devid":"video-device-1","activity_id":"activity-1","activated_at":"2026-04-29T10:00:00Z"}}}
    EOF
    ```
@@ -174,7 +182,7 @@ Provision success updates `video_cloud_*` metadata and the provisioning operatio
 Inject an online event if you want to verify `status` and `last_seen_at` changes separately from provisioning:
 
 ```sh
-cat <<EOF > tmp/video-account-events.pipe
+cat <<EOF >&3
 {"stream":"video.account.events","envelope":{"message_id":"evt-online-1","correlation_id":"$PROVISION_OPERATION_ID","operation_id":"$PROVISION_OPERATION_ID","source_service":"realtek_video_server","target_service":"rtk_account_manager","message_type":"DeviceOnlineChanged","schema_version":"1.0","partition_key":"$DEVICE_ID","occurred_at":"2026-04-29T10:05:00Z","payload":{"org_id":"$ORG_ID","account_device_id":"$DEVICE_ID","video_cloud_devid":"video-device-1","status":"online","last_seen_at":"2026-04-29T10:05:00Z"}}}
 EOF
 ```
@@ -201,7 +209,7 @@ Re-run the device query above and confirm `status=online`.
 2. Inject a matching success event:
 
    ```sh
-   cat <<EOF > tmp/video-account-events.pipe
+   cat <<EOF >&3
    {"stream":"video.account.events","envelope":{"message_id":"evt-deactivate-succeeded-1","correlation_id":"$DEACTIVATE_OPERATION_ID","causation_id":"$DEACTIVATE_MESSAGE_ID","operation_id":"$DEACTIVATE_OPERATION_ID","source_service":"realtek_video_server","target_service":"rtk_account_manager","message_type":"DeviceDeactivateSucceeded","schema_version":"1.0","partition_key":"$DEVICE_ID","occurred_at":"2026-04-29T11:00:00Z","payload":{"org_id":"$ORG_ID","account_device_id":"$DEVICE_ID","video_cloud_devid":"video-device-1","deactivated_at":"2026-04-29T11:00:00Z"}}}
    EOF
    ```
@@ -232,13 +240,15 @@ WHERE status IN ('retrying', 'dead_lettered')
 ORDER BY updated_at DESC;"
 ```
 
-To force a local inbox dead-letter row, inject a malformed event such as the wrong stream name:
+To force a local inbox dead-letter row, inject a structurally valid event with an invalid `DeviceOnlineChanged.status` value:
 
 ```sh
-cat <<EOF > tmp/video-account-events.pipe
-{"stream":"wrong.stream","envelope":{"message_id":"evt-bad-stream-1","correlation_id":"bad-stream-op-1","operation_id":"bad-stream-op-1","source_service":"realtek_video_server","target_service":"rtk_account_manager","message_type":"DeviceProvisionSucceeded","schema_version":"1.0","partition_key":"$DEVICE_ID","occurred_at":"2026-04-29T12:00:00Z","payload":{"org_id":"$ORG_ID","account_device_id":"$DEVICE_ID","video_cloud_devid":"video-device-1","activity_id":"activity-1","activated_at":"2026-04-29T12:00:00Z"}}}
+cat <<EOF >&3
+{"stream":"video.account.events","envelope":{"message_id":"evt-bad-online-1","correlation_id":"$PROVISION_OPERATION_ID","operation_id":"$PROVISION_OPERATION_ID","source_service":"realtek_video_server","target_service":"rtk_account_manager","message_type":"DeviceOnlineChanged","schema_version":"1.0","partition_key":"$DEVICE_ID","occurred_at":"2026-04-29T12:00:00Z","payload":{"org_id":"$ORG_ID","account_device_id":"$DEVICE_ID","video_cloud_devid":"video-device-1","status":"sleeping","last_seen_at":"2026-04-29T12:00:00Z"}}}
 EOF
 ```
+
+That record persists an inbox row first, then dead-letters during payload validation with `last_error` explaining that `payload.status` must be `online` or `offline`.
 
 The local `log` publisher itself is deterministic and does not manufacture transient broker failures. Retry paths are primarily exercised by automated tests, but the queries above are the same ones to use when a real worker failure leaves rows in `retrying` or `dead_lettered`.
 
@@ -254,6 +264,7 @@ If the product-side device should be torn down, run deactivation first and confi
 Stop the API and workers with `Ctrl-C`, then remove local services:
 
 ```sh
+exec 3>&-
 make db-down
 rm -f tmp/video-account-events.pipe
 ```
