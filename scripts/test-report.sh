@@ -149,10 +149,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Projection idempotency and metadata merge | \`TestRunOnceProcessesProvisionSuccess\`, \`TestRunOnceProcessesFailureAndProjectionEvents\`, \`TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil\`, and \`TestMetadataChangedProjectionFiltersNonVideoCloudKeys\` cover replay-safe projection and selective \`video_cloud_*\` metadata updates. |
 | Activation and online projection | \`TestProjectDeviceProvisioningAndOnlineRules\` proves provisioning success does not set account-manager \`status=online\`, while \`DeviceOnlineChanged\` remains the only event that updates \`status\` and \`last_seen_at\`. |
 | Failure projection | \`TestProjectDeviceRejectsDisabledDevicesExceptDeactivateResults\` and \`TestRunOnceProcessesFailureAndProjectionEvents\` verify provision/deactivation failures keep stable error metadata and terminal operation state, including disabled-device deactivation results. |
-| Broker adapters | \`TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds\`, \`TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds\`, \`TestLogPublisherWritesEnvelopeJSON\`, and \`TestLogConsumerReadsEnvelopeJSON\` cover the deterministic local adapter used by default for tests and local development. |
+| Broker adapters | \`TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds\`, \`TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds\`, \`TestLogPublisherWritesEnvelopeJSON\`, \`TestLogConsumerReadsEnvelopeJSON\`, \`TestAzureEventHubsPublisherPublishesJSONRecord\`, and \`TestAzureEventHubsConsumerReadsAcrossPartitions\` cover the deterministic local default adapter plus Azure Event Hubs publish/consume behavior without requiring live Azure. |
 | Database invariants | Idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, automatic \`updated_at\` triggers. |
 | OpenAPI contract | OpenAPI schema validation plus representative provisioning, provisioning-state, and deactivation response validation against \`openapi.yaml\`. |
-| Configuration and maintenance | \`.env\` loading, TTL parsing/fallbacks, worker-specific broker defaults, required JWT secrets, and refresh-token cleanup behavior. |
+| Configuration and maintenance | \`.env\` loading, TTL parsing/fallbacks, worker-specific broker config defaults, required JWT secrets, and refresh-token cleanup behavior. |
 
 ## Executed Test Cases
 

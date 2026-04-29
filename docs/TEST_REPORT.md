@@ -1,6 +1,6 @@
 # Test Report
 
-Generated: 2026-04-29T01:27:45Z
+Generated: 2026-04-29T01:32:40Z
 
 ## Summary
 
@@ -16,7 +16,7 @@ Generated: 2026-04-29T01:27:45Z
 
 | Metric | Value |
 | --- | --- |
-| Total statement coverage | 81.0% |
+| Total statement coverage | 81.1% |
 | Minimum required coverage | 80.0% |
 | Coverage mode | atomic |
 | Coverage scope | ./internal/... |
@@ -26,8 +26,8 @@ Generated: 2026-04-29T01:27:45Z
 | Metric | Value |
 | --- | --- |
 | Go packages | 17 |
-| Test cases started | 140 |
-| JSON pass events | 151 |
+| Test cases started | 165 |
+| JSON pass events | 176 |
 | JSON fail events | 0 |
 | Integration database | Postgres via TEST_DATABASE_URL |
 
@@ -54,10 +54,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Projection idempotency and metadata merge | `TestRunOnceProcessesProvisionSuccess`, `TestRunOnceProcessesFailureAndProjectionEvents`, `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`, and `TestMetadataChangedProjectionFiltersNonVideoCloudKeys` cover replay-safe projection and selective `video_cloud_*` metadata updates. |
 | Activation and online projection | `TestProjectDeviceProvisioningAndOnlineRules` proves provisioning success does not set account-manager `status=online`, while `DeviceOnlineChanged` remains the only event that updates `status` and `last_seen_at`. |
 | Failure projection | `TestProjectDeviceRejectsDisabledDevicesExceptDeactivateResults` and `TestRunOnceProcessesFailureAndProjectionEvents` verify provision/deactivation failures keep stable error metadata and terminal operation state, including disabled-device deactivation results. |
-| Broker adapters | `TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds`, `TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds`, `TestLogPublisherWritesEnvelopeJSON`, and `TestLogConsumerReadsEnvelopeJSON` cover the deterministic local adapter used by default for tests and local development. |
+| Broker adapters | `TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds`, `TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds`, `TestLogPublisherWritesEnvelopeJSON`, `TestLogConsumerReadsEnvelopeJSON`, `TestAzureEventHubsPublisherPublishesJSONRecord`, and `TestAzureEventHubsConsumerReadsAcrossPartitions` cover the deterministic local default adapter plus Azure Event Hubs publish/consume behavior without requiring live Azure. |
 | Database invariants | Idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, automatic `updated_at` triggers. |
 | OpenAPI contract | OpenAPI schema validation plus representative provisioning, provisioning-state, and deactivation response validation against `openapi.yaml`. |
-| Configuration and maintenance | `.env` loading, TTL parsing/fallbacks, worker-specific broker defaults, required JWT secrets, and refresh-token cleanup behavior. |
+| Configuration and maintenance | `.env` loading, TTL parsing/fallbacks, worker-specific broker config defaults, required JWT secrets, and refresh-token cleanup behavior. |
 
 ## Executed Test Cases
 
@@ -90,8 +90,31 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/auth`: `TestExpiredAndWrongSecretTokensFailParsing`
 - `rtk_account_manager/internal/auth`: `TestPasswordHashAndCheck`
 - `rtk_account_manager/internal/auth`: `TestTokenKindValidation`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerCloseClosesPartitions`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerMarksConnectionLossTransient`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerReadsAcrossPartitions`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerTreatsReceiveTimeoutAsEmptyPoll`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsPublisherCloseClosesClient`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsPublisherMarksBatchErrorsTransient/add_event`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsPublisherMarksBatchErrorsTransient/new_batch`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsPublisherMarksBatchErrorsTransient`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsPublisherMarksConnectionLossTransient`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsPublisherPublishesJSONRecord`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsPublisherRejectsUnexpectedStream`
+- `rtk_account_manager/internal/broker`: `TestAzureMessageDecodeRejectsInvalidJSON`
+- `rtk_account_manager/internal/broker`: `TestAzureMessageDecodeRejectsNilEvent`
+- `rtk_account_manager/internal/broker`: `TestClassifyAzurePublishErrorLeavesContextErrorsUntouched`
+- `rtk_account_manager/internal/broker`: `TestClassifyAzurePublishErrorLeavesUnauthorizedPermanent`
+- `rtk_account_manager/internal/broker`: `TestClassifyAzureReceiveErrorLeavesContextErrorsUntouched`
+- `rtk_account_manager/internal/broker`: `TestClassifyAzureReceiveErrorLeavesUnauthorizedPermanent`
 - `rtk_account_manager/internal/broker`: `TestLogConsumerReadsEnvelopeJSON`
 - `rtk_account_manager/internal/broker`: `TestLogPublisherWritesEnvelopeJSON`
+- `rtk_account_manager/internal/broker`: `TestNewAzureEventHubsConstructorsRequireConfig`
+- `rtk_account_manager/internal/broker`: `TestNewAzureEventHubsConsumerClosesClientWhenPartitionOpenFails`
+- `rtk_account_manager/internal/broker`: `TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds`
+- `rtk_account_manager/internal/broker`: `TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds`
+- `rtk_account_manager/internal/broker`: `TestOpenAzurePartitionsClosesEarlierPartitionsOnFailure`
+- `rtk_account_manager/internal/broker`: `TestTransientHelpersExposeWrappedError`
 - `rtk_account_manager/internal/broker`: `TestTransientMarker`
 - `rtk_account_manager/internal/channel`: `TestDecodeStrictJSONRejectsMultipleJSONValues`
 - `rtk_account_manager/internal/channel`: `TestEnvelopeUnmarshalRejectsUnknownFields`
@@ -161,6 +184,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/config`: `TestLoadReadsEnvironmentAndDurations`
 - `rtk_account_manager/internal/config`: `TestLoadRequiresJWTSecrets`
 - `rtk_account_manager/internal/config`: `TestLoadWorkerAllowsMissingJWTSecrets`
+- `rtk_account_manager/internal/config`: `TestLoadWorkerFallsBackForInvalidMaxAttempts`
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirMissing`
 - `rtk_account_manager/internal/openapi`: `TestOpenAPIContractIsValid`
 - `rtk_account_manager/internal/store`: `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`
@@ -196,6 +220,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceRetriesTransientProjectionFailures`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceSkipsPreviouslyProcessedDuplicates`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceUsesWorkerClockWhenEnvelopeTimeIsMissing`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunRetriesTransientReceiveErrors`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceDeadLettersExhaustedPublishFailures`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceDeadLettersInvalidOutboxPayload`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceIgnoresStaleLeaseTransitionConflict`
