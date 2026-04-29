@@ -666,7 +666,7 @@ The account-manager implementation owns the account-side API, persistence, outbo
 
 Current external dependency:
 
-- The video-side lifecycle integration worker now lives in the separate `rtk_video_cloud` `cmd/crossservice` runtime. Account manager depends on that external service to consume `account.video.commands`, call Realtek video server `POST /activate_camera` and `POST /deactivate_camera`, and publish `video.account.events`.
+- The video-side lifecycle integration worker now lives in the separate `rtk_video_cloud` `cmd/crossservice` runtime. Account manager depends on that external service to consume `account.video.commands`, call Realtek video server `POST /activate_camera` and `POST /deactivate_camera`, and publish `video.account.events`. The remaining worker acceptance hardening is tracked in `rtk_video_cloud#128`, `#129`, and `#131` / draft PR `#146`, not in this repository.
 
 Remaining follow-up items:
 
