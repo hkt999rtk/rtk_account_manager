@@ -439,6 +439,7 @@ paths:
       security:
         - bearerAuth: []
       summary: Delete device.
+      description: Soft-disable the account-manager registry device record only. This route does not start product-level video deactivation.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/DeviceId"
@@ -514,6 +515,7 @@ paths:
       security:
         - bearerAuth: []
       summary: Create or reuse a deactivation operation.
+      description: Start product-level video teardown by enqueuing `DeviceDeactivateRequested`. This route is distinct from registry soft-delete.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/DeviceId"

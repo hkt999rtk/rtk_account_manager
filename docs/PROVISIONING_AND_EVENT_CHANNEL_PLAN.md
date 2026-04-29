@@ -11,7 +11,7 @@ This plan is derived from:
 - `contracts/CONTRACT_OVERVIEW.md`
 - `docs/SPEC.md`
 
-As of April 30, 2026, `origin/main` already includes the merged persistence, API, worker, broker, test-report, runbook, pending-metadata, lifecycle-admin, and readiness-contract slices for this milestone. The remaining account-manager follow-up is mostly delete-policy clarification, while the deployed video-side lifecycle worker now lives in the separate `rtk_video_cloud` cross-service runtime.
+As of April 30, 2026, `origin/main` already includes the merged persistence, API, worker, broker, test-report, runbook, pending-metadata, lifecycle-admin, delete-policy, and readiness-contract slices for this milestone. The remaining follow-up around the video-side lifecycle path is primarily cross-repository documentation alignment, because the deployed worker now lives in the separate `rtk_video_cloud` cross-service runtime.
 
 ## Current Implementation Snapshot
 
@@ -27,7 +27,7 @@ The current account manager now implements:
 Residual contract follow-up gaps for this milestone snapshot:
 
 - Keep the account-manager docs aligned with the deployed `rtk_video_cloud` cross-service runtime that consumes `account.video.commands`, calls Realtek video server APIs, and publishes `video.account.events`.
-- Keep `DELETE /devices/:deviceId` registry soft-delete explicitly separate from product-level `POST /deactivate`, unless product policy later requires delete to enqueue deactivation.
+- Keep this repo's contract docs explicit that `DELETE /devices/:deviceId` remains registry-only while product teardown still requires `POST /deactivate`, unless product policy changes later.
 
 ## Milestone And Issue Map
 
@@ -56,7 +56,7 @@ These issues are follow-ups to the merged account-manager v2 implementation. The
 | `[Integration] Implement video-side account/video lifecycle worker` | P1 | `integration`, `worker`, `v2` | `rtk_video_cloud` `cmd/crossservice` runtime | Standalone cross-service worker consumes `DeviceProvisionRequested` / `DeviceDeactivateRequested`, calls Realtek video server `POST /activate_camera` / `POST /deactivate_camera`, and publishes success/failure events back to account manager. |
 | `[API] Persist pending video_cloud_devid mapping on provisioning request` | P2 | `api`, `backend`, `v2` | `rtk_account_manager` | Provisioning request records the requested mapping in account-manager metadata before the video-side result arrives, without treating activation as complete. |
 | `[Ops] Add lifecycle dead-letter and retry management commands` | P2 | `ops`, `worker`, `backend`, `v2` | `rtk_account_manager` | Admin CLI or maintenance commands list failed lifecycle messages, inspect payload/error context, and safely requeue eligible rows. |
-| `[Docs] Finalize delete versus product deactivation policy` | P2 | `docs`, `api`, `v2` | `rtk_account_manager` plus product owner | Document whether registry delete stays soft-delete only or also enqueues `DeviceDeactivateRequested`; update API behavior only if product policy changes. |
+| `[Docs] Finalize delete versus product deactivation policy` | P2 | `docs`, `api`, `v2` | `rtk_account_manager` | Document the final policy that registry delete stays soft-delete only while explicit `POST /deactivate` owns product teardown. |
 | `[Integration] Define product-level provisioning readiness contract` | P3 | `integration`, `docs`, `v2` | Integration service or cross-repo contracts | Define the aggregate readiness signal spanning account record, video activation, subject-bound tokens, device info/config, and transport online state. |
 
 Status values:
@@ -412,14 +412,12 @@ Do not reuse Realtek video server `POST /setup_eventhub` configuration for this 
 
 ## Phase 9: Deactivation And Delete Semantics
 
-Keep account registry deletion and product-level deactivation distinct.
+Final policy: keep account-registry deletion and product-level deactivation distinct.
 
-Recommended behavior:
-
-- `POST /deactivate` starts product-level deactivation.
-- `DELETE /devices/:deviceId` remains account-registry soft-disable.
-- If product policy requires delete to trigger deactivation, delete should enqueue `DeviceDeactivateRequested` and mark metadata as `video_cloud_activation_status=deactivation_pending`.
-- A failed deactivation must be visible in metadata and operation state.
+- `POST /deactivate` is the only account-manager API that starts product-level video teardown.
+- `DELETE /devices/:deviceId` remains an account-registry soft-disable and does not enqueue `DeviceDeactivateRequested`.
+- If the product-side device must be torn down, call `POST /deactivate`, wait for the corresponding terminal video-side result event, then optionally soft-delete the registry record.
+- A failed deactivation must remain visible in metadata and operation state; registry delete alone must not be presented as completed product disablement.
 
 ## Phase 9.1: Product Readiness Contract
 
