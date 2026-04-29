@@ -200,6 +200,94 @@ func TestRunOnceSkipsCompletedLifecycleReplayWithNewMessageID(t *testing.T) {
 	}
 }
 
+func TestRunOnceProcessesOnlineProjectionWhenOperationAlreadyCompleted(t *testing.T) {
+	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	inboxStore := &fakeStore{
+		created: true,
+		operation: model.DeviceOperation{
+			OperationID:   "op-1",
+			OperationType: model.DeviceOperationTypeProvision,
+			Status:        model.DeviceOperationStatusSucceeded,
+		},
+	}
+	message := eventMessage(t, "msg-online-replay", channel.MessageTypeDeviceOnlineChanged, now, channel.DeviceOnlineChangedPayload{
+		OrgID:           "00000000-0000-0000-0000-000000000001",
+		AccountDeviceID: "11111111-1111-1111-1111-111111111111",
+		VideoCloudDevid: "video-1",
+		Status:          "online",
+		LastSeenAt:      now,
+	})
+	message.Envelope.OperationID = "op-1"
+
+	service := NewService(inboxStore, fakeConsumer{
+		messages: []broker.Message{message},
+	}, Options{
+		Now: func() time.Time { return now },
+	})
+
+	stats, err := service.RunOnce(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Processed != 1 || stats.DeadLettered != 0 || stats.Retrying != 0 {
+		t.Fatalf("unexpected stats: %+v", stats)
+	}
+	if len(inboxStore.transitions) != 1 {
+		t.Fatalf("expected one transition, got %d", len(inboxStore.transitions))
+	}
+	transition := inboxStore.transitions[0]
+	if transition.OperationStatus != nil {
+		t.Fatalf("expected online projection to skip operation updates, got %+v", transition.OperationStatus)
+	}
+	if transition.Projection == nil {
+		t.Fatal("expected online projection to be applied")
+	}
+}
+
+func TestRunOnceSkipsCompletedLifecycleReplayForRetryingMessage(t *testing.T) {
+	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	inboxStore := &fakeStore{
+		created: false,
+		message: model.DeviceMessageInbox{
+			MessageID:    "msg-1",
+			OperationID:  "op-1",
+			Status:       model.DeviceMessageInboxStatusRetrying,
+			AttemptCount: 1,
+		},
+		operation: model.DeviceOperation{
+			OperationID:   "op-1",
+			OperationType: model.DeviceOperationTypeProvision,
+			Status:        model.DeviceOperationStatusSucceeded,
+		},
+	}
+	service := NewService(inboxStore, fakeConsumer{
+		messages: []broker.Message{validProvisionSucceededMessage(now)},
+	}, Options{
+		Now: func() time.Time { return now },
+	})
+
+	stats, err := service.RunOnce(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Processed != 1 || stats.DeadLettered != 0 || stats.Retrying != 0 {
+		t.Fatalf("unexpected stats: %+v", stats)
+	}
+	if len(inboxStore.transitions) != 1 {
+		t.Fatalf("expected one transition, got %d", len(inboxStore.transitions))
+	}
+	transition := inboxStore.transitions[0]
+	if transition.MessageStatus != model.DeviceMessageInboxStatusProcessed {
+		t.Fatalf("expected retrying replay inbox row to be marked processed, got %s", transition.MessageStatus)
+	}
+	if transition.OperationStatus != nil {
+		t.Fatalf("expected completed operation replay to skip operation update, got %+v", transition.OperationStatus)
+	}
+	if transition.Projection != nil {
+		t.Fatalf("expected completed operation replay to skip device projection, got %+v", transition.Projection)
+	}
+}
+
 func TestRunOnceDeadLettersInvalidMessages(t *testing.T) {
 	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
 	message := validProvisionSucceededMessage(now)

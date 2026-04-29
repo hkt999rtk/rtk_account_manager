@@ -199,7 +199,7 @@ func (s *Service) processMessage(ctx context.Context, record broker.Message) (mo
 		return model.DeviceMessageInboxStatusDeadLettered, s.recordDeadLetter(ctx, message, attemptCount, err)
 	}
 
-	if created {
+	if transition.OperationStatus != nil {
 		operation, err := s.store.GetDeviceOperation(ctx, message.OperationID)
 		switch {
 		case err == nil:
