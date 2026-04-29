@@ -11,7 +11,7 @@ This plan is derived from:
 - `contracts/CONTRACT_OVERVIEW.md`
 - `docs/SPEC.md`
 
-As of April 30, 2026, `origin/main` already includes the merged persistence, API, worker, broker, test-report, and runbook slices for this milestone. The remaining account-manager work is contract and operations follow-up around cross-repository integration boundaries, lifecycle maintenance tooling, and delete semantics.
+As of April 30, 2026, `origin/main` already includes the merged persistence, API, worker, broker, test-report, runbook, pending-metadata, lifecycle-admin, and readiness-contract slices for this milestone. The remaining account-manager follow-up is mostly delete-policy clarification, while the deployed video-side lifecycle worker now lives in the separate `rtk_video_cloud` cross-service runtime.
 
 ## Current Implementation Snapshot
 
@@ -26,8 +26,7 @@ The current account manager now implements:
 
 Residual contract follow-up gaps for this milestone snapshot:
 
-- Define and hand off the video-side lifecycle integration worker that consumes `account.video.commands`, calls Realtek video server APIs, and publishes `video.account.events`.
-- Add an operational surface for inspecting and requeueing retry/dead-letter lifecycle messages without direct SQL.
+- Keep the account-manager docs aligned with the deployed `rtk_video_cloud` cross-service runtime that consumes `account.video.commands`, calls Realtek video server APIs, and publishes `video.account.events`.
 - Keep `DELETE /devices/:deviceId` registry soft-delete explicitly separate from product-level `POST /deactivate`, unless product policy later requires delete to enqueue deactivation.
 
 ## Milestone And Issue Map
@@ -54,7 +53,7 @@ These issues are follow-ups to the merged account-manager v2 implementation. The
 
 | Issue | Priority | Suggested labels | Repo ownership | Deliverable |
 | --- | --- | --- | --- | --- |
-| `[Integration] Implement video-side account/video lifecycle worker` | P1 | `integration`, `worker`, `v2` | Likely `video_cloud` or a dedicated integration repo | Worker consumes `DeviceProvisionRequested` / `DeviceDeactivateRequested`, calls Realtek video server `POST /activate_camera` / `POST /deactivate_camera`, and publishes success/failure events. |
+| `[Integration] Implement video-side account/video lifecycle worker` | P1 | `integration`, `worker`, `v2` | `rtk_video_cloud` `cmd/crossservice` runtime | Standalone cross-service worker consumes `DeviceProvisionRequested` / `DeviceDeactivateRequested`, calls Realtek video server `POST /activate_camera` / `POST /deactivate_camera`, and publishes success/failure events back to account manager. |
 | `[API] Persist pending video_cloud_devid mapping on provisioning request` | P2 | `api`, `backend`, `v2` | `rtk_account_manager` | Provisioning request records the requested mapping in account-manager metadata before the video-side result arrives, without treating activation as complete. |
 | `[Ops] Add lifecycle dead-letter and retry management commands` | P2 | `ops`, `worker`, `backend`, `v2` | `rtk_account_manager` | Admin CLI or maintenance commands list failed lifecycle messages, inspect payload/error context, and safely requeue eligible rows. |
 | `[Docs] Finalize delete versus product deactivation policy` | P2 | `docs`, `api`, `v2` | `rtk_account_manager` plus product owner | Document whether registry delete stays soft-delete only or also enqueues `DeviceDeactivateRequested`; update API behavior only if product policy changes. |
@@ -93,6 +92,7 @@ Implementation rules:
 - The API writes operations and outbox rows transactionally with account-manager state.
 - The outbox worker publishes pending commands and records publish attempts.
 - The inbox worker consumes events, deduplicates them, and projects results into account-manager state.
+- The video-side integration worker is a separate runtime outside this repository, currently implemented in `rtk_video_cloud` `cmd/crossservice`.
 - Broker-specific code must sit behind an adapter.
 - The first local implementation may use a log/noop/file adapter before Azure Event Hubs is integrated.
 
