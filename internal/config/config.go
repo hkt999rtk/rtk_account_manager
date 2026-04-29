@@ -10,18 +10,19 @@ import (
 )
 
 type Config struct {
-	DatabaseURL                string
-	AccessSecret               string
-	RefreshSecret              string
-	AccessTokenTTL             time.Duration
-	RefreshTokenTTL            time.Duration
-	Port                       string
-	CrossServiceBroker         string
-	AccountVideoCommandsStream string
-	VideoAccountEventsStream   string
-	CrossServiceConsumerGroup  string
-	CrossServiceMaxAttempts    int
-	CrossServicePollInterval   time.Duration
+	DatabaseURL                   string
+	AccessSecret                  string
+	RefreshSecret                 string
+	AccessTokenTTL                time.Duration
+	RefreshTokenTTL               time.Duration
+	Port                          string
+	CrossServiceBroker            string
+	AzureEventHubConnectionString string
+	AccountVideoCommandsStream    string
+	VideoAccountEventsStream      string
+	CrossServiceConsumerGroup     string
+	CrossServiceMaxAttempts       int
+	CrossServicePollInterval      time.Duration
 }
 
 func Load() (Config, error) {
@@ -47,18 +48,19 @@ func load() (Config, error) {
 		return Config{}, err
 	}
 	cfg := Config{
-		DatabaseURL:                getenv("DATABASE_URL", "postgres://rtk:rtk_password@localhost:5432/rtk_account_manager?sslmode=disable"),
-		AccessSecret:               os.Getenv("JWT_ACCESS_SECRET"),
-		RefreshSecret:              os.Getenv("JWT_REFRESH_SECRET"),
-		AccessTokenTTL:             duration("ACCESS_TOKEN_TTL", 15*time.Minute),
-		RefreshTokenTTL:            duration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
-		Port:                       getenv("PORT", "8080"),
-		CrossServiceBroker:         getenv("CROSS_SERVICE_BROKER", "log"),
-		AccountVideoCommandsStream: getenv("ACCOUNT_VIDEO_COMMANDS_STREAM", "account.video.commands"),
-		VideoAccountEventsStream:   getenv("VIDEO_ACCOUNT_EVENTS_STREAM", "video.account.events"),
-		CrossServiceConsumerGroup:  getenv("CROSS_SERVICE_CONSUMER_GROUP", "rtk_account_manager"),
-		CrossServiceMaxAttempts:    intValue("CROSS_SERVICE_MAX_ATTEMPTS", 5),
-		CrossServicePollInterval:   duration("CROSS_SERVICE_POLL_INTERVAL", 5*time.Second),
+		DatabaseURL:                   getenv("DATABASE_URL", "postgres://rtk:rtk_password@localhost:5432/rtk_account_manager?sslmode=disable"),
+		AccessSecret:                  os.Getenv("JWT_ACCESS_SECRET"),
+		RefreshSecret:                 os.Getenv("JWT_REFRESH_SECRET"),
+		AccessTokenTTL:                duration("ACCESS_TOKEN_TTL", 15*time.Minute),
+		RefreshTokenTTL:               duration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
+		Port:                          getenv("PORT", "8080"),
+		CrossServiceBroker:            getenv("CROSS_SERVICE_BROKER", "log"),
+		AzureEventHubConnectionString: getenv("AZURE_EVENTHUB_CONNECTION_STRING", ""),
+		AccountVideoCommandsStream:    getenv("ACCOUNT_VIDEO_COMMANDS_STREAM", "account.video.commands"),
+		VideoAccountEventsStream:      getenv("VIDEO_ACCOUNT_EVENTS_STREAM", "video.account.events"),
+		CrossServiceConsumerGroup:     getenv("CROSS_SERVICE_CONSUMER_GROUP", "rtk_account_manager"),
+		CrossServiceMaxAttempts:       intValue("CROSS_SERVICE_MAX_ATTEMPTS", 5),
+		CrossServicePollInterval:      duration("CROSS_SERVICE_POLL_INTERVAL", 5*time.Second),
 	}
 	return cfg, nil
 }

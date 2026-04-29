@@ -65,6 +65,10 @@ func (p *LogPublisher) Publish(ctx context.Context, stream string, envelope chan
 	return nil
 }
 
+func (p *LogPublisher) Close(context.Context) error {
+	return nil
+}
+
 func (c *LogConsumer) Receive(ctx context.Context, limit int) ([]Message, error) {
 	if limit <= 0 {
 		limit = 1
@@ -104,4 +108,8 @@ func (c *LogConsumer) Receive(ctx context.Context, limit int) ([]Message, error)
 	}
 
 	return messages, nil
+}
+
+func (c *LogConsumer) Close(context.Context) error {
+	return nil
 }

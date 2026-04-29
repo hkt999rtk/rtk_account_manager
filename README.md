@@ -57,6 +57,7 @@ Backend account and device manager for organization-scoped users and registry-on
    ```
 
    The report is written to `docs/TEST_REPORT.md`. Report artifacts are written under `reports/`.
+   This command also requires the Postgres service from `make db-up`.
 
 9. Stop local services:
 
@@ -68,6 +69,7 @@ The API listens on `http://localhost:8080` by default. The OpenAPI contract is i
 List endpoints accept `limit` and `offset` query parameters and return pagination metadata.
 Testing policy and report maintenance are documented in `docs/TESTING.md`.
 Provisioning and account/video EventHub-style integration are planned in `docs/PROVISIONING_AND_EVENT_CHANNEL_PLAN.md` and aligned with the `contracts/` submodule.
+Set `CROSS_SERVICE_BROKER=azure_eventhubs` plus `AZURE_EVENTHUB_CONNECTION_STRING` to run the workers against Azure Event Hubs instead of the local `log` adapter.
 
 ## Smoke Test
 

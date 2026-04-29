@@ -92,15 +92,17 @@ func (s *Service) Run(ctx context.Context) error {
 			if errors.Is(err, context.Canceled) {
 				return nil
 			}
+			if broker.IsTransient(err) {
+				if err := sleepContext(ctx, s.pollInterval); err != nil {
+					return nil
+				}
+				continue
+			}
 			return err
 		}
 
-		timer := time.NewTimer(s.pollInterval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
+		if err := sleepContext(ctx, s.pollInterval); err != nil {
 			return nil
-		case <-timer.C:
 		}
 	}
 }
@@ -222,6 +224,18 @@ func (s *Service) recordDeadLetter(ctx context.Context, message model.DeviceMess
 		ProcessedAt:   &processedAt,
 	})
 	return err
+}
+
+func sleepContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func buildTransitionForPayload(envelope channel.Envelope, payload channel.Payload) (store.InboxProcessTransitionInput, error) {

@@ -29,10 +29,19 @@ func main() {
 	}
 	defer db.Close()
 
-	publisher, err := broker.NewPublisher(cfg.CrossServiceBroker, os.Stdout)
+	publisher, err := broker.NewPublisher(cfg.CrossServiceBroker, broker.PublisherOptions{
+		LogWriter:                      os.Stdout,
+		AzureEventHubsConnectionString: cfg.AzureEventHubConnectionString,
+		Stream:                         cfg.AccountVideoCommandsStream,
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer func() {
+		if err := publisher.Close(context.Background()); err != nil {
+			log.Printf("close publisher: %v", err)
+		}
+	}()
 
 	service := outbox.NewService(store.New(db), publisher, outbox.Options{
 		MaxAttempts:  cfg.CrossServiceMaxAttempts,
