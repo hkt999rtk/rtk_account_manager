@@ -55,6 +55,7 @@ func (s *Store) RecordOutboxPublishTransition(ctx context.Context, in OutboxPubl
 	if !shouldApplyOutboxPublishTransition(current, in) {
 		return OutboxPublishTransitionResult{}, ErrConflict
 	}
+	publishedOverride := isPublishedOutcomeOverride(current, in)
 
 	attemptCount := in.AttemptCount
 	if in.MessageStatus == model.DeviceMessageOutboxStatusPublished && current.AttemptCount > attemptCount {
@@ -75,12 +76,28 @@ func (s *Store) RecordOutboxPublishTransition(ctx context.Context, in OutboxPubl
 		return OutboxPublishTransitionResult{}, err
 	}
 
-	resultPayload, err := marshalJSONMap(nil)
+	operation, err := scanDeviceOperation(tx.QueryRow(ctx, `
+		SELECT id::text, operation_id, correlation_id, organization_id::text, device_id::text, operation_type, status, requested_by, request_payload, result_payload, error_code, error_message, retryable, created_at, updated_at, completed_at
+		FROM device_operations
+		WHERE operation_id = $1
+		FOR UPDATE
+	`, message.OperationID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return OutboxPublishTransitionResult{}, ErrNotFound
+	}
 	if err != nil {
 		return OutboxPublishTransitionResult{}, err
 	}
 
-	operation, err := scanDeviceOperation(tx.QueryRow(ctx, `
+	// Once the inbox worker has finished the operation, a delayed publish repair
+	// should fix the outbox row without rolling the operation backward.
+	if !publishedOverride || shouldRepairOperationForPublishedOverride(operation.Status) {
+		resultPayload, err := marshalJSONMap(nil)
+		if err != nil {
+			return OutboxPublishTransitionResult{}, err
+		}
+
+		operation, err = scanDeviceOperation(tx.QueryRow(ctx, `
 		UPDATE device_operations
 		SET status = $2,
 			result_payload = $3::jsonb,
@@ -91,11 +108,12 @@ func (s *Store) RecordOutboxPublishTransition(ctx context.Context, in OutboxPubl
 		WHERE operation_id = $1
 		RETURNING id::text, operation_id, correlation_id, organization_id::text, device_id::text, operation_type, status, requested_by, request_payload, result_payload, error_code, error_message, retryable, created_at, updated_at, completed_at
 	`, message.OperationID, in.OperationStatus, resultPayload, in.OperationErrorCode, in.OperationErrorMessage, in.OperationRetryable, in.OperationCompletedAt))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return OutboxPublishTransitionResult{}, ErrNotFound
-	}
-	if err != nil {
-		return OutboxPublishTransitionResult{}, err
+		if errors.Is(err, pgx.ErrNoRows) {
+			return OutboxPublishTransitionResult{}, ErrNotFound
+		}
+		if err != nil {
+			return OutboxPublishTransitionResult{}, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -114,6 +132,22 @@ func shouldApplyOutboxPublishTransition(current model.DeviceMessageOutbox, in Ou
 		current.AvailableAt.Equal(in.ExpectedAvailableAt) {
 		return true
 	}
+	return isPublishedOutcomeOverride(current, in)
+}
+
+func isPublishedOutcomeOverride(current model.DeviceMessageOutbox, in OutboxPublishTransitionInput) bool {
 	return in.MessageStatus == model.DeviceMessageOutboxStatusPublished &&
 		current.Status != model.DeviceMessageOutboxStatusPublished
+}
+
+func shouldRepairOperationForPublishedOverride(status model.DeviceOperationStatus) bool {
+	switch status {
+	case model.DeviceOperationStatusPending,
+		model.DeviceOperationStatusPublished,
+		model.DeviceOperationStatusRetrying,
+		model.DeviceOperationStatusDeadLettered:
+		return true
+	default:
+		return false
+	}
 }

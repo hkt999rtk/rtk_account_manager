@@ -762,6 +762,161 @@ func TestRecordOutboxPublishTransitionLetsPublishedOutcomeOverrideLaterFailure(t
 	}
 }
 
+func TestRecordOutboxPublishTransitionPreservesInboxCompletedOperation(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	orgID, userID, deviceID := createDeviceFixture(t, env)
+
+	ctx := context.Background()
+	op, _, err := env.store.CreateOrGetDeviceOperation(ctx, DeviceOperationCreateInput{
+		OperationID:    "op-preserve-inbox-outcome",
+		CorrelationID:  "corr-preserve-inbox-outcome",
+		OrganizationID: orgID,
+		DeviceID:       deviceID,
+		OperationType:  model.DeviceOperationTypeProvision,
+		Status:         model.DeviceOperationStatusPending,
+		RequestedBy:    &userID,
+		RequestPayload: map[string]any{"video_cloud_devid": "device-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	readyAt := time.Now().UTC().Truncate(time.Microsecond)
+	if _, err := env.store.CreateOutboxMessage(ctx, DeviceMessageOutboxCreateInput{
+		MessageID:     "preserve-inbox-outcome-msg",
+		OperationID:   op.OperationID,
+		CorrelationID: op.CorrelationID,
+		Stream:        "account.video.commands",
+		MessageType:   "DeviceProvisionRequested",
+		SchemaVersion: "1.0",
+		PartitionKey:  deviceID,
+		Payload:       map[string]any{"operation_id": op.OperationID},
+		Status:        model.DeviceMessageOutboxStatusPending,
+		AvailableAt:   readyAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	firstLeaseUntil := readyAt.Add(30 * time.Second)
+	firstClaim, err := env.store.ClaimOutboxMessagesReady(ctx, readyAt, firstLeaseUntil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(firstClaim) != 1 {
+		t.Fatalf("expected one first claim, got %+v", firstClaim)
+	}
+
+	secondLeaseUntil := firstLeaseUntil.Add(30 * time.Second)
+	secondClaim, err := env.store.ClaimOutboxMessagesReady(ctx, firstLeaseUntil, secondLeaseUntil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(secondClaim) != 1 {
+		t.Fatalf("expected lease-expired row to be reclaimable, got %+v", secondClaim)
+	}
+
+	deadLetterAt := secondLeaseUntil.Add(time.Second)
+	retryable := false
+	if _, err := env.store.RecordOutboxPublishTransition(ctx, OutboxPublishTransitionInput{
+		MessageID:             secondClaim[0].MessageID,
+		ExpectedMessageStatus: secondClaim[0].Status,
+		ExpectedAttemptCount:  secondClaim[0].AttemptCount,
+		ExpectedAvailableAt:   secondClaim[0].AvailableAt,
+		MessageStatus:         model.DeviceMessageOutboxStatusDeadLettered,
+		AttemptCount:          secondClaim[0].AttemptCount + 1,
+		LastError:             stringPtr("duplicate claimant observed publish failure"),
+		AvailableAt:           deadLetterAt,
+		OperationStatus:       model.DeviceOperationStatusDeadLettered,
+		OperationErrorCode:    stringPtr("publish_failed"),
+		OperationErrorMessage: stringPtr("duplicate claimant observed publish failure"),
+		OperationRetryable:    &retryable,
+		OperationCompletedAt:  &deadLetterAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	receivedAt := deadLetterAt.Add(time.Second)
+	if _, _, err := env.store.CreateOrGetInboxMessage(ctx, DeviceMessageInboxCreateInput{
+		MessageID:     "preserve-inbox-outcome-evt",
+		OperationID:   op.OperationID,
+		CorrelationID: op.CorrelationID,
+		Stream:        "video.account.events",
+		MessageType:   "DeviceProvisionSucceeded",
+		SchemaVersion: "1.0",
+		PartitionKey:  deviceID,
+		Payload: map[string]any{
+			"video_cloud_devid": "device-1",
+			"activity_id":       "activity-1",
+		},
+		Status:       model.DeviceMessageInboxStatusRetrying,
+		AttemptCount: 0,
+		ReceivedAt:   receivedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	completedAt := receivedAt.Add(time.Second)
+	inboxResult, err := env.store.RecordInboxProcessTransition(ctx, InboxProcessTransitionInput{
+		MessageID:            "preserve-inbox-outcome-evt",
+		MessageStatus:        model.DeviceMessageInboxStatusProcessed,
+		AttemptCount:         1,
+		ProcessedAt:          &completedAt,
+		OperationStatus:      ptrTo(model.DeviceOperationStatusSucceeded),
+		OperationResult:      map[string]any{"video_cloud_devid": "device-1", "activity_id": "activity-1"},
+		OperationCompletedAt: &completedAt,
+		OrganizationID:       orgID,
+		DeviceID:             deviceID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inboxResult.Operation == nil || inboxResult.Operation.Status != model.DeviceOperationStatusSucceeded {
+		t.Fatalf("expected inbox transition to complete the operation, got %+v", inboxResult.Operation)
+	}
+
+	publishedAt := firstLeaseUntil.Add(time.Second)
+	result, err := env.store.RecordOutboxPublishTransition(ctx, OutboxPublishTransitionInput{
+		MessageID:             firstClaim[0].MessageID,
+		ExpectedMessageStatus: firstClaim[0].Status,
+		ExpectedAttemptCount:  firstClaim[0].AttemptCount,
+		ExpectedAvailableAt:   firstClaim[0].AvailableAt,
+		MessageStatus:         model.DeviceMessageOutboxStatusPublished,
+		AttemptCount:          firstClaim[0].AttemptCount + 1,
+		AvailableAt:           publishedAt,
+		PublishedAt:           &publishedAt,
+		OperationStatus:       model.DeviceOperationStatusPublished,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Message.Status != model.DeviceMessageOutboxStatusPublished {
+		t.Fatalf("expected delayed publish repair to win on the outbox row, got %+v", result.Message)
+	}
+	if result.Operation.Status != model.DeviceOperationStatusSucceeded {
+		t.Fatalf("expected completed operation to stay succeeded, got %+v", result.Operation)
+	}
+	if got := result.Operation.ResultPayload["video_cloud_devid"]; got != "device-1" {
+		t.Fatalf("expected publish repair to preserve inbox result payload, got %+v", result.Operation.ResultPayload)
+	}
+	if result.Operation.CompletedAt == nil || !result.Operation.CompletedAt.Equal(completedAt) {
+		t.Fatalf("expected publish repair to preserve operation completion time, got %+v", result.Operation.CompletedAt)
+	}
+
+	storedOperation, err := env.store.GetDeviceOperation(ctx, op.OperationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedOperation.Status != model.DeviceOperationStatusSucceeded {
+		t.Fatalf("expected stored operation to keep inbox outcome, got %+v", storedOperation)
+	}
+	if got := storedOperation.ResultPayload["activity_id"]; got != "activity-1" {
+		t.Fatalf("expected stored operation result payload to remain intact, got %+v", storedOperation.ResultPayload)
+	}
+	if storedOperation.CompletedAt == nil || !storedOperation.CompletedAt.Equal(completedAt) {
+		t.Fatalf("expected stored operation completion time to remain intact, got %+v", storedOperation.CompletedAt)
+	}
+}
+
 func TestRecordInboxProcessTransitionUpdatesOperationAndProjection(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	orgID, userID, deviceID := createDeviceFixture(t, env)
