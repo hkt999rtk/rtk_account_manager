@@ -15,6 +15,17 @@ import (
 
 const projectionMetadataPrefix = "video_cloud_"
 
+func PendingProvisionMetadata(videoCloudDevid, activityID string) map[string]any {
+	return map[string]any{
+		model.DeviceMetadataVideoCloudDevid:            videoCloudDevid,
+		model.DeviceMetadataVideoCloudActivityID:       activityID,
+		model.DeviceMetadataVideoCloudActivationStatus: model.VideoCloudActivationStatusPending,
+		model.DeviceMetadataVideoCloudActivatedAt:      nil,
+		model.DeviceMetadataVideoCloudDeactivatedAt:    nil,
+		model.DeviceMetadataVideoCloudLastError:        nil,
+	}
+}
+
 type DeviceProjectionInput struct {
 	Metadata      map[string]any
 	Status        *model.DeviceStatus

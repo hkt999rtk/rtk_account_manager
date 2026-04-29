@@ -152,7 +152,16 @@ DEVICE_ID=$(echo "$DEVICE_RESPONSE" | jq -r '.device.id')
    LIMIT 5;"
    ```
 
-4. Inject a matching video-side success event into the inbox worker:
+4. Confirm the accepted request already exposes pending video metadata:
+
+   ```sh
+   curl -sS "http://localhost:8080/v1/orgs/$ORG_ID/devices/$DEVICE_ID/provisioning" \
+     -H "Authorization: Bearer $ACCESS_TOKEN" | jq .
+   ```
+
+   The `video_metadata` block should already show `video_cloud_devid`, `video_cloud_activity_id`, and `video_cloud_activation_status=pending` even before any video-side success or failure event arrives.
+
+5. Inject a matching video-side success event into the inbox worker:
 
    ```sh
    cat <<EOF >&3
@@ -160,7 +169,7 @@ DEVICE_ID=$(echo "$DEVICE_RESPONSE" | jq -r '.device.id')
    EOF
    ```
 
-5. Verify projected state:
+6. Verify projected state:
 
    ```sh
    curl -sS "http://localhost:8080/v1/orgs/$ORG_ID/devices/$DEVICE_ID/provisioning" \
