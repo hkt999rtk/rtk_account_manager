@@ -666,7 +666,7 @@ The account-manager implementation owns the account-side API, persistence, outbo
 
 Known follow-up items:
 
-- A video-side lifecycle integration worker must consume `account.video.commands`, call Realtek video server `POST /activate_camera` and `POST /deactivate_camera`, then publish `video.account.events`.
+- The video-side lifecycle integration worker now lives in the separate `rtk_video_cloud` `cmd/crossservice` runtime. Account manager depends on that external service to consume `account.video.commands`, call Realtek video server `POST /activate_camera` and `POST /deactivate_camera`, and publish `video.account.events`.
 - Provisioning may need to persist the requested `video_cloud_devid` mapping to device metadata immediately when a provisioning request is accepted, while still leaving activation status pending until video-side projection.
 - Retry and dead-letter rows are inspectable in Postgres today, but an admin maintenance command should expose list, inspect, and safe requeue workflows for operators.
 - Account registry soft-delete and product-level video deactivation remain separate. Product teardown requires explicit `POST /deactivate`; `DELETE /devices/:deviceId` only disables the account-side registry record.
