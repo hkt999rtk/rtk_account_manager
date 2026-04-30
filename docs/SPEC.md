@@ -395,6 +395,56 @@ Provision request body:
 }
 ```
 
+Current claim and bind ownership policy:
+
+Account manager owns the final account-side claim/bind authorization decision
+for organization-owned registry devices. SDKs, apps, and integration services
+may parse or submit normalized claim material, but they must not decide final
+ownership locally.
+
+The current API does not create a device from raw claim material and does not
+provide a standalone claim endpoint. A caller must first address an existing
+enabled registry device by `organization_id` and account-manager `device_id`.
+The registry device remains owned by that organization; submitted claim material
+is stored as provisioning request payload and projected video metadata, not as a
+replacement for account-manager ownership.
+
+Accepted claim material in the current API:
+
+| Device category | Current account-manager claim material | Notes |
+| --- | --- | --- |
+| `ip_camera` | `video_cloud_devid`, `activity_id`, `clip_public_key` | Supported by `POST .../provision` for the account/video lifecycle flow. `video_cloud_devid` maps the account registry device to the Realtek video identity; `activity_id` and `clip_public_key` are passed to the video-side lifecycle worker. |
+| `mqtt_device` | None beyond the common existing-device lifecycle payload | Category-specific MQTT claim material, broker credentials, and factory identity are out of scope for the current account-manager API. |
+| `generic` | None beyond the common existing-device lifecycle payload | Serial-number, QR-code, activation-code, MAC-address, and future factory-identity claim flows are out of scope for the current account-manager API unless a later endpoint explicitly accepts them. |
+
+Ownership consequences:
+
+- `owner` and `admin` members of the target organization may start claim/bind
+  provisioning for an existing enabled device; `member` may only read the
+  resulting provisioning state.
+- Cross-organization binding is rejected by normal organization/device access
+  checks. A user cannot bind a device record in an organization where they do
+  not have an active membership.
+- Account-manager `device_id` remains the canonical owner record. External
+  fields such as `serial_number`, `mac_address`, `video_cloud_devid`, QR data,
+  or activation codes must not be treated as a server-authoritative ownership
+  key by clients.
+- Reusing an explicit `operation_id` with the same normalized request is
+  idempotent and returns the existing operation. Reusing it with different claim
+  material returns `409 Conflict`.
+- The current account-manager API does not implement transfer between
+  organizations, transfer between users, or account-side factory-reset reclaim.
+  A factory reset or transfer intent does not clear account ownership by itself;
+  use an explicit future transfer/reclaim endpoint once one exists.
+- If the same video-side identity is already claimed or rejected by downstream
+  product policy, account manager preserves the lifecycle operation and exposes
+  the terminal failure fields projected from the video-side result instead of
+  silently rebinding the registry device.
+- Registry soft-delete and product-level deactivation remain distinct. Deleting
+  the account-manager registry device disables that registry record only; it
+  does not transfer ownership, factory-reset the product, or enqueue product
+  teardown.
+
 Deactivation request body:
 
 ```json
@@ -455,6 +505,9 @@ Provisioning rules:
 - The API must not directly call Realtek video server.
 - Product-level deactivation and account registry soft-delete are distinct operations.
 - `DELETE /devices/:deviceId` remains an account-registry soft-disable and does not enqueue `DeviceDeactivateRequested`.
+- Registry soft-delete does not transfer ownership, release claim material, or
+  prove product-level deactivation. Product teardown requires `POST
+  .../deactivate` and a terminal video-side deactivation result.
 - Omitting the deactivation `reason` defaults the outbox payload to `account_device_disabled`.
 - Reusing an explicit `operation_id` returns the existing operation when the normalized request matches and returns `409 Conflict` when it does not.
 - Operation responses may also include `error_code`, `error_message`, `retryable`, and `completed_at` once the inbox projection records a terminal result.

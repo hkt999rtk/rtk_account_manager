@@ -457,6 +457,13 @@ paths:
       security:
         - bearerAuth: []
       summary: Create or reuse a provisioning operation.
+      description: >
+        Starts account-side claim/bind provisioning for an existing enabled
+        organization-owned registry device. The current API accepts normalized
+        Realtek video claim material only; raw QR, serial-number,
+        activation-code, transfer, and factory-reset reclaim flows are out of
+        scope. Registry ownership remains scoped to the addressed organization
+        and account-manager device id.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/DeviceId"
@@ -735,14 +742,18 @@ components:
         video_cloud_devid:
           type: string
           minLength: 1
+          description: Normalized Realtek video device identity to bind to the account-manager registry device.
         activity_id:
           type: string
           minLength: 1
+          description: Video-side activation activity identifier supplied by the onboarding flow.
         clip_public_key:
           type: string
           minLength: 1
+          description: Public key material forwarded to the video-side lifecycle worker for activation.
         operation_id:
           type: string
+          description: Optional client idempotency key; reuse with different claim material returns 409 Conflict.
     DeactivateDeviceRequest:
       type: object
       properties:
