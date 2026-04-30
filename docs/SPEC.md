@@ -381,7 +381,7 @@ All endpoints are versioned under `/v1`.
 | Method | Path | Auth | Role | Description |
 | --- | --- | --- | --- | --- |
 | `POST` | `/v1/orgs/:orgId/devices/:deviceId/provision` | Yes | `owner`, `admin` | Create or reuse a provisioning operation and enqueue `DeviceProvisionRequested`. |
-| `GET` | `/v1/orgs/:orgId/devices/:deviceId/provisioning` | Yes | `owner`, `admin`, `member` | Return latest provisioning operation and projected video metadata. |
+| `GET` | `/v1/orgs/:orgId/devices/:deviceId/provisioning` | Yes | `owner`, `admin`, `member` | Return latest provisioning operation, account-side readiness projection, and projected video metadata. |
 | `POST` | `/v1/orgs/:orgId/devices/:deviceId/deactivate` | Yes | `owner`, `admin` | Create or reuse a deactivation operation and enqueue `DeviceDeactivateRequested`. |
 
 Provision request body:
@@ -438,6 +438,15 @@ Provisioning-state response body for `GET .../provisioning`:
     "updated_at": "2026-04-29T04:01:30Z",
     "completed_at": "2026-04-29T04:01:30Z"
   },
+  "readiness": {
+    "state": "transport_pending",
+    "sources": {
+      "device_enabled": true,
+      "device_status": "offline",
+      "provisioning_operation_status": "succeeded",
+      "video_cloud_activation_status": "activated"
+    }
+  },
   "video_metadata": {
     "video_cloud_devid": "device-1",
     "video_cloud_activation_status": "activated",
@@ -463,11 +472,12 @@ Provisioning rules:
 
 ### Product Readiness Contract
 
-`rtk_account_manager` does not currently own one aggregate "product readiness"
-boolean or API. Product readiness crosses multiple service boundaries, so the
-current owner of readiness aggregation is the integrating client or service
-that can read both account-manager projections and the remaining video-side
-bootstrap inputs.
+`rtk_account_manager` exposes an account-side readiness projection on
+`GET /v1/orgs/:orgId/devices/:deviceId/provisioning`. This is not a final
+cross-service "product ready" boolean: account manager only composes the facts
+it owns locally, while the integrating client or service remains responsible
+for adding video-side token and bootstrap inputs that do not live in this
+repository.
 
 Current readiness inputs:
 
@@ -480,43 +490,48 @@ Current readiness inputs:
 | Video-side bootstrap prerequisites completed when required | Video-side APIs | Device info/config setup or equivalent downstream bootstrap state is available. |
 | Owner transport connected | Account-manager device `status`, projected from `DeviceOnlineChanged` | The device has actually come online through its supported owner transport. |
 
-Client consumption rules:
+Account-side readiness projection rules:
 
 - Treat `GET /v1/orgs/:orgId/devices/:deviceId/provisioning` as the
-  account-side lifecycle projection, not as a full readiness endpoint.
+  account-side lifecycle and readiness projection, not as a final full-product
+  readiness endpoint.
 - Do not treat `DeviceProvisionSucceeded` by itself as product-ready; it only
   proves activation metadata was projected.
 - Do not treat account-manager `status=online` by itself as product-ready; it
   does not prove activation or token issuance completed.
-- Compose the final readiness view from account-manager lifecycle state plus
+- The `readiness.sources` object identifies the local facts used for the
+  aggregate state: registry enabled/disabled state, account device status,
+  latest provisioning operation status, projected video activation status,
+  latest deactivation operation status, and projected video last-error data.
+- Compose the final readiness view from this account-manager projection plus
   the required video-side credential and bootstrap signals.
 
-Recommended composed readiness states:
+Account-side readiness states:
 
 | State | Required signals | Meaning |
 | --- | --- | --- |
-| `registry_only` | Device record exists, no accepted provisioning operation | The device exists only as an account-side registry record. |
 | `activation_pending` | Provisioning operation is `pending`, `published`, or `retrying` | Account side accepted provisioning, but no terminal activation result is projected yet. |
 | `activation_failed` | Provisioning operation is `failed` or `dead_lettered`, or projected metadata records `video_cloud_last_error` | Activation did not complete; clients must surface the failure instead of claiming readiness. |
-| `activation_succeeded` | Provisioning operation is `succeeded` and activation metadata is present | Video activation completed, but downstream readiness steps may still be missing. |
-| `credentials_pending` | Activation succeeded, but required token issuance is not confirmed | The device is activated but not yet ready to authenticate for product use. |
-| `transport_pending` | Activation and credentials are ready, but the device is not yet projected `online` | Bootstrap is almost complete, but the device has not connected through owner transport yet. |
-| `ready` | Activation succeeded, credentials/bootstrap are ready, and the device is projected `online` | The product can treat the device as provisioned and currently connected. |
-| `degraded` | The device was previously `ready` but later projects `offline` or another required dependency regresses | Product readiness was reached earlier, but current usability degraded. |
+| `transport_pending` | Provisioning operation is `succeeded`, activation metadata is `activated`, and account device status is not `online` | Video activation completed, but the device has not connected through owner transport. |
+| `ready` | Provisioning operation is `succeeded`, activation metadata is `activated`, and account device status is `online` | Account-manager-owned readiness facts are complete and the device is currently connected. |
+| `deactivation_pending` | Latest deactivation operation is `pending`, `published`, or `retrying` | Product deactivation was requested and has not reached a terminal projection. |
+| `deactivation_failed` | Latest deactivation operation is `failed` or `dead_lettered` | Product deactivation did not complete; clients must surface the failure. |
+| `deactivated` | Latest deactivation operation is `succeeded` or projected activation status is `deactivated` | Product deactivation completed on the video side. |
+| `disabled` | Account-manager registry record is soft-disabled without a newer product deactivation state | The account registry record is disabled; this does not imply product-side video deactivation completed. |
 
 Failure handling rules:
 
 - If activation fails, surface the provisioning operation error fields and
   projected `video_cloud_last_error`; do not silently collapse back to
-  `registry_only`.
+  `activation_pending`.
 - If token issuance or other video-side bootstrap fails after activation,
-  surface that as a post-activation readiness failure rather than rewriting the
-  account-manager provisioning result.
+  surface that outside the account-manager readiness projection rather than
+  rewriting the account-manager provisioning result.
 - If the device never projects `online`, keep the readiness view in
   `transport_pending` or a more specific post-activation state instead of
   claiming full success.
-- A future unified readiness endpoint would require a separate API/OpenAPI/test
-  change set; this repository does not currently expose one.
+- A future unified readiness endpoint that includes token/bootstrap signals
+  would require a separate API/OpenAPI/test change set.
 
 ## 8. API Conventions
 
@@ -672,4 +687,4 @@ Remaining follow-up items:
 
 - Retry and dead-letter rows are inspectable in Postgres today, but an admin maintenance command should expose list, inspect, and safe requeue workflows for operators.
 - Account registry soft-delete and product-level video deactivation remain separate. Product teardown requires explicit `POST /deactivate`; `DELETE /devices/:deviceId` only disables the account-side registry record.
-- Account manager still does not own one aggregate "product readiness" endpoint. Any future readiness surface must compose account record, video activation, subject-bound token issuance, device info/config, and transport ownership across service boundaries.
+- Account manager exposes an account-side readiness projection on `GET /provisioning`, but it still does not own a final cross-service "product ready" boolean. Any future unified readiness surface must compose account record, video activation, subject-bound token issuance, device info/config, and transport ownership across service boundaries.

@@ -191,17 +191,29 @@ Re-run the device query above and confirm `status=online`.
 
 ## Readiness Interpretation
 
-This repository does not expose one aggregate "device ready" endpoint.
+This repository exposes an account-side readiness projection in
+`GET /provisioning`, but it does not expose a final cross-service "device ready"
+boolean.
 
 - `GET /provisioning` tells you whether account side accepted the lifecycle
-  request and what activation metadata has been projected back so far.
+  request, what activation metadata has been projected back so far, and how
+  those local facts aggregate into `readiness.state`.
 - `DeviceProvisionSucceeded` means the mapped video-side activation succeeded;
   it does not prove token issuance, device bootstrap, or owner transport
   connectivity are complete.
 - `status=online` means the device projected an owner transport connection; it
   does not prove provisioning or token issuance completed successfully.
 
-Treat local product readiness as a composed check:
+Use `readiness.sources` to audit the account-manager facts behind each state:
+
+- `device_enabled`
+- `device_status`
+- `provisioning_operation_status`
+- `video_cloud_activation_status`
+- `deactivation_operation_status`, when product deactivation has been requested
+- `video_cloud_last_error`, when a projected video-side lifecycle failure exists
+
+Treat final product readiness as a composed check:
 
 1. Account-manager device record exists and is enabled.
 2. Provisioning operation succeeded and the expected `video_cloud_*` metadata is present.

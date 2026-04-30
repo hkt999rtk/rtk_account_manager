@@ -493,7 +493,7 @@ paths:
     get:
       security:
         - bearerAuth: []
-      summary: Get latest provisioning state and projected video metadata.
+      summary: Get latest provisioning state, account-side readiness, and projected video metadata.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/DeviceId"
@@ -840,13 +840,39 @@ components:
           $ref: "#/components/schemas/DeviceOperationSummary"
     ProvisioningStateResponse:
       type: object
-      required: [operation, video_metadata]
+      required: [operation, readiness, video_metadata]
       properties:
         operation:
           $ref: "#/components/schemas/DeviceOperationSummary"
+        readiness:
+          $ref: "#/components/schemas/DeviceReadinessProjection"
         video_metadata:
           type: object
           additionalProperties: true
+    DeviceReadinessProjection:
+      type: object
+      required: [state, sources]
+      properties:
+        state:
+          $ref: "#/components/schemas/DeviceReadinessState"
+        sources:
+          type: object
+          required: [device_enabled, device_status, provisioning_operation_status]
+          properties:
+            device_enabled:
+              type: boolean
+            device_status:
+              $ref: "#/components/schemas/DeviceStatus"
+            provisioning_operation_status:
+              $ref: "#/components/schemas/DeviceOperationStatus"
+            video_cloud_activation_status:
+              $ref: "#/components/schemas/VideoCloudActivationStatus"
+            deactivation_operation_status:
+              $ref: "#/components/schemas/DeviceOperationStatus"
+            video_cloud_last_error:
+              type: object
+              nullable: true
+              additionalProperties: true
     User:
       type: object
       required: [id, email, created_at, updated_at]
@@ -1017,12 +1043,18 @@ components:
     DeviceStatus:
       type: string
       enum: [unknown, online, offline, disabled]
+    VideoCloudActivationStatus:
+      type: string
+      enum: [pending, activated, failed, deactivated]
     DeviceOperationType:
       type: string
       enum: [provision, deactivate]
     DeviceOperationStatus:
       type: string
       enum: [pending, published, succeeded, failed, retrying, dead_lettered]
+    DeviceReadinessState:
+      type: string
+      enum: [activation_pending, activation_failed, transport_pending, ready, deactivation_pending, deactivation_failed, deactivated, disabled]
     ErrorResponse:
       type: object
       required: [error]

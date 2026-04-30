@@ -36,6 +36,19 @@ const (
 	VideoCloudActivationStatusDeactivated VideoCloudActivationStatus = "deactivated"
 )
 
+type DeviceReadinessState string
+
+const (
+	DeviceReadinessStateActivationPending   DeviceReadinessState = "activation_pending"
+	DeviceReadinessStateActivationFailed    DeviceReadinessState = "activation_failed"
+	DeviceReadinessStateTransportPending    DeviceReadinessState = "transport_pending"
+	DeviceReadinessStateReady               DeviceReadinessState = "ready"
+	DeviceReadinessStateDeactivationPending DeviceReadinessState = "deactivation_pending"
+	DeviceReadinessStateDeactivationFailed  DeviceReadinessState = "deactivation_failed"
+	DeviceReadinessStateDeactivated         DeviceReadinessState = "deactivated"
+	DeviceReadinessStateDisabled            DeviceReadinessState = "disabled"
+)
+
 const (
 	DeviceMetadataVideoCloudDevid            = "video_cloud_devid"
 	DeviceMetadataVideoCloudActivationStatus = "video_cloud_activation_status"

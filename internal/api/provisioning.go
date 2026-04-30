@@ -37,6 +37,7 @@ type operationBody struct {
 
 type provisioningBody struct {
 	Operation     operationResponse `json:"operation"`
+	Readiness     readinessResponse `json:"readiness"`
 	VideoMetadata map[string]any    `json:"video_metadata"`
 }
 
@@ -54,6 +55,20 @@ type operationResponse struct {
 	CreatedAt     time.Time                   `json:"created_at"`
 	UpdatedAt     time.Time                   `json:"updated_at"`
 	CompletedAt   *time.Time                  `json:"completed_at,omitempty"`
+}
+
+type readinessResponse struct {
+	State   model.DeviceReadinessState `json:"state"`
+	Sources readinessSourcesResponse   `json:"sources"`
+}
+
+type readinessSourcesResponse struct {
+	DeviceEnabled               bool                         `json:"device_enabled"`
+	DeviceStatus                model.DeviceStatus           `json:"device_status"`
+	ProvisioningOperationStatus model.DeviceOperationStatus  `json:"provisioning_operation_status"`
+	VideoCloudActivationStatus  *string                      `json:"video_cloud_activation_status,omitempty"`
+	DeactivationOperationStatus *model.DeviceOperationStatus `json:"deactivation_operation_status,omitempty"`
+	VideoCloudLastError         any                          `json:"video_cloud_last_error,omitempty"`
 }
 
 func (s *Server) provisionDevice(c *gin.Context) {
@@ -161,8 +176,19 @@ func (s *Server) getProvisioningState(c *gin.Context) {
 		return
 	}
 
+	deactivationOperation, err := s.store.GetLatestDeviceOperationByType(c.Request.Context(), c.Param("orgId"), c.Param("deviceId"), model.DeviceOperationTypeDeactivate)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		writeStoreError(c, err)
+		return
+	}
+	var latestDeactivation *model.DeviceOperation
+	if err == nil {
+		latestDeactivation = &deactivationOperation
+	}
+
 	c.JSON(http.StatusOK, provisioningBody{
 		Operation:     operationFromResult(operation, message),
+		Readiness:     readinessFromProjection(device, operation, latestDeactivation),
 		VideoMetadata: projectedVideoMetadata(device.Metadata),
 	})
 }
@@ -332,6 +358,67 @@ func projectedVideoMetadata(metadata map[string]any) map[string]any {
 		}
 	}
 	return projected
+}
+
+func readinessFromProjection(device model.Device, provisioningOperation model.DeviceOperation, latestDeactivation *model.DeviceOperation) readinessResponse {
+	sources := readinessSourcesResponse{
+		DeviceEnabled:               device.DisabledAt == nil,
+		DeviceStatus:                device.Status,
+		ProvisioningOperationStatus: provisioningOperation.Status,
+	}
+	if activationStatus, ok := metadataString(device.Metadata, model.DeviceMetadataVideoCloudActivationStatus); ok {
+		sources.VideoCloudActivationStatus = &activationStatus
+	}
+	if lastError, ok := device.Metadata[model.DeviceMetadataVideoCloudLastError]; ok {
+		sources.VideoCloudLastError = lastError
+	}
+	if latestDeactivation != nil {
+		sources.DeactivationOperationStatus = &latestDeactivation.Status
+	}
+
+	return readinessResponse{
+		State:   readinessStateFromSources(sources),
+		Sources: sources,
+	}
+}
+
+func readinessStateFromSources(sources readinessSourcesResponse) model.DeviceReadinessState {
+	if sources.DeactivationOperationStatus != nil {
+		switch *sources.DeactivationOperationStatus {
+		case model.DeviceOperationStatusPending, model.DeviceOperationStatusPublished, model.DeviceOperationStatusRetrying:
+			return model.DeviceReadinessStateDeactivationPending
+		case model.DeviceOperationStatusFailed, model.DeviceOperationStatusDeadLettered:
+			return model.DeviceReadinessStateDeactivationFailed
+		case model.DeviceOperationStatusSucceeded:
+			return model.DeviceReadinessStateDeactivated
+		}
+	}
+
+	if sources.VideoCloudActivationStatus != nil && *sources.VideoCloudActivationStatus == string(model.VideoCloudActivationStatusDeactivated) {
+		return model.DeviceReadinessStateDeactivated
+	}
+
+	if !sources.DeviceEnabled || sources.DeviceStatus == model.DeviceStatusDisabled {
+		return model.DeviceReadinessStateDisabled
+	}
+
+	if sources.ProvisioningOperationStatus == model.DeviceOperationStatusFailed ||
+		sources.ProvisioningOperationStatus == model.DeviceOperationStatusDeadLettered ||
+		(sources.VideoCloudActivationStatus != nil && *sources.VideoCloudActivationStatus == string(model.VideoCloudActivationStatusFailed)) ||
+		sources.VideoCloudLastError != nil {
+		return model.DeviceReadinessStateActivationFailed
+	}
+
+	if sources.ProvisioningOperationStatus == model.DeviceOperationStatusSucceeded &&
+		sources.VideoCloudActivationStatus != nil &&
+		*sources.VideoCloudActivationStatus == string(model.VideoCloudActivationStatusActivated) {
+		if sources.DeviceStatus == model.DeviceStatusOnline {
+			return model.DeviceReadinessStateReady
+		}
+		return model.DeviceReadinessStateTransportPending
+	}
+
+	return model.DeviceReadinessStateActivationPending
 }
 
 func metadataString(metadata map[string]any, key string) (string, bool) {
