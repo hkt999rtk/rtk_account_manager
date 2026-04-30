@@ -977,6 +977,15 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 	if got := memberState.VideoMetadata[model.DeviceMetadataVideoCloudActivationStatus]; got != string(model.VideoCloudActivationStatusPending) {
 		t.Fatalf("expected pending activation status in provisioning state, got %+v", got)
 	}
+	if memberState.Readiness.State != model.DeviceReadinessStateActivationPending {
+		t.Fatalf("expected pending readiness state, got %+v", memberState.Readiness)
+	}
+	if memberState.Readiness.Sources.DeviceStatus != model.DeviceStatusUnknown ||
+		memberState.Readiness.Sources.ProvisioningOperationStatus != model.DeviceOperationStatusPending ||
+		memberState.Readiness.Sources.VideoCloudActivationStatus == nil ||
+		*memberState.Readiness.Sources.VideoCloudActivationStatus != string(model.VideoCloudActivationStatusPending) {
+		t.Fatalf("expected readiness sources to identify pending lifecycle facts, got %+v", memberState.Readiness.Sources)
+	}
 
 	pendingDevice, err := store.New(env.db).GetDevice(context.Background(), owner.Organization.ID, device.Device.ID)
 	if err != nil {

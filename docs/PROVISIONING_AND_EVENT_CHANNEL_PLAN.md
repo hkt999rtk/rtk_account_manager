@@ -422,7 +422,8 @@ Final policy: keep account-registry deletion and product-level deactivation dist
 ## Phase 9.1: Product Readiness Contract
 
 Product-level readiness is a composed multi-service state, not an
-account-manager-owned boolean.
+account-manager-owned final boolean. Account manager does expose an
+account-side readiness projection for the facts it owns locally.
 
 Contract rules:
 
@@ -432,22 +433,26 @@ Contract rules:
 - Realtek video server or the video-side integration layer owns token issuance,
   video-side bootstrap prerequisites, and transport/session readiness inputs
   that do not live in account-manager state.
-- `GET /provisioning` is the account-side lifecycle projection surface; it is
-  not a unified product-readiness endpoint.
-- Clients or an integrating service must compose readiness from both account
-  and video-side signals until a future dedicated readiness API is explicitly
-  designed and implemented.
+- `GET /provisioning` is the account-side lifecycle and readiness projection
+  surface; it is not a unified product-readiness endpoint.
+- Its `readiness.sources` object identifies the local source facts behind the
+  aggregate state: registry enabled/disabled state, projected account device
+  status, latest provisioning status, projected activation status, latest
+  deactivation status, and projected video last-error data.
+- Clients or an integrating service must compose final readiness from both
+  account and video-side signals until a future dedicated cross-service
+  readiness API is explicitly designed and implemented.
 
-Recommended composed readiness states:
+Account-side readiness states:
 
-- `registry_only`
 - `activation_pending`
 - `activation_failed`
-- `activation_succeeded`
-- `credentials_pending`
 - `transport_pending`
 - `ready`
-- `degraded`
+- `deactivation_pending`
+- `deactivation_failed`
+- `deactivated`
+- `disabled`
 
 Failure handling:
 

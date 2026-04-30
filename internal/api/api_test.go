@@ -204,3 +204,105 @@ func TestMatchExistingDeactivateOperation(t *testing.T) {
 		t.Fatalf("expected conflicting live metadata to be rejected, got %v", err)
 	}
 }
+
+func TestReadinessFromProjectionStates(t *testing.T) {
+	tests := []struct {
+		name               string
+		device             model.Device
+		provisioningStatus model.DeviceOperationStatus
+		deactivationStatus *model.DeviceOperationStatus
+		want               model.DeviceReadinessState
+	}{
+		{
+			name: "accepted provisioning waits for activation",
+			device: readinessDevice(model.DeviceStatusUnknown, map[string]any{
+				model.DeviceMetadataVideoCloudActivationStatus: string(model.VideoCloudActivationStatusPending),
+			}),
+			provisioningStatus: model.DeviceOperationStatusPending,
+			want:               model.DeviceReadinessStateActivationPending,
+		},
+		{
+			name: "activation failure stays visible",
+			device: readinessDevice(model.DeviceStatusUnknown, map[string]any{
+				model.DeviceMetadataVideoCloudActivationStatus: string(model.VideoCloudActivationStatusFailed),
+				model.DeviceMetadataVideoCloudLastError: map[string]any{
+					"code": "upstream_timeout",
+				},
+			}),
+			provisioningStatus: model.DeviceOperationStatusFailed,
+			want:               model.DeviceReadinessStateActivationFailed,
+		},
+		{
+			name: "activation succeeded but offline waits for transport",
+			device: readinessDevice(model.DeviceStatusOffline, map[string]any{
+				model.DeviceMetadataVideoCloudActivationStatus: string(model.VideoCloudActivationStatusActivated),
+			}),
+			provisioningStatus: model.DeviceOperationStatusSucceeded,
+			want:               model.DeviceReadinessStateTransportPending,
+		},
+		{
+			name: "activation succeeded and online is ready",
+			device: readinessDevice(model.DeviceStatusOnline, map[string]any{
+				model.DeviceMetadataVideoCloudActivationStatus: string(model.VideoCloudActivationStatusActivated),
+			}),
+			provisioningStatus: model.DeviceOperationStatusSucceeded,
+			want:               model.DeviceReadinessStateReady,
+		},
+		{
+			name: "deactivation pending takes precedence",
+			device: readinessDevice(model.DeviceStatusOnline, map[string]any{
+				model.DeviceMetadataVideoCloudActivationStatus: string(model.VideoCloudActivationStatusActivated),
+			}),
+			provisioningStatus: model.DeviceOperationStatusSucceeded,
+			deactivationStatus: operationStatusPtr(model.DeviceOperationStatusPublished),
+			want:               model.DeviceReadinessStateDeactivationPending,
+		},
+		{
+			name: "deactivation success is deactivated",
+			device: readinessDevice(model.DeviceStatusOffline, map[string]any{
+				model.DeviceMetadataVideoCloudActivationStatus: string(model.VideoCloudActivationStatusDeactivated),
+			}),
+			provisioningStatus: model.DeviceOperationStatusSucceeded,
+			deactivationStatus: operationStatusPtr(model.DeviceOperationStatusSucceeded),
+			want:               model.DeviceReadinessStateDeactivated,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var latestDeactivation *model.DeviceOperation
+			if tt.deactivationStatus != nil {
+				latestDeactivation = &model.DeviceOperation{
+					OperationType: model.DeviceOperationTypeDeactivate,
+					Status:        *tt.deactivationStatus,
+				}
+			}
+
+			got := readinessFromProjection(tt.device, model.DeviceOperation{
+				OperationType: model.DeviceOperationTypeProvision,
+				Status:        tt.provisioningStatus,
+			}, latestDeactivation)
+
+			if got.State != tt.want {
+				t.Fatalf("expected readiness %s, got %+v", tt.want, got)
+			}
+			if got.Sources.DeviceStatus != tt.device.Status || got.Sources.ProvisioningOperationStatus != tt.provisioningStatus {
+				t.Fatalf("expected source facts to reflect device and operation, got %+v", got.Sources)
+			}
+			if tt.deactivationStatus != nil && (got.Sources.DeactivationOperationStatus == nil || *got.Sources.DeactivationOperationStatus != *tt.deactivationStatus) {
+				t.Fatalf("expected deactivation source status %s, got %+v", *tt.deactivationStatus, got.Sources.DeactivationOperationStatus)
+			}
+		})
+	}
+}
+
+func readinessDevice(status model.DeviceStatus, metadata map[string]any) model.Device {
+	return model.Device{
+		Status:   status,
+		Metadata: metadata,
+	}
+}
+
+func operationStatusPtr(status model.DeviceOperationStatus) *model.DeviceOperationStatus {
+	return &status
+}
