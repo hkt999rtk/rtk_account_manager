@@ -106,6 +106,18 @@ paths:
                 $ref: "#/components/schemas/MeResponse"
         "401":
           $ref: "#/components/responses/Error"
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Disable the current user account.
+      description: Soft-disables the authenticated user, revokes active refresh tokens, and refuses to disable the user while they are the last active owner of any organization. This does not delete organizations, memberships, devices, or product-level device state.
+      responses:
+        "204":
+          description: Current user disabled and active refresh tokens revoked.
+        "401":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
   /v1/me/password:
     patch:
       security:

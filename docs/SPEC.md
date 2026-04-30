@@ -17,6 +17,7 @@ Provisioning and account/video event-channel integration are the v2 surface impl
 - SQL migrations for schema management.
 - Email/password authentication.
 - Authenticated current-user password change.
+- Authenticated current-user account disable/delete.
 - JWT-based API authentication.
 - Refresh-token support for longer sessions.
 - Organization-based account model.
@@ -43,7 +44,7 @@ Provisioning and account/video event-channel integration are the v2 surface impl
 - Device command dispatch.
 - Device self-registration or provisioning flows in v1.
 - Device certificate management.
-- OTP/email verification, self-service password recovery/reset, account deletion, and third-party/social login.
+- OTP/email verification, self-service password recovery/reset, and third-party/social login.
 - Executable batch operations, OTA campaign execution, and firmware rollout policy.
 - Custom RBAC permissions.
 - Multi-region deployment concerns.
@@ -165,6 +166,7 @@ Constraints:
 
 - `email` must be stored lowercase and trimmed.
 - Disabled users must not authenticate, refresh tokens, or access protected organization/device APIs with existing access tokens.
+- Self-service account deletion is implemented as account-manager user soft-disable by setting `disabled_at`; it does not remove organizations, memberships, devices, or product-level device state.
 
 ### `organization_members`
 
@@ -372,7 +374,9 @@ Constraints:
 - Logout revokes the active refresh token.
 - `PATCH /v1/me/password` lets the authenticated current user change their password after presenting the current password and a new password of at least 8 characters.
 - Password change revokes all active refresh tokens for the user. Existing access tokens remain valid until their normal expiry.
-- OTP verification, self-service password recovery/reset, account deletion, and third-party/social login are deferred first-phase lifecycle capabilities and must not be presented as available API behavior until implemented.
+- `DELETE /v1/me` lets the authenticated current user disable their own account. The operation revokes active refresh tokens and refuses to disable the user while they are the last active owner of any organization.
+- Self-service account deletion is account-manager user lifecycle only. It preserves organization memberships and registry/device records, and it does not imply product-level device deletion or deactivation.
+- OTP verification, self-service password recovery/reset, and third-party/social login are deferred first-phase lifecycle capabilities and must not be presented as available API behavior until implemented.
 - Expired or revoked refresh tokens may be removed by an explicit maintenance command.
 
 ## 6. Authorization
@@ -415,6 +419,7 @@ All endpoints are versioned under `/v1`.
 | `POST` | `/v1/auth/refresh` | No | Exchange refresh token for new access token. |
 | `POST` | `/v1/auth/logout` | Yes | Revoke current refresh token/session. |
 | `GET` | `/v1/me` | Yes | Return current user and memberships. |
+| `DELETE` | `/v1/me` | Yes | Disable current user account and revoke refresh tokens. |
 | `PATCH` | `/v1/me/password` | Yes | Change current user password and revoke refresh tokens. |
 
 ### Organizations and Members
@@ -778,6 +783,7 @@ Tests should cover:
 - Device status can be updated by `owner` or `admin`.
 - Last organization `owner` cannot be removed or downgraded.
 - Last organization `owner` cannot be disabled.
+- Self-service account deletion is refused while the current user is the last active `owner` of any organization.
 - Owner can disable and enable member users.
 - Admin and member cannot disable or enable users.
 - Refresh token rotation rejects previously used refresh tokens.
