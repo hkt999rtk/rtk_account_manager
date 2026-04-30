@@ -139,6 +139,24 @@ type Device struct {
 	DisabledAt     *time.Time     `json:"disabled_at,omitempty"`
 }
 
+type DeviceGroup struct {
+	ID             string    `json:"id"`
+	OrganizationID string    `json:"organization_id"`
+	Name           string    `json:"name"`
+	Description    *string   `json:"description,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	DeviceCount    *int      `json:"device_count,omitempty"`
+}
+
+type DeviceTag struct {
+	OrganizationID string    `json:"organization_id"`
+	DeviceID       string    `json:"device_id"`
+	Tag            string    `json:"tag"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
 type DeviceOperation struct {
 	ID             string                `json:"id"`
 	OperationID    string                `json:"operation_id"`

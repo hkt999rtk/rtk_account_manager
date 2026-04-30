@@ -351,6 +351,183 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/device-groups:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List organization device groups.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Device group list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceGroupsResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      security:
+        - bearerAuth: []
+      summary: Create device group.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceGroupRequest"
+      responses:
+        "201":
+          description: Device group created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceGroupResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/device-groups/{groupId}:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get device group.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/GroupId"
+      responses:
+        "200":
+          description: Device group.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceGroupResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update device group.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/GroupId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceGroupRequest"
+      responses:
+        "200":
+          description: Device group updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceGroupResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Delete device group.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/GroupId"
+      responses:
+        "204":
+          description: Device group deleted.
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/device-groups/{groupId}/devices:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List devices assigned to a group.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/GroupId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Group device list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DevicesResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/device-groups/{groupId}/devices/{deviceId}:
+    put:
+      security:
+        - bearerAuth: []
+      summary: Add device to group.
+      description: Repeating the same assignment is idempotent. Disabled registry devices may remain selectable.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/GroupId"
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "204":
+          description: Device assigned to group.
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Remove device from group.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/GroupId"
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "204":
+          description: Device removed from group.
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/devices:
     get:
       security:
@@ -464,6 +641,73 @@ paths:
       responses:
         "204":
           description: Device soft-disabled.
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/devices/{deviceId}/tags:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List device tags.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/DeviceId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Device tag list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceTagsResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/devices/{deviceId}/tags/{tag}:
+    put:
+      security:
+        - bearerAuth: []
+      summary: Add device tag.
+      description: Repeating the same tag assignment is idempotent.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/DeviceId"
+        - $ref: "#/components/parameters/Tag"
+      responses:
+        "200":
+          description: Device tag assigned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceTagResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Remove device tag.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/DeviceId"
+        - $ref: "#/components/parameters/Tag"
+      responses:
+        "204":
+          description: Device tag removed.
+        "400":
+          $ref: "#/components/responses/Error"
         "401":
           $ref: "#/components/responses/Error"
         "403":
@@ -632,6 +876,20 @@ components:
       schema:
         type: string
         format: uuid
+    GroupId:
+      name: groupId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Tag:
+      name: tag
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
     Limit:
       name: limit
       in: query
@@ -754,6 +1012,15 @@ components:
         metadata:
           type: object
           additionalProperties: true
+    DeviceGroupRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
     UpdateDeviceStatusRequest:
       type: object
       required: [status]
@@ -878,6 +1145,38 @@ components:
       properties:
         device:
           $ref: "#/components/schemas/Device"
+    DeviceGroupsResponse:
+      type: object
+      required: [groups, pagination]
+      properties:
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeviceGroup"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+    DeviceGroupResponse:
+      type: object
+      required: [group]
+      properties:
+        group:
+          $ref: "#/components/schemas/DeviceGroup"
+    DeviceTagsResponse:
+      type: object
+      required: [tags, pagination]
+      properties:
+        tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeviceTag"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+    DeviceTagResponse:
+      type: object
+      required: [tag]
+      properties:
+        tag:
+          $ref: "#/components/schemas/DeviceTag"
     DeviceOperationResponse:
       type: object
       required: [operation]
@@ -1020,6 +1319,47 @@ components:
           type: string
           format: date-time
         disabled_at:
+          type: string
+          format: date-time
+    DeviceGroup:
+      type: object
+      required: [id, organization_id, name, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        device_count:
+          type: integer
+          minimum: 0
+    DeviceTag:
+      type: object
+      required: [organization_id, device_id, tag, created_at, updated_at]
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          format: uuid
+        tag:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
           type: string
           format: date-time
     DeviceOperationSummary:

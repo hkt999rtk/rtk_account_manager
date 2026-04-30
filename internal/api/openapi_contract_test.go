@@ -42,6 +42,27 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	contract.validate(t, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices", deviceRes)
 	device := decodeBody[deviceBody](t, deviceRes)
 
+	groupRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/device-groups", map[string]any{
+		"name": "Contract Group",
+	}, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/device-groups", groupRes)
+	group := decodeBody[deviceGroupBody](t, groupRes)
+
+	groupsRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/device-groups", nil, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/device-groups", groupsRes)
+
+	getGroupRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/device-groups/"+group.Group.ID, nil, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/device-groups/"+group.Group.ID, getGroupRes)
+
+	groupDevicesRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/device-groups/"+group.Group.ID+"/devices", nil, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/device-groups/"+group.Group.ID+"/devices", groupDevicesRes)
+
+	tagRes := performJSON(env.router, http.MethodPut, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/tags/contract", nil, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodPut, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/tags/contract", tagRes)
+
+	tagsRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/tags", nil, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/tags", tagsRes)
+
 	badDeviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices", map[string]any{
 		"name":     "contract-device",
 		"category": "invalid",
