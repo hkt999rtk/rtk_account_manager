@@ -25,17 +25,3 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS organization_members_prevent_last_owner_delete
-    ON organization_members;
-CREATE TRIGGER organization_members_prevent_last_owner_delete
-    BEFORE DELETE ON organization_members
-    FOR EACH ROW
-    EXECUTE FUNCTION prevent_last_owner_removal();
-
-DROP TRIGGER IF EXISTS organization_members_prevent_last_owner_update
-    ON organization_members;
-CREATE TRIGGER organization_members_prevent_last_owner_update
-    BEFORE UPDATE OF role ON organization_members
-    FOR EACH ROW
-    EXECUTE FUNCTION prevent_last_owner_removal();

@@ -533,7 +533,7 @@ func (s *Store) UpdateMemberRole(ctx context.Context, orgID, userID string, role
 	defer tx.Rollback(ctx)
 
 	if role != model.RoleOwner {
-		if err := ensureNotLastOwnerTx(ctx, tx, orgID, userID); err != nil {
+		if err := ensureNotLastActiveOwnerTx(ctx, tx, orgID, userID); err != nil {
 			return model.Member{}, err
 		}
 	}
@@ -630,7 +630,7 @@ func (s *Store) RemoveMember(ctx context.Context, orgID, userID string) error {
 	}
 	defer tx.Rollback(ctx)
 
-	if err := ensureNotLastOwnerTx(ctx, tx, orgID, userID); err != nil {
+	if err := ensureNotLastActiveOwnerTx(ctx, tx, orgID, userID); err != nil {
 		return err
 	}
 	tag, err := tx.Exec(ctx, `
@@ -691,44 +691,6 @@ func ensureNotLastActiveOwnerTx(ctx context.Context, tx pgx.Tx, orgID, userID st
 	}
 	rows.Close()
 	if activeOtherOwners == 0 {
-		return ErrLastOwner
-	}
-	return nil
-}
-
-func ensureNotLastOwnerTx(ctx context.Context, tx pgx.Tx, orgID, userID string) error {
-	ownerRows, err := tx.Query(ctx, `
-		SELECT user_id FROM organization_members
-		WHERE organization_id = $1 AND role = 'owner'
-		FOR UPDATE
-	`, orgID)
-	if err != nil {
-		return err
-	}
-	ownerCount := 0
-	for ownerRows.Next() {
-		ownerCount++
-	}
-	if err := ownerRows.Err(); err != nil {
-		ownerRows.Close()
-		return err
-	}
-	ownerRows.Close()
-
-	var role model.Role
-	err = tx.QueryRow(ctx, `
-		SELECT role
-		FROM organization_members
-		WHERE organization_id = $1 AND user_id = $2
-		FOR UPDATE
-	`, orgID, userID).Scan(&role)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return err
-	}
-	if role == model.RoleOwner && ownerCount <= 1 {
 		return ErrLastOwner
 	}
 	return nil

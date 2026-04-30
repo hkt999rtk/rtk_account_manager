@@ -275,6 +275,7 @@ paths:
       security:
         - bearerAuth: []
       summary: Update member role.
+      description: Refuses to downgrade the last active organization owner. Disabled owner memberships do not satisfy the active-owner invariant.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/UserId"
@@ -305,6 +306,7 @@ paths:
       security:
         - bearerAuth: []
       summary: Remove member from organization.
+      description: Refuses to remove the last active organization owner. Disabled owner memberships do not satisfy the active-owner invariant.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/UserId"

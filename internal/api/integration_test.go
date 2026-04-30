@@ -245,6 +245,18 @@ func TestIntegrationCurrentUserCanDisableSelfWithOwnerSafety(t *testing.T) {
 	if !foundDisabledOwner {
 		t.Fatal("expected disabled current user to remain listed as a disabled member")
 	}
+
+	backupDowngradeRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/members/"+backupOwner.User.ID, map[string]any{
+		"role": "admin",
+	}, backupOwner.Tokens.AccessToken)
+	if backupDowngradeRes.Code != http.StatusConflict {
+		t.Fatalf("expected only active owner downgrade 409, got %d", backupDowngradeRes.Code)
+	}
+
+	backupRemoveRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/members/"+backupOwner.User.ID, nil, backupOwner.Tokens.AccessToken)
+	if backupRemoveRes.Code != http.StatusConflict {
+		t.Fatalf("expected only active owner remove 409, got %d", backupRemoveRes.Code)
+	}
 }
 
 func TestIntegrationDisabledUserCannotUseExistingTokens(t *testing.T) {
@@ -1085,6 +1097,36 @@ func TestIntegrationLastOwnerCannotBeRemovedOrDowngraded(t *testing.T) {
 	`, owner.Organization.ID, owner.User.ID)
 	if err == nil {
 		t.Fatal("expected direct SQL deletion of last owner to fail")
+	}
+
+	disabledOwner := registerUser(t, env.router, "disabled-owner@example.com", "Disabled Owner Org")
+	activeOwner := registerUser(t, env.router, "active-owner@example.com", "Active Owner Org")
+	addActiveOwnerRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+disabledOwner.Organization.ID+"/members", map[string]any{
+		"email": "active-owner@example.com",
+		"role":  "owner",
+	}, disabledOwner.Tokens.AccessToken)
+	if addActiveOwnerRes.Code != http.StatusCreated {
+		t.Fatalf("expected add active owner 201, got %d: %s", addActiveOwnerRes.Code, addActiveOwnerRes.Body.String())
+	}
+	deleteDisabledOwnerRes := performJSON(env.router, http.MethodDelete, "/v1/me", nil, disabledOwner.Tokens.AccessToken)
+	if deleteDisabledOwnerRes.Code != http.StatusNoContent {
+		t.Fatalf("expected disable original owner 204, got %d: %s", deleteDisabledOwnerRes.Code, deleteDisabledOwnerRes.Body.String())
+	}
+
+	_, err = env.db.Exec(context.Background(), `
+		UPDATE organization_members SET role = 'admin'
+		WHERE organization_id = $1 AND user_id = $2
+	`, disabledOwner.Organization.ID, activeOwner.User.ID)
+	if err == nil {
+		t.Fatal("expected direct SQL downgrade of only active owner to fail")
+	}
+
+	_, err = env.db.Exec(context.Background(), `
+		DELETE FROM organization_members
+		WHERE organization_id = $1 AND user_id = $2
+	`, disabledOwner.Organization.ID, activeOwner.User.ID)
+	if err == nil {
+		t.Fatal("expected direct SQL deletion of only active owner to fail")
 	}
 }
 
