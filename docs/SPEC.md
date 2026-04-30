@@ -394,7 +394,7 @@ Rules:
 - Only `owner` may invite/add members, remove members, or change member roles.
 - Only `owner` may disable or enable member user accounts.
 - Only `owner` may remove another `owner`.
-- The last `owner` in an organization must not be removed, downgraded, or disabled.
+- The last active `owner` in an organization must not be removed, downgraded, or disabled; disabled owner memberships do not satisfy this invariant.
 - Disabling a member user sets `users.disabled_at`, revokes that user's active refresh tokens, and prevents login, refresh, and protected API access.
 - Enabling a member user clears `users.disabled_at`.
 - `owner` and `admin` may create, update, disable, delete, and update status for devices.
@@ -781,8 +781,7 @@ Tests should cover:
 - Duplicate device `serial_number` in the same organization is rejected.
 - Same `serial_number` may be used in different organizations.
 - Device status can be updated by `owner` or `admin`.
-- Last organization `owner` cannot be removed or downgraded.
-- Last organization `owner` cannot be disabled.
+- Last active organization `owner` cannot be removed, downgraded, or disabled.
 - Self-service account deletion is refused while the current user is the last active `owner` of any organization.
 - Owner can disable and enable member users.
 - Admin and member cannot disable or enable users.
