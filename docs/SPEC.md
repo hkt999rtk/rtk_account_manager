@@ -16,6 +16,7 @@ Provisioning and account/video event-channel integration are the v2 surface impl
 - Postgres persistence.
 - SQL migrations for schema management.
 - Email/password authentication.
+- Authenticated current-user password change.
 - JWT-based API authentication.
 - Refresh-token support for longer sessions.
 - Organization-based account model.
@@ -41,6 +42,7 @@ Provisioning and account/video event-channel integration are the v2 surface impl
 - Device command dispatch.
 - Device self-registration or provisioning flows in v1.
 - Device certificate management.
+- OTP/email verification, self-service password recovery/reset, account deletion, and third-party/social login.
 - Custom RBAC permissions.
 - Multi-region deployment concerns.
 
@@ -309,6 +311,9 @@ Constraints:
 - Refresh tokens may be used to issue new access tokens.
 - Refreshing a session rotates the refresh token. The previous refresh token is revoked and must not be accepted again.
 - Logout revokes the active refresh token.
+- `PATCH /v1/me/password` lets the authenticated current user change their password after presenting the current password and a new password of at least 8 characters.
+- Password change revokes all active refresh tokens for the user. Existing access tokens remain valid until their normal expiry.
+- OTP verification, self-service password recovery/reset, account deletion, and third-party/social login are deferred first-phase lifecycle capabilities and must not be presented as available API behavior until implemented.
 - Expired or revoked refresh tokens may be removed by an explicit maintenance command.
 
 ## 6. Authorization
@@ -349,6 +354,7 @@ All endpoints are versioned under `/v1`.
 | `POST` | `/v1/auth/refresh` | No | Exchange refresh token for new access token. |
 | `POST` | `/v1/auth/logout` | Yes | Revoke current refresh token/session. |
 | `GET` | `/v1/me` | Yes | Return current user and memberships. |
+| `PATCH` | `/v1/me/password` | Yes | Change current user password and revoke refresh tokens. |
 
 ### Organizations and Members
 

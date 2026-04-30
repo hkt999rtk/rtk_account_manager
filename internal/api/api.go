@@ -41,6 +41,7 @@ func (s *Server) Router() *gin.Engine {
 	protected.Use(s.requireAuth())
 	protected.POST("/auth/logout", s.logout)
 	protected.GET("/me", s.me)
+	protected.PATCH("/me/password", s.changePassword)
 
 	protected.GET("/orgs", s.listOrganizations)
 	protected.POST("/orgs", s.createOrganization)
@@ -223,6 +224,36 @@ func (s *Server) me(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"user": user, "organizations": orgPage.Organizations})
+}
+
+type changePasswordRequest struct {
+	CurrentPassword string `json:"current_password" binding:"required"`
+	NewPassword     string `json:"new_password" binding:"required,min=8"`
+}
+
+func (s *Server) changePassword(c *gin.Context) {
+	var req changePasswordRequest
+	if !bind(c, &req) {
+		return
+	}
+
+	userID := currentUserID(c)
+	_, hash, err := s.store.GetUserPasswordByID(c.Request.Context(), userID)
+	if err != nil || !auth.CheckPassword(hash, req.CurrentPassword) {
+		writeError(c, http.StatusUnauthorized, "invalid_credentials", "Invalid current password")
+		return
+	}
+
+	newHash, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not hash password")
+		return
+	}
+	if err := s.store.UpdateUserPassword(c.Request.Context(), userID, newHash); err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 func (s *Server) listOrganizations(c *gin.Context) {

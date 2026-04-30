@@ -106,6 +106,24 @@ paths:
                 $ref: "#/components/schemas/MeResponse"
         "401":
           $ref: "#/components/responses/Error"
+  /v1/me/password:
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Change the current user's password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          description: Password changed and active refresh tokens revoked.
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
   /v1/orgs:
     get:
       security:
@@ -677,6 +695,16 @@ components:
         refresh_token:
           type: string
           minLength: 1
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          description: Current password for the authenticated user.
+        new_password:
+          type: string
+          minLength: 8
     CreateOrganizationRequest:
       type: object
       required: [name]
