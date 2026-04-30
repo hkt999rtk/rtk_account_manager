@@ -27,6 +27,12 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	}, "")
 	contract.validate(t, http.MethodPost, "/v1/auth/login", registerRes)
 
+	changePasswordRes := performJSON(env.router, http.MethodPatch, "/v1/me/password", map[string]any{
+		"current_password": "password123",
+		"new_password":     "contract-password123",
+	}, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodPatch, "/v1/me/password", changePasswordRes)
+
 	orgUpdateRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+registered.Organization.ID, map[string]any{
 		"name": "Contract Org Updated",
 	}, registered.Tokens.AccessToken)

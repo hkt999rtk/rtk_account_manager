@@ -117,6 +117,20 @@ func (s *Store) GetUserPassword(ctx context.Context, email string) (model.User, 
 	return user, hash, err
 }
 
+func (s *Store) GetUserPasswordByID(ctx context.Context, userID string) (model.User, string, error) {
+	var user model.User
+	var hash string
+	err := s.db.QueryRow(ctx, `
+		SELECT id::text, email, password_hash, display_name, created_at, updated_at, disabled_at
+		FROM users
+		WHERE id = $1 AND disabled_at IS NULL
+	`, userID).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.User{}, "", ErrNotFound
+	}
+	return user, hash, err
+}
+
 func (s *Store) GetUser(ctx context.Context, userID string) (model.User, error) {
 	var user model.User
 	err := s.db.QueryRow(ctx, `
@@ -128,6 +142,34 @@ func (s *Store) GetUser(ctx context.Context, userID string) (model.User, error) 
 		return model.User{}, ErrNotFound
 	}
 	return user, err
+}
+
+func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash string) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE users
+		SET password_hash = $2
+		WHERE id = $1 AND disabled_at IS NULL
+	`, userID, passwordHash)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE refresh_tokens
+		SET revoked_at = now()
+		WHERE user_id = $1 AND revoked_at IS NULL
+	`, userID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) SaveRefreshToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {

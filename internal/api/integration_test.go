@@ -129,6 +129,64 @@ func TestIntegrationRegisterLoginRefreshAndLogout(t *testing.T) {
 	}
 }
 
+func TestIntegrationCurrentUserCanChangePassword(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	registered := registerUser(t, env.router, "password-change@example.com", "Password Org")
+
+	wrongCurrentRes := performJSON(env.router, http.MethodPatch, "/v1/me/password", map[string]any{
+		"current_password": "wrong-password",
+		"new_password":     "new-password123",
+	}, registered.Tokens.AccessToken)
+	if wrongCurrentRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected wrong current password 401, got %d", wrongCurrentRes.Code)
+	}
+
+	shortPasswordRes := performJSON(env.router, http.MethodPatch, "/v1/me/password", map[string]any{
+		"current_password": "password123",
+		"new_password":     "short",
+	}, registered.Tokens.AccessToken)
+	if shortPasswordRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected short new password 400, got %d", shortPasswordRes.Code)
+	}
+
+	changeRes := performJSON(env.router, http.MethodPatch, "/v1/me/password", map[string]any{
+		"current_password": "password123",
+		"new_password":     "new-password123",
+	}, registered.Tokens.AccessToken)
+	if changeRes.Code != http.StatusNoContent {
+		t.Fatalf("expected password change 204, got %d: %s", changeRes.Code, changeRes.Body.String())
+	}
+
+	oldPasswordLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "password-change@example.com",
+		"password": "password123",
+	}, "")
+	if oldPasswordLoginRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected old password login 401, got %d", oldPasswordLoginRes.Code)
+	}
+
+	revokedRefreshRes := performJSON(env.router, http.MethodPost, "/v1/auth/refresh", map[string]any{
+		"refresh_token": registered.Tokens.RefreshToken,
+	}, "")
+	if revokedRefreshRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected password change to revoke refresh token, got %d", revokedRefreshRes.Code)
+	}
+
+	meRes := performJSON(env.router, http.MethodGet, "/v1/me", nil, registered.Tokens.AccessToken)
+	if meRes.Code != http.StatusOK {
+		t.Fatalf("expected existing access token to remain valid until expiry, got %d", meRes.Code)
+	}
+
+	newPasswordLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "password-change@example.com",
+		"password": "new-password123",
+	}, "")
+	if newPasswordLoginRes.Code != http.StatusOK {
+		t.Fatalf("expected new password login 200, got %d: %s", newPasswordLoginRes.Code, newPasswordLoginRes.Body.String())
+	}
+}
+
 func TestIntegrationDisabledUserCannotUseExistingTokens(t *testing.T) {
 	env := newIntegrationEnv(t)
 

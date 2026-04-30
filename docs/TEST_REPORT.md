@@ -37,7 +37,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 
 | Behavior group | Evidence |
 | --- | --- |
-| Auth and sessions | Register, login, invalid login, refresh rotation, old refresh rejection, logout revocation, expired token parsing, wrong-secret parsing. |
+| Auth and sessions | Register, login, invalid login, password change with current-password validation, refresh-token revocation after password change, refresh rotation, old refresh rejection, logout revocation, expired token parsing, wrong-secret parsing. |
 | Disabled users | Disabled users cannot use existing access tokens, refresh tokens, or login until re-enabled. |
 | Organization access | Current-user organization listing, organization create/get/update, cross-organization organization access rejection. |
 | Member management | Owner add/update/remove/disable/enable member flows, admin/member forbidden paths, last-owner downgrade/remove/disable protection. |
