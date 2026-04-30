@@ -187,6 +187,66 @@ func TestIntegrationCurrentUserCanChangePassword(t *testing.T) {
 	}
 }
 
+func TestIntegrationCurrentUserCanDisableSelfWithOwnerSafety(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	lastOwner := registerUser(t, env.router, "last-owner@example.com", "Last Owner Org")
+	lastOwnerDeleteRes := performJSON(env.router, http.MethodDelete, "/v1/me", nil, lastOwner.Tokens.AccessToken)
+	if lastOwnerDeleteRes.Code != http.StatusConflict {
+		t.Fatalf("expected last owner self-delete 409, got %d: %s", lastOwnerDeleteRes.Code, lastOwnerDeleteRes.Body.String())
+	}
+
+	owner := registerUser(t, env.router, "self-delete@example.com", "Self Delete Org")
+	backupOwner := registerUser(t, env.router, "backup-owner@example.com", "Backup Owner Org")
+
+	addBackupOwnerRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
+		"email": "backup-owner@example.com",
+		"role":  "owner",
+	}, owner.Tokens.AccessToken)
+	if addBackupOwnerRes.Code != http.StatusCreated {
+		t.Fatalf("expected add backup owner 201, got %d: %s", addBackupOwnerRes.Code, addBackupOwnerRes.Body.String())
+	}
+
+	deleteRes := performJSON(env.router, http.MethodDelete, "/v1/me", nil, owner.Tokens.AccessToken)
+	if deleteRes.Code != http.StatusNoContent {
+		t.Fatalf("expected self-delete 204, got %d: %s", deleteRes.Code, deleteRes.Body.String())
+	}
+
+	meRes := performJSON(env.router, http.MethodGet, "/v1/me", nil, owner.Tokens.AccessToken)
+	if meRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected disabled self access token 401, got %d", meRes.Code)
+	}
+	refreshRes := performJSON(env.router, http.MethodPost, "/v1/auth/refresh", map[string]any{
+		"refresh_token": owner.Tokens.RefreshToken,
+	}, "")
+	if refreshRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected disabled self refresh token 401, got %d", refreshRes.Code)
+	}
+	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "self-delete@example.com",
+		"password": "password123",
+	}, "")
+	if loginRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected disabled self login 401, got %d", loginRes.Code)
+	}
+
+	membersRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/members", nil, backupOwner.Tokens.AccessToken)
+	if membersRes.Code != http.StatusOK {
+		t.Fatalf("expected backup owner member list 200, got %d: %s", membersRes.Code, membersRes.Body.String())
+	}
+	members := decodeBody[membersBody](t, membersRes)
+	foundDisabledOwner := false
+	for _, member := range members.Members {
+		if member.UserID == owner.User.ID {
+			foundDisabledOwner = member.DisabledAt != nil
+			break
+		}
+	}
+	if !foundDisabledOwner {
+		t.Fatal("expected disabled current user to remain listed as a disabled member")
+	}
+}
+
 func TestIntegrationDisabledUserCannotUseExistingTokens(t *testing.T) {
 	env := newIntegrationEnv(t)
 

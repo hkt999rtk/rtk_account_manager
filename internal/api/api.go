@@ -41,6 +41,7 @@ func (s *Server) Router() *gin.Engine {
 	protected.Use(s.requireAuth())
 	protected.POST("/auth/logout", s.logout)
 	protected.GET("/me", s.me)
+	protected.DELETE("/me", s.deleteCurrentUser)
 	protected.PATCH("/me/password", s.changePassword)
 
 	protected.GET("/orgs", s.listOrganizations)
@@ -236,6 +237,14 @@ func (s *Server) me(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"user": user, "organizations": orgPage.Organizations})
+}
+
+func (s *Server) deleteCurrentUser(c *gin.Context) {
+	if err := s.store.DisableCurrentUser(c.Request.Context(), currentUserID(c)); err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 type changePasswordRequest struct {
