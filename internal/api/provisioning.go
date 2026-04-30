@@ -80,7 +80,7 @@ type readinessSourcesResponse struct {
 
 func (s *Server) provisionDevice(c *gin.Context) {
 	var req provisionRequest
-	if !bind(c, &req) {
+	if !bindStrict(c, &req) {
 		return
 	}
 	if !rejectUnsupportedClaimMaterial(c, req) {
