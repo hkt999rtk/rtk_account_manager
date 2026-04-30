@@ -146,6 +146,99 @@ func TestValidationHelpersWriteErrors(t *testing.T) {
 	}
 }
 
+func TestRejectUnsupportedClaimMaterial(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name string
+		req  provisionRequest
+	}{
+		{
+			name: "standalone claim material object",
+			req: provisionRequest{
+				ClaimMaterial: map[string]any{"serial_number": "CAM-001"},
+			},
+		},
+		{
+			name: "qr payload",
+			req: provisionRequest{
+				VideoCloudDevid: "video-device-1",
+				ActivityID:      "activity-1",
+				ClipPublicKey:   "clip-key-1",
+				QRPayload:       stringPtr("rtkc://claim/device-http-1"),
+			},
+		},
+		{
+			name: "qr code synonym",
+			req: provisionRequest{
+				QRCode: stringPtr("rtk:claim:payload"),
+			},
+		},
+		{
+			name: "serial number",
+			req: provisionRequest{
+				VideoCloudDevid: "video-device-1",
+				ActivityID:      "activity-1",
+				ClipPublicKey:   "clip-key-1",
+				SerialNumber:    stringPtr("CAM-001"),
+			},
+		},
+		{
+			name: "activation code",
+			req: provisionRequest{
+				ActivationCode: stringPtr("ACT-123456"),
+			},
+		},
+		{
+			name: "mac address",
+			req: provisionRequest{
+				MACAddress: stringPtr("00:11:22:33:44:55"),
+			},
+		},
+		{
+			name: "factory identity",
+			req: provisionRequest{
+				FactoryIdentity: stringPtr("factory-device-1"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			context, _ := gin.CreateTestContext(recorder)
+
+			if rejectUnsupportedClaimMaterial(context, tt.req) {
+				t.Fatal("expected unsupported claim material to be rejected")
+			}
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d", recorder.Code)
+			}
+			var body struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+				t.Fatalf("expected JSON error body, got %v", err)
+			}
+			if body.Error.Code != "unsupported_claim_material" {
+				t.Fatalf("expected unsupported_claim_material error code, got %+v", body)
+			}
+		})
+	}
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	if !rejectUnsupportedClaimMaterial(context, provisionRequest{
+		VideoCloudDevid: "video-device-1",
+		ActivityID:      "activity-1",
+		ClipPublicKey:   "clip-key-1",
+	}) {
+		t.Fatal("expected current video claim material to be accepted")
+	}
+}
+
 func TestMatchExistingProvisionOperation(t *testing.T) {
 	existing := model.DeviceOperation{
 		OperationID:    "provision-op-1",

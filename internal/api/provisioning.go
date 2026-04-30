@@ -20,10 +20,17 @@ const defaultDeactivationReason = "account_device_disabled"
 var errOperationStateInconsistent = errors.New("lifecycle operation is missing an outbox message")
 
 type provisionRequest struct {
-	VideoCloudDevid string `json:"video_cloud_devid" binding:"required"`
-	ActivityID      string `json:"activity_id" binding:"required"`
-	ClipPublicKey   string `json:"clip_public_key" binding:"required"`
-	OperationID     string `json:"operation_id"`
+	VideoCloudDevid string         `json:"video_cloud_devid"`
+	ActivityID      string         `json:"activity_id"`
+	ClipPublicKey   string         `json:"clip_public_key"`
+	OperationID     string         `json:"operation_id"`
+	ClaimMaterial   map[string]any `json:"claim_material"`
+	QRPayload       *string        `json:"qr_payload"`
+	QRCode          *string        `json:"qr_code"`
+	SerialNumber    *string        `json:"serial_number"`
+	ActivationCode  *string        `json:"activation_code"`
+	MACAddress      *string        `json:"mac_address"`
+	FactoryIdentity *string        `json:"factory_identity"`
 }
 
 type deactivateRequest struct {
@@ -74,6 +81,9 @@ type readinessSourcesResponse struct {
 func (s *Server) provisionDevice(c *gin.Context) {
 	var req provisionRequest
 	if !bind(c, &req) {
+		return
+	}
+	if !rejectUnsupportedClaimMaterial(c, req) {
 		return
 	}
 
@@ -151,6 +161,25 @@ func (s *Server) provisionDevice(c *gin.Context) {
 		status = http.StatusOK
 	}
 	c.JSON(status, operationBody{Operation: operationFromResult(result.Operation, result.Message)})
+}
+
+func rejectUnsupportedClaimMaterial(c *gin.Context, req provisionRequest) bool {
+	fields := map[string]bool{
+		"claim_material":   req.ClaimMaterial != nil,
+		"qr_payload":       req.QRPayload != nil,
+		"qr_code":          req.QRCode != nil,
+		"serial_number":    req.SerialNumber != nil,
+		"activation_code":  req.ActivationCode != nil,
+		"mac_address":      req.MACAddress != nil,
+		"factory_identity": req.FactoryIdentity != nil,
+	}
+	for _, field := range []string{"claim_material", "qr_payload", "qr_code", "serial_number", "activation_code", "mac_address", "factory_identity"} {
+		if fields[field] {
+			writeError(c, http.StatusBadRequest, "unsupported_claim_material", field+" is not accepted by this endpoint")
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) getProvisioningState(c *gin.Context) {

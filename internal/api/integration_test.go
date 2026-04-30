@@ -886,6 +886,16 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 		t.Fatalf("expected member provision 403, got %d", memberProvisionRes.Code)
 	}
 
+	rawClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provision", map[string]any{
+		"video_cloud_devid": "video-device-1",
+		"activity_id":       "activity-1",
+		"clip_public_key":   "clip-key-1",
+		"serial_number":     "PROVISION-001",
+	}, owner.Tokens.AccessToken)
+	if rawClaimRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected raw claim material 400, got %d: %s", rawClaimRes.Code, rawClaimRes.Body.String())
+	}
+
 	provisionRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provision", map[string]any{
 		"video_cloud_devid": "video-device-1",
 		"activity_id":       "activity-1",

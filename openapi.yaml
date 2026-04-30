@@ -737,7 +737,14 @@ components:
           format: date-time
     ProvisionDeviceRequest:
       type: object
+      description: >
+        Existing-device Realtek video provisioning request. This schema does not
+        accept standalone `claim_material`, SDK-normalized `qr_payload`,
+        serial number, activation code, MAC address, or factory identity fields;
+        those claim/bind flows require a future dedicated endpoint or owner
+        service.
       required: [video_cloud_devid, activity_id, clip_public_key]
+      additionalProperties: false
       properties:
         video_cloud_devid:
           type: string

@@ -409,13 +409,34 @@ The registry device remains owned by that organization; submitted claim material
 is stored as provisioning request payload and projected video metadata, not as a
 replacement for account-manager ownership.
 
+Raw claim-material endpoint decision:
+
+- `rtk_account_manager` should not expose a broad
+  `POST /v1/orgs/:orgId/devices/claim` endpoint until the product onboarding
+  owner defines reusable claim lookup, transfer, reset, and already-claimed
+  policy across device categories.
+- The current `POST .../provision` endpoint only accepts the existing-device
+  video lifecycle fields `video_cloud_devid`, `activity_id`, and
+  `clip_public_key`, plus optional `operation_id`.
+- The SDK claim-material parsers normalize QR payloads, serial numbers,
+  activation codes, MAC addresses, and factory identities into typed
+  `ClaimMaterial`; they do not resolve account ownership or start account/video
+  provisioning.
+- Standalone or raw claim fields such as `claim_material`, `qr_code`,
+  SDK-normalized `qr_payload`, `serial_number`, `activation_code`,
+  `mac_address`, and `factory_identity` are rejected by this endpoint instead
+  of being ignored or treated as authoritative ownership keys.
+- A future raw claim endpoint must first resolve claim material to exactly one
+  account-manager registry device or create an explicit pending claim record
+  before it may start cloud provisioning.
+
 Accepted claim material in the current API:
 
 | Device category | Current account-manager claim material | Notes |
 | --- | --- | --- |
 | `ip_camera` | `video_cloud_devid`, `activity_id`, `clip_public_key` | Supported by `POST .../provision` for the account/video lifecycle flow. `video_cloud_devid` maps the account registry device to the Realtek video identity; `activity_id` and `clip_public_key` are passed to the video-side lifecycle worker. |
-| `mqtt_device` | None beyond the common existing-device lifecycle payload | Category-specific MQTT claim material, broker credentials, and factory identity are out of scope for the current account-manager API. |
-| `generic` | None beyond the common existing-device lifecycle payload | Serial-number, QR-code, activation-code, MAC-address, and future factory-identity claim flows are out of scope for the current account-manager API unless a later endpoint explicitly accepts them. |
+| `mqtt_device` | None beyond an existing registry device id | Category-specific MQTT claim material, broker credentials, and factory identity are out of scope for the current account-manager API. |
+| `generic` | None beyond an existing registry device id | Serial-number, QR-code, activation-code, MAC-address, and future factory-identity claim flows are out of scope for the current account-manager API unless a later endpoint explicitly accepts them. |
 
 Ownership consequences:
 
