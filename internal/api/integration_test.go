@@ -698,10 +698,24 @@ func TestIntegrationFleetGroupsAndTags(t *testing.T) {
 	if deleteGroupRes.Code != http.StatusNoContent {
 		t.Fatalf("expected group delete 204, got %d", deleteGroupRes.Code)
 	}
+	deleteMissingGroupRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/device-groups/"+tempGroup.Group.ID, nil, owner.Tokens.AccessToken)
+	if deleteMissingGroupRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing group delete 404, got %d", deleteMissingGroupRes.Code)
+	}
+	updateMissingGroupRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/device-groups/"+tempGroup.Group.ID, map[string]any{
+		"name": "Missing",
+	}, owner.Tokens.AccessToken)
+	if updateMissingGroupRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing group update 404, got %d", updateMissingGroupRes.Code)
+	}
 
 	adminAddDeviceRes := performJSON(env.router, http.MethodPut, "/v1/orgs/"+owner.Organization.ID+"/device-groups/"+group.Group.ID+"/devices/"+device.Device.ID, nil, admin.Tokens.AccessToken)
 	if adminAddDeviceRes.Code != http.StatusNoContent {
 		t.Fatalf("expected admin add device to group 204, got %d: %s", adminAddDeviceRes.Code, adminAddDeviceRes.Body.String())
+	}
+	missingGroupAddRes := performJSON(env.router, http.MethodPut, "/v1/orgs/"+owner.Organization.ID+"/device-groups/"+tempGroup.Group.ID+"/devices/"+device.Device.ID, nil, owner.Tokens.AccessToken)
+	if missingGroupAddRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing group assignment 404, got %d", missingGroupAddRes.Code)
 	}
 	duplicateAddRes := performJSON(env.router, http.MethodPut, "/v1/orgs/"+owner.Organization.ID+"/device-groups/"+group.Group.ID+"/devices/"+device.Device.ID, nil, owner.Tokens.AccessToken)
 	if duplicateAddRes.Code != http.StatusNoContent {
@@ -777,6 +791,10 @@ func TestIntegrationFleetGroupsAndTags(t *testing.T) {
 	tagsAfterDelete := decodeBody[deviceTagsBody](t, tagsAfterDeleteRes)
 	if tagsAfterDelete.Pagination.Total != 0 {
 		t.Fatalf("expected deleted tag to be absent, got %+v", tagsAfterDelete)
+	}
+	missingDeviceTagRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/devices/00000000-0000-0000-0000-000000000000/tags/lobby", nil, owner.Tokens.AccessToken)
+	if missingDeviceTagRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing device tag delete 404, got %d", missingDeviceTagRes.Code)
 	}
 }
 
