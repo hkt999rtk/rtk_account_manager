@@ -896,6 +896,16 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 		t.Fatalf("expected raw claim material 400, got %d: %s", rawClaimRes.Code, rawClaimRes.Body.String())
 	}
 
+	unknownFieldRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provision", map[string]any{
+		"video_cloud_devid": "video-device-1",
+		"activity_id":       "activity-1",
+		"clip_public_key":   "clip-key-1",
+		"future_claim_key":  "PROVISION-001",
+	}, owner.Tokens.AccessToken)
+	if unknownFieldRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected unknown provision field 400, got %d: %s", unknownFieldRes.Code, unknownFieldRes.Body.String())
+	}
+
 	provisionRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provision", map[string]any{
 		"video_cloud_devid": "video-device-1",
 		"activity_id":       "activity-1",

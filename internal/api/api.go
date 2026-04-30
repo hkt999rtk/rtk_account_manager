@@ -1,7 +1,9 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -518,6 +520,24 @@ func currentUserID(c *gin.Context) string {
 func bind(c *gin.Context, dst any) bool {
 	if err := c.ShouldBindJSON(dst); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return false
+	}
+	return true
+}
+
+func bindStrict(c *gin.Context, dst any) bool {
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dst); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return false
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			writeError(c, http.StatusBadRequest, "invalid_request", "request body must contain a single JSON value")
+		} else {
+			writeError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		}
 		return false
 	}
 	return true

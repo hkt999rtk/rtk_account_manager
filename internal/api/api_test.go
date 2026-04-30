@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -143,6 +144,47 @@ func TestValidationHelpersWriteErrors(t *testing.T) {
 	}
 	if inconsistentBody.Error.Code != "operation_state_inconsistent" {
 		t.Fatalf("expected operation_state_inconsistent error code, got %+v", inconsistentBody)
+	}
+}
+
+func TestBindStrictRejectsUnknownFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	type strictRequest struct {
+		Name string `json:"name"`
+	}
+
+	rejectRecorder := httptest.NewRecorder()
+	rejectContext, _ := gin.CreateTestContext(rejectRecorder)
+	rejectContext.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"camera","claim_material":{"serial_number":"CAM-001"}}`))
+	if bindStrict(rejectContext, &strictRequest{}) {
+		t.Fatal("expected unknown field to be rejected")
+	}
+	if rejectRecorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected unknown field 400, got %d", rejectRecorder.Code)
+	}
+	var body struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rejectRecorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("expected JSON error body, got %v", err)
+	}
+	if body.Error.Code != "invalid_request" || !strings.Contains(body.Error.Message, `unknown field "claim_material"`) {
+		t.Fatalf("expected unknown field invalid_request, got %+v", body)
+	}
+
+	acceptRecorder := httptest.NewRecorder()
+	acceptContext, _ := gin.CreateTestContext(acceptRecorder)
+	acceptContext.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"camera"}`))
+	var accepted strictRequest
+	if !bindStrict(acceptContext, &accepted) {
+		t.Fatalf("expected strict request to be accepted: %s", acceptRecorder.Body.String())
+	}
+	if accepted.Name != "camera" {
+		t.Fatalf("expected decoded name, got %+v", accepted)
 	}
 }
 
