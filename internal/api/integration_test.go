@@ -47,7 +47,7 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		TRUNCATE refresh_tokens, devices, organization_members, organizations, users
+		TRUNCATE refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatal(err)
@@ -589,6 +589,194 @@ func TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness(t *testing.T
 	deleteDisabledRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/devices/"+createdDeviceBody.Device.ID, nil, owner.Tokens.AccessToken)
 	if deleteDisabledRes.Code != http.StatusNoContent {
 		t.Fatalf("expected repeated disabled device delete to remain 204, got %d", deleteDisabledRes.Code)
+	}
+}
+
+func TestIntegrationFleetGroupsAndTags(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	admin := registerUser(t, env.router, "admin@example.com", "Admin Org")
+	member := registerUser(t, env.router, "member@example.com", "Member Org")
+	outsider := registerUser(t, env.router, "outsider@example.com", "Outsider Org")
+
+	for _, membership := range []struct {
+		email string
+		role  string
+	}{
+		{email: "admin@example.com", role: "admin"},
+		{email: "member@example.com", role: "member"},
+	} {
+		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
+			"email": membership.email,
+			"role":  membership.role,
+		}, owner.Tokens.AccessToken)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("expected add member %s 201, got %d: %s", membership.email, res.Code, res.Body.String())
+		}
+	}
+
+	deviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("fleet-camera", "FLEET-001"), owner.Tokens.AccessToken)
+	if deviceRes.Code != http.StatusCreated {
+		t.Fatalf("expected device create 201, got %d: %s", deviceRes.Code, deviceRes.Body.String())
+	}
+	device := decodeBody[deviceBody](t, deviceRes)
+
+	disabledDeviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("disabled-camera", "FLEET-002"), owner.Tokens.AccessToken)
+	if disabledDeviceRes.Code != http.StatusCreated {
+		t.Fatalf("expected disabled candidate create 201, got %d: %s", disabledDeviceRes.Code, disabledDeviceRes.Body.String())
+	}
+	disabledDevice := decodeBody[deviceBody](t, disabledDeviceRes)
+	deleteDisabledRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/devices/"+disabledDevice.Device.ID, nil, owner.Tokens.AccessToken)
+	if deleteDisabledRes.Code != http.StatusNoContent {
+		t.Fatalf("expected disable device 204, got %d", deleteDisabledRes.Code)
+	}
+
+	memberCreateGroupRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/device-groups", map[string]any{
+		"name": "Lobby",
+	}, member.Tokens.AccessToken)
+	if memberCreateGroupRes.Code != http.StatusForbidden {
+		t.Fatalf("expected member group create 403, got %d", memberCreateGroupRes.Code)
+	}
+
+	groupRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/device-groups", map[string]any{
+		"name":        "Lobby",
+		"description": "Front-of-house cameras",
+	}, owner.Tokens.AccessToken)
+	if groupRes.Code != http.StatusCreated {
+		t.Fatalf("expected group create 201, got %d: %s", groupRes.Code, groupRes.Body.String())
+	}
+	group := decodeBody[deviceGroupBody](t, groupRes)
+
+	duplicateGroupRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/device-groups", map[string]any{
+		"name": "Lobby",
+	}, admin.Tokens.AccessToken)
+	if duplicateGroupRes.Code != http.StatusConflict {
+		t.Fatalf("expected duplicate group 409, got %d", duplicateGroupRes.Code)
+	}
+
+	blankGroupRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/device-groups", map[string]any{
+		"name": "   ",
+	}, owner.Tokens.AccessToken)
+	if blankGroupRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected blank group 400, got %d", blankGroupRes.Code)
+	}
+
+	updateGroupRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/device-groups/"+group.Group.ID, map[string]any{
+		"name":        "Lobby Cameras",
+		"description": "Updated group",
+	}, admin.Tokens.AccessToken)
+	if updateGroupRes.Code != http.StatusOK {
+		t.Fatalf("expected admin group update 200, got %d: %s", updateGroupRes.Code, updateGroupRes.Body.String())
+	}
+	updatedGroup := decodeBody[deviceGroupBody](t, updateGroupRes)
+	if updatedGroup.Group.Name != "Lobby Cameras" {
+		t.Fatalf("expected updated group name, got %+v", updatedGroup.Group)
+	}
+
+	getGroupRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/device-groups/"+group.Group.ID, nil, member.Tokens.AccessToken)
+	if getGroupRes.Code != http.StatusOK {
+		t.Fatalf("expected member group get 200, got %d", getGroupRes.Code)
+	}
+	listGroupsRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/device-groups", nil, member.Tokens.AccessToken)
+	if listGroupsRes.Code != http.StatusOK {
+		t.Fatalf("expected member group list 200, got %d", listGroupsRes.Code)
+	}
+	groups := decodeBody[deviceGroupsBody](t, listGroupsRes)
+	if len(groups.Groups) != 1 || groups.Groups[0].ID != group.Group.ID || groups.Pagination.Total != 1 {
+		t.Fatalf("unexpected groups response: %+v", groups)
+	}
+
+	tempGroupRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/device-groups", map[string]any{
+		"name": "Temporary",
+	}, owner.Tokens.AccessToken)
+	if tempGroupRes.Code != http.StatusCreated {
+		t.Fatalf("expected temp group create 201, got %d", tempGroupRes.Code)
+	}
+	tempGroup := decodeBody[deviceGroupBody](t, tempGroupRes)
+	deleteGroupRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/device-groups/"+tempGroup.Group.ID, nil, owner.Tokens.AccessToken)
+	if deleteGroupRes.Code != http.StatusNoContent {
+		t.Fatalf("expected group delete 204, got %d", deleteGroupRes.Code)
+	}
+
+	adminAddDeviceRes := performJSON(env.router, http.MethodPut, "/v1/orgs/"+owner.Organization.ID+"/device-groups/"+group.Group.ID+"/devices/"+device.Device.ID, nil, admin.Tokens.AccessToken)
+	if adminAddDeviceRes.Code != http.StatusNoContent {
+		t.Fatalf("expected admin add device to group 204, got %d: %s", adminAddDeviceRes.Code, adminAddDeviceRes.Body.String())
+	}
+	duplicateAddRes := performJSON(env.router, http.MethodPut, "/v1/orgs/"+owner.Organization.ID+"/device-groups/"+group.Group.ID+"/devices/"+device.Device.ID, nil, owner.Tokens.AccessToken)
+	if duplicateAddRes.Code != http.StatusNoContent {
+		t.Fatalf("expected duplicate group assignment to be idempotent 204, got %d", duplicateAddRes.Code)
+	}
+	addDisabledRes := performJSON(env.router, http.MethodPut, "/v1/orgs/"+owner.Organization.ID+"/device-groups/"+group.Group.ID+"/devices/"+disabledDevice.Device.ID, nil, owner.Tokens.AccessToken)
+	if addDisabledRes.Code != http.StatusNoContent {
+		t.Fatalf("expected disabled registry device to remain selectable 204, got %d: %s", addDisabledRes.Code, addDisabledRes.Body.String())
+	}
+
+	memberListDevicesRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/device-groups/"+group.Group.ID+"/devices", nil, member.Tokens.AccessToken)
+	if memberListDevicesRes.Code != http.StatusOK {
+		t.Fatalf("expected member group device list 200, got %d: %s", memberListDevicesRes.Code, memberListDevicesRes.Body.String())
+	}
+	groupDevices := decodeBody[devicesBody](t, memberListDevicesRes)
+	if groupDevices.Pagination.Total != 2 {
+		t.Fatalf("expected group selection to include enabled and disabled devices, got %+v", groupDevices.Pagination)
+	}
+
+	removeDeviceRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/device-groups/"+group.Group.ID+"/devices/"+disabledDevice.Device.ID, nil, admin.Tokens.AccessToken)
+	if removeDeviceRes.Code != http.StatusNoContent {
+		t.Fatalf("expected admin remove device from group 204, got %d", removeDeviceRes.Code)
+	}
+	repeatedRemoveDeviceRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/device-groups/"+group.Group.ID+"/devices/"+disabledDevice.Device.ID, nil, owner.Tokens.AccessToken)
+	if repeatedRemoveDeviceRes.Code != http.StatusNoContent {
+		t.Fatalf("expected repeated group removal to be idempotent 204, got %d", repeatedRemoveDeviceRes.Code)
+	}
+
+	memberAddDeviceRes := performJSON(env.router, http.MethodPut, "/v1/orgs/"+owner.Organization.ID+"/device-groups/"+group.Group.ID+"/devices/"+device.Device.ID, nil, member.Tokens.AccessToken)
+	if memberAddDeviceRes.Code != http.StatusForbidden {
+		t.Fatalf("expected member group assignment 403, got %d", memberAddDeviceRes.Code)
+	}
+
+	outsiderGroupRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/device-groups/"+group.Group.ID, nil, outsider.Tokens.AccessToken)
+	if outsiderGroupRes.Code != http.StatusNotFound {
+		t.Fatalf("expected outsider group lookup 404, got %d", outsiderGroupRes.Code)
+	}
+	crossOrgGroupRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+member.Organization.ID+"/device-groups/"+group.Group.ID, nil, member.Tokens.AccessToken)
+	if crossOrgGroupRes.Code != http.StatusNotFound {
+		t.Fatalf("expected cross-organization group lookup 404, got %d", crossOrgGroupRes.Code)
+	}
+
+	tagRes := performJSON(env.router, http.MethodPut, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/tags/lobby", nil, owner.Tokens.AccessToken)
+	if tagRes.Code != http.StatusOK {
+		t.Fatalf("expected tag add 200, got %d: %s", tagRes.Code, tagRes.Body.String())
+	}
+	duplicateTagRes := performJSON(env.router, http.MethodPut, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/tags/lobby", nil, owner.Tokens.AccessToken)
+	if duplicateTagRes.Code != http.StatusOK {
+		t.Fatalf("expected duplicate tag to be idempotent 200, got %d", duplicateTagRes.Code)
+	}
+	memberTagRes := performJSON(env.router, http.MethodPut, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/tags/member-tag", nil, member.Tokens.AccessToken)
+	if memberTagRes.Code != http.StatusForbidden {
+		t.Fatalf("expected member tag write 403, got %d", memberTagRes.Code)
+	}
+
+	tagsRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/tags", nil, member.Tokens.AccessToken)
+	if tagsRes.Code != http.StatusOK {
+		t.Fatalf("expected member tag list 200, got %d", tagsRes.Code)
+	}
+	tags := decodeBody[deviceTagsBody](t, tagsRes)
+	if len(tags.Tags) != 1 || tags.Tags[0].Tag != "lobby" || tags.Pagination.Total != 1 {
+		t.Fatalf("unexpected tags response: %+v", tags)
+	}
+
+	deleteTagRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/tags/lobby", nil, admin.Tokens.AccessToken)
+	if deleteTagRes.Code != http.StatusNoContent {
+		t.Fatalf("expected admin tag delete 204, got %d", deleteTagRes.Code)
+	}
+	tagsAfterDeleteRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/tags", nil, owner.Tokens.AccessToken)
+	if tagsAfterDeleteRes.Code != http.StatusOK {
+		t.Fatalf("expected tag list after delete 200, got %d", tagsAfterDeleteRes.Code)
+	}
+	tagsAfterDelete := decodeBody[deviceTagsBody](t, tagsAfterDeleteRes)
+	if tagsAfterDelete.Pagination.Total != 0 {
+		t.Fatalf("expected deleted tag to be absent, got %+v", tagsAfterDelete)
 	}
 }
 
@@ -1350,6 +1538,31 @@ type devicesBody struct {
 	Devices []struct {
 		ID string `json:"id"`
 	} `json:"devices"`
+	Pagination paginationBody `json:"pagination"`
+}
+
+type deviceGroupBody struct {
+	Group struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		DeviceCount *int   `json:"device_count"`
+	} `json:"group"`
+}
+
+type deviceGroupsBody struct {
+	Groups []struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		DeviceCount *int   `json:"device_count"`
+	} `json:"groups"`
+	Pagination paginationBody `json:"pagination"`
+}
+
+type deviceTagsBody struct {
+	Tags []struct {
+		DeviceID string `json:"device_id"`
+		Tag      string `json:"tag"`
+	} `json:"tags"`
 	Pagination paginationBody `json:"pagination"`
 }
 

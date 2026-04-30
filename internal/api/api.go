@@ -54,9 +54,21 @@ func (s *Server) Router() *gin.Engine {
 	protected.PATCH("/orgs/:orgId/members/:userId/enable", s.requireOrgRole(model.RoleOwner), s.enableMemberUser)
 	protected.DELETE("/orgs/:orgId/members/:userId", s.requireOrgRole(model.RoleOwner), s.removeMember)
 
+	protected.GET("/orgs/:orgId/device-groups", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.listDeviceGroups)
+	protected.POST("/orgs/:orgId/device-groups", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.createDeviceGroup)
+	protected.GET("/orgs/:orgId/device-groups/:groupId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.getDeviceGroup)
+	protected.PATCH("/orgs/:orgId/device-groups/:groupId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.updateDeviceGroup)
+	protected.DELETE("/orgs/:orgId/device-groups/:groupId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.deleteDeviceGroup)
+	protected.GET("/orgs/:orgId/device-groups/:groupId/devices", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.listDeviceGroupDevices)
+	protected.PUT("/orgs/:orgId/device-groups/:groupId/devices/:deviceId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.addDeviceToGroup)
+	protected.DELETE("/orgs/:orgId/device-groups/:groupId/devices/:deviceId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.removeDeviceFromGroup)
+
 	protected.POST("/orgs/:orgId/devices", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.createDevice)
 	protected.GET("/orgs/:orgId/devices", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.listDevices)
 	protected.GET("/orgs/:orgId/devices/:deviceId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.getDevice)
+	protected.GET("/orgs/:orgId/devices/:deviceId/tags", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.listDeviceTags)
+	protected.PUT("/orgs/:orgId/devices/:deviceId/tags/:tag", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.addDeviceTag)
+	protected.DELETE("/orgs/:orgId/devices/:deviceId/tags/:tag", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.deleteDeviceTag)
 	protected.POST("/orgs/:orgId/devices/:deviceId/provision", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.provisionDevice)
 	protected.GET("/orgs/:orgId/devices/:deviceId/provisioning", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.getProvisioningState)
 	protected.POST("/orgs/:orgId/devices/:deviceId/deactivate", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.deactivateDevice)
@@ -492,6 +504,138 @@ func (s *Server) updateDeviceStatus(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"device": device})
+}
+
+type deviceGroupRequest struct {
+	Name        string  `json:"name" binding:"required"`
+	Description *string `json:"description"`
+}
+
+func (r deviceGroupRequest) input() store.DeviceGroupInput {
+	return store.DeviceGroupInput{
+		Name:        strings.TrimSpace(r.Name),
+		Description: trimPtr(r.Description),
+	}
+}
+
+func (s *Server) createDeviceGroup(c *gin.Context) {
+	var req deviceGroupRequest
+	if !bind(c, &req) {
+		return
+	}
+	if !requireNonBlank(c, "name", req.Name) {
+		return
+	}
+	group, err := s.store.CreateDeviceGroup(c.Request.Context(), c.Param("orgId"), req.input())
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"group": group})
+}
+
+func (s *Server) listDeviceGroups(c *gin.Context) {
+	limit, offset := pagination(c)
+	groupPage, err := s.store.ListDeviceGroups(c.Request.Context(), c.Param("orgId"), limit, offset)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"groups": groupPage.Groups, "pagination": groupPage.Page})
+}
+
+func (s *Server) getDeviceGroup(c *gin.Context) {
+	group, err := s.store.GetDeviceGroup(c.Request.Context(), c.Param("orgId"), c.Param("groupId"))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"group": group})
+}
+
+func (s *Server) updateDeviceGroup(c *gin.Context) {
+	var req deviceGroupRequest
+	if !bind(c, &req) {
+		return
+	}
+	if !requireNonBlank(c, "name", req.Name) {
+		return
+	}
+	group, err := s.store.UpdateDeviceGroup(c.Request.Context(), c.Param("orgId"), c.Param("groupId"), req.input())
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"group": group})
+}
+
+func (s *Server) deleteDeviceGroup(c *gin.Context) {
+	if err := s.store.DeleteDeviceGroup(c.Request.Context(), c.Param("orgId"), c.Param("groupId")); err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (s *Server) addDeviceToGroup(c *gin.Context) {
+	if err := s.store.AddDeviceToGroup(c.Request.Context(), c.Param("orgId"), c.Param("groupId"), c.Param("deviceId")); err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (s *Server) removeDeviceFromGroup(c *gin.Context) {
+	if err := s.store.RemoveDeviceFromGroup(c.Request.Context(), c.Param("orgId"), c.Param("groupId"), c.Param("deviceId")); err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (s *Server) listDeviceGroupDevices(c *gin.Context) {
+	limit, offset := pagination(c)
+	devicePage, err := s.store.ListDeviceGroupDevices(c.Request.Context(), c.Param("orgId"), c.Param("groupId"), limit, offset)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"devices": devicePage.Devices, "pagination": devicePage.Page})
+}
+
+func (s *Server) addDeviceTag(c *gin.Context) {
+	tag := strings.TrimSpace(c.Param("tag"))
+	if !requireNonBlank(c, "tag", tag) {
+		return
+	}
+	deviceTag, err := s.store.AddDeviceTag(c.Request.Context(), c.Param("orgId"), c.Param("deviceId"), tag)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"tag": deviceTag})
+}
+
+func (s *Server) deleteDeviceTag(c *gin.Context) {
+	tag := strings.TrimSpace(c.Param("tag"))
+	if !requireNonBlank(c, "tag", tag) {
+		return
+	}
+	if err := s.store.DeleteDeviceTag(c.Request.Context(), c.Param("orgId"), c.Param("deviceId"), tag); err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (s *Server) listDeviceTags(c *gin.Context) {
+	limit, offset := pagination(c)
+	tagPage, err := s.store.ListDeviceTags(c.Request.Context(), c.Param("orgId"), c.Param("deviceId"), limit, offset)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"tags": tagPage.Tags, "pagination": tagPage.Page})
 }
 
 func (s *Server) requireAuth() gin.HandlerFunc {

@@ -49,6 +49,16 @@ type DevicePage struct {
 	Page    Page
 }
 
+type DeviceGroupPage struct {
+	Groups []model.DeviceGroup
+	Page   Page
+}
+
+type DeviceTagPage struct {
+	Tags []model.DeviceTag
+	Page Page
+}
+
 type RegisterInput struct {
 	Email            string
 	PasswordHash     string
@@ -617,6 +627,11 @@ type DeviceInput struct {
 	Metadata     map[string]any
 }
 
+type DeviceGroupInput struct {
+	Name        string
+	Description *string
+}
+
 func (s *Store) CreateDevice(ctx context.Context, orgID string, in DeviceInput) (model.Device, error) {
 	metadata, err := json.Marshal(defaultMetadata(in.Metadata))
 	if err != nil {
@@ -691,6 +706,30 @@ func (s *Store) countDevices(ctx context.Context, orgID string) (int, error) {
 	return total, err
 }
 
+func (s *Store) countDeviceGroups(ctx context.Context, orgID string) (int, error) {
+	var total int
+	err := s.db.QueryRow(ctx, `
+		SELECT count(*) FROM device_groups WHERE organization_id = $1
+	`, orgID).Scan(&total)
+	return total, err
+}
+
+func (s *Store) countDeviceGroupDevices(ctx context.Context, orgID, groupID string) (int, error) {
+	var total int
+	err := s.db.QueryRow(ctx, `
+		SELECT count(*) FROM device_group_members WHERE organization_id = $1 AND group_id = $2
+	`, orgID, groupID).Scan(&total)
+	return total, err
+}
+
+func (s *Store) countDeviceTags(ctx context.Context, orgID, deviceID string) (int, error) {
+	var total int
+	err := s.db.QueryRow(ctx, `
+		SELECT count(*) FROM device_tags WHERE organization_id = $1 AND device_id = $2
+	`, orgID, deviceID).Scan(&total)
+	return total, err
+}
+
 func (s *Store) GetDevice(ctx context.Context, orgID, deviceID string) (model.Device, error) {
 	device, err := s.scanDevice(s.db.QueryRow(ctx, `
 		SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
@@ -754,6 +793,230 @@ func (s *Store) UpdateDeviceStatus(ctx context.Context, orgID, deviceID string, 
 	return device, err
 }
 
+func (s *Store) CreateDeviceGroup(ctx context.Context, orgID string, in DeviceGroupInput) (model.DeviceGroup, error) {
+	group, err := scanDeviceGroup(s.db.QueryRow(ctx, `
+		INSERT INTO device_groups (organization_id, name, description)
+		VALUES ($1, $2, $3)
+		RETURNING id::text, organization_id::text, name, description, created_at, updated_at, 0
+	`, orgID, in.Name, in.Description))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.DeviceGroup{}, ErrNotFound
+	}
+	return group, err
+}
+
+func (s *Store) ListDeviceGroups(ctx context.Context, orgID string, limit, offset int) (DeviceGroupPage, error) {
+	total, err := s.countDeviceGroups(ctx, orgID)
+	if err != nil {
+		return DeviceGroupPage{}, err
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT g.id::text, g.organization_id::text, g.name, g.description, g.created_at, g.updated_at, count(m.device_id)::int
+		FROM device_groups g
+		LEFT JOIN device_group_members m ON m.organization_id = g.organization_id AND m.group_id = g.id
+		WHERE g.organization_id = $1
+		GROUP BY g.id
+		ORDER BY g.name ASC
+		LIMIT $2 OFFSET $3
+	`, orgID, limit, offset)
+	if err != nil {
+		return DeviceGroupPage{}, err
+	}
+	defer rows.Close()
+
+	groups := []model.DeviceGroup{}
+	for rows.Next() {
+		group, err := scanDeviceGroup(rows)
+		if err != nil {
+			return DeviceGroupPage{}, err
+		}
+		groups = append(groups, group)
+	}
+	if err := rows.Err(); err != nil {
+		return DeviceGroupPage{}, err
+	}
+	return DeviceGroupPage{Groups: groups, Page: Page{Limit: limit, Offset: offset, Total: total}}, nil
+}
+
+func (s *Store) GetDeviceGroup(ctx context.Context, orgID, groupID string) (model.DeviceGroup, error) {
+	group, err := scanDeviceGroup(s.db.QueryRow(ctx, `
+		SELECT g.id::text, g.organization_id::text, g.name, g.description, g.created_at, g.updated_at, count(m.device_id)::int
+		FROM device_groups g
+		LEFT JOIN device_group_members m ON m.organization_id = g.organization_id AND m.group_id = g.id
+		WHERE g.organization_id = $1 AND g.id = $2
+		GROUP BY g.id
+	`, orgID, groupID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.DeviceGroup{}, ErrNotFound
+	}
+	return group, err
+}
+
+func (s *Store) UpdateDeviceGroup(ctx context.Context, orgID, groupID string, in DeviceGroupInput) (model.DeviceGroup, error) {
+	group, err := scanDeviceGroup(s.db.QueryRow(ctx, `
+		WITH updated AS (
+			UPDATE device_groups
+			SET name = $3, description = $4
+			WHERE organization_id = $1 AND id = $2
+			RETURNING id, organization_id, name, description, created_at, updated_at
+		)
+		SELECT u.id::text, u.organization_id::text, u.name, u.description, u.created_at, u.updated_at, count(m.device_id)::int
+		FROM updated u
+		LEFT JOIN device_group_members m ON m.organization_id = u.organization_id AND m.group_id = u.id
+		GROUP BY u.id, u.organization_id, u.name, u.description, u.created_at, u.updated_at
+	`, orgID, groupID, in.Name, in.Description))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.DeviceGroup{}, ErrNotFound
+	}
+	return group, err
+}
+
+func (s *Store) DeleteDeviceGroup(ctx context.Context, orgID, groupID string) error {
+	tag, err := s.db.Exec(ctx, `
+		DELETE FROM device_groups
+		WHERE organization_id = $1 AND id = $2
+	`, orgID, groupID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) AddDeviceToGroup(ctx context.Context, orgID, groupID, deviceID string) error {
+	if _, err := s.GetDeviceGroup(ctx, orgID, groupID); err != nil {
+		return err
+	}
+	if _, err := s.GetDevice(ctx, orgID, deviceID); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(ctx, `
+		INSERT INTO device_group_members (organization_id, group_id, device_id)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (group_id, device_id) DO NOTHING
+	`, orgID, groupID, deviceID)
+	return err
+}
+
+func (s *Store) RemoveDeviceFromGroup(ctx context.Context, orgID, groupID, deviceID string) error {
+	tag, err := s.db.Exec(ctx, `
+		DELETE FROM device_group_members
+		WHERE organization_id = $1 AND group_id = $2 AND device_id = $3
+	`, orgID, groupID, deviceID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		if _, groupErr := s.GetDeviceGroup(ctx, orgID, groupID); groupErr != nil {
+			return groupErr
+		}
+		if _, deviceErr := s.GetDevice(ctx, orgID, deviceID); deviceErr != nil {
+			return deviceErr
+		}
+	}
+	return nil
+}
+
+func (s *Store) ListDeviceGroupDevices(ctx context.Context, orgID, groupID string, limit, offset int) (DevicePage, error) {
+	if _, err := s.GetDeviceGroup(ctx, orgID, groupID); err != nil {
+		return DevicePage{}, err
+	}
+	total, err := s.countDeviceGroupDevices(ctx, orgID, groupID)
+	if err != nil {
+		return DevicePage{}, err
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT d.id::text, d.organization_id::text, d.name, d.category, d.serial_number, d.mac_address, d.manufacturer, d.model, d.status, d.last_seen_at, d.metadata, d.created_at, d.updated_at, d.disabled_at
+		FROM device_group_members m
+		JOIN devices d ON d.organization_id = m.organization_id AND d.id = m.device_id
+		WHERE m.organization_id = $1 AND m.group_id = $2
+		ORDER BY d.created_at DESC
+		LIMIT $3 OFFSET $4
+	`, orgID, groupID, limit, offset)
+	if err != nil {
+		return DevicePage{}, err
+	}
+	defer rows.Close()
+
+	devices := []model.Device{}
+	for rows.Next() {
+		device, err := scanDeviceRows(rows)
+		if err != nil {
+			return DevicePage{}, err
+		}
+		devices = append(devices, device)
+	}
+	if err := rows.Err(); err != nil {
+		return DevicePage{}, err
+	}
+	return DevicePage{Devices: devices, Page: Page{Limit: limit, Offset: offset, Total: total}}, nil
+}
+
+func (s *Store) AddDeviceTag(ctx context.Context, orgID, deviceID, tag string) (model.DeviceTag, error) {
+	if _, err := s.GetDevice(ctx, orgID, deviceID); err != nil {
+		return model.DeviceTag{}, err
+	}
+	return scanDeviceTag(s.db.QueryRow(ctx, `
+		INSERT INTO device_tags (organization_id, device_id, tag)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (organization_id, device_id, tag)
+		DO UPDATE SET tag = EXCLUDED.tag
+		RETURNING organization_id::text, device_id::text, tag, created_at, updated_at
+	`, orgID, deviceID, tag))
+}
+
+func (s *Store) DeleteDeviceTag(ctx context.Context, orgID, deviceID, tag string) error {
+	result, err := s.db.Exec(ctx, `
+		DELETE FROM device_tags
+		WHERE organization_id = $1 AND device_id = $2 AND tag = $3
+	`, orgID, deviceID, tag)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		if _, deviceErr := s.GetDevice(ctx, orgID, deviceID); deviceErr != nil {
+			return deviceErr
+		}
+	}
+	return nil
+}
+
+func (s *Store) ListDeviceTags(ctx context.Context, orgID, deviceID string, limit, offset int) (DeviceTagPage, error) {
+	if _, err := s.GetDevice(ctx, orgID, deviceID); err != nil {
+		return DeviceTagPage{}, err
+	}
+	total, err := s.countDeviceTags(ctx, orgID, deviceID)
+	if err != nil {
+		return DeviceTagPage{}, err
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT organization_id::text, device_id::text, tag, created_at, updated_at
+		FROM device_tags
+		WHERE organization_id = $1 AND device_id = $2
+		ORDER BY tag ASC
+		LIMIT $3 OFFSET $4
+	`, orgID, deviceID, limit, offset)
+	if err != nil {
+		return DeviceTagPage{}, err
+	}
+	defer rows.Close()
+
+	tags := []model.DeviceTag{}
+	for rows.Next() {
+		deviceTag, err := scanDeviceTag(rows)
+		if err != nil {
+			return DeviceTagPage{}, err
+		}
+		tags = append(tags, deviceTag)
+	}
+	if err := rows.Err(); err != nil {
+		return DeviceTagPage{}, err
+	}
+	return DeviceTagPage{Tags: tags, Page: Page{Limit: limit, Offset: offset, Total: total}}, nil
+}
+
 func defaultMetadata(metadata map[string]any) map[string]any {
 	if metadata == nil {
 		return map[string]any{}
@@ -803,4 +1066,38 @@ func scanDevice(row rowScanner) (model.Device, error) {
 		return model.Device{}, err
 	}
 	return device, nil
+}
+
+func scanDeviceGroup(row rowScanner) (model.DeviceGroup, error) {
+	var group model.DeviceGroup
+	var deviceCount int
+	err := row.Scan(
+		&group.ID,
+		&group.OrganizationID,
+		&group.Name,
+		&group.Description,
+		&group.CreatedAt,
+		&group.UpdatedAt,
+		&deviceCount,
+	)
+	if err != nil {
+		return model.DeviceGroup{}, err
+	}
+	group.DeviceCount = &deviceCount
+	return group, nil
+}
+
+func scanDeviceTag(row rowScanner) (model.DeviceTag, error) {
+	var tag model.DeviceTag
+	err := row.Scan(
+		&tag.OrganizationID,
+		&tag.DeviceID,
+		&tag.Tag,
+		&tag.CreatedAt,
+		&tag.UpdatedAt,
+	)
+	if err != nil {
+		return model.DeviceTag{}, err
+	}
+	return tag, nil
 }
