@@ -379,6 +379,36 @@ Constraints:
 - OTP verification, self-service password recovery/reset, and third-party/social login are deferred first-phase lifecycle capabilities and must not be presented as available API behavior until implemented.
 - Expired or revoked refresh tokens may be removed by an explicit maintenance command.
 
+### Self-Service Evaluation Tier (Deferred Capability)
+
+`rtk_cloud_workspace/docs/business-model.md` defines a public evaluation tier
+(default 5 devices, ceiling 200 on request, non-commercial use) and a private
+commercial tier (no minimum scale, one-time license + annual maintenance).
+Account manager is the planned owner of the API surface that supports the
+evaluation tier:
+
+- A self-service signup endpoint that creates a user and initial organization
+  in an unverified state, paired with an email verification token issuance and
+  consumption flow. The existing `POST /v1/auth/register` endpoint is internal-
+  use today; the self-service variant requires email verification before the
+  account becomes active for login or device registration.
+- An organization-level evaluation device quota field, sourced from
+  `business-model.md` (default `5`, maximum `200`). Device registration must
+  reject organizations whose quota is exceeded with a typed error rather than
+  falling through silently.
+- A quota-raise request workflow: the user-facing UI lives in
+  `rtk_cloud_admin`, but the persisted request, audit, and approval state
+  belong here. Approvals raise `evaluation_device_quota` up to the 200 ceiling.
+- Tier metadata on the organization record (`tier ∈ {evaluation, commercial}`)
+  so tier-aware behavior can be enforced consistently across this service and
+  downstream services that look up organization facts.
+
+This is a **deferred capability**: it is not yet part of the implemented API
+surface. The implementation work will be tracked through a separate issue
+opened against this repository once the cross-repo doc baseline is approved.
+Until that issue lands, do not present signup, email verification, or
+evaluation-quota behavior as available.
+
 ## 6. Authorization
 
 Authorization is organization scoped.
