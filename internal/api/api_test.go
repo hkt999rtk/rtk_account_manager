@@ -29,6 +29,28 @@ func TestRequireAuthRejectsMissingToken(t *testing.T) {
 	}
 }
 
+func TestHealthRoute(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := New(nil, nil).Router()
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected health 200, got %d", res.Code)
+	}
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatalf("expected JSON health body, got %v", err)
+	}
+	if body.Status != "ok" {
+		t.Fatalf("expected ok status, got %q", body.Status)
+	}
+}
+
 func TestRequireAuthRejectsInvalidToken(t *testing.T) {
 	server := New(nil, auth.NewService("access-secret", "refresh-secret", time.Minute, time.Hour))
 	router := server.Router()
@@ -126,6 +148,20 @@ func TestValidationHelpersWriteErrors(t *testing.T) {
 	writeStoreError(defaultContext, errors.New("boom"))
 	if defaultRecorder.Code != http.StatusInternalServerError {
 		t.Fatalf("expected internal error 500, got %d", defaultRecorder.Code)
+	}
+
+	conflictRecorder := httptest.NewRecorder()
+	conflictContext, _ := gin.CreateTestContext(conflictRecorder)
+	writeStoreError(conflictContext, store.ErrConflict)
+	if conflictRecorder.Code != http.StatusConflict {
+		t.Fatalf("expected conflict store error 409, got %d", conflictRecorder.Code)
+	}
+
+	notFoundRecorder := httptest.NewRecorder()
+	notFoundContext, _ := gin.CreateTestContext(notFoundRecorder)
+	writeStoreError(notFoundContext, store.ErrNotFound)
+	if notFoundRecorder.Code != http.StatusNotFound {
+		t.Fatalf("expected not found store error 404, got %d", notFoundRecorder.Code)
 	}
 
 	inconsistentRecorder := httptest.NewRecorder()
@@ -233,6 +269,40 @@ func TestAuthRecoveryValidationRejectsInvalidRequests(t *testing.T) {
 			router.ServeHTTP(res, req)
 			if res.Code != http.StatusBadRequest {
 				t.Fatalf("expected validation 400, got %d: %s", res.Code, res.Body.String())
+			}
+		})
+	}
+}
+
+func TestAuthRecoveryValidationRejectsBlankTokens(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := New(nil, nil).Router()
+
+	tests := []struct {
+		name string
+		path string
+		body string
+	}{
+		{
+			name: "verify email blank token",
+			path: "/v1/auth/verify-email",
+			body: `{"token":"   "}`,
+		},
+		{
+			name: "reset password blank token",
+			path: "/v1/auth/reset-password",
+			body: `{"token":"   ","new_password":"new-password123"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			res := httptest.NewRecorder()
+			router.ServeHTTP(res, req)
+			if res.Code != http.StatusBadRequest {
+				t.Fatalf("expected blank token validation 400, got %d: %s", res.Code, res.Body.String())
 			}
 		})
 	}
