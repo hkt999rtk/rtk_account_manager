@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,18 +13,51 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"rtk_account_manager/internal/auth"
+	"rtk_account_manager/internal/mailer"
 	"rtk_account_manager/internal/model"
 	"rtk_account_manager/internal/store"
 )
 
+type AuthCodeOptions struct {
+	EmailVerificationTTL time.Duration
+	PasswordResetTTL     time.Duration
+	OTPResendInterval    time.Duration
+	OTPMaxAttempts       int
+}
+
 type Server struct {
-	store *store.Store
-	auth  *auth.Service
+	store           *store.Store
+	auth            *auth.Service
+	mailer          mailer.Mailer
+	authCodeOptions AuthCodeOptions
 }
 
 func New(store *store.Store, authService *auth.Service) *Server {
-	return &Server{store: store, auth: authService}
+	return NewWithMailer(store, authService, nil, AuthCodeOptions{})
 }
+
+func NewWithMailer(store *store.Store, authService *auth.Service, mailerService mailer.Mailer, opts AuthCodeOptions) *Server {
+	if mailerService == nil {
+		mailerService = nopMailer{}
+	}
+	if opts.EmailVerificationTTL <= 0 {
+		opts.EmailVerificationTTL = 30 * time.Minute
+	}
+	if opts.PasswordResetTTL <= 0 {
+		opts.PasswordResetTTL = 30 * time.Minute
+	}
+	if opts.OTPResendInterval < 0 {
+		opts.OTPResendInterval = 0
+	}
+	if opts.OTPMaxAttempts <= 0 {
+		opts.OTPMaxAttempts = 5
+	}
+	return &Server{store: store, auth: authService, mailer: mailerService, authCodeOptions: opts}
+}
+
+type nopMailer struct{}
+
+func (nopMailer) Send(_ context.Context, _ mailer.Message) error { return nil }
 
 func (s *Server) Router() *gin.Engine {
 	r := gin.New()
@@ -36,6 +70,10 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/auth/register", s.register)
 	v1.POST("/auth/login", s.login)
 	v1.POST("/auth/refresh", s.refresh)
+	v1.POST("/auth/verify-email", s.verifyEmail)
+	v1.POST("/auth/resend-verification", s.resendVerification)
+	v1.POST("/auth/forgot-password", s.forgotPassword)
+	v1.POST("/auth/reset-password", s.resetPassword)
 
 	protected := v1.Group("")
 	protected.Use(s.requireAuth())
@@ -113,6 +151,10 @@ func (s *Server) register(c *gin.Context) {
 	tokens, err := s.issueTokens(c, result.User.ID)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
+		return
+	}
+	if err := s.issueEmailVerification(c.Request.Context(), result.User.ID, result.User.Email, 0); err != nil && !errors.Is(err, store.ErrAlreadyVerified) {
+		writeError(c, http.StatusInternalServerError, "verification_send_failed", "Could not send verification email")
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"user": result.User, "organization": result.Organization, "tokens": tokens})

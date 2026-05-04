@@ -16,14 +16,16 @@ import (
 	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/channel"
 	"rtk_account_manager/internal/database"
+	"rtk_account_manager/internal/mailer"
 	"rtk_account_manager/internal/model"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/testutil"
 )
 
 type integrationEnv struct {
-	router *gin.Engine
-	db     *pgxpool.Pool
+	router  *gin.Engine
+	db      *pgxpool.Pool
+	mailer  *mailer.RecordingMailer
 }
 
 func newIntegrationEnv(t *testing.T) integrationEnv {
@@ -55,7 +57,14 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 
 	gin.SetMode(gin.TestMode)
 	authService := auth.NewService("test-access-secret", "test-refresh-secret", time.Minute, time.Hour)
-	return integrationEnv{router: New(store.New(db), authService).Router(), db: db}
+	rec := &mailer.RecordingMailer{}
+	router := NewWithMailer(store.New(db), authService, rec, AuthCodeOptions{
+		EmailVerificationTTL: 5 * time.Minute,
+		PasswordResetTTL:     5 * time.Minute,
+		OTPResendInterval:    0,
+		OTPMaxAttempts:       5,
+	}).Router()
+	return integrationEnv{router: router, db: db, mailer: rec}
 }
 
 func TestIntegrationRegisterLoginRefreshAndLogout(t *testing.T) {
@@ -1802,4 +1811,255 @@ func validateAccountCommandEnvelope(t *testing.T, message model.DeviceMessageOut
 		t.Fatalf("validate outbox envelope: %v", err)
 	}
 	return decoded
+}
+
+type verifyEmailBody struct {
+	User struct {
+		ID              string     `json:"id"`
+		Email           string     `json:"email"`
+		EmailVerifiedAt *time.Time `json:"email_verified_at"`
+	} `json:"user"`
+}
+
+func TestIntegrationEmailVerificationFlow(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	owner := registerUser(t, env.router, "verify@example.com", "Verify Org")
+
+	// register should have queued a verification email
+	if len(env.mailer.Sent) != 1 {
+		t.Fatalf("expected 1 verification email after register, got %d", len(env.mailer.Sent))
+	}
+	sentCode := env.mailer.Sent[0].Code
+	if len(sentCode) != 6 {
+		t.Fatalf("expected 6-digit OTP, got %q", sentCode)
+	}
+
+	// wrong code → 400
+	wrongRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"email": "verify@example.com",
+		"code":  "000000",
+	}, "")
+	if wrongRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected wrong-code 400, got %d: %s", wrongRes.Code, wrongRes.Body.String())
+	}
+
+	// correct code → 200 with email_verified_at set
+	okRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"email": "verify@example.com",
+		"code":  sentCode,
+	}, "")
+	if okRes.Code != http.StatusOK {
+		t.Fatalf("expected verify 200, got %d: %s", okRes.Code, okRes.Body.String())
+	}
+	body := decodeBody[verifyEmailBody](t, okRes)
+	if body.User.EmailVerifiedAt == nil {
+		t.Fatalf("expected email_verified_at to be set, got nil")
+	}
+	if body.User.ID != owner.User.ID {
+		t.Fatalf("expected same user, got %s", body.User.ID)
+	}
+
+	// reusing the same code → 400 (row deleted)
+	replayRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"email": "verify@example.com",
+		"code":  sentCode,
+	}, "")
+	if replayRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected replay 400, got %d", replayRes.Code)
+	}
+
+	// resend on already-verified → 409
+	resendRes := performJSON(env.router, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
+		"email": "verify@example.com",
+	}, "")
+	if resendRes.Code != http.StatusConflict {
+		t.Fatalf("expected resend-on-verified 409, got %d: %s", resendRes.Code, resendRes.Body.String())
+	}
+
+	// GET /me should show email_verified_at
+	meRes := performJSON(env.router, http.MethodGet, "/v1/me", nil, owner.Tokens.AccessToken)
+	if meRes.Code != http.StatusOK {
+		t.Fatalf("expected me 200, got %d", meRes.Code)
+	}
+	var meOut struct {
+		User struct {
+			EmailVerifiedAt *time.Time `json:"email_verified_at"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(meRes.Body.Bytes(), &meOut); err != nil {
+		t.Fatalf("decode me: %v", err)
+	}
+	if meOut.User.EmailVerifiedAt == nil {
+		t.Fatalf("expected email_verified_at in /me response")
+	}
+}
+
+func TestIntegrationResendVerificationFlow(t *testing.T) {
+	env := newIntegrationEnv(t)
+	registerUser(t, env.router, "resend@example.com", "Resend Org")
+
+	firstCode := env.mailer.Sent[0].Code
+
+	// resend (interval = 0 in test env → always allowed)
+	resendRes := performJSON(env.router, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
+		"email": "resend@example.com",
+	}, "")
+	if resendRes.Code != http.StatusAccepted {
+		t.Fatalf("expected resend 202, got %d: %s", resendRes.Code, resendRes.Body.String())
+	}
+	if len(env.mailer.Sent) != 2 {
+		t.Fatalf("expected 2 sent emails, got %d", len(env.mailer.Sent))
+	}
+	newCode := env.mailer.Sent[1].Code
+
+	// old code no longer valid after resend
+	oldRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"email": "resend@example.com",
+		"code":  firstCode,
+	}, "")
+	if oldRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected old-code 400, got %d", oldRes.Code)
+	}
+
+	// new code works
+	newRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"email": "resend@example.com",
+		"code":  newCode,
+	}, "")
+	if newRes.Code != http.StatusOK {
+		t.Fatalf("expected new-code 200, got %d: %s", newRes.Code, newRes.Body.String())
+	}
+
+	// unknown email → 202 (no leakage)
+	unknownRes := performJSON(env.router, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
+		"email": "nobody@example.com",
+	}, "")
+	if unknownRes.Code != http.StatusAccepted {
+		t.Fatalf("expected unknown-email resend 202, got %d", unknownRes.Code)
+	}
+}
+
+func TestIntegrationPasswordResetFlow(t *testing.T) {
+	env := newIntegrationEnv(t)
+	registerUser(t, env.router, "reset@example.com", "Reset Org")
+
+	// forgot-password for unknown email → 202 (no leakage)
+	unknownRes := performJSON(env.router, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
+		"email": "nobody@example.com",
+	}, "")
+	if unknownRes.Code != http.StatusAccepted {
+		t.Fatalf("expected unknown forgot 202, got %d", unknownRes.Code)
+	}
+
+	forgotRes := performJSON(env.router, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
+		"email": "reset@example.com",
+	}, "")
+	if forgotRes.Code != http.StatusAccepted {
+		t.Fatalf("expected forgot 202, got %d: %s", forgotRes.Code, forgotRes.Body.String())
+	}
+
+	var resetCode string
+	for _, m := range env.mailer.Sent {
+		if m.Kind == "password_reset" {
+			resetCode = m.Code
+		}
+	}
+	if resetCode == "" {
+		t.Fatal("expected password_reset email")
+	}
+
+	// wrong code → 400
+	wrongRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
+		"email":        "reset@example.com",
+		"code":         "000000",
+		"new_password": "newpassword99",
+	}, "")
+	if wrongRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected wrong-code 400, got %d", wrongRes.Code)
+	}
+
+	// correct code → 204
+	resetRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
+		"email":        "reset@example.com",
+		"code":         resetCode,
+		"new_password": "newpassword99",
+	}, "")
+	if resetRes.Code != http.StatusNoContent {
+		t.Fatalf("expected reset 204, got %d: %s", resetRes.Code, resetRes.Body.String())
+	}
+
+	// old password no longer works
+	oldLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "reset@example.com",
+		"password": "password123",
+	}, "")
+	if oldLoginRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected old-password 401, got %d", oldLoginRes.Code)
+	}
+
+	// new password works
+	newLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "reset@example.com",
+		"password": "newpassword99",
+	}, "")
+	if newLoginRes.Code != http.StatusOK {
+		t.Fatalf("expected new-password login 200, got %d: %s", newLoginRes.Code, newLoginRes.Body.String())
+	}
+
+	// reset code reuse → 400
+	replayRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
+		"email":        "reset@example.com",
+		"code":         resetCode,
+		"new_password": "anotherpass99",
+	}, "")
+	if replayRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected replay-code 400, got %d", replayRes.Code)
+	}
+}
+
+func TestIntegrationOTPMaxAttemptsExhausted(t *testing.T) {
+	env := newIntegrationEnv(t)
+	registerUser(t, env.router, "exhaust@example.com", "Exhaust Org")
+	_ = env.mailer.Sent[0].Code // register code — ignore
+
+	// request a password reset
+	performJSON(env.router, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
+		"email": "exhaust@example.com",
+	}, "")
+	var resetCode string
+	for _, m := range env.mailer.Sent {
+		if m.Kind == "password_reset" {
+			resetCode = m.Code
+			break
+		}
+	}
+	if resetCode == "" {
+		t.Fatal("expected password_reset email")
+	}
+
+	// exhaust 5 attempts with wrong code
+	for i := 0; i < 5; i++ {
+		res := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
+			"email":        "exhaust@example.com",
+			"code":         "000000",
+			"new_password": "newpassword99",
+		}, "")
+		if i < 4 && res.Code != http.StatusBadRequest {
+			t.Fatalf("attempt %d: expected 400, got %d", i+1, res.Code)
+		}
+		if i == 4 && res.Code != http.StatusTooManyRequests {
+			t.Fatalf("5th attempt: expected 429, got %d: %s", res.Code, res.Body.String())
+		}
+	}
+
+	// correct code no longer works — row deleted
+	expiredRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
+		"email":        "exhaust@example.com",
+		"code":         resetCode,
+		"new_password": "newpassword99",
+	}, "")
+	if expiredRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected deleted-row 400, got %d", expiredRes.Code)
+	}
 }

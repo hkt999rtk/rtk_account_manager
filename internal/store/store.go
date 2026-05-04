@@ -82,8 +82,8 @@ func (s *Store) Register(ctx context.Context, in RegisterInput) (RegisterResult,
 	err = tx.QueryRow(ctx, `
 		INSERT INTO users (email, password_hash, display_name)
 		VALUES ($1, $2, $3)
-		RETURNING id::text, email, display_name, created_at, updated_at, disabled_at
-	`, in.Email, in.PasswordHash, in.DisplayName).Scan(&user.ID, &user.Email, &user.DisplayName, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+		RETURNING id::text, email, display_name, created_at, updated_at, disabled_at, email_verified_at
+	`, in.Email, in.PasswordHash, in.DisplayName).Scan(&user.ID, &user.Email, &user.DisplayName, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt, &user.EmailVerifiedAt)
 	if err != nil {
 		return RegisterResult{}, err
 	}
@@ -117,10 +117,10 @@ func (s *Store) GetUserPassword(ctx context.Context, email string) (model.User, 
 	var user model.User
 	var hash string
 	err := s.db.QueryRow(ctx, `
-		SELECT id::text, email, password_hash, display_name, created_at, updated_at, disabled_at
+		SELECT id::text, email, password_hash, display_name, created_at, updated_at, disabled_at, email_verified_at
 		FROM users
 		WHERE email = $1 AND disabled_at IS NULL
-	`, email).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	`, email).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt, &user.EmailVerifiedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, "", ErrNotFound
 	}
@@ -131,10 +131,10 @@ func (s *Store) GetUserPasswordByID(ctx context.Context, userID string) (model.U
 	var user model.User
 	var hash string
 	err := s.db.QueryRow(ctx, `
-		SELECT id::text, email, password_hash, display_name, created_at, updated_at, disabled_at
+		SELECT id::text, email, password_hash, display_name, created_at, updated_at, disabled_at, email_verified_at
 		FROM users
 		WHERE id = $1 AND disabled_at IS NULL
-	`, userID).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	`, userID).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt, &user.EmailVerifiedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, "", ErrNotFound
 	}
@@ -144,10 +144,10 @@ func (s *Store) GetUserPasswordByID(ctx context.Context, userID string) (model.U
 func (s *Store) GetUser(ctx context.Context, userID string) (model.User, error) {
 	var user model.User
 	err := s.db.QueryRow(ctx, `
-		SELECT id::text, email, display_name, created_at, updated_at, disabled_at
+		SELECT id::text, email, display_name, created_at, updated_at, disabled_at, email_verified_at
 		FROM users
 		WHERE id = $1 AND disabled_at IS NULL
-	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt, &user.EmailVerifiedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, ErrNotFound
 	}
