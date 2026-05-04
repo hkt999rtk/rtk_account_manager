@@ -74,6 +74,72 @@ paths:
           $ref: "#/components/responses/Error"
         "401":
           $ref: "#/components/responses/Error"
+  /v1/auth/verify-email:
+    post:
+      summary: Verify a user's email with an OTP token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthTokenRequest"
+      responses:
+        "200":
+          description: Email verified.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/auth/resend-verification:
+    post:
+      summary: Issue a replacement email verification token.
+      description: Returns the same status for unknown or already verified users to avoid account enumeration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "202":
+          description: Verification resend accepted when applicable.
+        "400":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+  /v1/auth/forgot-password:
+    post:
+      summary: Issue a self-service password reset token.
+      description: Returns the same status for unknown users to avoid account enumeration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "202":
+          description: Password reset request accepted when applicable.
+        "400":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+  /v1/auth/reset-password:
+    post:
+      summary: Reset a user's password with a reset token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "204":
+          description: Password reset and active refresh tokens revoked.
+        "400":
+          $ref: "#/components/responses/Error"
   /v1/auth/logout:
     post:
       security:
@@ -967,6 +1033,30 @@ components:
         refresh_token:
           type: string
           minLength: 1
+    AuthTokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 1
+    EmailRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+    ResetPasswordRequest:
+      type: object
+      required: [token, new_password]
+      properties:
+        token:
+          type: string
+          minLength: 1
+        new_password:
+          type: string
+          minLength: 8
     ChangePasswordRequest:
       type: object
       required: [current_password, new_password]
@@ -1111,6 +1201,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Organization"
+    UserResponse:
+      type: object
+      required: [user]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
     OrganizationsResponse:
       type: object
       required: [organizations, pagination]
@@ -1236,7 +1332,7 @@ components:
               additionalProperties: true
     User:
       type: object
-      required: [id, email, created_at, updated_at]
+      required: [id, email, email_verified, created_at, updated_at]
       properties:
         id:
           type: string
@@ -1246,6 +1342,11 @@ components:
           format: email
         display_name:
           type: string
+        email_verified:
+          type: boolean
+        email_verified_at:
+          type: string
+          format: date-time
         created_at:
           type: string
           format: date-time

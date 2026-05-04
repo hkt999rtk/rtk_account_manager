@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -47,7 +49,7 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		TRUNCATE refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
+		TRUNCATE auth_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatal(err)
@@ -126,6 +128,140 @@ func TestIntegrationRegisterLoginRefreshAndLogout(t *testing.T) {
 	}, "")
 	if invalidRefreshRes.Code != http.StatusUnauthorized {
 		t.Fatalf("expected invalid refresh token 401, got %d", invalidRefreshRes.Code)
+	}
+}
+
+func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	registered := registerUser(t, env.router, "verify@example.com", "Verify Org")
+	if registered.User.EmailVerified {
+		t.Fatal("expected newly registered user to start unverified")
+	}
+
+	var issuedVerificationTokens int
+	if err := env.db.QueryRow(context.Background(), `
+		SELECT count(*) FROM auth_tokens WHERE user_id = $1 AND purpose = 'email_verification'
+	`, registered.User.ID).Scan(&issuedVerificationTokens); err != nil {
+		t.Fatal(err)
+	}
+	if issuedVerificationTokens != 1 {
+		t.Fatalf("expected registration to issue one verification token, got %d", issuedVerificationTokens)
+	}
+
+	accountStore := store.New(env.db)
+	verificationToken := "known-verification-token"
+	if err := accountStore.CreateEmailVerificationToken(context.Background(), registered.User.ID, auth.HashToken(verificationToken), time.Now().Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": verificationToken,
+	}, "")
+	if verifyRes.Code != http.StatusOK {
+		t.Fatalf("expected verify email 200, got %d: %s", verifyRes.Code, verifyRes.Body.String())
+	}
+	verified := decodeBody[userBody](t, verifyRes)
+	if !verified.User.EmailVerified || verified.User.EmailVerifiedAt == nil {
+		t.Fatalf("expected verified user response, got %+v", verified.User)
+	}
+	reuseVerifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": verificationToken,
+	}, "")
+	if reuseVerifyRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected consumed verification token 400, got %d", reuseVerifyRes.Code)
+	}
+
+	resendVerifiedRes := performJSON(env.router, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
+		"email": "verify@example.com",
+	}, "")
+	if resendVerifiedRes.Code != http.StatusAccepted {
+		t.Fatalf("expected resend for verified user to stay enumeration-safe 202, got %d", resendVerifiedRes.Code)
+	}
+	createdUnknownVerification, err := accountStore.CreateEmailVerificationTokenForEmail(context.Background(), "missing@example.com", auth.HashToken("missing-verification"), time.Now().Add(30*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createdUnknownVerification {
+		t.Fatal("expected unknown verification email not to create a token")
+	}
+	createdVerifiedVerification, err := accountStore.CreateEmailVerificationTokenForEmail(context.Background(), "verify@example.com", auth.HashToken("verified-verification"), time.Now().Add(30*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createdVerifiedVerification {
+		t.Fatal("expected verified user not to create another verification token")
+	}
+
+	expiredVerificationToken := "expired-verification-token"
+	if err := accountStore.CreateEmailVerificationToken(context.Background(), registered.User.ID, auth.HashToken(expiredVerificationToken), time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	expiredVerifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": expiredVerificationToken,
+	}, "")
+	if expiredVerifyRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected expired verification token 400, got %d", expiredVerifyRes.Code)
+	}
+
+	forgotUnknownRes := performJSON(env.router, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
+		"email": "unknown@example.com",
+	}, "")
+	if forgotUnknownRes.Code != http.StatusAccepted {
+		t.Fatalf("expected unknown forgot-password to stay enumeration-safe 202, got %d", forgotUnknownRes.Code)
+	}
+	createdUnknownReset, err := accountStore.CreatePasswordResetTokenForEmail(context.Background(), "missing@example.com", auth.HashToken("missing-reset"), time.Now().Add(30*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createdUnknownReset {
+		t.Fatal("expected unknown reset email not to create a token")
+	}
+	forgotRes := performJSON(env.router, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
+		"email": "verify@example.com",
+	}, "")
+	if forgotRes.Code != http.StatusAccepted {
+		t.Fatalf("expected forgot-password 202, got %d: %s", forgotRes.Code, forgotRes.Body.String())
+	}
+	rateLimited := registerUser(t, env.router, "rate-limit@example.com", "Rate Limit Org")
+	for i := 0; i < 5; i++ {
+		if err := accountStore.CreatePasswordResetToken(context.Background(), rateLimited.User.ID, auth.HashToken("rate-limit-reset-"+strconv.Itoa(i)), time.Now().Add(30*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := accountStore.CreatePasswordResetToken(context.Background(), rateLimited.User.ID, auth.HashToken("rate-limit-reset-final"), time.Now().Add(30*time.Minute)); !errors.Is(err, store.ErrRateLimited) {
+		t.Fatalf("expected password reset token throttling, got %v", err)
+	}
+
+	resetToken := "known-reset-token"
+	if err := accountStore.CreatePasswordResetToken(context.Background(), registered.User.ID, auth.HashToken(resetToken), time.Now().Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	resetRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
+		"token":        resetToken,
+		"new_password": "reset-password123",
+	}, "")
+	if resetRes.Code != http.StatusNoContent {
+		t.Fatalf("expected reset password 204, got %d: %s", resetRes.Code, resetRes.Body.String())
+	}
+	oldPasswordLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "verify@example.com",
+		"password": "password123",
+	}, "")
+	if oldPasswordLoginRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected old password to fail after reset, got %d", oldPasswordLoginRes.Code)
+	}
+	revokedRefreshRes := performJSON(env.router, http.MethodPost, "/v1/auth/refresh", map[string]any{
+		"refresh_token": registered.Tokens.RefreshToken,
+	}, "")
+	if revokedRefreshRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected reset to revoke active refresh tokens, got %d", revokedRefreshRes.Code)
+	}
+	newPasswordLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "verify@example.com",
+		"password": "reset-password123",
+	}, "")
+	if newPasswordLoginRes.Code != http.StatusOK {
+		t.Fatalf("expected new password login 200, got %d: %s", newPasswordLoginRes.Code, newPasswordLoginRes.Body.String())
 	}
 }
 
@@ -1625,7 +1761,8 @@ func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 
 type registerBody struct {
 	User struct {
-		ID string `json:"id"`
+		ID            string `json:"id"`
+		EmailVerified bool   `json:"email_verified"`
 	} `json:"user"`
 	Organization struct {
 		ID string `json:"id"`
@@ -1634,6 +1771,14 @@ type registerBody struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
 	} `json:"tokens"`
+}
+
+type userBody struct {
+	User struct {
+		ID              string     `json:"id"`
+		EmailVerified   bool       `json:"email_verified"`
+		EmailVerifiedAt *time.Time `json:"email_verified_at"`
+	} `json:"user"`
 }
 
 type tokenBody struct {
@@ -1645,7 +1790,8 @@ type tokenBody struct {
 
 type meBody struct {
 	User struct {
-		ID string `json:"id"`
+		ID            string `json:"id"`
+		EmailVerified bool   `json:"email_verified"`
 	} `json:"user"`
 	Organizations []struct {
 		ID string `json:"id"`

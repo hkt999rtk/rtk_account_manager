@@ -110,12 +110,14 @@ const (
 )
 
 type User struct {
-	ID          string     `json:"id"`
-	Email       string     `json:"email"`
-	DisplayName *string    `json:"display_name,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	DisabledAt  *time.Time `json:"disabled_at,omitempty"`
+	ID              string     `json:"id"`
+	Email           string     `json:"email"`
+	DisplayName     *string    `json:"display_name,omitempty"`
+	EmailVerified   bool       `json:"email_verified"`
+	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	DisabledAt      *time.Time `json:"disabled_at,omitempty"`
 }
 
 type Organization struct {
