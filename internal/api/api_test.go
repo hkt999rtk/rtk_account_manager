@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -15,6 +16,12 @@ import (
 	"rtk_account_manager/internal/model"
 	"rtk_account_manager/internal/store"
 )
+
+type failingAuthTokenSink struct{}
+
+func (failingAuthTokenSink) DeliverAuthToken(context.Context, AuthTokenDelivery) error {
+	return errors.New("delivery failed")
+}
 
 func TestRequireAuthRejectsMissingToken(t *testing.T) {
 	server := New(nil, auth.NewService("access-secret", "refresh-secret", time.Minute, time.Hour))
@@ -48,6 +55,22 @@ func TestHealthRoute(t *testing.T) {
 	}
 	if body.Status != "ok" {
 		t.Fatalf("expected ok status, got %q", body.Status)
+	}
+}
+
+func TestAuthTokenDeliveryHook(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	noopServer := New(nil, nil)
+	if err := noopServer.deliverAuthToken(c, "user@example.com", "email_verification", "token", time.Now()); err != nil {
+		t.Fatalf("expected nil sink delivery to be no-op, got %v", err)
+	}
+
+	errorServer := NewWithAuthTokenSink(nil, nil, failingAuthTokenSink{})
+	if err := errorServer.deliverAuthToken(c, "user@example.com", "email_verification", "token", time.Now()); err == nil {
+		t.Fatal("expected sink delivery error")
 	}
 }
 
@@ -220,7 +243,7 @@ func TestNewAuthTokenAndUnsupportedPurpose(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
-	if _, err := server.createAuthToken(c, "user-1", "unsupported"); err == nil {
+	if _, _, err := server.createAuthToken(c, "user-1", "unsupported"); err == nil {
 		t.Fatal("expected unsupported token purpose error")
 	}
 }

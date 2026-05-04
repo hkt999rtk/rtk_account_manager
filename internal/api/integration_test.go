@@ -24,8 +24,18 @@ import (
 )
 
 type integrationEnv struct {
-	router *gin.Engine
-	db     *pgxpool.Pool
+	router    *gin.Engine
+	db        *pgxpool.Pool
+	tokenSink *recordingAuthTokenSink
+}
+
+type recordingAuthTokenSink struct {
+	deliveries []AuthTokenDelivery
+}
+
+func (s *recordingAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthTokenDelivery) error {
+	s.deliveries = append(s.deliveries, delivery)
+	return nil
 }
 
 func newIntegrationEnv(t *testing.T) integrationEnv {
@@ -57,7 +67,12 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 
 	gin.SetMode(gin.TestMode)
 	authService := auth.NewService("test-access-secret", "test-refresh-secret", time.Minute, time.Hour)
-	return integrationEnv{router: New(store.New(db), authService).Router(), db: db}
+	tokenSink := &recordingAuthTokenSink{}
+	return integrationEnv{
+		router:    NewWithAuthTokenSink(store.New(db), authService, tokenSink).Router(),
+		db:        db,
+		tokenSink: tokenSink,
+	}
 }
 
 func TestIntegrationRegisterLoginRefreshAndLogout(t *testing.T) {
@@ -150,10 +165,7 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	}
 
 	accountStore := store.New(env.db)
-	verificationToken := "known-verification-token"
-	if err := accountStore.CreateEmailVerificationToken(context.Background(), registered.User.ID, auth.HashToken(verificationToken), time.Now().Add(30*time.Minute)); err != nil {
-		t.Fatal(err)
-	}
+	verificationToken := latestAuthToken(t, env.tokenSink, "verify@example.com", "email_verification")
 	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
 		"token": verificationToken,
 	}, "")
@@ -169,6 +181,51 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	}, "")
 	if reuseVerifyRes.Code != http.StatusBadRequest {
 		t.Fatalf("expected consumed verification token 400, got %d", reuseVerifyRes.Code)
+	}
+
+	resendTarget := registerUser(t, env.router, "resend@example.com", "Resend Org")
+	resendRes := performJSON(env.router, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
+		"email": "resend@example.com",
+	}, "")
+	if resendRes.Code != http.StatusAccepted {
+		t.Fatalf("expected resend for unverified user 202, got %d", resendRes.Code)
+	}
+	resendToken := latestAuthToken(t, env.tokenSink, "resend@example.com", "email_verification")
+	verifyResendRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": resendToken,
+	}, "")
+	if verifyResendRes.Code != http.StatusOK {
+		t.Fatalf("expected resent verification token 200, got %d: %s", verifyResendRes.Code, verifyResendRes.Body.String())
+	}
+	if resendTarget.User.ID == "" {
+		t.Fatal("expected resend target user id")
+	}
+	registerUser(t, env.router, "resend-delivery-failure@example.com", "Resend Delivery Failure Org")
+	failingDeliveryRouter := NewWithAuthTokenSink(
+		accountStore,
+		auth.NewService("test-access-secret", "test-refresh-secret", time.Minute, time.Hour),
+		failingAuthTokenSink{},
+	).Router()
+	registerDeliveryFailureRes := performJSON(failingDeliveryRouter, http.MethodPost, "/v1/auth/register", map[string]any{
+		"email":             "delivery-failure@example.com",
+		"password":          "password123",
+		"display_name":      "delivery failure",
+		"organization_name": "Delivery Failure Org",
+	}, "")
+	if registerDeliveryFailureRes.Code != http.StatusInternalServerError {
+		t.Fatalf("expected register delivery failure 500, got %d", registerDeliveryFailureRes.Code)
+	}
+	resendDeliveryFailureRes := performJSON(failingDeliveryRouter, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
+		"email": "resend-delivery-failure@example.com",
+	}, "")
+	if resendDeliveryFailureRes.Code != http.StatusAccepted {
+		t.Fatalf("expected resend delivery failure to remain enumeration-safe 202, got %d", resendDeliveryFailureRes.Code)
+	}
+	forgotDeliveryFailureRes := performJSON(failingDeliveryRouter, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
+		"email": "resend@example.com",
+	}, "")
+	if forgotDeliveryFailureRes.Code != http.StatusAccepted {
+		t.Fatalf("expected forgot delivery failure to remain enumeration-safe 202, got %d", forgotDeliveryFailureRes.Code)
 	}
 
 	resendVerifiedRes := performJSON(env.router, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
@@ -231,17 +288,52 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	if err := accountStore.CreatePasswordResetToken(context.Background(), rateLimited.User.ID, auth.HashToken("rate-limit-reset-final"), time.Now().Add(30*time.Minute)); !errors.Is(err, store.ErrRateLimited) {
 		t.Fatalf("expected password reset token throttling, got %v", err)
 	}
+	forgotRateLimitedRes := performJSON(env.router, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
+		"email": "rate-limit@example.com",
+	}, "")
+	if forgotRateLimitedRes.Code != http.StatusAccepted {
+		t.Fatalf("expected forgot-password throttling to remain enumeration-safe 202, got %d", forgotRateLimitedRes.Code)
+	}
+	resendRateLimited := registerUser(t, env.router, "resend-rate-limit@example.com", "Resend Rate Limit Org")
+	for i := 0; i < 4; i++ {
+		if err := accountStore.CreateEmailVerificationToken(context.Background(), resendRateLimited.User.ID, auth.HashToken("rate-limit-verify-"+strconv.Itoa(i)), time.Now().Add(30*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resendRateLimitedRes := performJSON(env.router, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
+		"email": "resend-rate-limit@example.com",
+	}, "")
+	if resendRateLimitedRes.Code != http.StatusAccepted {
+		t.Fatalf("expected resend-verification throttling to remain enumeration-safe 202, got %d", resendRateLimitedRes.Code)
+	}
 
-	resetToken := "known-reset-token"
-	if err := accountStore.CreatePasswordResetToken(context.Background(), registered.User.ID, auth.HashToken(resetToken), time.Now().Add(30*time.Minute)); err != nil {
+	expiredResetUser := registerUser(t, env.router, "expired-reset@example.com", "Expired Reset Org")
+	expiredResetToken := "expired-reset-token"
+	if err := accountStore.CreatePasswordResetToken(context.Background(), expiredResetUser.User.ID, auth.HashToken(expiredResetToken), time.Now().Add(-time.Minute)); err != nil {
 		t.Fatal(err)
 	}
+	expiredResetRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
+		"token":        expiredResetToken,
+		"new_password": "expired-reset123",
+	}, "")
+	if expiredResetRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected expired reset token 400, got %d", expiredResetRes.Code)
+	}
+
+	resetToken := latestAuthToken(t, env.tokenSink, "verify@example.com", "password_reset")
 	resetRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
 		"token":        resetToken,
 		"new_password": "reset-password123",
 	}, "")
 	if resetRes.Code != http.StatusNoContent {
 		t.Fatalf("expected reset password 204, got %d: %s", resetRes.Code, resetRes.Body.String())
+	}
+	reuseResetRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
+		"token":        resetToken,
+		"new_password": "second-reset123",
+	}, "")
+	if reuseResetRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected consumed reset token 400, got %d", reuseResetRes.Code)
 	}
 	oldPasswordLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
 		"email":    "verify@example.com",
@@ -262,6 +354,42 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	}, "")
 	if newPasswordLoginRes.Code != http.StatusOK {
 		t.Fatalf("expected new password login 200, got %d: %s", newPasswordLoginRes.Code, newPasswordLoginRes.Body.String())
+	}
+
+	disabled := registerUser(t, env.router, "recovery-disabled@example.com", "Recovery Disabled Org")
+	disabledVerificationToken := latestAuthToken(t, env.tokenSink, "recovery-disabled@example.com", "email_verification")
+	if _, err := env.db.Exec(context.Background(), `
+		UPDATE users SET disabled_at = now(), updated_at = now() WHERE id = $1
+	`, disabled.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	disabledVerifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": disabledVerificationToken,
+	}, "")
+	if disabledVerifyRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected disabled user verification token 400, got %d", disabledVerifyRes.Code)
+	}
+	if err := accountStore.CreatePasswordResetToken(context.Background(), disabled.User.ID, auth.HashToken("disabled-reset-token"), time.Now().Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	disabledResetRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
+		"token":        "disabled-reset-token",
+		"new_password": "disabled-reset123",
+	}, "")
+	if disabledResetRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected disabled user reset token 400, got %d", disabledResetRes.Code)
+	}
+	disabledForgotRes := performJSON(env.router, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
+		"email": "recovery-disabled@example.com",
+	}, "")
+	if disabledForgotRes.Code != http.StatusAccepted {
+		t.Fatalf("expected disabled forgot-password to remain enumeration-safe 202, got %d", disabledForgotRes.Code)
+	}
+	disabledResendRes := performJSON(env.router, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
+		"email": "recovery-disabled@example.com",
+	}, "")
+	if disabledResendRes.Code != http.StatusAccepted {
+		t.Fatalf("expected disabled resend-verification to remain enumeration-safe 202, got %d", disabledResendRes.Code)
 	}
 }
 
@@ -1887,6 +2015,21 @@ func registerUser(t *testing.T, router *gin.Engine, email, orgName string) regis
 		t.Fatalf("expected register 201, got %d: %s", res.Code, res.Body.String())
 	}
 	return decodeBody[registerBody](t, res)
+}
+
+func latestAuthToken(t *testing.T, sink *recordingAuthTokenSink, email, purpose string) string {
+	t.Helper()
+	for i := len(sink.deliveries) - 1; i >= 0; i-- {
+		delivery := sink.deliveries[i]
+		if delivery.Email == email && delivery.Purpose == purpose {
+			if delivery.Token == "" || delivery.ExpiresAt.IsZero() {
+				t.Fatalf("unexpected empty token delivery: %+v", delivery)
+			}
+			return delivery.Token
+		}
+	}
+	t.Fatalf("missing %s token delivery for %s in %+v", purpose, email, sink.deliveries)
+	return ""
 }
 
 func devicePayload(name, serial string) map[string]any {

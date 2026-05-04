@@ -44,7 +44,7 @@ Provisioning and account/video event-channel integration are the v2 surface impl
 - Device command dispatch.
 - Device self-registration or provisioning flows in v1.
 - Device certificate management.
-- OTP/email verification, self-service password recovery/reset, and third-party/social login.
+- Third-party/social login.
 - Executable batch operations, OTA campaign execution, and firmware rollout policy.
 - Custom RBAC permissions.
 - Multi-region deployment concerns.
@@ -376,9 +376,9 @@ Constraints:
   and marks `user.email_verified=true`.
 - `POST /v1/auth/resend-verification` issues a replacement verification token
   for unverified users and returns an enumeration-safe `202 Accepted` for
-  unknown or already verified users.
+  unknown, already verified, disabled, or throttled users.
 - `POST /v1/auth/forgot-password` issues a password reset token and returns an
-  enumeration-safe `202 Accepted`.
+  enumeration-safe `202 Accepted` for unknown, disabled, or throttled users.
 - `POST /v1/auth/reset-password` consumes a one-time password reset token,
   updates the password, and revokes all active refresh tokens for the user.
 - `PATCH /v1/me/password` lets the authenticated current user change their password after presenting the current password and a new password of at least 8 characters.
@@ -388,6 +388,10 @@ Constraints:
 - Verification and password reset tokens expire after 30 minutes, are stored
   hashed, become one-time-use after consumption, and are throttled to five
   issued tokens per user/purpose per hour.
+- Auth token delivery is an explicit adapter boundary. The API process accepts
+  an `AuthTokenSink` implementation for email/SMS/dev-test delivery; the default
+  constructor performs no delivery and is suitable only when another embedding
+  layer wires the sink before exposing self-service recovery.
 - Third-party/social login is a deferred first-phase lifecycle capability and
   must not be presented as available API behavior until implemented.
 - Expired or revoked refresh tokens may be removed by an explicit maintenance command.

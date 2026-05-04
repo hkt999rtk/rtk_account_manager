@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,12 +18,28 @@ import (
 )
 
 type Server struct {
-	store *store.Store
-	auth  *auth.Service
+	store         *store.Store
+	auth          *auth.Service
+	authTokenSink AuthTokenSink
 }
 
 func New(store *store.Store, authService *auth.Service) *Server {
 	return &Server{store: store, auth: authService}
+}
+
+type AuthTokenDelivery struct {
+	Purpose   string
+	Email     string
+	Token     string
+	ExpiresAt time.Time
+}
+
+type AuthTokenSink interface {
+	DeliverAuthToken(context.Context, AuthTokenDelivery) error
+}
+
+func NewWithAuthTokenSink(store *store.Store, authService *auth.Service, sink AuthTokenSink) *Server {
+	return &Server{store: store, auth: authService, authTokenSink: sink}
 }
 
 func (s *Server) Router() *gin.Engine {
@@ -114,8 +131,13 @@ func (s *Server) register(c *gin.Context) {
 		writeStoreError(c, err)
 		return
 	}
-	if _, err := s.createAuthToken(c, result.User.ID, "email_verification"); err != nil {
+	token, expiresAt, err := s.createAuthToken(c, result.User.ID, "email_verification")
+	if err != nil {
 		writeAuthTokenStoreError(c, err, "Could not issue verification token")
+		return
+	}
+	if err := s.deliverAuthToken(c, result.User.Email, "email_verification", token, expiresAt); err != nil {
+		writeError(c, http.StatusInternalServerError, "token_delivery_failed", "Could not deliver verification token")
 		return
 	}
 	tokens, err := s.issueTokens(c, result.User.ID)
@@ -251,10 +273,18 @@ func (s *Server) resendVerification(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue verification token")
 		return
 	}
-	_, err = s.store.CreateEmailVerificationTokenForEmail(c.Request.Context(), strings.ToLower(strings.TrimSpace(req.Email)), auth.HashToken(token), expiresAt)
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	created, err := s.store.CreateEmailVerificationTokenForEmail(c.Request.Context(), email, auth.HashToken(token), expiresAt)
 	if err != nil {
+		if errors.Is(err, store.ErrRateLimited) {
+			c.Status(http.StatusAccepted)
+			return
+		}
 		writeAuthTokenStoreError(c, err, "Could not issue verification token")
 		return
+	}
+	if created {
+		_ = s.deliverAuthToken(c, email, "email_verification", token, expiresAt)
 	}
 	c.Status(http.StatusAccepted)
 }
@@ -269,10 +299,18 @@ func (s *Server) forgotPassword(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue reset token")
 		return
 	}
-	_, err = s.store.CreatePasswordResetTokenForEmail(c.Request.Context(), strings.ToLower(strings.TrimSpace(req.Email)), auth.HashToken(token), expiresAt)
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	created, err := s.store.CreatePasswordResetTokenForEmail(c.Request.Context(), email, auth.HashToken(token), expiresAt)
 	if err != nil {
+		if errors.Is(err, store.ErrRateLimited) {
+			c.Status(http.StatusAccepted)
+			return
+		}
 		writeAuthTokenStoreError(c, err, "Could not issue reset token")
 		return
+	}
+	if created {
+		_ = s.deliverAuthToken(c, email, "password_reset", token, expiresAt)
 	}
 	c.Status(http.StatusAccepted)
 }
@@ -302,20 +340,32 @@ func (s *Server) resetPassword(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-func (s *Server) createAuthToken(c *gin.Context, userID, purpose string) (string, error) {
+func (s *Server) createAuthToken(c *gin.Context, userID, purpose string) (string, time.Time, error) {
 	token, expiresAt, err := s.newAuthToken()
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 	tokenHash := auth.HashToken(token)
 	switch purpose {
 	case "email_verification":
-		return token, s.store.CreateEmailVerificationToken(c.Request.Context(), userID, tokenHash, expiresAt)
+		return token, expiresAt, s.store.CreateEmailVerificationToken(c.Request.Context(), userID, tokenHash, expiresAt)
 	case "password_reset":
-		return token, s.store.CreatePasswordResetToken(c.Request.Context(), userID, tokenHash, expiresAt)
+		return token, expiresAt, s.store.CreatePasswordResetToken(c.Request.Context(), userID, tokenHash, expiresAt)
 	default:
-		return "", errors.New("unsupported token purpose")
+		return "", time.Time{}, errors.New("unsupported token purpose")
 	}
+}
+
+func (s *Server) deliverAuthToken(c *gin.Context, email, purpose, token string, expiresAt time.Time) error {
+	if s.authTokenSink == nil {
+		return nil
+	}
+	return s.authTokenSink.DeliverAuthToken(c.Request.Context(), AuthTokenDelivery{
+		Purpose:   purpose,
+		Email:     email,
+		Token:     token,
+		ExpiresAt: expiresAt,
+	})
 }
 
 func (s *Server) newAuthToken() (string, time.Time, error) {

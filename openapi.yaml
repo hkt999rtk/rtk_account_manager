@@ -95,7 +95,7 @@ paths:
   /v1/auth/resend-verification:
     post:
       summary: Issue a replacement email verification token.
-      description: Returns the same status for unknown or already verified users to avoid account enumeration.
+      description: Returns the same status for unknown, already verified, disabled, or throttled users to avoid account enumeration. Token delivery is owned by the configured server-side AuthTokenSink adapter, not by the HTTP response body.
       requestBody:
         required: true
         content:
@@ -107,12 +107,10 @@ paths:
           description: Verification resend accepted when applicable.
         "400":
           $ref: "#/components/responses/Error"
-        "429":
-          $ref: "#/components/responses/Error"
   /v1/auth/forgot-password:
     post:
       summary: Issue a self-service password reset token.
-      description: Returns the same status for unknown users to avoid account enumeration.
+      description: Returns the same status for unknown, disabled, or throttled users to avoid account enumeration. Token delivery is owned by the configured server-side AuthTokenSink adapter, not by the HTTP response body.
       requestBody:
         required: true
         content:
@@ -123,8 +121,6 @@ paths:
         "202":
           description: Password reset request accepted when applicable.
         "400":
-          $ref: "#/components/responses/Error"
-        "429":
           $ref: "#/components/responses/Error"
   /v1/auth/reset-password:
     post:

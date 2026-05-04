@@ -1,6 +1,6 @@
 # Test Report
 
-Generated: 2026-05-04T23:08:14Z
+Generated: 2026-05-04T23:49:53Z
 
 ## Summary
 
@@ -16,7 +16,7 @@ Generated: 2026-05-04T23:08:14Z
 
 | Metric | Value |
 | --- | --- |
-| Total statement coverage | 80.0% |
+| Total statement coverage | 80.1% |
 | Minimum required coverage | 80.0% |
 | Coverage mode | atomic |
 | Coverage scope | ./internal/... |
@@ -26,8 +26,8 @@ Generated: 2026-05-04T23:08:14Z
 | Metric | Value |
 | --- | --- |
 | Go packages | 18 |
-| Test cases started | 225 |
-| JSON pass events | 236 |
+| Test cases started | 226 |
+| JSON pass events | 237 |
 | JSON fail events | 0 |
 | Integration database | Postgres via TEST_DATABASE_URL |
 
@@ -72,6 +72,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests/reset_password_short_new_password`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests/verify_email_missing_token`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests`
+- `rtk_account_manager/internal/api`: `TestAuthTokenDeliveryHook`
 - `rtk_account_manager/internal/api`: `TestBindStrictRejectsUnknownFields`
 - `rtk_account_manager/internal/api`: `TestHealthRoute`
 - `rtk_account_manager/internal/api`: `TestIntegrationCleanupRefreshTokensRemovesExpiredAndRevokedRows`
