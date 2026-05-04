@@ -454,6 +454,13 @@ Account-side readiness states:
 - `deactivated`
 - `disabled`
 
+`GET /provisioning` also exposes `readiness.product_state` with the shared
+product-readiness vocabulary (`registered`, `cloud_activation_pending`,
+`activated`, `online`, `failed`, `deactivation_pending`, `deactivated`) derived
+from the same account-side source facts. `claim_pending` and
+`local_onboarding_pending` are intentionally not emitted until account manager
+owns durable facts for those phases.
+
 Failure handling:
 
 - Activation failure must stay visible through operation error fields and

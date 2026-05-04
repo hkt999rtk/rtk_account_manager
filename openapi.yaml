@@ -1210,10 +1210,12 @@ components:
           additionalProperties: true
     DeviceReadinessProjection:
       type: object
-      required: [state, sources]
+      required: [state, product_state, sources]
       properties:
         state:
           $ref: "#/components/schemas/DeviceReadinessState"
+        product_state:
+          $ref: "#/components/schemas/ProductReadinessState"
         sources:
           type: object
           required: [device_enabled, device_status, provisioning_operation_status]
@@ -1455,6 +1457,9 @@ components:
     DeviceReadinessState:
       type: string
       enum: [activation_pending, activation_failed, transport_pending, ready, deactivation_pending, deactivation_failed, deactivated, disabled]
+    ProductReadinessState:
+      type: string
+      enum: [registered, claim_pending, local_onboarding_pending, cloud_activation_pending, activated, online, failed, deactivation_pending, deactivated]
     ErrorResponse:
       type: object
       required: [error]
