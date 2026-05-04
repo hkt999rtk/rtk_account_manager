@@ -65,8 +65,9 @@ type operationResponse struct {
 }
 
 type readinessResponse struct {
-	State   model.DeviceReadinessState `json:"state"`
-	Sources readinessSourcesResponse   `json:"sources"`
+	State        model.DeviceReadinessState  `json:"state"`
+	ProductState model.ProductReadinessState `json:"product_state"`
+	Sources      readinessSourcesResponse    `json:"sources"`
 }
 
 type readinessSourcesResponse struct {
@@ -406,8 +407,9 @@ func readinessFromProjection(device model.Device, provisioningOperation model.De
 	}
 
 	return readinessResponse{
-		State:   readinessStateFromSources(sources),
-		Sources: sources,
+		State:        readinessStateFromSources(sources),
+		ProductState: productReadinessStateFromSources(sources),
+		Sources:      sources,
 	}
 }
 
@@ -448,6 +450,45 @@ func readinessStateFromSources(sources readinessSourcesResponse) model.DeviceRea
 	}
 
 	return model.DeviceReadinessStateActivationPending
+}
+
+func productReadinessStateFromSources(sources readinessSourcesResponse) model.ProductReadinessState {
+	if sources.DeactivationOperationStatus != nil {
+		switch *sources.DeactivationOperationStatus {
+		case model.DeviceOperationStatusPending, model.DeviceOperationStatusPublished, model.DeviceOperationStatusRetrying:
+			return model.ProductReadinessStateDeactivationPending
+		case model.DeviceOperationStatusFailed, model.DeviceOperationStatusDeadLettered:
+			return model.ProductReadinessStateFailed
+		case model.DeviceOperationStatusSucceeded:
+			return model.ProductReadinessStateDeactivated
+		}
+	}
+
+	if sources.VideoCloudActivationStatus != nil && *sources.VideoCloudActivationStatus == string(model.VideoCloudActivationStatusDeactivated) {
+		return model.ProductReadinessStateDeactivated
+	}
+
+	if !sources.DeviceEnabled || sources.DeviceStatus == model.DeviceStatusDisabled {
+		return model.ProductReadinessStateRegistered
+	}
+
+	if sources.ProvisioningOperationStatus == model.DeviceOperationStatusFailed ||
+		sources.ProvisioningOperationStatus == model.DeviceOperationStatusDeadLettered ||
+		(sources.VideoCloudActivationStatus != nil && *sources.VideoCloudActivationStatus == string(model.VideoCloudActivationStatusFailed)) ||
+		sources.VideoCloudLastError != nil {
+		return model.ProductReadinessStateFailed
+	}
+
+	if sources.ProvisioningOperationStatus == model.DeviceOperationStatusSucceeded &&
+		sources.VideoCloudActivationStatus != nil &&
+		*sources.VideoCloudActivationStatus == string(model.VideoCloudActivationStatusActivated) {
+		if sources.DeviceStatus == model.DeviceStatusOnline {
+			return model.ProductReadinessStateOnline
+		}
+		return model.ProductReadinessStateActivated
+	}
+
+	return model.ProductReadinessStateCloudActivationPending
 }
 
 func metadataString(metadata map[string]any, key string) (string, bool) {

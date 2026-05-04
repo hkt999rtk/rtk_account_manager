@@ -1369,6 +1369,9 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 	if memberState.Readiness.State != model.DeviceReadinessStateActivationPending {
 		t.Fatalf("expected pending readiness state, got %+v", memberState.Readiness)
 	}
+	if memberState.Readiness.ProductState != model.ProductReadinessStateCloudActivationPending {
+		t.Fatalf("expected pending product readiness state, got %+v", memberState.Readiness)
+	}
 	if memberState.Readiness.Sources.DeviceStatus != model.DeviceStatusUnknown ||
 		memberState.Readiness.Sources.ProvisioningOperationStatus != model.DeviceOperationStatusPending ||
 		memberState.Readiness.Sources.VideoCloudActivationStatus == nil ||

@@ -49,6 +49,20 @@ const (
 	DeviceReadinessStateDisabled            DeviceReadinessState = "disabled"
 )
 
+type ProductReadinessState string
+
+const (
+	ProductReadinessStateRegistered             ProductReadinessState = "registered"
+	ProductReadinessStateClaimPending           ProductReadinessState = "claim_pending"
+	ProductReadinessStateLocalOnboardingPending ProductReadinessState = "local_onboarding_pending"
+	ProductReadinessStateCloudActivationPending ProductReadinessState = "cloud_activation_pending"
+	ProductReadinessStateActivated              ProductReadinessState = "activated"
+	ProductReadinessStateOnline                 ProductReadinessState = "online"
+	ProductReadinessStateFailed                 ProductReadinessState = "failed"
+	ProductReadinessStateDeactivationPending    ProductReadinessState = "deactivation_pending"
+	ProductReadinessStateDeactivated            ProductReadinessState = "deactivated"
+)
+
 const (
 	DeviceMetadataVideoCloudDevid            = "video_cloud_devid"
 	DeviceMetadataVideoCloudActivationStatus = "video_cloud_activation_status"

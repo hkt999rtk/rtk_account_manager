@@ -631,6 +631,7 @@ Provisioning-state response body for `GET .../provisioning`:
   },
   "readiness": {
     "state": "transport_pending",
+    "product_state": "activated",
     "sources": {
       "device_enabled": true,
       "device_status": "offline",
@@ -674,6 +675,13 @@ it owns locally, while the integrating client or service remains responsible
 for adding video-side token and bootstrap inputs that do not live in this
 repository.
 
+The response keeps the legacy account-side `readiness.state` for existing
+clients and also exposes `readiness.product_state` using the shared
+product-readiness vocabulary. The product vocabulary field is still derived
+only from account-manager-owned durable source facts; it does not accept direct
+writes and it does not imply account manager owns SDK/local onboarding,
+credential issuance, or video bootstrap facts.
+
 Current readiness inputs:
 
 | Input | Source of truth | Meaning |
@@ -700,6 +708,23 @@ Account-side readiness projection rules:
   latest deactivation operation status, and projected video last-error data.
 - Compose the final readiness view from this account-manager projection plus
   the required video-side credential and bootstrap signals.
+
+`readiness.product_state` maps account-side facts into the cross-service
+vocabulary as follows:
+
+| Product state | Account-manager projection rule |
+| --- | --- |
+| `registered` | The account registry record exists but account-manager facts do not show active provisioning, or the registry record is soft-disabled without a terminal product deactivation fact. |
+| `cloud_activation_pending` | Provisioning is accepted or not terminal, or activation metadata has not yet projected a terminal result. |
+| `activated` | Provisioning succeeded and activation metadata is `activated`, but owner transport is not currently `online`. |
+| `online` | Provisioning succeeded, activation metadata is `activated`, and account-manager transport status is `online`. |
+| `failed` | Provisioning, deactivation, projected activation metadata, or projected `video_cloud_last_error` records a failure. |
+| `deactivation_pending` | Latest deactivation operation is pending, published, or retrying. |
+| `deactivated` | Latest deactivation operation succeeded or projected activation status is `deactivated`. |
+
+The shared states `claim_pending` and `local_onboarding_pending` remain outside
+the current account-manager projection until this repository owns durable
+source facts for those phases.
 
 Account-side readiness states:
 

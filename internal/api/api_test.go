@@ -347,6 +347,7 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 		provisioningStatus model.DeviceOperationStatus
 		deactivationStatus *model.DeviceOperationStatus
 		want               model.DeviceReadinessState
+		wantProduct        model.ProductReadinessState
 	}{
 		{
 			name: "accepted provisioning waits for activation",
@@ -355,6 +356,7 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 			}),
 			provisioningStatus: model.DeviceOperationStatusPending,
 			want:               model.DeviceReadinessStateActivationPending,
+			wantProduct:        model.ProductReadinessStateCloudActivationPending,
 		},
 		{
 			name: "activation failure stays visible",
@@ -366,6 +368,7 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 			}),
 			provisioningStatus: model.DeviceOperationStatusFailed,
 			want:               model.DeviceReadinessStateActivationFailed,
+			wantProduct:        model.ProductReadinessStateFailed,
 		},
 		{
 			name: "activation succeeded but offline waits for transport",
@@ -374,6 +377,7 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 			}),
 			provisioningStatus: model.DeviceOperationStatusSucceeded,
 			want:               model.DeviceReadinessStateTransportPending,
+			wantProduct:        model.ProductReadinessStateActivated,
 		},
 		{
 			name: "activation succeeded and online is ready",
@@ -382,6 +386,7 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 			}),
 			provisioningStatus: model.DeviceOperationStatusSucceeded,
 			want:               model.DeviceReadinessStateReady,
+			wantProduct:        model.ProductReadinessStateOnline,
 		},
 		{
 			name: "deactivation pending takes precedence",
@@ -391,6 +396,7 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 			provisioningStatus: model.DeviceOperationStatusSucceeded,
 			deactivationStatus: operationStatusPtr(model.DeviceOperationStatusPublished),
 			want:               model.DeviceReadinessStateDeactivationPending,
+			wantProduct:        model.ProductReadinessStateDeactivationPending,
 		},
 		{
 			name: "deactivation success is deactivated",
@@ -400,6 +406,14 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 			provisioningStatus: model.DeviceOperationStatusSucceeded,
 			deactivationStatus: operationStatusPtr(model.DeviceOperationStatusSucceeded),
 			want:               model.DeviceReadinessStateDeactivated,
+			wantProduct:        model.ProductReadinessStateDeactivated,
+		},
+		{
+			name:               "registry disabled stays account-side only",
+			device:             readinessDisabledDevice(model.DeviceStatusDisabled, nil),
+			provisioningStatus: model.DeviceOperationStatusSucceeded,
+			want:               model.DeviceReadinessStateDisabled,
+			wantProduct:        model.ProductReadinessStateRegistered,
 		},
 	}
 
@@ -421,6 +435,9 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 			if got.State != tt.want {
 				t.Fatalf("expected readiness %s, got %+v", tt.want, got)
 			}
+			if got.ProductState != tt.wantProduct {
+				t.Fatalf("expected product readiness %s, got %+v", tt.wantProduct, got)
+			}
 			if got.Sources.DeviceStatus != tt.device.Status || got.Sources.ProvisioningOperationStatus != tt.provisioningStatus {
 				t.Fatalf("expected source facts to reflect device and operation, got %+v", got.Sources)
 			}
@@ -436,6 +453,13 @@ func readinessDevice(status model.DeviceStatus, metadata map[string]any) model.D
 		Status:   status,
 		Metadata: metadata,
 	}
+}
+
+func readinessDisabledDevice(status model.DeviceStatus, metadata map[string]any) model.Device {
+	now := time.Now().UTC()
+	device := readinessDevice(status, metadata)
+	device.DisabledAt = &now
+	return device
 }
 
 func operationStatusPtr(status model.DeviceOperationStatus) *model.DeviceOperationStatus {
