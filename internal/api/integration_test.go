@@ -1360,6 +1360,9 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 	if got := memberState.VideoMetadata[model.DeviceMetadataVideoCloudActivityID]; got != "activity-1" {
 		t.Fatalf("expected pending activity id in provisioning state, got %+v", got)
 	}
+	if got := memberState.VideoMetadata[model.DeviceMetadataVideoCloudClipPublicKey]; got != "clip-key-1" {
+		t.Fatalf("expected pending clip public key in provisioning state, got %+v", got)
+	}
 	if got := memberState.VideoMetadata[model.DeviceMetadataVideoCloudActivationStatus]; got != string(model.VideoCloudActivationStatusPending) {
 		t.Fatalf("expected pending activation status in provisioning state, got %+v", got)
 	}

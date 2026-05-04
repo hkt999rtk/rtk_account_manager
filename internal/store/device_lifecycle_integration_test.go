@@ -47,7 +47,7 @@ func TestStartDeviceLifecycleOperationPersistsPendingProvisionMetadata(t *testin
 			"clip_public_key":   "clip-key-1",
 			"requested_by":      userID,
 		},
-		MetadataPatch: PendingProvisionMetadata("video-device-1", "activity-1"),
+		MetadataPatch: PendingProvisionMetadata("video-device-1", "activity-1", "clip-key-1"),
 		Now:           time.Now().UTC().Truncate(time.Microsecond),
 	})
 	if err != nil {
@@ -64,6 +64,9 @@ func TestStartDeviceLifecycleOperationPersistsPendingProvisionMetadata(t *testin
 	}
 	if got := result.Device.Metadata[model.DeviceMetadataVideoCloudActivityID]; got != "activity-1" {
 		t.Fatalf("expected pending metadata to expose requested activity id, got %+v", got)
+	}
+	if got := result.Device.Metadata[model.DeviceMetadataVideoCloudClipPublicKey]; got != "clip-key-1" {
+		t.Fatalf("expected pending metadata to expose requested clip public key, got %+v", got)
 	}
 	if got := result.Device.Metadata[model.DeviceMetadataVideoCloudActivationStatus]; got != string(model.VideoCloudActivationStatusPending) {
 		t.Fatalf("expected pending activation status, got %+v", got)

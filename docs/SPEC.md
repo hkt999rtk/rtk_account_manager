@@ -650,7 +650,8 @@ Provisioning-state response body for `GET .../provisioning`:
 Provisioning rules:
 
 - The API writes the operation row and outbox row transactionally.
-- Accepting a provisioning request immediately merges pending `video_cloud_devid`, `video_cloud_activity_id`, and `video_cloud_activation_status=pending` into device metadata without implying activation success.
+- Accepting a provisioning request immediately merges pending `video_cloud_devid`, `video_cloud_activity_id`,
+  `video_cloud_clip_public_key`, and `video_cloud_activation_status=pending` into device metadata without implying activation success.
 - Disabled devices cannot be provisioned.
 - The API must not directly call Realtek video server.
 - Product-level deactivation and account registry soft-delete are distinct operations.

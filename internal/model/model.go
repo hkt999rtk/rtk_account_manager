@@ -55,6 +55,7 @@ const (
 	DeviceMetadataVideoCloudActivityID       = "video_cloud_activity_id"
 	DeviceMetadataVideoCloudActivatedAt      = "video_cloud_activated_at"
 	DeviceMetadataVideoCloudDeactivatedAt    = "video_cloud_deactivated_at"
+	DeviceMetadataVideoCloudClipPublicKey    = "video_cloud_clip_public_key"
 	DeviceMetadataVideoCloudLastError        = "video_cloud_last_error"
 )
 
