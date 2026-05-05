@@ -24,6 +24,10 @@ type Config struct {
 	CrossServiceConsumerGroup     string
 	CrossServiceMaxAttempts       int
 	CrossServicePollInterval      time.Duration
+	EmailVerificationTTL          time.Duration
+	PasswordResetTTL              time.Duration
+	OTPResendInterval             time.Duration
+	OTPMaxAttempts                int
 }
 
 func Load() (Config, error) {
@@ -63,6 +67,10 @@ func load() (Config, error) {
 		CrossServiceConsumerGroup:     getenv("CROSS_SERVICE_CONSUMER_GROUP", "rtk_account_manager"),
 		CrossServiceMaxAttempts:       intValue("CROSS_SERVICE_MAX_ATTEMPTS", 5),
 		CrossServicePollInterval:      duration("CROSS_SERVICE_POLL_INTERVAL", 5*time.Second),
+		EmailVerificationTTL:          duration("EMAIL_VERIFICATION_TTL", 30*time.Minute),
+		PasswordResetTTL:              duration("PASSWORD_RESET_TTL", 30*time.Minute),
+		OTPResendInterval:             duration("OTP_RESEND_INTERVAL", 60*time.Second),
+		OTPMaxAttempts:                intValue("OTP_MAX_ATTEMPTS", 5),
 	}
 	return cfg, nil
 }
