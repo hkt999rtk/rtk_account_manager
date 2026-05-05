@@ -32,7 +32,8 @@ func main() {
 	default:
 		log.Fatalf("unsupported AUTH_TOKEN_DELIVERY %q", cfg.AuthTokenDelivery)
 	}
-	server := api.NewWithAuthTokenSink(store.New(db), authService, authTokenSink)
+	notificationSink := api.NewLogQuotaRaiseNotificationSink(log.Default())
+	server := api.NewWithAuthTokenAndNotificationSink(store.New(db), authService, authTokenSink, notificationSink)
 
 	log.Printf("listening on :%s", cfg.Port)
 	if err := server.Router().Run(":" + cfg.Port); err != nil {

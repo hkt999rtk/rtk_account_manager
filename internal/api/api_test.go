@@ -104,6 +104,42 @@ func TestLogAuthTokenSinkWritesDelivery(t *testing.T) {
 	}
 }
 
+func TestLogQuotaRaiseNotificationSinkWritesDelivery(t *testing.T) {
+	var buf bytes.Buffer
+	sink := NewLogQuotaRaiseNotificationSink(log.New(&buf, "", 0))
+
+	approvedQuota := 12
+	decisionReason := "approved for pilot"
+	recipientName := "Owner"
+	err := sink.DeliverQuotaRaiseNotification(context.Background(), QuotaRaiseNotificationDelivery{
+		RecipientEmail:   "owner@example.com",
+		RecipientName:    &recipientName,
+		OrganizationID:   "org-1",
+		OrganizationName: "Owner Org",
+		RequestedQuota:   8,
+		ApprovedQuota:    &approvedQuota,
+		DecisionReason:   &decisionReason,
+		Decision:         "approved",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := buf.String()
+	for _, want := range []string{
+		"decision=approved",
+		"email=owner@example.com",
+		"org_id=org-1",
+		"org_name=Owner Org",
+		"requested_quota=8",
+		"approved_quota=",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected log output to contain %q, got %q", want, got)
+		}
+	}
+}
+
 func TestRequireAuthRejectsInvalidToken(t *testing.T) {
 	server := New(nil, auth.NewService("access-secret", "refresh-secret", time.Minute, time.Hour))
 	router := server.Router()
