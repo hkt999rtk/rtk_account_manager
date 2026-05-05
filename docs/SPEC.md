@@ -395,9 +395,10 @@ Constraints:
   server log until a real mail or SMS adapter is configured.
 - Quota-raise decision delivery is also an explicit adapter boundary. The API
   process accepts a `QuotaRaiseNotificationSink` for approval/decline
-  notifications, and the production server entrypoint wires the local log
-  adapter so quota decisions are observable in dev/test until a real mail
-  adapter is configured.
+  notifications. The production server entrypoint wires SMTP delivery when
+  `SMTP_HOST` and `SMTP_FROM` are configured, and otherwise falls back to the
+  local log adapter so quota decisions are observable in dev/test until a real
+  mail adapter is configured.
 - Third-party/social login is a deferred first-phase lifecycle capability and
   must not be presented as available API behavior until implemented.
 - Expired or revoked refresh tokens may be removed by an explicit maintenance command.

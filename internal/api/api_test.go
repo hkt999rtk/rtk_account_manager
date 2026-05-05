@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/smtp"
 	"strings"
 	"testing"
 	"time"
@@ -136,6 +137,60 @@ func TestLogQuotaRaiseNotificationSinkWritesDelivery(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected log output to contain %q, got %q", want, got)
+		}
+	}
+}
+
+func TestSMTPQuotaRaiseNotificationSinkWritesDelivery(t *testing.T) {
+	sink := NewSMTPQuotaRaiseNotificationSink("smtp.example:587", "no-reply@example.com", nil)
+	var gotAddr string
+	var gotFrom string
+	var gotTo []string
+	var gotMsg []byte
+	sink.sendMail = func(addr string, _ smtp.Auth, from string, to []string, msg []byte) error {
+		gotAddr = addr
+		gotFrom = from
+		gotTo = append([]string(nil), to...)
+		gotMsg = append([]byte(nil), msg...)
+		return nil
+	}
+
+	approvedQuota := 12
+	decisionReason := "approved for pilot"
+	recipientName := "Owner"
+	err := sink.DeliverQuotaRaiseNotification(context.Background(), QuotaRaiseNotificationDelivery{
+		RecipientEmail:   "owner@example.com",
+		RecipientName:    &recipientName,
+		OrganizationID:   "org-1",
+		OrganizationName: "Owner Org",
+		RequestedQuota:   8,
+		ApprovedQuota:    &approvedQuota,
+		DecisionReason:   &decisionReason,
+		Decision:         "approved",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if gotAddr != "smtp.example:587" || gotFrom != "no-reply@example.com" {
+		t.Fatalf("unexpected SMTP envelope: addr=%q from=%q", gotAddr, gotFrom)
+	}
+	if len(gotTo) != 1 || gotTo[0] != "owner@example.com" {
+		t.Fatalf("unexpected recipients: %+v", gotTo)
+	}
+	for _, want := range []string{
+		"To: owner@example.com",
+		"From: no-reply@example.com",
+		"Subject: Quota raise approved",
+		"Quota raise decision: approved",
+		"Organization: Owner Org (org-1)",
+		"Requester: Owner <owner@example.com>",
+		"Requested quota: 8",
+		"Approved quota: 12",
+		"Decision reason: approved for pilot",
+	} {
+		if !strings.Contains(string(gotMsg), want) {
+			t.Fatalf("expected SMTP message to contain %q, got %q", want, string(gotMsg))
 		}
 	}
 }

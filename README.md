@@ -78,7 +78,7 @@ Testing policy and report maintenance are documented in `docs/TESTING.md`.
 The current v2 provisioning and account/video event-channel surface is documented in `docs/SPEC.md`; rollout tracking and dependency history live in `docs/PROVISIONING_AND_EVENT_CHANNEL_PLAN.md`.
 The implementation stays aligned with the `contracts/` submodule for provisioning and cross-service channel boundaries.
 The local provisioning and worker flow, including the `log` broker adapter runbook, is documented in `docs/PROVISIONING_EVENT_WORKERS_RUNBOOK.md`.
-The local auth verification and password reset delivery adapter is `AUTH_TOKEN_DELIVERY=log`; generated one-time tokens are written to the API server log for dev/test use until a production mail or SMS adapter replaces it. Quota-raise approval and decline notifications are logged through the same local server process until a real mail adapter is configured.
+The local auth verification and password reset delivery adapter is `AUTH_TOKEN_DELIVERY=log`; generated one-time tokens are written to the API server log for dev/test use until a production mail or SMS adapter replaces it. Quota-raise approval and decline notifications use the SMTP mail path when `SMTP_HOST` and `SMTP_FROM` are configured, and otherwise fall back to the local log adapter for dev/test.
 Set `CROSS_SERVICE_BROKER=azure_eventhubs` plus `AZURE_EVENTHUB_CONNECTION_STRING` to run the workers against Azure Event Hubs instead of the local `log` adapter. The inbox worker persists Azure consumer checkpoints at `.state/azure_eventhubs/<stream>__<consumer-group>.json` by default; set `AZURE_EVENTHUB_CHECKPOINT_FILE` to override that path.
 
 ## Smoke Test

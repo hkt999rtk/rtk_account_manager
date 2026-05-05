@@ -1,12 +1,15 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/smtp"
 	"strconv"
 	"strings"
 	"time"
@@ -119,6 +122,63 @@ func (s LogQuotaRaiseNotificationSink) DeliverQuotaRaiseNotification(_ context.C
 		delivery.ApprovedQuota,
 	)
 	return nil
+}
+
+type SMTPQuotaRaiseNotificationSink struct {
+	host     string
+	from     string
+	auth     smtp.Auth
+	sendMail func(string, smtp.Auth, string, []string, []byte) error
+}
+
+func NewSMTPQuotaRaiseNotificationSink(host, from string, auth smtp.Auth) SMTPQuotaRaiseNotificationSink {
+	return SMTPQuotaRaiseNotificationSink{
+		host:     host,
+		from:     from,
+		auth:     auth,
+		sendMail: smtp.SendMail,
+	}
+}
+
+func (s SMTPQuotaRaiseNotificationSink) DeliverQuotaRaiseNotification(_ context.Context, delivery QuotaRaiseNotificationDelivery) error {
+	if s.sendMail == nil {
+		return errors.New("smtp quota raise notification sink unavailable")
+	}
+	subject := fmt.Sprintf("Quota raise %s", delivery.Decision)
+	body := buildQuotaRaiseNotificationBody(delivery)
+	msg := buildSMTPMessage(s.from, delivery.RecipientEmail, subject, body)
+	return s.sendMail(s.host, s.auth, s.from, []string{delivery.RecipientEmail}, msg)
+}
+
+func buildQuotaRaiseNotificationBody(delivery QuotaRaiseNotificationDelivery) string {
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "Quota raise decision: %s\r\n", delivery.Decision)
+	fmt.Fprintf(&b, "Organization: %s (%s)\r\n", delivery.OrganizationName, delivery.OrganizationID)
+	if delivery.RecipientName != nil && strings.TrimSpace(*delivery.RecipientName) != "" {
+		fmt.Fprintf(&b, "Requester: %s <%s>\r\n", strings.TrimSpace(*delivery.RecipientName), delivery.RecipientEmail)
+	} else {
+		fmt.Fprintf(&b, "Requester: <%s>\r\n", delivery.RecipientEmail)
+	}
+	fmt.Fprintf(&b, "Requested quota: %d\r\n", delivery.RequestedQuota)
+	if delivery.ApprovedQuota != nil {
+		fmt.Fprintf(&b, "Approved quota: %d\r\n", *delivery.ApprovedQuota)
+	}
+	if delivery.DecisionReason != nil && strings.TrimSpace(*delivery.DecisionReason) != "" {
+		fmt.Fprintf(&b, "Decision reason: %s\r\n", strings.TrimSpace(*delivery.DecisionReason))
+	}
+	return b.String()
+}
+
+func buildSMTPMessage(from, to, subject, body string) []byte {
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "To: %s\r\n", to)
+	fmt.Fprintf(&b, "From: %s\r\n", from)
+	fmt.Fprintf(&b, "Subject: %s\r\n", subject)
+	b.WriteString("MIME-Version: 1.0\r\n")
+	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+	b.WriteString("\r\n")
+	b.WriteString(body)
+	return b.Bytes()
 }
 
 func NewWithAuthTokenAndNotificationSink(store *store.Store, authService *auth.Service, authSink AuthTokenSink, notificationSink QuotaRaiseNotificationSink) *Server {
