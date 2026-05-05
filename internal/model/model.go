@@ -25,6 +25,18 @@ const (
 	QuotaRaiseRequestStatusDeclined QuotaRaiseRequestStatus = "declined"
 )
 
+type AuditEvent struct {
+	ID             string         `json:"id"`
+	EventType      string         `json:"event_type"`
+	ActorUserID    *string        `json:"actor_user_id,omitempty"`
+	OrganizationID *string        `json:"organization_id,omitempty"`
+	SubjectType    string         `json:"subject_type"`
+	SubjectID      string         `json:"subject_id"`
+	Payload        map[string]any `json:"payload"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+}
+
 type DeviceCategory string
 
 const (

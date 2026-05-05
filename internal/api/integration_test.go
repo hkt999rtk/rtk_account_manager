@@ -479,19 +479,75 @@ func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
 		t.Fatalf("expected pending quota raise request, got %+v", raiseReqBody.QuotaRaiseRequest)
 	}
 
+	nonAdminApproveRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", map[string]any{
+		"approved_quota": 500,
+	}, loginBody.Tokens.AccessToken)
+	if nonAdminApproveRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-admin approval attempt 403, got %d: %s", nonAdminApproveRes.Code, nonAdminApproveRes.Body.String())
+	}
+
 	admin := registerUser(t, env.router, "platform-admin@example.com", "Admin Org")
 	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
 	approveRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", map[string]any{
-		"approved_quota": 8,
+		"approved_quota": 500,
 	}, admin.Tokens.AccessToken)
 	if approveRes.Code != http.StatusOK {
 		t.Fatalf("expected quota approval 200, got %d: %s", approveRes.Code, approveRes.Body.String())
 	}
 	approvedBody := decodeBody[quotaRaiseDecisionBody](t, approveRes)
-	if approvedBody.Organization.EvaluationDeviceQuota != 8 {
-		t.Fatalf("expected approved quota 8, got %+v", approvedBody.Organization)
+	if approvedBody.Organization.EvaluationDeviceQuota != 200 {
+		t.Fatalf("expected approved quota to cap at 200, got %+v", approvedBody.Organization)
+	}
+
+	declineReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", map[string]any{
+		"requested_quota": 12,
+		"use_case":        "contract exit",
+		"contact_info": map[string]any{
+			"email": "buyer@example.com",
+		},
+	}, loginBody.Tokens.AccessToken)
+	if declineReqRes.Code != http.StatusCreated {
+		t.Fatalf("expected second quota raise request 201, got %d: %s", declineReqRes.Code, declineReqRes.Body.String())
+	}
+	declineReqBody := decodeBody[quotaRaiseRequestBody](t, declineReqRes)
+	declineRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+declineReqBody.QuotaRaiseRequest.ID+"/decline", map[string]any{
+		"decision_reason": "not enough supporting detail",
+	}, admin.Tokens.AccessToken)
+	if declineRes.Code != http.StatusOK {
+		t.Fatalf("expected quota decline 200, got %d: %s", declineRes.Code, declineRes.Body.String())
+	}
+	declinedBody := decodeBody[quotaRaiseDecisionBody](t, declineRes)
+	if declinedBody.QuotaRaiseRequest.Status != string(model.QuotaRaiseRequestStatusDeclined) {
+		t.Fatalf("expected declined quota raise request, got %+v", declinedBody.QuotaRaiseRequest)
+	}
+	if declinedBody.Organization.EvaluationDeviceQuota != 200 {
+		t.Fatalf("expected decline to keep capped quota at 200, got %+v", declinedBody.Organization)
+	}
+
+	metricsRes := performJSON(env.router, http.MethodGet, "/v1/admin/metrics", nil, admin.Tokens.AccessToken)
+	if metricsRes.Code != http.StatusOK {
+		t.Fatalf("expected admin metrics 200, got %d: %s", metricsRes.Code, metricsRes.Body.String())
+	}
+	metricsBody := decodeBody[evalTierMetricsBody](t, metricsRes)
+	if metricsBody.Signups.EvaluationCreated != 1 {
+		t.Fatalf("expected one evaluation signup, got %+v", metricsBody.Signups)
+	}
+	if metricsBody.Signups.VerificationCompleted != 1 {
+		t.Fatalf("expected one signup verification completion, got %+v", metricsBody.Signups)
+	}
+	if metricsBody.Signups.VerificationCompletionRate != 1 {
+		t.Fatalf("expected 100%% verification completion, got %+v", metricsBody.Signups)
+	}
+	if metricsBody.QuotaRaiseRequests.Pending != 0 || metricsBody.QuotaRaiseRequests.Approved != 1 || metricsBody.QuotaRaiseRequests.Declined != 1 {
+		t.Fatalf("expected quota raise status counts to reflect one approve and one decline, got %+v", metricsBody.QuotaRaiseRequests)
+	}
+	if len(metricsBody.EvaluationQuotaUsage) != 1 {
+		t.Fatalf("expected one evaluation org usage entry, got %+v", metricsBody.EvaluationQuotaUsage)
+	}
+	if metricsBody.EvaluationQuotaUsage[0].ActiveDevices != 5 || metricsBody.EvaluationQuotaUsage[0].EvaluationDeviceQuota != 200 {
+		t.Fatalf("expected live quota usage to reflect approved quota and existing devices, got %+v", metricsBody.EvaluationQuotaUsage[0])
 	}
 
 	postApprovalRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/devices", devicePayload("eval-device-5", "EVAL-5"), loginBody.Tokens.AccessToken)
@@ -2126,6 +2182,27 @@ type quotaRaiseDecisionBody struct {
 		Tier                  string `json:"tier"`
 		EvaluationDeviceQuota int    `json:"evaluation_device_quota"`
 	} `json:"organization"`
+}
+
+type evalTierMetricsBody struct {
+	Signups struct {
+		EvaluationCreated          int64   `json:"evaluation_created"`
+		CommercialCreated          int64   `json:"commercial_created"`
+		VerificationCompleted      int64   `json:"verification_completed"`
+		VerificationCompletionRate float64 `json:"verification_completion_rate"`
+	} `json:"signups"`
+	QuotaRaiseRequests struct {
+		Pending  int64 `json:"pending"`
+		Approved int64 `json:"approved"`
+		Declined int64 `json:"declined"`
+	} `json:"quota_raise_requests"`
+	EvaluationQuotaUsage []struct {
+		OrganizationID        string  `json:"organization_id"`
+		OrganizationName      string  `json:"organization_name"`
+		ActiveDevices         int     `json:"active_devices"`
+		EvaluationDeviceQuota int     `json:"evaluation_device_quota"`
+		Utilization           float64 `json:"utilization"`
+	} `json:"evaluation_quota_usage"`
 }
 
 type membersBody struct {

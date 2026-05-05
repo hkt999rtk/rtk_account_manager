@@ -421,6 +421,10 @@ evaluation tier:
   raise request with requested quota, use case, and contact info. Platform
   admin approval or decline updates the request status and applies approved
   quotas up to the 200-device ceiling.
+- The evaluation-tier lifecycle emits audit events for signup, email
+  verification, and quota-raise submission/decision, and the admin metrics
+  snapshot surfaces signup counts, verification completion, quota-raise
+  status counts, and live quota utilization for evaluation organizations.
 
 The implementation in this repository should stay aligned with the paired
 wire-contract updates in `rtk_cloud_contracts_doc` before the issue is closed.

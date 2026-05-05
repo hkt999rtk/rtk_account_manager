@@ -393,6 +393,22 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+  /v1/admin/metrics:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get evaluation-tier signup and quota metrics.
+      responses:
+        "200":
+          description: Evaluation-tier metrics snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvalTierMetricsResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/members:
     get:
       security:
@@ -1400,6 +1416,72 @@ components:
           $ref: "#/components/schemas/QuotaRaiseRequest"
         organization:
           $ref: "#/components/schemas/Organization"
+    EvalTierMetricsResponse:
+      type: object
+      required: [signups, quota_raise_requests, evaluation_quota_usage]
+      properties:
+        signups:
+          type: object
+          required: [evaluation_created, commercial_created, verification_completed, verification_completion_rate]
+          properties:
+            evaluation_created:
+              type: integer
+              format: int64
+              minimum: 0
+            commercial_created:
+              type: integer
+              format: int64
+              minimum: 0
+            verification_completed:
+              type: integer
+              format: int64
+              minimum: 0
+            verification_completion_rate:
+              type: number
+              format: double
+              minimum: 0
+        quota_raise_requests:
+          type: object
+          required: [pending, approved, declined]
+          properties:
+            pending:
+              type: integer
+              format: int64
+              minimum: 0
+            approved:
+              type: integer
+              format: int64
+              minimum: 0
+            declined:
+              type: integer
+              format: int64
+              minimum: 0
+        evaluation_quota_usage:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvaluationQuotaUsage"
+    EvaluationQuotaUsage:
+      type: object
+      required: [organization_id, organization_name, active_devices, evaluation_device_quota, utilization]
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+        organization_name:
+          type: string
+        active_devices:
+          type: integer
+          format: int32
+          minimum: 0
+        evaluation_device_quota:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 200
+        utilization:
+          type: number
+          format: double
+          minimum: 0
     MembersResponse:
       type: object
       required: [members, pagination]

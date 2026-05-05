@@ -45,9 +45,15 @@ func (s *Store) CreateQuotaRaiseRequest(ctx context.Context, in QuotaRaiseReques
 	if err != nil {
 		return model.QuotaRaiseRequest{}, err
 	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return model.QuotaRaiseRequest{}, err
+	}
+	defer tx.Rollback(ctx)
+
 	var request model.QuotaRaiseRequest
 	var rawContactInfo []byte
-	err = s.db.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO quota_raise_requests (
 			organization_id,
 			requested_by,
@@ -90,6 +96,25 @@ func (s *Store) CreateQuotaRaiseRequest(ctx context.Context, in QuotaRaiseReques
 		if err := json.Unmarshal(rawContactInfo, &request.ContactInfo); err != nil {
 			return model.QuotaRaiseRequest{}, err
 		}
+	}
+	if err != nil {
+		return model.QuotaRaiseRequest{}, err
+	}
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{
+		EventType:      "quota_raise_requested",
+		ActorUserID:    &in.RequestedBy,
+		OrganizationID: &in.OrganizationID,
+		SubjectType:    "quota_raise_request",
+		SubjectID:      request.ID,
+		Payload: map[string]any{
+			"requested_quota": request.RequestedQuota,
+			"use_case":        request.UseCase,
+		},
+	}); err != nil {
+		return model.QuotaRaiseRequest{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.QuotaRaiseRequest{}, err
 	}
 	return request, err
 }
@@ -229,6 +254,18 @@ func (s *Store) DecideQuotaRaiseRequest(ctx context.Context, in QuotaRaiseDecisi
 		}
 	}
 
+	eventType := "quota_raise_declined"
+	payload := map[string]any{
+		"request_id":      request.ID,
+		"requested_quota": request.RequestedQuota,
+	}
+	if in.Approved {
+		eventType = "quota_raise_approved"
+		payload["approved_quota"] = approvedQuota
+	} else if in.DecisionReason != nil {
+		payload["decision_reason"] = *in.DecisionReason
+	}
+
 	now := time.Now().UTC()
 	tag, err := tx.Exec(ctx, `
 		UPDATE quota_raise_requests
@@ -244,6 +281,16 @@ func (s *Store) DecideQuotaRaiseRequest(ctx context.Context, in QuotaRaiseDecisi
 	}
 	if tag.RowsAffected() == 0 {
 		return model.QuotaRaiseRequest{}, model.Organization{}, ErrNotFound
+	}
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{
+		EventType:      eventType,
+		ActorUserID:    &in.DecidedBy,
+		OrganizationID: &org.ID,
+		SubjectType:    "quota_raise_request",
+		SubjectID:      request.ID,
+		Payload:        payload,
+	}); err != nil {
+		return model.QuotaRaiseRequest{}, model.Organization{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return model.QuotaRaiseRequest{}, model.Organization{}, err

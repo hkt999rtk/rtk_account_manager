@@ -120,6 +120,24 @@ func (s *Store) Register(ctx context.Context, in RegisterInput) (RegisterResult,
 		return RegisterResult{}, err
 	}
 
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{
+		EventType:      "signup_created",
+		ActorUserID:    &user.ID,
+		OrganizationID: &org.ID,
+		SubjectType:    "organization",
+		SubjectID:      org.ID,
+		Payload: map[string]any{
+			"user_id":                     user.ID,
+			"email":                       user.Email,
+			"organization_name":           org.Name,
+			"organization_tier":           org.Tier,
+			"evaluation_device_quota":     org.EvaluationDeviceQuota,
+			"signup_pending_verification": in.SignupPendingVerification,
+		},
+	}); err != nil {
+		return RegisterResult{}, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return RegisterResult{}, err
 	}
@@ -219,6 +237,17 @@ func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash string) (model.U
 	if err != nil {
 		return model.User{}, err
 	}
+	var signupPendingVerification bool
+	if err := tx.QueryRow(ctx, `
+		SELECT signup_pending_verification
+		FROM users
+		WHERE id = $1 AND disabled_at IS NULL
+	`, userID).Scan(&signupPendingVerification); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return model.User{}, ErrNotFound
+		}
+		return model.User{}, err
+	}
 	var user model.User
 	err = tx.QueryRow(ctx, `
 		UPDATE users
@@ -233,6 +262,18 @@ func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash string) (model.U
 		return model.User{}, ErrNotFound
 	}
 	if err != nil {
+		return model.User{}, err
+	}
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{
+		EventType:   "email_verified",
+		ActorUserID: &userID,
+		SubjectType: "user",
+		SubjectID:   userID,
+		Payload: map[string]any{
+			"token_purpose":               "email_verification",
+			"signup_pending_verification": signupPendingVerification,
+		},
+	}); err != nil {
 		return model.User{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

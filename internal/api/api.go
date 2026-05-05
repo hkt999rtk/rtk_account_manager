@@ -140,6 +140,7 @@ func (s *Server) Router() *gin.Engine {
 
 	protected.POST("/admin/quota-raise-requests/:requestId/approve", s.requirePlatformAdmin(), s.approveQuotaRaiseRequest)
 	protected.POST("/admin/quota-raise-requests/:requestId/decline", s.requirePlatformAdmin(), s.declineQuotaRaiseRequest)
+	protected.GET("/admin/metrics", s.requirePlatformAdmin(), s.adminMetrics)
 
 	return r
 }
