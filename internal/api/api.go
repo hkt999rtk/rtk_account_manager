@@ -19,11 +19,12 @@ import (
 )
 
 type Server struct {
-	store         *store.Store
-	auth          *auth.Service
-	authTokenSink AuthTokenSink
-	signupLimiter *signupLimiter
-	signupPolicy  signupPolicy
+	store                      *store.Store
+	auth                       *auth.Service
+	authTokenSink              AuthTokenSink
+	quotaRaiseNotificationSink QuotaRaiseNotificationSink
+	signupLimiter              *signupLimiter
+	signupPolicy               signupPolicy
 }
 
 var ErrAuthTokenSinkUnavailable = errors.New("auth token sink unavailable")
@@ -78,6 +79,52 @@ func (s LogAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthToken
 
 func NewWithAuthTokenSink(store *store.Store, authService *auth.Service, sink AuthTokenSink) *Server {
 	return newServer(store, authService, sink)
+}
+
+type QuotaRaiseNotificationDelivery struct {
+	RecipientEmail   string
+	RecipientName    *string
+	OrganizationID   string
+	OrganizationName string
+	RequestedQuota   int
+	ApprovedQuota    *int
+	DecisionReason   *string
+	Decision         string
+}
+
+type QuotaRaiseNotificationSink interface {
+	DeliverQuotaRaiseNotification(context.Context, QuotaRaiseNotificationDelivery) error
+}
+
+type LogQuotaRaiseNotificationSink struct {
+	logger *log.Logger
+}
+
+func NewLogQuotaRaiseNotificationSink(logger *log.Logger) LogQuotaRaiseNotificationSink {
+	return LogQuotaRaiseNotificationSink{logger: logger}
+}
+
+func (s LogQuotaRaiseNotificationSink) DeliverQuotaRaiseNotification(_ context.Context, delivery QuotaRaiseNotificationDelivery) error {
+	logger := s.logger
+	if logger == nil {
+		logger = log.Default()
+	}
+	logger.Printf(
+		"quota raise notification decision=%s email=%s org_id=%s org_name=%s requested_quota=%d approved_quota=%v",
+		delivery.Decision,
+		delivery.RecipientEmail,
+		delivery.OrganizationID,
+		delivery.OrganizationName,
+		delivery.RequestedQuota,
+		delivery.ApprovedQuota,
+	)
+	return nil
+}
+
+func NewWithAuthTokenAndNotificationSink(store *store.Store, authService *auth.Service, authSink AuthTokenSink, notificationSink QuotaRaiseNotificationSink) *Server {
+	server := newServer(store, authService, authSink)
+	server.quotaRaiseNotificationSink = notificationSink
+	return server
 }
 
 func (s *Server) Router() *gin.Engine {
@@ -925,6 +972,13 @@ func bind(c *gin.Context, dst any) bool {
 		return false
 	}
 	return true
+}
+
+func bindOptional(c *gin.Context, dst any) bool {
+	if c.Request.ContentLength == 0 {
+		return true
+	}
+	return bind(c, dst)
 }
 
 func bindStrict(c *gin.Context, dst any) bool {

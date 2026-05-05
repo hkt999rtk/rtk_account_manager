@@ -66,7 +66,7 @@ func TestListAuditEventsReturnsRecordedLifecycleEvents(t *testing.T) {
 	}
 
 	reason := "not enough detail"
-	decision, _, err := env.store.DecideQuotaRaiseRequest(ctx, QuotaRaiseDecisionInput{
+	decision, _, _, err := env.store.DecideQuotaRaiseRequest(ctx, QuotaRaiseDecisionInput{
 		RequestID:      request.ID,
 		DecidedBy:      registered.User.ID,
 		DecisionReason: &reason,

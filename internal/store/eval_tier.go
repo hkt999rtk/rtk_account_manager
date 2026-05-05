@@ -163,15 +163,16 @@ func (s *Store) GetQuotaRaiseRequest(ctx context.Context, requestID string) (mod
 	return request, err
 }
 
-func (s *Store) DecideQuotaRaiseRequest(ctx context.Context, in QuotaRaiseDecisionInput) (model.QuotaRaiseRequest, model.Organization, error) {
+func (s *Store) DecideQuotaRaiseRequest(ctx context.Context, in QuotaRaiseDecisionInput) (model.QuotaRaiseRequest, model.Organization, model.User, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return model.QuotaRaiseRequest{}, model.Organization{}, err
+		return model.QuotaRaiseRequest{}, model.Organization{}, model.User{}, err
 	}
 	defer tx.Rollback(ctx)
 
 	var request model.QuotaRaiseRequest
 	var org model.Organization
+	var requester model.User
 	var rawContactInfo []byte
 	err = tx.QueryRow(ctx, `
 		SELECT
@@ -192,9 +193,19 @@ func (s *Store) DecideQuotaRaiseRequest(ctx context.Context, in QuotaRaiseDecisi
 			o.tier,
 			o.evaluation_device_quota,
 			o.created_at,
-			o.updated_at
+			o.updated_at,
+			u.id::text,
+			u.email,
+			u.display_name,
+			u.email_verified,
+			u.email_verified_at,
+			u.signup_pending_verification,
+			u.created_at,
+			u.updated_at,
+			u.disabled_at
 		FROM quota_raise_requests q
 		JOIN organizations o ON o.id = q.organization_id
+		JOIN users u ON u.id = q.requested_by
 		WHERE q.id = $1
 		FOR UPDATE OF q, o
 	`, in.RequestID).Scan(
@@ -216,18 +227,27 @@ func (s *Store) DecideQuotaRaiseRequest(ctx context.Context, in QuotaRaiseDecisi
 		&org.EvaluationDeviceQuota,
 		&org.CreatedAt,
 		&org.UpdatedAt,
+		&requester.ID,
+		&requester.Email,
+		&requester.DisplayName,
+		&requester.EmailVerified,
+		&requester.EmailVerifiedAt,
+		&requester.SignupPendingVerification,
+		&requester.CreatedAt,
+		&requester.UpdatedAt,
+		&requester.DisabledAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return model.QuotaRaiseRequest{}, model.Organization{}, ErrNotFound
+		return model.QuotaRaiseRequest{}, model.Organization{}, model.User{}, ErrNotFound
 	}
 	if err != nil {
-		return model.QuotaRaiseRequest{}, model.Organization{}, err
+		return model.QuotaRaiseRequest{}, model.Organization{}, model.User{}, err
 	}
 	if err := json.Unmarshal(rawContactInfo, &request.ContactInfo); err != nil {
-		return model.QuotaRaiseRequest{}, model.Organization{}, err
+		return model.QuotaRaiseRequest{}, model.Organization{}, model.User{}, err
 	}
 	if request.Status != model.QuotaRaiseRequestStatusPending {
-		return model.QuotaRaiseRequest{}, model.Organization{}, ErrConflict
+		return model.QuotaRaiseRequest{}, model.Organization{}, model.User{}, ErrConflict
 	}
 
 	decision := model.QuotaRaiseRequestStatusDeclined
@@ -250,7 +270,7 @@ func (s *Store) DecideQuotaRaiseRequest(ctx context.Context, in QuotaRaiseDecisi
 			WHERE id = $1
 		`, org.ID, approvedQuota)
 		if err != nil {
-			return model.QuotaRaiseRequest{}, model.Organization{}, err
+			return model.QuotaRaiseRequest{}, model.Organization{}, model.User{}, err
 		}
 	}
 
@@ -277,10 +297,10 @@ func (s *Store) DecideQuotaRaiseRequest(ctx context.Context, in QuotaRaiseDecisi
 		WHERE id = $1
 	`, request.ID, decision, in.DecidedBy, in.DecisionReason, now)
 	if err != nil {
-		return model.QuotaRaiseRequest{}, model.Organization{}, err
+		return model.QuotaRaiseRequest{}, model.Organization{}, model.User{}, err
 	}
 	if tag.RowsAffected() == 0 {
-		return model.QuotaRaiseRequest{}, model.Organization{}, ErrNotFound
+		return model.QuotaRaiseRequest{}, model.Organization{}, model.User{}, ErrNotFound
 	}
 	if err := createAuditEventTx(ctx, tx, AuditEventInput{
 		EventType:      eventType,
@@ -290,15 +310,15 @@ func (s *Store) DecideQuotaRaiseRequest(ctx context.Context, in QuotaRaiseDecisi
 		SubjectID:      request.ID,
 		Payload:        payload,
 	}); err != nil {
-		return model.QuotaRaiseRequest{}, model.Organization{}, err
+		return model.QuotaRaiseRequest{}, model.Organization{}, model.User{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return model.QuotaRaiseRequest{}, model.Organization{}, err
+		return model.QuotaRaiseRequest{}, model.Organization{}, model.User{}, err
 	}
 	request.Status = decision
 	request.DecidedBy = &in.DecidedBy
 	request.DecisionReason = in.DecisionReason
 	request.DecidedAt = &now
 	org.EvaluationDeviceQuota = approvedQuota
-	return request, org, nil
+	return request, org, requester, nil
 }

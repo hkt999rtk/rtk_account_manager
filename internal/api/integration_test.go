@@ -24,9 +24,10 @@ import (
 )
 
 type integrationEnv struct {
-	router    *gin.Engine
-	db        *pgxpool.Pool
-	tokenSink *recordingAuthTokenSink
+	router           *gin.Engine
+	db               *pgxpool.Pool
+	tokenSink        *recordingAuthTokenSink
+	notificationSink *recordingQuotaRaiseNotificationSink
 }
 
 type recordingAuthTokenSink struct {
@@ -34,6 +35,15 @@ type recordingAuthTokenSink struct {
 }
 
 func (s *recordingAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthTokenDelivery) error {
+	s.deliveries = append(s.deliveries, delivery)
+	return nil
+}
+
+type recordingQuotaRaiseNotificationSink struct {
+	deliveries []QuotaRaiseNotificationDelivery
+}
+
+func (s *recordingQuotaRaiseNotificationSink) DeliverQuotaRaiseNotification(_ context.Context, delivery QuotaRaiseNotificationDelivery) error {
 	s.deliveries = append(s.deliveries, delivery)
 	return nil
 }
@@ -68,10 +78,12 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 	gin.SetMode(gin.TestMode)
 	authService := auth.NewService("test-access-secret", "test-refresh-secret", time.Minute, time.Hour)
 	tokenSink := &recordingAuthTokenSink{}
+	notificationSink := &recordingQuotaRaiseNotificationSink{}
 	return integrationEnv{
-		router:    NewWithAuthTokenSink(store.New(db), authService, tokenSink).Router(),
-		db:        db,
-		tokenSink: tokenSink,
+		router:           NewWithAuthTokenAndNotificationSink(store.New(db), authService, tokenSink, notificationSink).Router(),
+		db:               db,
+		tokenSink:        tokenSink,
+		notificationSink: notificationSink,
 	}
 }
 
@@ -638,13 +650,41 @@ func TestIntegrationQuotaRaiseValidationAndDefaultApproval(t *testing.T) {
 	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	approveRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", map[string]any{}, admin.Tokens.AccessToken)
+	approveRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", nil, admin.Tokens.AccessToken)
 	if approveRes.Code != http.StatusOK {
 		t.Fatalf("expected quota approval 200, got %d: %s", approveRes.Code, approveRes.Body.String())
 	}
 	approvedBody := decodeBody[quotaRaiseDecisionBody](t, approveRes)
 	if approvedBody.Organization.EvaluationDeviceQuota != 8 {
 		t.Fatalf("expected default approval quota to use requested amount, got %+v", approvedBody.Organization)
+	}
+	declineReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", map[string]any{
+		"requested_quota": 12,
+		"use_case":        "contract exit",
+		"contact_info": map[string]any{
+			"email": "buyer@example.com",
+		},
+	}, loginBody.Tokens.AccessToken)
+	if declineReqRes.Code != http.StatusCreated {
+		t.Fatalf("expected decline quota raise request 201, got %d: %s", declineReqRes.Code, declineReqRes.Body.String())
+	}
+	declineReqBody := decodeBody[quotaRaiseRequestBody](t, declineReqRes)
+	declineRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+declineReqBody.QuotaRaiseRequest.ID+"/decline", nil, admin.Tokens.AccessToken)
+	if declineRes.Code != http.StatusOK {
+		t.Fatalf("expected quota decline 200, got %d: %s", declineRes.Code, declineRes.Body.String())
+	}
+	declinedBody := decodeBody[quotaRaiseDecisionBody](t, declineRes)
+	if declinedBody.QuotaRaiseRequest.Status != string(model.QuotaRaiseRequestStatusDeclined) {
+		t.Fatalf("expected declined quota raise request, got %+v", declinedBody.QuotaRaiseRequest)
+	}
+	if len(env.notificationSink.deliveries) != 2 {
+		t.Fatalf("expected approval and decline notifications, got %+v", env.notificationSink.deliveries)
+	}
+	if env.notificationSink.deliveries[0].Decision != string(model.QuotaRaiseRequestStatusApproved) || env.notificationSink.deliveries[0].RecipientEmail != "validate-quota@example.com" {
+		t.Fatalf("expected approval notification for requester, got %+v", env.notificationSink.deliveries[0])
+	}
+	if env.notificationSink.deliveries[1].Decision != string(model.QuotaRaiseRequestStatusDeclined) || env.notificationSink.deliveries[1].RecipientEmail != "validate-quota@example.com" {
+		t.Fatalf("expected decline notification for requester, got %+v", env.notificationSink.deliveries[1])
 	}
 }
 
