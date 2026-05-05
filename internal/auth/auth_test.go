@@ -52,3 +52,23 @@ func TestExpiredAndWrongSecretTokensFailParsing(t *testing.T) {
 		t.Fatal("expected token signed with another secret to fail parsing")
 	}
 }
+
+func TestRandomTokenProducesHashableDistinctValues(t *testing.T) {
+	first, err := RandomToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := RandomToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == "" || second == "" {
+		t.Fatal("expected non-empty random tokens")
+	}
+	if first == second {
+		t.Fatal("expected distinct random tokens")
+	}
+	if got := HashToken(first); len(got) != 64 {
+		t.Fatalf("expected sha256 hex token hash length 64, got %d", len(got))
+	}
+}

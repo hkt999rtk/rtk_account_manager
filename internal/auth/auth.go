@@ -54,6 +54,14 @@ func HashToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func RandomToken() (string, error) {
+	var data [32]byte
+	if _, err := rand.Read(data[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(data[:]), nil
+}
+
 func (s *Service) IssueAccessToken(userID string) (string, time.Time, error) {
 	return s.issue(userID, TokenKindAccess, s.accessSecret, s.accessTTL)
 }

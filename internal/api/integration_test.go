@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -16,16 +18,24 @@ import (
 	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/channel"
 	"rtk_account_manager/internal/database"
-	"rtk_account_manager/internal/mailer"
 	"rtk_account_manager/internal/model"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/testutil"
 )
 
 type integrationEnv struct {
-	router  *gin.Engine
-	db      *pgxpool.Pool
-	mailer  *mailer.RecordingMailer
+	router    *gin.Engine
+	db        *pgxpool.Pool
+	tokenSink *recordingAuthTokenSink
+}
+
+type recordingAuthTokenSink struct {
+	deliveries []AuthTokenDelivery
+}
+
+func (s *recordingAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthTokenDelivery) error {
+	s.deliveries = append(s.deliveries, delivery)
+	return nil
 }
 
 func newIntegrationEnv(t *testing.T) integrationEnv {
@@ -49,7 +59,7 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		TRUNCATE refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
+		TRUNCATE auth_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatal(err)
@@ -57,14 +67,12 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 
 	gin.SetMode(gin.TestMode)
 	authService := auth.NewService("test-access-secret", "test-refresh-secret", time.Minute, time.Hour)
-	rec := &mailer.RecordingMailer{}
-	router := NewWithMailer(store.New(db), authService, rec, AuthCodeOptions{
-		EmailVerificationTTL: 5 * time.Minute,
-		PasswordResetTTL:     5 * time.Minute,
-		OTPResendInterval:    0,
-		OTPMaxAttempts:       5,
-	}).Router()
-	return integrationEnv{router: router, db: db, mailer: rec}
+	tokenSink := &recordingAuthTokenSink{}
+	return integrationEnv{
+		router:    NewWithAuthTokenSink(store.New(db), authService, tokenSink).Router(),
+		db:        db,
+		tokenSink: tokenSink,
+	}
 }
 
 func TestIntegrationRegisterLoginRefreshAndLogout(t *testing.T) {
@@ -135,6 +143,253 @@ func TestIntegrationRegisterLoginRefreshAndLogout(t *testing.T) {
 	}, "")
 	if invalidRefreshRes.Code != http.StatusUnauthorized {
 		t.Fatalf("expected invalid refresh token 401, got %d", invalidRefreshRes.Code)
+	}
+}
+
+func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	registered := registerUser(t, env.router, "verify@example.com", "Verify Org")
+	if registered.User.EmailVerified {
+		t.Fatal("expected newly registered user to start unverified")
+	}
+
+	var issuedVerificationTokens int
+	if err := env.db.QueryRow(context.Background(), `
+		SELECT count(*) FROM auth_tokens WHERE user_id = $1 AND purpose = 'email_verification'
+	`, registered.User.ID).Scan(&issuedVerificationTokens); err != nil {
+		t.Fatal(err)
+	}
+	if issuedVerificationTokens != 1 {
+		t.Fatalf("expected registration to issue one verification token, got %d", issuedVerificationTokens)
+	}
+
+	accountStore := store.New(env.db)
+	verificationToken := latestAuthToken(t, env.tokenSink, "verify@example.com", "email_verification")
+	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": verificationToken,
+	}, "")
+	if verifyRes.Code != http.StatusOK {
+		t.Fatalf("expected verify email 200, got %d: %s", verifyRes.Code, verifyRes.Body.String())
+	}
+	verified := decodeBody[userBody](t, verifyRes)
+	if !verified.User.EmailVerified || verified.User.EmailVerifiedAt == nil {
+		t.Fatalf("expected verified user response, got %+v", verified.User)
+	}
+	reuseVerifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": verificationToken,
+	}, "")
+	if reuseVerifyRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected consumed verification token 400, got %d", reuseVerifyRes.Code)
+	}
+
+	resendTarget := registerUser(t, env.router, "resend@example.com", "Resend Org")
+	resendRes := performJSON(env.router, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
+		"email": "resend@example.com",
+	}, "")
+	if resendRes.Code != http.StatusAccepted {
+		t.Fatalf("expected resend for unverified user 202, got %d", resendRes.Code)
+	}
+	resendToken := latestAuthToken(t, env.tokenSink, "resend@example.com", "email_verification")
+	verifyResendRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": resendToken,
+	}, "")
+	if verifyResendRes.Code != http.StatusOK {
+		t.Fatalf("expected resent verification token 200, got %d: %s", verifyResendRes.Code, verifyResendRes.Body.String())
+	}
+	if resendTarget.User.ID == "" {
+		t.Fatal("expected resend target user id")
+	}
+	registerUser(t, env.router, "resend-delivery-failure@example.com", "Resend Delivery Failure Org")
+	failingDeliveryRouter := NewWithAuthTokenSink(
+		accountStore,
+		auth.NewService("test-access-secret", "test-refresh-secret", time.Minute, time.Hour),
+		failingAuthTokenSink{},
+	).Router()
+	registerDeliveryFailureRes := performJSON(failingDeliveryRouter, http.MethodPost, "/v1/auth/register", map[string]any{
+		"email":             "delivery-failure@example.com",
+		"password":          "password123",
+		"display_name":      "delivery failure",
+		"organization_name": "Delivery Failure Org",
+	}, "")
+	if registerDeliveryFailureRes.Code != http.StatusInternalServerError {
+		t.Fatalf("expected register delivery failure 500, got %d", registerDeliveryFailureRes.Code)
+	}
+	resendDeliveryFailureRes := performJSON(failingDeliveryRouter, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
+		"email": "resend-delivery-failure@example.com",
+	}, "")
+	if resendDeliveryFailureRes.Code != http.StatusAccepted {
+		t.Fatalf("expected resend delivery failure to remain enumeration-safe 202, got %d", resendDeliveryFailureRes.Code)
+	}
+	forgotDeliveryFailureRes := performJSON(failingDeliveryRouter, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
+		"email": "resend@example.com",
+	}, "")
+	if forgotDeliveryFailureRes.Code != http.StatusAccepted {
+		t.Fatalf("expected forgot delivery failure to remain enumeration-safe 202, got %d", forgotDeliveryFailureRes.Code)
+	}
+
+	resendVerifiedRes := performJSON(env.router, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
+		"email": "verify@example.com",
+	}, "")
+	if resendVerifiedRes.Code != http.StatusAccepted {
+		t.Fatalf("expected resend for verified user to stay enumeration-safe 202, got %d", resendVerifiedRes.Code)
+	}
+	createdUnknownVerification, err := accountStore.CreateEmailVerificationTokenForEmail(context.Background(), "missing@example.com", auth.HashToken("missing-verification"), time.Now().Add(30*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createdUnknownVerification {
+		t.Fatal("expected unknown verification email not to create a token")
+	}
+	createdVerifiedVerification, err := accountStore.CreateEmailVerificationTokenForEmail(context.Background(), "verify@example.com", auth.HashToken("verified-verification"), time.Now().Add(30*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createdVerifiedVerification {
+		t.Fatal("expected verified user not to create another verification token")
+	}
+
+	expiredVerificationToken := "expired-verification-token"
+	if err := accountStore.CreateEmailVerificationToken(context.Background(), registered.User.ID, auth.HashToken(expiredVerificationToken), time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	expiredVerifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": expiredVerificationToken,
+	}, "")
+	if expiredVerifyRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected expired verification token 400, got %d", expiredVerifyRes.Code)
+	}
+
+	forgotUnknownRes := performJSON(env.router, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
+		"email": "unknown@example.com",
+	}, "")
+	if forgotUnknownRes.Code != http.StatusAccepted {
+		t.Fatalf("expected unknown forgot-password to stay enumeration-safe 202, got %d", forgotUnknownRes.Code)
+	}
+	createdUnknownReset, err := accountStore.CreatePasswordResetTokenForEmail(context.Background(), "missing@example.com", auth.HashToken("missing-reset"), time.Now().Add(30*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createdUnknownReset {
+		t.Fatal("expected unknown reset email not to create a token")
+	}
+	forgotRes := performJSON(env.router, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
+		"email": "verify@example.com",
+	}, "")
+	if forgotRes.Code != http.StatusAccepted {
+		t.Fatalf("expected forgot-password 202, got %d: %s", forgotRes.Code, forgotRes.Body.String())
+	}
+	rateLimited := registerUser(t, env.router, "rate-limit@example.com", "Rate Limit Org")
+	for i := 0; i < 5; i++ {
+		if err := accountStore.CreatePasswordResetToken(context.Background(), rateLimited.User.ID, auth.HashToken("rate-limit-reset-"+strconv.Itoa(i)), time.Now().Add(30*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := accountStore.CreatePasswordResetToken(context.Background(), rateLimited.User.ID, auth.HashToken("rate-limit-reset-final"), time.Now().Add(30*time.Minute)); !errors.Is(err, store.ErrRateLimited) {
+		t.Fatalf("expected password reset token throttling, got %v", err)
+	}
+	forgotRateLimitedRes := performJSON(env.router, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
+		"email": "rate-limit@example.com",
+	}, "")
+	if forgotRateLimitedRes.Code != http.StatusAccepted {
+		t.Fatalf("expected forgot-password throttling to remain enumeration-safe 202, got %d", forgotRateLimitedRes.Code)
+	}
+	resendRateLimited := registerUser(t, env.router, "resend-rate-limit@example.com", "Resend Rate Limit Org")
+	for i := 0; i < 4; i++ {
+		if err := accountStore.CreateEmailVerificationToken(context.Background(), resendRateLimited.User.ID, auth.HashToken("rate-limit-verify-"+strconv.Itoa(i)), time.Now().Add(30*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resendRateLimitedRes := performJSON(env.router, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
+		"email": "resend-rate-limit@example.com",
+	}, "")
+	if resendRateLimitedRes.Code != http.StatusAccepted {
+		t.Fatalf("expected resend-verification throttling to remain enumeration-safe 202, got %d", resendRateLimitedRes.Code)
+	}
+
+	expiredResetUser := registerUser(t, env.router, "expired-reset@example.com", "Expired Reset Org")
+	expiredResetToken := "expired-reset-token"
+	if err := accountStore.CreatePasswordResetToken(context.Background(), expiredResetUser.User.ID, auth.HashToken(expiredResetToken), time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	expiredResetRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
+		"token":        expiredResetToken,
+		"new_password": "expired-reset123",
+	}, "")
+	if expiredResetRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected expired reset token 400, got %d", expiredResetRes.Code)
+	}
+
+	resetToken := latestAuthToken(t, env.tokenSink, "verify@example.com", "password_reset")
+	resetRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
+		"token":        resetToken,
+		"new_password": "reset-password123",
+	}, "")
+	if resetRes.Code != http.StatusNoContent {
+		t.Fatalf("expected reset password 204, got %d: %s", resetRes.Code, resetRes.Body.String())
+	}
+	reuseResetRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
+		"token":        resetToken,
+		"new_password": "second-reset123",
+	}, "")
+	if reuseResetRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected consumed reset token 400, got %d", reuseResetRes.Code)
+	}
+	oldPasswordLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "verify@example.com",
+		"password": "password123",
+	}, "")
+	if oldPasswordLoginRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected old password to fail after reset, got %d", oldPasswordLoginRes.Code)
+	}
+	revokedRefreshRes := performJSON(env.router, http.MethodPost, "/v1/auth/refresh", map[string]any{
+		"refresh_token": registered.Tokens.RefreshToken,
+	}, "")
+	if revokedRefreshRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected reset to revoke active refresh tokens, got %d", revokedRefreshRes.Code)
+	}
+	newPasswordLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "verify@example.com",
+		"password": "reset-password123",
+	}, "")
+	if newPasswordLoginRes.Code != http.StatusOK {
+		t.Fatalf("expected new password login 200, got %d: %s", newPasswordLoginRes.Code, newPasswordLoginRes.Body.String())
+	}
+
+	disabled := registerUser(t, env.router, "recovery-disabled@example.com", "Recovery Disabled Org")
+	disabledVerificationToken := latestAuthToken(t, env.tokenSink, "recovery-disabled@example.com", "email_verification")
+	if _, err := env.db.Exec(context.Background(), `
+		UPDATE users SET disabled_at = now(), updated_at = now() WHERE id = $1
+	`, disabled.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	disabledVerifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": disabledVerificationToken,
+	}, "")
+	if disabledVerifyRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected disabled user verification token 400, got %d", disabledVerifyRes.Code)
+	}
+	if err := accountStore.CreatePasswordResetToken(context.Background(), disabled.User.ID, auth.HashToken("disabled-reset-token"), time.Now().Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	disabledResetRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
+		"token":        "disabled-reset-token",
+		"new_password": "disabled-reset123",
+	}, "")
+	if disabledResetRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected disabled user reset token 400, got %d", disabledResetRes.Code)
+	}
+	disabledForgotRes := performJSON(env.router, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
+		"email": "recovery-disabled@example.com",
+	}, "")
+	if disabledForgotRes.Code != http.StatusAccepted {
+		t.Fatalf("expected disabled forgot-password to remain enumeration-safe 202, got %d", disabledForgotRes.Code)
+	}
+	disabledResendRes := performJSON(env.router, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
+		"email": "recovery-disabled@example.com",
+	}, "")
+	if disabledResendRes.Code != http.StatusAccepted {
+		t.Fatalf("expected disabled resend-verification to remain enumeration-safe 202, got %d", disabledResendRes.Code)
 	}
 }
 
@@ -1634,7 +1889,8 @@ func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 
 type registerBody struct {
 	User struct {
-		ID string `json:"id"`
+		ID            string `json:"id"`
+		EmailVerified bool   `json:"email_verified"`
 	} `json:"user"`
 	Organization struct {
 		ID string `json:"id"`
@@ -1643,6 +1899,14 @@ type registerBody struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
 	} `json:"tokens"`
+}
+
+type userBody struct {
+	User struct {
+		ID              string     `json:"id"`
+		EmailVerified   bool       `json:"email_verified"`
+		EmailVerifiedAt *time.Time `json:"email_verified_at"`
+	} `json:"user"`
 }
 
 type tokenBody struct {
@@ -1654,7 +1918,8 @@ type tokenBody struct {
 
 type meBody struct {
 	User struct {
-		ID string `json:"id"`
+		ID            string `json:"id"`
+		EmailVerified bool   `json:"email_verified"`
 	} `json:"user"`
 	Organizations []struct {
 		ID string `json:"id"`
@@ -1752,6 +2017,21 @@ func registerUser(t *testing.T, router *gin.Engine, email, orgName string) regis
 	return decodeBody[registerBody](t, res)
 }
 
+func latestAuthToken(t *testing.T, sink *recordingAuthTokenSink, email, purpose string) string {
+	t.Helper()
+	for i := len(sink.deliveries) - 1; i >= 0; i-- {
+		delivery := sink.deliveries[i]
+		if delivery.Email == email && delivery.Purpose == purpose {
+			if delivery.Token == "" || delivery.ExpiresAt.IsZero() {
+				t.Fatalf("unexpected empty token delivery: %+v", delivery)
+			}
+			return delivery.Token
+		}
+	}
+	t.Fatalf("missing %s token delivery for %s in %+v", purpose, email, sink.deliveries)
+	return ""
+}
+
 func devicePayload(name, serial string) map[string]any {
 	return map[string]any{
 		"name":          name,
@@ -1817,255 +2097,4 @@ func validateAccountCommandEnvelope(t *testing.T, message model.DeviceMessageOut
 		t.Fatalf("validate outbox envelope: %v", err)
 	}
 	return decoded
-}
-
-type verifyEmailBody struct {
-	User struct {
-		ID              string     `json:"id"`
-		Email           string     `json:"email"`
-		EmailVerifiedAt *time.Time `json:"email_verified_at"`
-	} `json:"user"`
-}
-
-func TestIntegrationEmailVerificationFlow(t *testing.T) {
-	env := newIntegrationEnv(t)
-
-	owner := registerUser(t, env.router, "verify@example.com", "Verify Org")
-
-	// register should have queued a verification email
-	if len(env.mailer.Sent) != 1 {
-		t.Fatalf("expected 1 verification email after register, got %d", len(env.mailer.Sent))
-	}
-	sentCode := env.mailer.Sent[0].Code
-	if len(sentCode) != 6 {
-		t.Fatalf("expected 6-digit OTP, got %q", sentCode)
-	}
-
-	// wrong code → 400
-	wrongRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
-		"email": "verify@example.com",
-		"code":  "000000",
-	}, "")
-	if wrongRes.Code != http.StatusBadRequest {
-		t.Fatalf("expected wrong-code 400, got %d: %s", wrongRes.Code, wrongRes.Body.String())
-	}
-
-	// correct code → 200 with email_verified_at set
-	okRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
-		"email": "verify@example.com",
-		"code":  sentCode,
-	}, "")
-	if okRes.Code != http.StatusOK {
-		t.Fatalf("expected verify 200, got %d: %s", okRes.Code, okRes.Body.String())
-	}
-	body := decodeBody[verifyEmailBody](t, okRes)
-	if body.User.EmailVerifiedAt == nil {
-		t.Fatalf("expected email_verified_at to be set, got nil")
-	}
-	if body.User.ID != owner.User.ID {
-		t.Fatalf("expected same user, got %s", body.User.ID)
-	}
-
-	// reusing the same code → 400 (row deleted)
-	replayRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
-		"email": "verify@example.com",
-		"code":  sentCode,
-	}, "")
-	if replayRes.Code != http.StatusBadRequest {
-		t.Fatalf("expected replay 400, got %d", replayRes.Code)
-	}
-
-	// resend on already-verified → 409
-	resendRes := performJSON(env.router, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
-		"email": "verify@example.com",
-	}, "")
-	if resendRes.Code != http.StatusConflict {
-		t.Fatalf("expected resend-on-verified 409, got %d: %s", resendRes.Code, resendRes.Body.String())
-	}
-
-	// GET /me should show email_verified_at
-	meRes := performJSON(env.router, http.MethodGet, "/v1/me", nil, owner.Tokens.AccessToken)
-	if meRes.Code != http.StatusOK {
-		t.Fatalf("expected me 200, got %d", meRes.Code)
-	}
-	var meOut struct {
-		User struct {
-			EmailVerifiedAt *time.Time `json:"email_verified_at"`
-		} `json:"user"`
-	}
-	if err := json.Unmarshal(meRes.Body.Bytes(), &meOut); err != nil {
-		t.Fatalf("decode me: %v", err)
-	}
-	if meOut.User.EmailVerifiedAt == nil {
-		t.Fatalf("expected email_verified_at in /me response")
-	}
-}
-
-func TestIntegrationResendVerificationFlow(t *testing.T) {
-	env := newIntegrationEnv(t)
-	registerUser(t, env.router, "resend@example.com", "Resend Org")
-
-	firstCode := env.mailer.Sent[0].Code
-
-	// resend (interval = 0 in test env → always allowed)
-	resendRes := performJSON(env.router, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
-		"email": "resend@example.com",
-	}, "")
-	if resendRes.Code != http.StatusAccepted {
-		t.Fatalf("expected resend 202, got %d: %s", resendRes.Code, resendRes.Body.String())
-	}
-	if len(env.mailer.Sent) != 2 {
-		t.Fatalf("expected 2 sent emails, got %d", len(env.mailer.Sent))
-	}
-	newCode := env.mailer.Sent[1].Code
-
-	// old code no longer valid after resend
-	oldRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
-		"email": "resend@example.com",
-		"code":  firstCode,
-	}, "")
-	if oldRes.Code != http.StatusBadRequest {
-		t.Fatalf("expected old-code 400, got %d", oldRes.Code)
-	}
-
-	// new code works
-	newRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
-		"email": "resend@example.com",
-		"code":  newCode,
-	}, "")
-	if newRes.Code != http.StatusOK {
-		t.Fatalf("expected new-code 200, got %d: %s", newRes.Code, newRes.Body.String())
-	}
-
-	// unknown email → 202 (no leakage)
-	unknownRes := performJSON(env.router, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
-		"email": "nobody@example.com",
-	}, "")
-	if unknownRes.Code != http.StatusAccepted {
-		t.Fatalf("expected unknown-email resend 202, got %d", unknownRes.Code)
-	}
-}
-
-func TestIntegrationPasswordResetFlow(t *testing.T) {
-	env := newIntegrationEnv(t)
-	registerUser(t, env.router, "reset@example.com", "Reset Org")
-
-	// forgot-password for unknown email → 202 (no leakage)
-	unknownRes := performJSON(env.router, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
-		"email": "nobody@example.com",
-	}, "")
-	if unknownRes.Code != http.StatusAccepted {
-		t.Fatalf("expected unknown forgot 202, got %d", unknownRes.Code)
-	}
-
-	forgotRes := performJSON(env.router, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
-		"email": "reset@example.com",
-	}, "")
-	if forgotRes.Code != http.StatusAccepted {
-		t.Fatalf("expected forgot 202, got %d: %s", forgotRes.Code, forgotRes.Body.String())
-	}
-
-	var resetCode string
-	for _, m := range env.mailer.Sent {
-		if m.Kind == "password_reset" {
-			resetCode = m.Code
-		}
-	}
-	if resetCode == "" {
-		t.Fatal("expected password_reset email")
-	}
-
-	// wrong code → 400
-	wrongRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
-		"email":        "reset@example.com",
-		"code":         "000000",
-		"new_password": "newpassword99",
-	}, "")
-	if wrongRes.Code != http.StatusBadRequest {
-		t.Fatalf("expected wrong-code 400, got %d", wrongRes.Code)
-	}
-
-	// correct code → 204
-	resetRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
-		"email":        "reset@example.com",
-		"code":         resetCode,
-		"new_password": "newpassword99",
-	}, "")
-	if resetRes.Code != http.StatusNoContent {
-		t.Fatalf("expected reset 204, got %d: %s", resetRes.Code, resetRes.Body.String())
-	}
-
-	// old password no longer works
-	oldLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
-		"email":    "reset@example.com",
-		"password": "password123",
-	}, "")
-	if oldLoginRes.Code != http.StatusUnauthorized {
-		t.Fatalf("expected old-password 401, got %d", oldLoginRes.Code)
-	}
-
-	// new password works
-	newLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
-		"email":    "reset@example.com",
-		"password": "newpassword99",
-	}, "")
-	if newLoginRes.Code != http.StatusOK {
-		t.Fatalf("expected new-password login 200, got %d: %s", newLoginRes.Code, newLoginRes.Body.String())
-	}
-
-	// reset code reuse → 400
-	replayRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
-		"email":        "reset@example.com",
-		"code":         resetCode,
-		"new_password": "anotherpass99",
-	}, "")
-	if replayRes.Code != http.StatusBadRequest {
-		t.Fatalf("expected replay-code 400, got %d", replayRes.Code)
-	}
-}
-
-func TestIntegrationOTPMaxAttemptsExhausted(t *testing.T) {
-	env := newIntegrationEnv(t)
-	registerUser(t, env.router, "exhaust@example.com", "Exhaust Org")
-	_ = env.mailer.Sent[0].Code // register code — ignore
-
-	// request a password reset
-	performJSON(env.router, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
-		"email": "exhaust@example.com",
-	}, "")
-	var resetCode string
-	for _, m := range env.mailer.Sent {
-		if m.Kind == "password_reset" {
-			resetCode = m.Code
-			break
-		}
-	}
-	if resetCode == "" {
-		t.Fatal("expected password_reset email")
-	}
-
-	// exhaust 5 attempts with wrong code
-	for i := 0; i < 5; i++ {
-		res := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
-			"email":        "exhaust@example.com",
-			"code":         "000000",
-			"new_password": "newpassword99",
-		}, "")
-		if i < 4 && res.Code != http.StatusBadRequest {
-			t.Fatalf("attempt %d: expected 400, got %d", i+1, res.Code)
-		}
-		if i == 4 && res.Code != http.StatusTooManyRequests {
-			t.Fatalf("5th attempt: expected 429, got %d: %s", res.Code, res.Body.String())
-		}
-	}
-
-	// correct code no longer works — row deleted
-	expiredRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
-		"email":        "exhaust@example.com",
-		"code":         resetCode,
-		"new_password": "newpassword99",
-	}, "")
-	if expiredRes.Code != http.StatusBadRequest {
-		t.Fatalf("expected deleted-row 400, got %d", expiredRes.Code)
-	}
 }

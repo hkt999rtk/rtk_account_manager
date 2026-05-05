@@ -18,6 +18,7 @@ var (
 	ErrDisabled       = errors.New("resource is disabled")
 	ErrConflict       = errors.New("conflict")
 	ErrNotProvisioned = errors.New("device is not provisioned")
+	ErrRateLimited    = errors.New("rate limited")
 )
 
 type Store struct {
@@ -82,8 +83,8 @@ func (s *Store) Register(ctx context.Context, in RegisterInput) (RegisterResult,
 	err = tx.QueryRow(ctx, `
 		INSERT INTO users (email, password_hash, display_name)
 		VALUES ($1, $2, $3)
-		RETURNING id::text, email, display_name, created_at, updated_at, disabled_at, email_verified_at
-	`, in.Email, in.PasswordHash, in.DisplayName).Scan(&user.ID, &user.Email, &user.DisplayName, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt, &user.EmailVerifiedAt)
+		RETURNING id::text, email, display_name, email_verified, email_verified_at, created_at, updated_at, disabled_at
+	`, in.Email, in.PasswordHash, in.DisplayName).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	if err != nil {
 		return RegisterResult{}, err
 	}
@@ -117,10 +118,10 @@ func (s *Store) GetUserPassword(ctx context.Context, email string) (model.User, 
 	var user model.User
 	var hash string
 	err := s.db.QueryRow(ctx, `
-		SELECT id::text, email, password_hash, display_name, created_at, updated_at, disabled_at, email_verified_at
+		SELECT id::text, email, password_hash, display_name, email_verified, email_verified_at, created_at, updated_at, disabled_at
 		FROM users
 		WHERE email = $1 AND disabled_at IS NULL
-	`, email).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt, &user.EmailVerifiedAt)
+	`, email).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, "", ErrNotFound
 	}
@@ -131,10 +132,10 @@ func (s *Store) GetUserPasswordByID(ctx context.Context, userID string) (model.U
 	var user model.User
 	var hash string
 	err := s.db.QueryRow(ctx, `
-		SELECT id::text, email, password_hash, display_name, created_at, updated_at, disabled_at, email_verified_at
+		SELECT id::text, email, password_hash, display_name, email_verified, email_verified_at, created_at, updated_at, disabled_at
 		FROM users
 		WHERE id = $1 AND disabled_at IS NULL
-	`, userID).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt, &user.EmailVerifiedAt)
+	`, userID).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, "", ErrNotFound
 	}
@@ -144,14 +145,180 @@ func (s *Store) GetUserPasswordByID(ctx context.Context, userID string) (model.U
 func (s *Store) GetUser(ctx context.Context, userID string) (model.User, error) {
 	var user model.User
 	err := s.db.QueryRow(ctx, `
-		SELECT id::text, email, display_name, created_at, updated_at, disabled_at, email_verified_at
+		SELECT id::text, email, display_name, email_verified, email_verified_at, created_at, updated_at, disabled_at
 		FROM users
 		WHERE id = $1 AND disabled_at IS NULL
-	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt, &user.EmailVerifiedAt)
+	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, ErrNotFound
 	}
 	return user, err
+}
+
+func (s *Store) CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
+	return s.createAuthToken(ctx, userID, "email_verification", tokenHash, expiresAt)
+}
+
+func (s *Store) CreatePasswordResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
+	return s.createAuthToken(ctx, userID, "password_reset", tokenHash, expiresAt)
+}
+
+func (s *Store) CreatePasswordResetTokenForEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error) {
+	var userID string
+	err := s.db.QueryRow(ctx, `
+		SELECT id::text
+		FROM users
+		WHERE email = $1 AND disabled_at IS NULL
+	`, email).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, s.CreatePasswordResetToken(ctx, userID, tokenHash, expiresAt)
+}
+
+func (s *Store) CreateEmailVerificationTokenForEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error) {
+	var userID string
+	var verified bool
+	err := s.db.QueryRow(ctx, `
+		SELECT id::text, email_verified
+		FROM users
+		WHERE email = $1 AND disabled_at IS NULL
+	`, email).Scan(&userID, &verified)
+	if errors.Is(err, pgx.ErrNoRows) || verified {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, s.CreateEmailVerificationToken(ctx, userID, tokenHash, expiresAt)
+}
+
+func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash string) (model.User, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return model.User{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	userID, err := consumeAuthTokenTx(ctx, tx, tokenHash, "email_verification")
+	if err != nil {
+		return model.User{}, err
+	}
+	var user model.User
+	err = tx.QueryRow(ctx, `
+		UPDATE users
+		SET email_verified = true, email_verified_at = COALESCE(email_verified_at, now()), updated_at = now()
+		WHERE id = $1 AND disabled_at IS NULL
+		RETURNING id::text, email, display_name, email_verified, email_verified_at, created_at, updated_at, disabled_at
+	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.User{}, ErrNotFound
+	}
+	if err != nil {
+		return model.User{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.User{}, err
+	}
+	return user, nil
+}
+
+func (s *Store) ResetPasswordWithToken(ctx context.Context, tokenHash, passwordHash string) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	userID, err := consumeAuthTokenTx(ctx, tx, tokenHash, "password_reset")
+	if err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `
+		UPDATE users
+		SET password_hash = $2, updated_at = now()
+		WHERE id = $1 AND disabled_at IS NULL
+	`, userID, passwordHash)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE refresh_tokens
+		SET revoked_at = now()
+		WHERE user_id = $1 AND revoked_at IS NULL
+	`, userID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) createAuthToken(ctx context.Context, userID, purpose, tokenHash string, expiresAt time.Time) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var recent int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*)
+		FROM auth_tokens
+		WHERE user_id = $1 AND purpose = $2 AND created_at > now() - interval '1 hour'
+	`, userID, purpose).Scan(&recent); err != nil {
+		return err
+	}
+	if recent >= 5 {
+		return ErrRateLimited
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE auth_tokens
+		SET consumed_at = now()
+		WHERE user_id = $1 AND purpose = $2 AND consumed_at IS NULL
+	`, userID, purpose); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO auth_tokens (user_id, purpose, token_hash, expires_at)
+		VALUES ($1, $2, $3, $4)
+	`, userID, purpose, tokenHash, expiresAt); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func consumeAuthTokenTx(ctx context.Context, tx pgx.Tx, tokenHash, purpose string) (string, error) {
+	var userID string
+	err := tx.QueryRow(ctx, `
+		SELECT at.user_id::text
+		FROM auth_tokens at
+		JOIN users u ON u.id = at.user_id
+		WHERE at.token_hash = $1
+		  AND at.purpose = $2
+		  AND at.consumed_at IS NULL
+		  AND at.expires_at > now()
+		  AND u.disabled_at IS NULL
+		FOR UPDATE OF at
+	`, tokenHash, purpose).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE auth_tokens
+		SET consumed_at = now()
+		WHERE token_hash = $1
+	`, tokenHash); err != nil {
+		return "", err
+	}
+	return userID, nil
 }
 
 func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash string) error {

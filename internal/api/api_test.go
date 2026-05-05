@@ -1,8 +1,11 @@
 package api
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +19,12 @@ import (
 	"rtk_account_manager/internal/store"
 )
 
+type failingAuthTokenSink struct{}
+
+func (failingAuthTokenSink) DeliverAuthToken(context.Context, AuthTokenDelivery) error {
+	return errors.New("delivery failed")
+}
+
 func TestRequireAuthRejectsMissingToken(t *testing.T) {
 	server := New(nil, auth.NewService("access-secret", "refresh-secret", time.Minute, time.Hour))
 	router := server.Router()
@@ -26,6 +35,72 @@ func TestRequireAuthRejectsMissingToken(t *testing.T) {
 
 	if res.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", res.Code)
+	}
+}
+
+func TestHealthRoute(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := New(nil, nil).Router()
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected health 200, got %d", res.Code)
+	}
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatalf("expected JSON health body, got %v", err)
+	}
+	if body.Status != "ok" {
+		t.Fatalf("expected ok status, got %q", body.Status)
+	}
+}
+
+func TestAuthTokenDeliveryHook(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	noSinkServer := New(nil, nil)
+	if err := noSinkServer.deliverAuthToken(c, "user@example.com", "email_verification", "token", time.Now()); !errors.Is(err, ErrAuthTokenSinkUnavailable) {
+		t.Fatalf("expected unavailable sink error, got %v", err)
+	}
+
+	errorServer := NewWithAuthTokenSink(nil, nil, failingAuthTokenSink{})
+	if err := errorServer.deliverAuthToken(c, "user@example.com", "email_verification", "token", time.Now()); err == nil {
+		t.Fatal("expected sink delivery error")
+	}
+}
+
+func TestLogAuthTokenSinkWritesDelivery(t *testing.T) {
+	var buf bytes.Buffer
+	sink := NewLogAuthTokenSink(log.New(&buf, "", 0))
+	expiresAt := time.Date(2026, 5, 4, 12, 30, 0, 0, time.UTC)
+
+	err := sink.DeliverAuthToken(context.Background(), AuthTokenDelivery{
+		Purpose:   "password_reset",
+		Email:     "user@example.com",
+		Token:     "reset-token",
+		ExpiresAt: expiresAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := buf.String()
+	for _, want := range []string{
+		"purpose=password_reset",
+		"email=user@example.com",
+		"token=reset-token",
+		"expires_at=2026-05-04T12:30:00Z",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected log output to contain %q, got %q", want, got)
+		}
 	}
 }
 
@@ -128,6 +203,20 @@ func TestValidationHelpersWriteErrors(t *testing.T) {
 		t.Fatalf("expected internal error 500, got %d", defaultRecorder.Code)
 	}
 
+	conflictRecorder := httptest.NewRecorder()
+	conflictContext, _ := gin.CreateTestContext(conflictRecorder)
+	writeStoreError(conflictContext, store.ErrConflict)
+	if conflictRecorder.Code != http.StatusConflict {
+		t.Fatalf("expected conflict store error 409, got %d", conflictRecorder.Code)
+	}
+
+	notFoundRecorder := httptest.NewRecorder()
+	notFoundContext, _ := gin.CreateTestContext(notFoundRecorder)
+	writeStoreError(notFoundContext, store.ErrNotFound)
+	if notFoundRecorder.Code != http.StatusNotFound {
+		t.Fatalf("expected not found store error 404, got %d", notFoundRecorder.Code)
+	}
+
 	inconsistentRecorder := httptest.NewRecorder()
 	inconsistentContext, _ := gin.CreateTestContext(inconsistentRecorder)
 	writeStoreError(inconsistentContext, errOperationStateInconsistent)
@@ -144,6 +233,131 @@ func TestValidationHelpersWriteErrors(t *testing.T) {
 	}
 	if inconsistentBody.Error.Code != "operation_state_inconsistent" {
 		t.Fatalf("expected operation_state_inconsistent error code, got %+v", inconsistentBody)
+	}
+
+	rateLimitRecorder := httptest.NewRecorder()
+	rateLimitContext, _ := gin.CreateTestContext(rateLimitRecorder)
+	writeStoreError(rateLimitContext, store.ErrRateLimited)
+	if rateLimitRecorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected rate limited store error 429, got %d", rateLimitRecorder.Code)
+	}
+
+	authRateLimitRecorder := httptest.NewRecorder()
+	authRateLimitContext, _ := gin.CreateTestContext(authRateLimitRecorder)
+	writeAuthTokenStoreError(authRateLimitContext, store.ErrRateLimited, "ignored")
+	if authRateLimitRecorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected auth token rate limit 429, got %d", authRateLimitRecorder.Code)
+	}
+
+	authDefaultRecorder := httptest.NewRecorder()
+	authDefaultContext, _ := gin.CreateTestContext(authDefaultRecorder)
+	writeAuthTokenStoreError(authDefaultContext, errors.New("boom"), "Could not issue reset token")
+	if authDefaultRecorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected auth token default 500, got %d", authDefaultRecorder.Code)
+	}
+}
+
+func TestNewAuthTokenAndUnsupportedPurpose(t *testing.T) {
+	server := New(nil, nil)
+	token, expiresAt, err := server.newAuthToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token == "" {
+		t.Fatal("expected token")
+	}
+	if time.Until(expiresAt) < 29*time.Minute || time.Until(expiresAt) > 31*time.Minute {
+		t.Fatalf("expected roughly 30 minute expiry, got %s", time.Until(expiresAt))
+	}
+
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	if _, _, err := server.createAuthToken(c, "user-1", "unsupported"); err == nil {
+		t.Fatal("expected unsupported token purpose error")
+	}
+}
+
+func TestAuthRecoveryValidationRejectsInvalidRequests(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := New(nil, nil).Router()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{
+			name:   "verify email missing token",
+			method: http.MethodPost,
+			path:   "/v1/auth/verify-email",
+			body:   `{}`,
+		},
+		{
+			name:   "resend verification invalid email",
+			method: http.MethodPost,
+			path:   "/v1/auth/resend-verification",
+			body:   `{"email":"not-an-email"}`,
+		},
+		{
+			name:   "forgot password invalid email",
+			method: http.MethodPost,
+			path:   "/v1/auth/forgot-password",
+			body:   `{"email":"not-an-email"}`,
+		},
+		{
+			name:   "reset password short new password",
+			method: http.MethodPost,
+			path:   "/v1/auth/reset-password",
+			body:   `{"token":"token","new_password":"short"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			res := httptest.NewRecorder()
+			router.ServeHTTP(res, req)
+			if res.Code != http.StatusBadRequest {
+				t.Fatalf("expected validation 400, got %d: %s", res.Code, res.Body.String())
+			}
+		})
+	}
+}
+
+func TestAuthRecoveryValidationRejectsBlankTokens(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := New(nil, nil).Router()
+
+	tests := []struct {
+		name string
+		path string
+		body string
+	}{
+		{
+			name: "verify email blank token",
+			path: "/v1/auth/verify-email",
+			body: `{"token":"   "}`,
+		},
+		{
+			name: "reset password blank token",
+			path: "/v1/auth/reset-password",
+			body: `{"token":"   ","new_password":"new-password123"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			res := httptest.NewRecorder()
+			router.ServeHTTP(res, req)
+			if res.Code != http.StatusBadRequest {
+				t.Fatalf("expected blank token validation 400, got %d: %s", res.Code, res.Body.String())
+			}
+		})
 	}
 }
 

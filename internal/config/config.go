@@ -16,6 +16,7 @@ type Config struct {
 	AccessTokenTTL                time.Duration
 	RefreshTokenTTL               time.Duration
 	Port                          string
+	AuthTokenDelivery             string
 	CrossServiceBroker            string
 	AzureEventHubConnectionString string
 	AzureEventHubCheckpointFile   string
@@ -59,6 +60,7 @@ func load() (Config, error) {
 		AccessTokenTTL:                duration("ACCESS_TOKEN_TTL", 15*time.Minute),
 		RefreshTokenTTL:               duration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
 		Port:                          getenv("PORT", "8080"),
+		AuthTokenDelivery:             getenv("AUTH_TOKEN_DELIVERY", "log"),
 		CrossServiceBroker:            getenv("CROSS_SERVICE_BROKER", "log"),
 		AzureEventHubConnectionString: getenv("AZURE_EVENTHUB_CONNECTION_STRING", ""),
 		AzureEventHubCheckpointFile:   getenv("AZURE_EVENTHUB_CHECKPOINT_FILE", ""),

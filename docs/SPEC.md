@@ -44,7 +44,7 @@ Provisioning and account/video event-channel integration are the v2 surface impl
 - Device command dispatch.
 - Device self-registration or provisioning flows in v1.
 - Device certificate management.
-- OTP/email verification, self-service password recovery/reset, and third-party/social login.
+- Third-party/social login.
 - Executable batch operations, OTA campaign execution, and firmware rollout policy.
 - Custom RBAC permissions.
 - Multi-region deployment concerns.
@@ -372,11 +372,29 @@ Constraints:
 - Refresh tokens may be used to issue new access tokens.
 - Refreshing a session rotates the refresh token. The previous refresh token is revoked and must not be accepted again.
 - Logout revokes the active refresh token.
+- `POST /v1/auth/verify-email` consumes a one-time email verification token
+  and marks `user.email_verified=true`.
+- `POST /v1/auth/resend-verification` issues a replacement verification token
+  for unverified users and returns an enumeration-safe `202 Accepted` for
+  unknown, already verified, disabled, or throttled users.
+- `POST /v1/auth/forgot-password` issues a password reset token and returns an
+  enumeration-safe `202 Accepted` for unknown, disabled, or throttled users.
+- `POST /v1/auth/reset-password` consumes a one-time password reset token,
+  updates the password, and revokes all active refresh tokens for the user.
 - `PATCH /v1/me/password` lets the authenticated current user change their password after presenting the current password and a new password of at least 8 characters.
 - Password change revokes all active refresh tokens for the user. Existing access tokens remain valid until their normal expiry.
 - `DELETE /v1/me` lets the authenticated current user disable their own account. The operation revokes active refresh tokens and refuses to disable the user while they are the last active owner of any organization.
 - Self-service account deletion is account-manager user lifecycle only. It preserves organization memberships and registry/device records, and it does not imply product-level device deletion or deactivation.
-- OTP verification, self-service password recovery/reset, and third-party/social login are deferred first-phase lifecycle capabilities and must not be presented as available API behavior until implemented.
+- Verification and password reset tokens expire after 30 minutes, are stored
+  hashed, become one-time-use after consumption, and are throttled to five
+  issued tokens per user/purpose per hour.
+- Auth token delivery is an explicit adapter boundary. The API process accepts
+  an `AuthTokenSink` implementation for email/SMS/dev-test delivery. The
+  production server entrypoint wires `AUTH_TOKEN_DELIVERY=log` as the local
+  dev/test adapter so one-time verification and reset tokens are emitted to the
+  server log until a real mail or SMS adapter is configured.
+- Third-party/social login is a deferred first-phase lifecycle capability and
+  must not be presented as available API behavior until implemented.
 - Expired or revoked refresh tokens may be removed by an explicit maintenance command.
 
 ### Self-Service Evaluation Tier (Deferred Capability)
@@ -447,6 +465,10 @@ All endpoints are versioned under `/v1`.
 | `POST` | `/v1/auth/register` | No | Create a user and initial organization. |
 | `POST` | `/v1/auth/login` | No | Authenticate with email/password. |
 | `POST` | `/v1/auth/refresh` | No | Exchange refresh token for new access token. |
+| `POST` | `/v1/auth/verify-email` | No | Consume an email verification token and mark the user email verified. |
+| `POST` | `/v1/auth/resend-verification` | No | Issue a replacement email verification token for an unverified user, with enumeration-safe response semantics. |
+| `POST` | `/v1/auth/forgot-password` | No | Issue a password reset token, with enumeration-safe response semantics. |
+| `POST` | `/v1/auth/reset-password` | No | Consume a password reset token, set a new password, and revoke active refresh tokens. |
 | `POST` | `/v1/auth/logout` | Yes | Revoke current refresh token/session. |
 | `GET` | `/v1/me` | Yes | Return current user and memberships. |
 | `DELETE` | `/v1/me` | Yes | Disable current user account and revoke refresh tokens. |
@@ -807,6 +829,7 @@ Required configuration:
 | `ACCESS_TOKEN_TTL` | Access token lifetime. |
 | `REFRESH_TOKEN_TTL` | Refresh token lifetime. |
 | `PORT` | HTTP server port. |
+| `AUTH_TOKEN_DELIVERY` | Auth verification/reset token delivery adapter. Use `log` for the local dev/test adapter. |
 
 V2 cross-service configuration:
 

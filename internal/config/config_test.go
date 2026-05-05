@@ -47,6 +47,7 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	t.Setenv("ACCESS_TOKEN_TTL", "10m")
 	t.Setenv("REFRESH_TOKEN_TTL", "24h")
 	t.Setenv("PORT", "9090")
+	t.Setenv("AUTH_TOKEN_DELIVERY", "log")
 	t.Setenv("AZURE_EVENTHUB_CONNECTION_STRING", "Endpoint=sb://example/")
 	t.Setenv("AZURE_EVENTHUB_CHECKPOINT_FILE", "/tmp/eventhub-checkpoints.json")
 
@@ -68,6 +69,9 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	}
 	if cfg.Port != "9090" {
 		t.Fatalf("unexpected port: %q", cfg.Port)
+	}
+	if cfg.AuthTokenDelivery != "log" {
+		t.Fatalf("unexpected auth token delivery: %q", cfg.AuthTokenDelivery)
 	}
 	if cfg.CrossServiceBroker != "log" {
 		t.Fatalf("unexpected broker: %q", cfg.CrossServiceBroker)

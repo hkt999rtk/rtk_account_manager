@@ -8,7 +8,6 @@ import (
 	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/config"
 	"rtk_account_manager/internal/database"
-	"rtk_account_manager/internal/mailer"
 	"rtk_account_manager/internal/store"
 )
 
@@ -26,13 +25,14 @@ func main() {
 	defer db.Close()
 
 	authService := auth.NewService(cfg.AccessSecret, cfg.RefreshSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
-	mailerService := mailer.NewLogMailer(nil)
-	server := api.NewWithMailer(store.New(db), authService, mailerService, api.AuthCodeOptions{
-		EmailVerificationTTL: cfg.EmailVerificationTTL,
-		PasswordResetTTL:     cfg.PasswordResetTTL,
-		OTPResendInterval:    cfg.OTPResendInterval,
-		OTPMaxAttempts:       cfg.OTPMaxAttempts,
-	})
+	var authTokenSink api.AuthTokenSink
+	switch cfg.AuthTokenDelivery {
+	case "log":
+		authTokenSink = api.NewLogAuthTokenSink(log.Default())
+	default:
+		log.Fatalf("unsupported AUTH_TOKEN_DELIVERY %q", cfg.AuthTokenDelivery)
+	}
+	server := api.NewWithAuthTokenSink(store.New(db), authService, authTokenSink)
 
 	log.Printf("listening on :%s", cfg.Port)
 	if err := server.Router().Run(":" + cfg.Port); err != nil {

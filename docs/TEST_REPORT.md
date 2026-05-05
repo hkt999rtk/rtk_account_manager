@@ -1,6 +1,6 @@
 # Test Report
 
-Generated: 2026-04-29T06:58:30Z
+Generated: 2026-05-05T00:37:48Z
 
 ## Summary
 
@@ -16,7 +16,7 @@ Generated: 2026-04-29T06:58:30Z
 
 | Metric | Value |
 | --- | --- |
-| Total statement coverage | 80.8% |
+| Total statement coverage | 80.1% |
 | Minimum required coverage | 80.0% |
 | Coverage mode | atomic |
 | Coverage scope | ./internal/... |
@@ -25,9 +25,9 @@ Generated: 2026-04-29T06:58:30Z
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 17 |
-| Test cases started | 184 |
-| JSON pass events | 195 |
+| Go packages | 18 |
+| Test cases started | 227 |
+| JSON pass events | 238 |
 | JSON fail events | 0 |
 | Integration database | Postgres via TEST_DATABASE_URL |
 
@@ -64,11 +64,26 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 
 ## Executed Test Cases
 
+- `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsBlankTokens/reset_password_blank_token`
+- `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsBlankTokens/verify_email_blank_token`
+- `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsBlankTokens`
+- `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests/forgot_password_invalid_email`
+- `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests/resend_verification_invalid_email`
+- `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests/reset_password_short_new_password`
+- `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests/verify_email_missing_token`
+- `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests`
+- `rtk_account_manager/internal/api`: `TestAuthTokenDeliveryHook`
+- `rtk_account_manager/internal/api`: `TestBindStrictRejectsUnknownFields`
+- `rtk_account_manager/internal/api`: `TestHealthRoute`
 - `rtk_account_manager/internal/api`: `TestIntegrationCleanupRefreshTokensRemovesExpiredAndRevokedRows`
+- `rtk_account_manager/internal/api`: `TestIntegrationCurrentUserCanChangePassword`
+- `rtk_account_manager/internal/api`: `TestIntegrationCurrentUserCanDisableSelfWithOwnerSafety`
 - `rtk_account_manager/internal/api`: `TestIntegrationDatabaseMaintainsUpdatedAt`
 - `rtk_account_manager/internal/api`: `TestIntegrationDatabaseRejectsInvalidCoreData`
 - `rtk_account_manager/internal/api`: `TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata`
 - `rtk_account_manager/internal/api`: `TestIntegrationDisabledUserCannotUseExistingTokens`
+- `rtk_account_manager/internal/api`: `TestIntegrationEmailVerificationAndPasswordRecovery`
+- `rtk_account_manager/internal/api`: `TestIntegrationFleetGroupsAndTags`
 - `rtk_account_manager/internal/api`: `TestIntegrationLastOwnerCannotBeRemovedOrDowngraded`
 - `rtk_account_manager/internal/api`: `TestIntegrationListPaginationMetadata`
 - `rtk_account_manager/internal/api`: `TestIntegrationMigrationsAreIdempotent`
@@ -82,9 +97,27 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness`
 - `rtk_account_manager/internal/api`: `TestIntegrationStoreRefreshTokenHelpers`
 - `rtk_account_manager/internal/api`: `TestIntegrationValidationAndNotFoundErrors`
+- `rtk_account_manager/internal/api`: `TestLogAuthTokenSinkWritesDelivery`
 - `rtk_account_manager/internal/api`: `TestMatchExistingDeactivateOperation`
 - `rtk_account_manager/internal/api`: `TestMatchExistingProvisionOperation`
+- `rtk_account_manager/internal/api`: `TestNewAuthTokenAndUnsupportedPurpose`
 - `rtk_account_manager/internal/api`: `TestPaginationClampsAndDefaultsValues`
+- `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/accepted_provisioning_waits_for_activation`
+- `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/activation_failure_stays_visible`
+- `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/activation_succeeded_and_online_is_ready`
+- `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/activation_succeeded_but_offline_waits_for_transport`
+- `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/deactivation_pending_takes_precedence`
+- `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/deactivation_success_is_deactivated`
+- `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/registry_disabled_stays_account-side_only`
+- `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates`
+- `rtk_account_manager/internal/api`: `TestRejectUnsupportedClaimMaterial/activation_code`
+- `rtk_account_manager/internal/api`: `TestRejectUnsupportedClaimMaterial/factory_identity`
+- `rtk_account_manager/internal/api`: `TestRejectUnsupportedClaimMaterial/mac_address`
+- `rtk_account_manager/internal/api`: `TestRejectUnsupportedClaimMaterial/qr_code_synonym`
+- `rtk_account_manager/internal/api`: `TestRejectUnsupportedClaimMaterial/qr_payload`
+- `rtk_account_manager/internal/api`: `TestRejectUnsupportedClaimMaterial/serial_number`
+- `rtk_account_manager/internal/api`: `TestRejectUnsupportedClaimMaterial/standalone_claim_material_object`
+- `rtk_account_manager/internal/api`: `TestRejectUnsupportedClaimMaterial`
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsInvalidToken`
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsMissingToken`
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsRefreshTokenAsBearer`
@@ -92,9 +125,11 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestValidationHelpersWriteErrors`
 - `rtk_account_manager/internal/auth`: `TestExpiredAndWrongSecretTokensFailParsing`
 - `rtk_account_manager/internal/auth`: `TestPasswordHashAndCheck`
+- `rtk_account_manager/internal/auth`: `TestRandomTokenProducesHashableDistinctValues`
 - `rtk_account_manager/internal/auth`: `TestTokenKindValidation`
 - `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerAcknowledgesAndResumesFromCheckpoint`
 - `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerCloseClosesPartitions`
+- `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerDoesNotAdvanceCheckpointPastEarlierUnacknowledgedMessage`
 - `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerMarksConnectionLossTransient`
 - `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerReadsAcrossPartitions`
 - `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerTreatsReceiveTimeoutAsEmptyPoll`
@@ -202,7 +237,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessageDeduplicates`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessagePreservesDeadLetterPayloadSnapshot`
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
+- `rtk_account_manager/internal/store`: `TestGetOutboxMessageDetailIncludesOperation`
 - `rtk_account_manager/internal/store`: `TestJSONHelpers`
+- `rtk_account_manager/internal/store`: `TestListInboxMessagesByStatusAndShowDetail`
+- `rtk_account_manager/internal/store`: `TestListOutboxMessagesByStatusFiltersLifecycleRows`
 - `rtk_account_manager/internal/store`: `TestMergeDeviceMetadataPreservesUnrelatedFields`
 - `rtk_account_manager/internal/store`: `TestMetadataChangedProjectionFiltersNonVideoCloudKeys`
 - `rtk_account_manager/internal/store`: `TestOnlineChangedProjectionSetsStatusAndLastSeenAt`
@@ -214,8 +252,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestRecordOutboxPublishTransitionPreservesInboxCompletedOperation`
 - `rtk_account_manager/internal/store`: `TestRecordOutboxPublishTransitionRejectsStaleLease`
 - `rtk_account_manager/internal/store`: `TestRecordOutboxPublishTransitionUpdatesOperationState`
+- `rtk_account_manager/internal/store`: `TestRequeueInboxMessageReopensDeadLetteredRow`
+- `rtk_account_manager/internal/store`: `TestRequeueOutboxMessageRejectsCompletedLifecycleOperation`
+- `rtk_account_manager/internal/store`: `TestRequeueOutboxMessageResetsRetryState`
 - `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationRejectsMissingProjectedMetadata`
 - `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationUsesProjectedMetadata`
+- `rtk_account_manager/internal/store`: `TestStartDeviceLifecycleOperationPersistsPendingProvisionMetadata`
 - `rtk_account_manager/internal/store`: `TestValidatePartitionKeyMatchesOperationSkipsBlankValues`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidMessages`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidPartitionKeysAfterPersistingInboxRow/blank_partition_key_is_normalized_for_storage_and_dead-lettered`
@@ -227,6 +269,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersMalformedAndUnmappedMessages/malformed_payload_with_invalid_utf-8_keeps_exact_bytes`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersMalformedAndUnmappedMessages`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersTransientProjectionFailureAtAttemptLimit`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDoesNotAcknowledgeRetryingMessages`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDoesNotAcknowledgeWhenTransitionFails`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents/deactivate_failure_records_retryable_error`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents/deactivate_success_keeps_deactivation_projection`
