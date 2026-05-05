@@ -556,6 +556,98 @@ func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
 	}
 }
 
+func TestIntegrationAdminMetricsReportsEmptySnapshot(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	admin := registerUser(t, env.router, "metrics-admin@example.com", "Metrics Admin Org")
+	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	metricsRes := performJSON(env.router, http.MethodGet, "/v1/admin/metrics", nil, admin.Tokens.AccessToken)
+	if metricsRes.Code != http.StatusOK {
+		t.Fatalf("expected empty admin metrics 200, got %d: %s", metricsRes.Code, metricsRes.Body.String())
+	}
+	metricsBody := decodeBody[evalTierMetricsBody](t, metricsRes)
+	if metricsBody.Signups.EvaluationCreated != 0 || metricsBody.Signups.VerificationCompleted != 0 || metricsBody.Signups.VerificationCompletionRate != 0 {
+		t.Fatalf("expected empty signup metrics, got %+v", metricsBody.Signups)
+	}
+	if metricsBody.QuotaRaiseRequests.Pending != 0 || metricsBody.QuotaRaiseRequests.Approved != 0 || metricsBody.QuotaRaiseRequests.Declined != 0 {
+		t.Fatalf("expected empty quota-raise metrics, got %+v", metricsBody.QuotaRaiseRequests)
+	}
+	if len(metricsBody.EvaluationQuotaUsage) != 0 {
+		t.Fatalf("expected no evaluation quota usage rows, got %+v", metricsBody.EvaluationQuotaUsage)
+	}
+}
+
+func TestIntegrationQuotaRaiseValidationAndDefaultApproval(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	signupRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
+		"email":             "validate-quota@example.com",
+		"password":          "password123",
+		"display_name":      "Validate Quota",
+		"organization_name": "Validate Quota Org",
+	}, "")
+	if signupRes.Code != http.StatusAccepted {
+		t.Fatalf("expected signup 202, got %d: %s", signupRes.Code, signupRes.Body.String())
+	}
+	signupBody := decodeBody[signupBody](t, signupRes)
+	verifyToken := latestAuthToken(t, env.tokenSink, "validate-quota@example.com", "email_verification")
+	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": verifyToken,
+	}, "")
+	if verifyRes.Code != http.StatusOK {
+		t.Fatalf("expected verify 200, got %d: %s", verifyRes.Code, verifyRes.Body.String())
+	}
+	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "validate-quota@example.com",
+		"password": "password123",
+	}, "")
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("expected login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
+	}
+	loginBody := decodeBody[tokenBody](t, loginRes)
+
+	invalidRequests := []map[string]any{
+		{"requested_quota": 0, "use_case": "pilot", "contact_info": map[string]any{"email": "buyer@example.com"}},
+		{"requested_quota": 201, "use_case": "pilot", "contact_info": map[string]any{"email": "buyer@example.com"}},
+		{"requested_quota": 8, "use_case": "   ", "contact_info": map[string]any{"email": "buyer@example.com"}},
+		{"requested_quota": 8, "use_case": "pilot", "contact_info": map[string]any{}},
+	}
+	for i, body := range invalidRequests {
+		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", body, loginBody.Tokens.AccessToken)
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("expected invalid quota raise request %d to fail 400, got %d: %s", i, res.Code, res.Body.String())
+		}
+	}
+
+	raiseReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", map[string]any{
+		"requested_quota": 8,
+		"use_case":        "pilot expansion",
+		"contact_info": map[string]any{
+			"email": "buyer@example.com",
+		},
+	}, loginBody.Tokens.AccessToken)
+	if raiseReqRes.Code != http.StatusCreated {
+		t.Fatalf("expected quota raise request 201, got %d: %s", raiseReqRes.Code, raiseReqRes.Body.String())
+	}
+	raiseReqBody := decodeBody[quotaRaiseRequestBody](t, raiseReqRes)
+
+	admin := registerUser(t, env.router, "validate-quota-admin@example.com", "Validate Quota Admin Org")
+	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	approveRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", map[string]any{}, admin.Tokens.AccessToken)
+	if approveRes.Code != http.StatusOK {
+		t.Fatalf("expected quota approval 200, got %d: %s", approveRes.Code, approveRes.Body.String())
+	}
+	approvedBody := decodeBody[quotaRaiseDecisionBody](t, approveRes)
+	if approvedBody.Organization.EvaluationDeviceQuota != 8 {
+		t.Fatalf("expected default approval quota to use requested amount, got %+v", approvedBody.Organization)
+	}
+}
+
 func TestIntegrationCurrentUserCanChangePassword(t *testing.T) {
 	env := newIntegrationEnv(t)
 
