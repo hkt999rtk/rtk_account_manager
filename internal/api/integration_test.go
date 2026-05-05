@@ -59,7 +59,7 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		TRUNCATE auth_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
+		TRUNCATE auth_tokens, quota_raise_requests, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatal(err)
@@ -390,6 +390,113 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	}, "")
 	if disabledResendRes.Code != http.StatusAccepted {
 		t.Fatalf("expected disabled resend-verification to remain enumeration-safe 202, got %d", disabledResendRes.Code)
+	}
+}
+
+func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	signupRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
+		"email":             "eval@example.com",
+		"password":          "password123",
+		"display_name":      "Eval User",
+		"organization_name": "Eval Org",
+	}, "")
+	if signupRes.Code != http.StatusAccepted {
+		t.Fatalf("expected signup 202, got %d: %s", signupRes.Code, signupRes.Body.String())
+	}
+	signupBody := decodeBody[signupBody](t, signupRes)
+	if !signupBody.User.SignupPendingVerification || signupBody.User.EmailVerified {
+		t.Fatalf("expected signup-pending user, got %+v", signupBody.User)
+	}
+	if signupBody.Organization.Tier != string(model.OrganizationTierEvaluation) || signupBody.Organization.EvaluationDeviceQuota != 5 {
+		t.Fatalf("expected evaluation org quota defaults, got %+v", signupBody.Organization)
+	}
+
+	unauthorizedLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "eval@example.com",
+		"password": "password123",
+	}, "")
+	if unauthorizedLoginRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected pending signup login to fail, got %d", unauthorizedLoginRes.Code)
+	}
+
+	verifyToken := latestAuthToken(t, env.tokenSink, "eval@example.com", "email_verification")
+	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": verifyToken,
+	}, "")
+	if verifyRes.Code != http.StatusOK {
+		t.Fatalf("expected signup verification 200, got %d: %s", verifyRes.Code, verifyRes.Body.String())
+	}
+	verifiedBody := decodeBody[userBody](t, verifyRes)
+	if !verifiedBody.User.EmailVerified || verifiedBody.User.SignupPendingVerification {
+		t.Fatalf("expected verified signup user, got %+v", verifiedBody.User)
+	}
+
+	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "eval@example.com",
+		"password": "password123",
+	}, "")
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("expected verified signup login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
+	}
+	loginBody := decodeBody[tokenBody](t, loginRes)
+
+	for i := 0; i < 5; i++ {
+		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/devices", devicePayload("eval-device-"+strconv.Itoa(i), "EVAL-"+strconv.Itoa(i)), loginBody.Tokens.AccessToken)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("expected device %d create 201, got %d: %s", i, res.Code, res.Body.String())
+		}
+	}
+	quotaExceededRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/devices", devicePayload("eval-device-5", "EVAL-5"), loginBody.Tokens.AccessToken)
+	if quotaExceededRes.Code != http.StatusConflict {
+		t.Fatalf("expected quota exceeded 409, got %d: %s", quotaExceededRes.Code, quotaExceededRes.Body.String())
+	}
+	var quotaExceeded struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(quotaExceededRes.Body.Bytes(), &quotaExceeded); err != nil {
+		t.Fatal(err)
+	}
+	if quotaExceeded.Error.Code != "EVALUATION_QUOTA_EXCEEDED" {
+		t.Fatalf("expected evaluation quota error code, got %+v", quotaExceeded)
+	}
+
+	raiseReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", map[string]any{
+		"requested_quota": 8,
+		"use_case":        "pilot expansion",
+		"contact_info": map[string]any{
+			"email": "buyer@example.com",
+		},
+	}, loginBody.Tokens.AccessToken)
+	if raiseReqRes.Code != http.StatusCreated {
+		t.Fatalf("expected quota raise request 201, got %d: %s", raiseReqRes.Code, raiseReqRes.Body.String())
+	}
+	raiseReqBody := decodeBody[quotaRaiseRequestBody](t, raiseReqRes)
+	if raiseReqBody.QuotaRaiseRequest.Status != string(model.QuotaRaiseRequestStatusPending) {
+		t.Fatalf("expected pending quota raise request, got %+v", raiseReqBody.QuotaRaiseRequest)
+	}
+
+	admin := registerUser(t, env.router, "platform-admin@example.com", "Admin Org")
+	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	approveRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", map[string]any{
+		"approved_quota": 8,
+	}, admin.Tokens.AccessToken)
+	if approveRes.Code != http.StatusOK {
+		t.Fatalf("expected quota approval 200, got %d: %s", approveRes.Code, approveRes.Body.String())
+	}
+	approvedBody := decodeBody[quotaRaiseDecisionBody](t, approveRes)
+	if approvedBody.Organization.EvaluationDeviceQuota != 8 {
+		t.Fatalf("expected approved quota 8, got %+v", approvedBody.Organization)
+	}
+
+	postApprovalRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/devices", devicePayload("eval-device-5", "EVAL-5"), loginBody.Tokens.AccessToken)
+	if postApprovalRes.Code != http.StatusCreated {
+		t.Fatalf("expected device create after approval 201, got %d: %s", postApprovalRes.Code, postApprovalRes.Body.String())
 	}
 }
 
@@ -1889,11 +1996,14 @@ func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 
 type registerBody struct {
 	User struct {
-		ID            string `json:"id"`
-		EmailVerified bool   `json:"email_verified"`
+		ID                        string `json:"id"`
+		EmailVerified             bool   `json:"email_verified"`
+		SignupPendingVerification bool   `json:"signup_pending_verification"`
 	} `json:"user"`
 	Organization struct {
-		ID string `json:"id"`
+		ID                    string `json:"id"`
+		Tier                  string `json:"tier"`
+		EvaluationDeviceQuota int    `json:"evaluation_device_quota"`
 	} `json:"organization"`
 	Tokens struct {
 		AccessToken  string `json:"access_token"`
@@ -1901,11 +2011,25 @@ type registerBody struct {
 	} `json:"tokens"`
 }
 
+type signupBody struct {
+	User struct {
+		ID                        string `json:"id"`
+		EmailVerified             bool   `json:"email_verified"`
+		SignupPendingVerification bool   `json:"signup_pending_verification"`
+	} `json:"user"`
+	Organization struct {
+		ID                    string `json:"id"`
+		Tier                  string `json:"tier"`
+		EvaluationDeviceQuota int    `json:"evaluation_device_quota"`
+	} `json:"organization"`
+}
+
 type userBody struct {
 	User struct {
-		ID              string     `json:"id"`
-		EmailVerified   bool       `json:"email_verified"`
-		EmailVerifiedAt *time.Time `json:"email_verified_at"`
+		ID                        string     `json:"id"`
+		EmailVerified             bool       `json:"email_verified"`
+		SignupPendingVerification bool       `json:"signup_pending_verification"`
+		EmailVerifiedAt           *time.Time `json:"email_verified_at"`
 	} `json:"user"`
 }
 
@@ -1975,9 +2099,32 @@ type organizationsBody struct {
 
 type organizationBody struct {
 	Organization struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-		Role string `json:"role"`
+		ID                    string `json:"id"`
+		Name                  string `json:"name"`
+		Role                  string `json:"role"`
+		Tier                  string `json:"tier"`
+		EvaluationDeviceQuota int    `json:"evaluation_device_quota"`
+	} `json:"organization"`
+}
+
+type quotaRaiseRequestBody struct {
+	QuotaRaiseRequest struct {
+		ID             string `json:"id"`
+		Status         string `json:"status"`
+		RequestedQuota int    `json:"requested_quota"`
+	} `json:"quota_raise_request"`
+}
+
+type quotaRaiseDecisionBody struct {
+	QuotaRaiseRequest struct {
+		ID             string `json:"id"`
+		Status         string `json:"status"`
+		RequestedQuota int    `json:"requested_quota"`
+	} `json:"quota_raise_request"`
+	Organization struct {
+		ID                    string `json:"id"`
+		Tier                  string `json:"tier"`
+		EvaluationDeviceQuota int    `json:"evaluation_device_quota"`
 	} `json:"organization"`
 }
 

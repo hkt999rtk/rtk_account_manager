@@ -397,7 +397,7 @@ Constraints:
   must not be presented as available API behavior until implemented.
 - Expired or revoked refresh tokens may be removed by an explicit maintenance command.
 
-### Self-Service Evaluation Tier (Deferred Capability)
+### Self-Service Evaluation Tier
 
 `rtk_cloud_workspace/docs/business-model.md` defines a public evaluation tier
 (default 5 devices, ceiling 200 on request, non-commercial use) and a private
@@ -405,27 +405,25 @@ commercial tier (no minimum scale, one-time license + annual maintenance).
 Account manager is the planned owner of the API surface that supports the
 evaluation tier:
 
-- A self-service signup endpoint that creates a user and initial organization
-  in an unverified state, paired with an email verification token issuance and
-  consumption flow. The existing `POST /v1/auth/register` endpoint is internal-
-  use today; the self-service variant requires email verification before the
-  account becomes active for login or device registration.
-- An organization-level evaluation device quota field, sourced from
-  `business-model.md` (default `5`, maximum `200`). Device registration must
-  reject organizations whose quota is exceeded with a typed error rather than
-  falling through silently.
-- A quota-raise request workflow: the user-facing UI lives in
-  `rtk_cloud_admin`, but the persisted request, audit, and approval state
-  belong here. Approvals raise `evaluation_device_quota` up to the 200 ceiling.
-- Tier metadata on the organization record (`tier ∈ {evaluation, commercial}`)
-  so tier-aware behavior can be enforced consistently across this service and
-  downstream services that look up organization facts.
+- `POST /v1/auth/signup` creates an evaluation-tier user and initial
+  organization in a signup-pending state, issues an email verification token,
+  and returns `202 Accepted` without login tokens.
+- `POST /v1/auth/verify-email` consumes the verification token and clears the
+  signup-pending state so the account can log in.
+- The existing `POST /v1/auth/register` endpoint remains the internal-use path
+  for account creation that is not part of the public signup flow.
+- Organizations carry tier metadata (`tier ∈ {evaluation, commercial}`) and an
+  evaluation device quota (`evaluation_device_quota`, default `5`, maximum
+  `200`). Device registration rejects evaluation-tier organizations whose
+  active device count would exceed the quota with typed error
+  `EVALUATION_QUOTA_EXCEEDED`; commercial-tier organizations ignore the quota.
+- `POST /v1/orgs/{org_id}/quota-raise-requests` stores a user-submitted quota
+  raise request with requested quota, use case, and contact info. Platform
+  admin approval or decline updates the request status and applies approved
+  quotas up to the 200-device ceiling.
 
-This is a **deferred capability**: it is not yet part of the implemented API
-surface. The implementation work will be tracked through a separate issue
-opened against this repository once the cross-repo doc baseline is approved.
-Until that issue lands, do not present signup, email verification, or
-evaluation-quota behavior as available.
+The implementation in this repository should stay aligned with the paired
+wire-contract updates in `rtk_cloud_contracts_doc` before the issue is closed.
 
 ## 6. Authorization
 

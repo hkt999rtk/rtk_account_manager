@@ -10,6 +10,21 @@ const (
 	RoleMember Role = "member"
 )
 
+type OrganizationTier string
+
+const (
+	OrganizationTierEvaluation OrganizationTier = "evaluation"
+	OrganizationTierCommercial OrganizationTier = "commercial"
+)
+
+type QuotaRaiseRequestStatus string
+
+const (
+	QuotaRaiseRequestStatusPending  QuotaRaiseRequestStatus = "pending"
+	QuotaRaiseRequestStatusApproved QuotaRaiseRequestStatus = "approved"
+	QuotaRaiseRequestStatusDeclined QuotaRaiseRequestStatus = "declined"
+)
+
 type DeviceCategory string
 
 const (
@@ -110,22 +125,25 @@ const (
 )
 
 type User struct {
-	ID              string     `json:"id"`
-	Email           string     `json:"email"`
-	DisplayName     *string    `json:"display_name,omitempty"`
-	EmailVerified   bool       `json:"email_verified"`
-	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	DisabledAt      *time.Time `json:"disabled_at,omitempty"`
+	ID                        string     `json:"id"`
+	Email                     string     `json:"email"`
+	DisplayName               *string    `json:"display_name,omitempty"`
+	EmailVerified             bool       `json:"email_verified"`
+	EmailVerifiedAt           *time.Time `json:"email_verified_at,omitempty"`
+	SignupPendingVerification bool       `json:"signup_pending_verification"`
+	CreatedAt                 time.Time  `json:"created_at"`
+	UpdatedAt                 time.Time  `json:"updated_at"`
+	DisabledAt                *time.Time `json:"disabled_at,omitempty"`
 }
 
 type Organization struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Role      Role      `json:"role,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID                    string           `json:"id"`
+	Name                  string           `json:"name"`
+	Role                  Role             `json:"role,omitempty"`
+	Tier                  OrganizationTier `json:"tier"`
+	EvaluationDeviceQuota int              `json:"evaluation_device_quota"`
+	CreatedAt             time.Time        `json:"created_at"`
+	UpdatedAt             time.Time        `json:"updated_at"`
 }
 
 type Member struct {
@@ -172,6 +190,21 @@ type DeviceTag struct {
 	Tag            string    `json:"tag"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type QuotaRaiseRequest struct {
+	ID             string                  `json:"id"`
+	OrganizationID string                  `json:"organization_id"`
+	RequestedBy    string                  `json:"requested_by"`
+	RequestedQuota int                     `json:"requested_quota"`
+	UseCase        string                  `json:"use_case"`
+	ContactInfo    map[string]any          `json:"contact_info"`
+	Status         QuotaRaiseRequestStatus `json:"status"`
+	DecidedBy      *string                 `json:"decided_by,omitempty"`
+	DecisionReason *string                 `json:"decision_reason,omitempty"`
+	CreatedAt      time.Time               `json:"created_at"`
+	UpdatedAt      time.Time               `json:"updated_at"`
+	DecidedAt      *time.Time              `json:"decided_at,omitempty"`
 }
 
 type DeviceOperation struct {

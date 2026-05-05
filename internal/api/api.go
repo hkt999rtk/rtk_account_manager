@@ -22,12 +22,24 @@ type Server struct {
 	store         *store.Store
 	auth          *auth.Service
 	authTokenSink AuthTokenSink
+	signupLimiter *signupLimiter
+	signupPolicy  signupPolicy
 }
 
 var ErrAuthTokenSinkUnavailable = errors.New("auth token sink unavailable")
 
+func newServer(store *store.Store, authService *auth.Service, sink AuthTokenSink) *Server {
+	return &Server{
+		store:         store,
+		auth:          authService,
+		authTokenSink: sink,
+		signupLimiter: newSignupLimiter(5, time.Hour),
+		signupPolicy:  loadSignupPolicy(),
+	}
+}
+
 func New(store *store.Store, authService *auth.Service) *Server {
-	return &Server{store: store, auth: authService}
+	return newServer(store, authService, nil)
 }
 
 type AuthTokenDelivery struct {
@@ -65,7 +77,7 @@ func (s LogAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthToken
 }
 
 func NewWithAuthTokenSink(store *store.Store, authService *auth.Service, sink AuthTokenSink) *Server {
-	return &Server{store: store, auth: authService, authTokenSink: sink}
+	return newServer(store, authService, sink)
 }
 
 func (s *Server) Router() *gin.Engine {
@@ -77,6 +89,7 @@ func (s *Server) Router() *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	v1.POST("/auth/register", s.register)
+	v1.POST("/auth/signup", s.signup)
 	v1.POST("/auth/login", s.login)
 	v1.POST("/auth/refresh", s.refresh)
 	v1.POST("/auth/verify-email", s.verifyEmail)
@@ -95,6 +108,7 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/orgs", s.createOrganization)
 	protected.GET("/orgs/:orgId", s.getOrganization)
 	protected.PATCH("/orgs/:orgId", s.requireOrgRole(model.RoleOwner), s.updateOrganization)
+	protected.POST("/orgs/:orgId/quota-raise-requests", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.createQuotaRaiseRequest)
 	protected.GET("/orgs/:orgId/members", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.listMembers)
 	protected.POST("/orgs/:orgId/members", s.requireOrgRole(model.RoleOwner), s.addMember)
 	protected.PATCH("/orgs/:orgId/members/:userId", s.requireOrgRole(model.RoleOwner), s.updateMemberRole)
@@ -124,6 +138,9 @@ func (s *Server) Router() *gin.Engine {
 	protected.DELETE("/orgs/:orgId/devices/:deviceId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.deleteDevice)
 	protected.PATCH("/orgs/:orgId/devices/:deviceId/status", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.updateDeviceStatus)
 
+	protected.POST("/admin/quota-raise-requests/:requestId/approve", s.requirePlatformAdmin(), s.approveQuotaRaiseRequest)
+	protected.POST("/admin/quota-raise-requests/:requestId/decline", s.requirePlatformAdmin(), s.declineQuotaRaiseRequest)
+
 	return r
 }
 
@@ -148,10 +165,13 @@ func (s *Server) register(c *gin.Context) {
 		return
 	}
 	result, err := s.store.Register(c.Request.Context(), store.RegisterInput{
-		Email:            strings.ToLower(strings.TrimSpace(req.Email)),
-		PasswordHash:     hash,
-		DisplayName:      req.DisplayName,
-		OrganizationName: strings.TrimSpace(req.OrganizationName),
+		Email:                     strings.ToLower(strings.TrimSpace(req.Email)),
+		PasswordHash:              hash,
+		DisplayName:               req.DisplayName,
+		OrganizationName:          strings.TrimSpace(req.OrganizationName),
+		OrganizationTier:          model.OrganizationTierCommercial,
+		EvaluationDeviceQuota:     5,
+		SignupPendingVerification: false,
 	})
 	if err != nil {
 		writeStoreError(c, err)
@@ -186,6 +206,10 @@ func (s *Server) login(c *gin.Context) {
 	}
 	user, hash, err := s.store.GetUserPassword(c.Request.Context(), strings.ToLower(strings.TrimSpace(req.Email)))
 	if err != nil || !auth.CheckPassword(hash, req.Password) {
+		writeError(c, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
+		return
+	}
+	if user.SignupPendingVerification {
 		writeError(c, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
 		return
 	}
@@ -1000,6 +1024,8 @@ func writeStoreError(c *gin.Context, err error) {
 		writeError(c, http.StatusConflict, "conflict", "Resource already exists with conflicting data")
 	case errors.Is(err, store.ErrRateLimited):
 		writeError(c, http.StatusTooManyRequests, "rate_limited", "Too many token requests")
+	case errors.Is(err, store.ErrEvaluationQuotaExceeded):
+		writeError(c, http.StatusConflict, "EVALUATION_QUOTA_EXCEEDED", "Evaluation device quota exceeded")
 	case errors.Is(err, errOperationStateInconsistent):
 		writeError(c, http.StatusInternalServerError, "operation_state_inconsistent", err.Error())
 	case strings.Contains(err.Error(), "duplicate key"):

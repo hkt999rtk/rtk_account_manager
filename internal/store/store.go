@@ -13,12 +13,13 @@ import (
 )
 
 var (
-	ErrNotFound       = errors.New("not found")
-	ErrLastOwner      = errors.New("last owner cannot be removed or downgraded")
-	ErrDisabled       = errors.New("resource is disabled")
-	ErrConflict       = errors.New("conflict")
-	ErrNotProvisioned = errors.New("device is not provisioned")
-	ErrRateLimited    = errors.New("rate limited")
+	ErrNotFound                = errors.New("not found")
+	ErrLastOwner               = errors.New("last owner cannot be removed or downgraded")
+	ErrDisabled                = errors.New("resource is disabled")
+	ErrConflict                = errors.New("conflict")
+	ErrNotProvisioned          = errors.New("device is not provisioned")
+	ErrRateLimited             = errors.New("rate limited")
+	ErrEvaluationQuotaExceeded = errors.New("evaluation device quota exceeded")
 )
 
 type Store struct {
@@ -61,10 +62,13 @@ type DeviceTagPage struct {
 }
 
 type RegisterInput struct {
-	Email            string
-	PasswordHash     string
-	DisplayName      *string
-	OrganizationName string
+	Email                     string
+	PasswordHash              string
+	DisplayName               *string
+	OrganizationName          string
+	OrganizationTier          model.OrganizationTier
+	EvaluationDeviceQuota     int
+	SignupPendingVerification bool
 }
 
 type RegisterResult struct {
@@ -81,20 +85,28 @@ func (s *Store) Register(ctx context.Context, in RegisterInput) (RegisterResult,
 
 	var user model.User
 	err = tx.QueryRow(ctx, `
-		INSERT INTO users (email, password_hash, display_name)
-		VALUES ($1, $2, $3)
-		RETURNING id::text, email, display_name, email_verified, email_verified_at, created_at, updated_at, disabled_at
-	`, in.Email, in.PasswordHash, in.DisplayName).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+		INSERT INTO users (email, password_hash, display_name, signup_pending_verification)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
+	`, in.Email, in.PasswordHash, in.DisplayName, in.SignupPendingVerification).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	if err != nil {
 		return RegisterResult{}, err
 	}
 
+	tier := in.OrganizationTier
+	if tier != model.OrganizationTierEvaluation {
+		tier = model.OrganizationTierCommercial
+	}
+	quota := in.EvaluationDeviceQuota
+	if quota <= 0 {
+		quota = 5
+	}
 	var org model.Organization
 	err = tx.QueryRow(ctx, `
-		INSERT INTO organizations (name)
-		VALUES ($1)
-		RETURNING id::text, name, created_at, updated_at
-	`, in.OrganizationName).Scan(&org.ID, &org.Name, &org.CreatedAt, &org.UpdatedAt)
+		INSERT INTO organizations (name, tier, evaluation_device_quota)
+		VALUES ($1, $2, $3)
+		RETURNING id::text, name, tier, evaluation_device_quota, created_at, updated_at
+	`, in.OrganizationName, tier, quota).Scan(&org.ID, &org.Name, &org.Tier, &org.EvaluationDeviceQuota, &org.CreatedAt, &org.UpdatedAt)
 	if err != nil {
 		return RegisterResult{}, err
 	}
@@ -118,10 +130,10 @@ func (s *Store) GetUserPassword(ctx context.Context, email string) (model.User, 
 	var user model.User
 	var hash string
 	err := s.db.QueryRow(ctx, `
-		SELECT id::text, email, password_hash, display_name, email_verified, email_verified_at, created_at, updated_at, disabled_at
+		SELECT id::text, email, password_hash, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
 		FROM users
 		WHERE email = $1 AND disabled_at IS NULL
-	`, email).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	`, email).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, "", ErrNotFound
 	}
@@ -132,10 +144,10 @@ func (s *Store) GetUserPasswordByID(ctx context.Context, userID string) (model.U
 	var user model.User
 	var hash string
 	err := s.db.QueryRow(ctx, `
-		SELECT id::text, email, password_hash, display_name, email_verified, email_verified_at, created_at, updated_at, disabled_at
+		SELECT id::text, email, password_hash, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
 		FROM users
 		WHERE id = $1 AND disabled_at IS NULL
-	`, userID).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	`, userID).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, "", ErrNotFound
 	}
@@ -145,10 +157,10 @@ func (s *Store) GetUserPasswordByID(ctx context.Context, userID string) (model.U
 func (s *Store) GetUser(ctx context.Context, userID string) (model.User, error) {
 	var user model.User
 	err := s.db.QueryRow(ctx, `
-		SELECT id::text, email, display_name, email_verified, email_verified_at, created_at, updated_at, disabled_at
+		SELECT id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
 		FROM users
 		WHERE id = $1 AND disabled_at IS NULL
-	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, ErrNotFound
 	}
@@ -210,10 +222,13 @@ func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash string) (model.U
 	var user model.User
 	err = tx.QueryRow(ctx, `
 		UPDATE users
-		SET email_verified = true, email_verified_at = COALESCE(email_verified_at, now()), updated_at = now()
+		SET email_verified = true,
+		    email_verified_at = COALESCE(email_verified_at, now()),
+		    signup_pending_verification = false,
+		    updated_at = now()
 		WHERE id = $1 AND disabled_at IS NULL
-		RETURNING id::text, email, display_name, email_verified, email_verified_at, created_at, updated_at, disabled_at
-	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+		RETURNING id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
+	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, ErrNotFound
 	}
@@ -519,7 +534,7 @@ func (s *Store) ListOrganizations(ctx context.Context, userID string, limit, off
 		return OrganizationPage{}, err
 	}
 	rows, err := s.db.Query(ctx, `
-		SELECT o.id::text, o.name, m.role, o.created_at, o.updated_at
+		SELECT o.id::text, o.name, m.role, o.tier, o.evaluation_device_quota, o.created_at, o.updated_at
 		FROM organizations o
 		JOIN organization_members m ON m.organization_id = o.id
 		JOIN users u ON u.id = m.user_id
@@ -535,7 +550,7 @@ func (s *Store) ListOrganizations(ctx context.Context, userID string, limit, off
 	orgs := []model.Organization{}
 	for rows.Next() {
 		var org model.Organization
-		if err := rows.Scan(&org.ID, &org.Name, &org.Role, &org.CreatedAt, &org.UpdatedAt); err != nil {
+		if err := rows.Scan(&org.ID, &org.Name, &org.Role, &org.Tier, &org.EvaluationDeviceQuota, &org.CreatedAt, &org.UpdatedAt); err != nil {
 			return OrganizationPage{}, err
 		}
 		orgs = append(orgs, org)
@@ -555,10 +570,10 @@ func (s *Store) CreateOrganization(ctx context.Context, userID, name string) (mo
 
 	var org model.Organization
 	err = tx.QueryRow(ctx, `
-		INSERT INTO organizations (name)
-		VALUES ($1)
-		RETURNING id::text, name, created_at, updated_at
-	`, name).Scan(&org.ID, &org.Name, &org.CreatedAt, &org.UpdatedAt)
+		INSERT INTO organizations (name, tier, evaluation_device_quota)
+		VALUES ($1, 'commercial', 5)
+		RETURNING id::text, name, tier, evaluation_device_quota, created_at, updated_at
+	`, name).Scan(&org.ID, &org.Name, &org.Tier, &org.EvaluationDeviceQuota, &org.CreatedAt, &org.UpdatedAt)
 	if err != nil {
 		return model.Organization{}, err
 	}
@@ -579,11 +594,11 @@ func (s *Store) CreateOrganization(ctx context.Context, userID, name string) (mo
 func (s *Store) GetOrganization(ctx context.Context, orgID, userID string) (model.Organization, error) {
 	var org model.Organization
 	err := s.db.QueryRow(ctx, `
-		SELECT o.id::text, o.name, m.role, o.created_at, o.updated_at
+		SELECT o.id::text, o.name, m.role, o.tier, o.evaluation_device_quota, o.created_at, o.updated_at
 		FROM organizations o
 		JOIN organization_members m ON m.organization_id = o.id
 		WHERE o.id = $1 AND m.user_id = $2
-	`, orgID, userID).Scan(&org.ID, &org.Name, &org.Role, &org.CreatedAt, &org.UpdatedAt)
+	`, orgID, userID).Scan(&org.ID, &org.Name, &org.Role, &org.Tier, &org.EvaluationDeviceQuota, &org.CreatedAt, &org.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Organization{}, ErrNotFound
 	}
@@ -599,8 +614,8 @@ func (s *Store) UpdateOrganization(ctx context.Context, orgID, userID, name stri
 		WHERE o.id = $1
 		  AND m.organization_id = o.id
 		  AND m.user_id = $2
-		RETURNING o.id::text, o.name, m.role, o.created_at, o.updated_at
-	`, orgID, userID, name).Scan(&org.ID, &org.Name, &org.Role, &org.CreatedAt, &org.UpdatedAt)
+		RETURNING o.id::text, o.name, m.role, o.tier, o.evaluation_device_quota, o.created_at, o.updated_at
+	`, orgID, userID, name).Scan(&org.ID, &org.Name, &org.Role, &org.Tier, &org.EvaluationDeviceQuota, &org.CreatedAt, &org.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Organization{}, ErrNotFound
 	}
@@ -879,15 +894,55 @@ type DeviceGroupInput struct {
 }
 
 func (s *Store) CreateDevice(ctx context.Context, orgID string, in DeviceInput) (model.Device, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return model.Device{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var tier model.OrganizationTier
+	var quota int
+	err = tx.QueryRow(ctx, `
+		SELECT tier, evaluation_device_quota
+		FROM organizations
+		WHERE id = $1
+		FOR UPDATE
+	`, orgID).Scan(&tier, &quota)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.Device{}, ErrNotFound
+	}
+	if err != nil {
+		return model.Device{}, err
+	}
+	if tier == model.OrganizationTierEvaluation {
+		var activeDevices int
+		if err := tx.QueryRow(ctx, `
+			SELECT count(*)
+			FROM devices
+			WHERE organization_id = $1 AND disabled_at IS NULL
+		`, orgID).Scan(&activeDevices); err != nil {
+			return model.Device{}, err
+		}
+		if activeDevices >= quota {
+			return model.Device{}, ErrEvaluationQuotaExceeded
+		}
+	}
 	metadata, err := json.Marshal(defaultMetadata(in.Metadata))
 	if err != nil {
 		return model.Device{}, err
 	}
-	return s.scanDevice(s.db.QueryRow(ctx, `
+	device, err := s.scanDevice(tx.QueryRow(ctx, `
 		INSERT INTO devices (organization_id, name, category, serial_number, mac_address, manufacturer, model, metadata)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
 	`, orgID, in.Name, in.Category, in.SerialNumber, in.MACAddress, in.Manufacturer, in.Model, metadata))
+	if err != nil {
+		return model.Device{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.Device{}, err
+	}
+	return device, nil
 }
 
 func (s *Store) ListDevices(ctx context.Context, orgID string, limit, offset int) (DevicePage, error) {
@@ -948,6 +1003,16 @@ func (s *Store) countDevices(ctx context.Context, orgID string) (int, error) {
 	var total int
 	err := s.db.QueryRow(ctx, `
 		SELECT count(*) FROM devices WHERE organization_id = $1
+	`, orgID).Scan(&total)
+	return total, err
+}
+
+func (s *Store) countActiveDevices(ctx context.Context, orgID string) (int, error) {
+	var total int
+	err := s.db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM devices
+		WHERE organization_id = $1 AND disabled_at IS NULL
 	`, orgID).Scan(&total)
 	return total, err
 }

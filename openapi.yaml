@@ -34,6 +34,28 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+  /v1/auth/signup:
+    post:
+      summary: Create a public evaluation-tier account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignupRequest"
+      responses:
+        "202":
+          description: Signup accepted and verification token issued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignupResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
   /v1/auth/login:
     post:
       summary: Login with email and password.
@@ -280,6 +302,96 @@ paths:
         "403":
           $ref: "#/components/responses/Error"
         "404":
+          $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/quota-raise-requests:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Request an evaluation quota increase.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuotaRaiseRequestRequest"
+      responses:
+        "201":
+          description: Quota-raise request created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuotaRaiseRequestResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/admin/quota-raise-requests/{requestId}/approve:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Approve a pending quota-raise request.
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuotaRaiseDecisionRequest"
+      responses:
+        "200":
+          description: Quota-raise request approved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuotaRaiseDecisionResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/admin/quota-raise-requests/{requestId}/decline:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Decline a pending quota-raise request.
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuotaRaiseDecisionRequest"
+      responses:
+        "200":
+          description: Quota-raise request declined.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuotaRaiseDecisionResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/members:
     get:
@@ -952,6 +1064,13 @@ components:
       schema:
         type: string
         format: uuid
+    RequestId:
+      name: requestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     GroupId:
       name: groupId
       in: path
@@ -1013,6 +1132,23 @@ components:
         organization_name:
           type: string
           minLength: 1
+    SignupRequest:
+      type: object
+      required: [email, password, organization_name]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        display_name:
+          type: string
+        organization_name:
+          type: string
+          minLength: 1
+        captcha_token:
+          type: string
     LoginRequest:
       type: object
       required: [email, password]
@@ -1163,6 +1299,29 @@ components:
           type: string
         reason:
           type: string
+    QuotaRaiseRequestRequest:
+      type: object
+      required: [requested_quota, use_case, contact_info]
+      properties:
+        requested_quota:
+          type: integer
+          minimum: 1
+          maximum: 200
+        use_case:
+          type: string
+          minLength: 1
+        contact_info:
+          type: object
+          additionalProperties: true
+    QuotaRaiseDecisionRequest:
+      type: object
+      properties:
+        approved_quota:
+          type: integer
+          minimum: 1
+          maximum: 200
+        decision_reason:
+          type: string
     RegisterResponse:
       type: object
       required: [user, organization, tokens]
@@ -1173,6 +1332,14 @@ components:
           $ref: "#/components/schemas/Organization"
         tokens:
           $ref: "#/components/schemas/Tokens"
+    SignupResponse:
+      type: object
+      required: [user, organization]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        organization:
+          $ref: "#/components/schemas/Organization"
     LoginResponse:
       type: object
       required: [user, tokens]
@@ -1217,6 +1384,20 @@ components:
       type: object
       required: [organization]
       properties:
+        organization:
+          $ref: "#/components/schemas/Organization"
+    QuotaRaiseRequestResponse:
+      type: object
+      required: [quota_raise_request]
+      properties:
+        quota_raise_request:
+          $ref: "#/components/schemas/QuotaRaiseRequest"
+    QuotaRaiseDecisionResponse:
+      type: object
+      required: [quota_raise_request, organization]
+      properties:
+        quota_raise_request:
+          $ref: "#/components/schemas/QuotaRaiseRequest"
         organization:
           $ref: "#/components/schemas/Organization"
     MembersResponse:
@@ -1328,7 +1509,7 @@ components:
               additionalProperties: true
     User:
       type: object
-      required: [id, email, email_verified, created_at, updated_at]
+      required: [id, email, email_verified, signup_pending_verification, created_at, updated_at]
       properties:
         id:
           type: string
@@ -1343,6 +1524,8 @@ components:
         email_verified_at:
           type: string
           format: date-time
+        signup_pending_verification:
+          type: boolean
         created_at:
           type: string
           format: date-time
@@ -1354,7 +1537,7 @@ components:
           format: date-time
     Organization:
       type: object
-      required: [id, name, created_at, updated_at]
+      required: [id, name, tier, evaluation_device_quota, created_at, updated_at]
       properties:
         id:
           type: string
@@ -1363,12 +1546,21 @@ components:
           type: string
         role:
           $ref: "#/components/schemas/Role"
+        tier:
+          $ref: "#/components/schemas/OrganizationTier"
+        evaluation_device_quota:
+          type: integer
+          minimum: 1
+          maximum: 200
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
+    OrganizationTier:
+      type: string
+      enum: [evaluation, commercial]
     Member:
       type: object
       required: [organization_id, user_id, email, role, created_at, updated_at]
@@ -1475,6 +1667,47 @@ components:
         updated_at:
           type: string
           format: date-time
+    QuotaRaiseRequest:
+      type: object
+      required: [id, organization_id, requested_by, requested_quota, use_case, contact_info, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        requested_by:
+          type: string
+          format: uuid
+        requested_quota:
+          type: integer
+          minimum: 1
+          maximum: 200
+        use_case:
+          type: string
+        contact_info:
+          type: object
+          additionalProperties: true
+        status:
+          $ref: "#/components/schemas/QuotaRaiseRequestStatus"
+        decided_by:
+          type: string
+          format: uuid
+        decision_reason:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: string
+          format: date-time
+    QuotaRaiseRequestStatus:
+      type: string
+      enum: [pending, approved, declined]
     DeviceOperationSummary:
       type: object
       required: [operation_id, correlation_id, message_id, device_id, operation_type, status, created_at, updated_at]
