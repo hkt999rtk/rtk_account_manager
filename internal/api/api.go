@@ -1,12 +1,15 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/smtp"
 	"strconv"
 	"strings"
 	"time"
@@ -19,15 +22,28 @@ import (
 )
 
 type Server struct {
-	store         *store.Store
-	auth          *auth.Service
-	authTokenSink AuthTokenSink
+	store                      *store.Store
+	auth                       *auth.Service
+	authTokenSink              AuthTokenSink
+	quotaRaiseNotificationSink QuotaRaiseNotificationSink
+	signupLimiter              *signupLimiter
+	signupPolicy               signupPolicy
 }
 
 var ErrAuthTokenSinkUnavailable = errors.New("auth token sink unavailable")
 
+func newServer(store *store.Store, authService *auth.Service, sink AuthTokenSink) *Server {
+	return &Server{
+		store:         store,
+		auth:          authService,
+		authTokenSink: sink,
+		signupLimiter: newSignupLimiter(5, time.Hour),
+		signupPolicy:  loadSignupPolicy(),
+	}
+}
+
 func New(store *store.Store, authService *auth.Service) *Server {
-	return &Server{store: store, auth: authService}
+	return newServer(store, authService, nil)
 }
 
 type AuthTokenDelivery struct {
@@ -65,7 +81,110 @@ func (s LogAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthToken
 }
 
 func NewWithAuthTokenSink(store *store.Store, authService *auth.Service, sink AuthTokenSink) *Server {
-	return &Server{store: store, auth: authService, authTokenSink: sink}
+	return newServer(store, authService, sink)
+}
+
+type QuotaRaiseNotificationDelivery struct {
+	RecipientEmail   string
+	RecipientName    *string
+	OrganizationID   string
+	OrganizationName string
+	RequestedQuota   int
+	ApprovedQuota    *int
+	DecisionReason   *string
+	Decision         string
+}
+
+type QuotaRaiseNotificationSink interface {
+	DeliverQuotaRaiseNotification(context.Context, QuotaRaiseNotificationDelivery) error
+}
+
+type LogQuotaRaiseNotificationSink struct {
+	logger *log.Logger
+}
+
+func NewLogQuotaRaiseNotificationSink(logger *log.Logger) LogQuotaRaiseNotificationSink {
+	return LogQuotaRaiseNotificationSink{logger: logger}
+}
+
+func (s LogQuotaRaiseNotificationSink) DeliverQuotaRaiseNotification(_ context.Context, delivery QuotaRaiseNotificationDelivery) error {
+	logger := s.logger
+	if logger == nil {
+		logger = log.Default()
+	}
+	logger.Printf(
+		"quota raise notification decision=%s email=%s org_id=%s org_name=%s requested_quota=%d approved_quota=%v",
+		delivery.Decision,
+		delivery.RecipientEmail,
+		delivery.OrganizationID,
+		delivery.OrganizationName,
+		delivery.RequestedQuota,
+		delivery.ApprovedQuota,
+	)
+	return nil
+}
+
+type SMTPQuotaRaiseNotificationSink struct {
+	host     string
+	from     string
+	auth     smtp.Auth
+	sendMail func(string, smtp.Auth, string, []string, []byte) error
+}
+
+func NewSMTPQuotaRaiseNotificationSink(host, from string, auth smtp.Auth) SMTPQuotaRaiseNotificationSink {
+	return SMTPQuotaRaiseNotificationSink{
+		host:     host,
+		from:     from,
+		auth:     auth,
+		sendMail: smtp.SendMail,
+	}
+}
+
+func (s SMTPQuotaRaiseNotificationSink) DeliverQuotaRaiseNotification(_ context.Context, delivery QuotaRaiseNotificationDelivery) error {
+	if s.sendMail == nil {
+		return errors.New("smtp quota raise notification sink unavailable")
+	}
+	subject := fmt.Sprintf("Quota raise %s", delivery.Decision)
+	body := buildQuotaRaiseNotificationBody(delivery)
+	msg := buildSMTPMessage(s.from, delivery.RecipientEmail, subject, body)
+	return s.sendMail(s.host, s.auth, s.from, []string{delivery.RecipientEmail}, msg)
+}
+
+func buildQuotaRaiseNotificationBody(delivery QuotaRaiseNotificationDelivery) string {
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "Quota raise decision: %s\r\n", delivery.Decision)
+	fmt.Fprintf(&b, "Organization: %s (%s)\r\n", delivery.OrganizationName, delivery.OrganizationID)
+	if delivery.RecipientName != nil && strings.TrimSpace(*delivery.RecipientName) != "" {
+		fmt.Fprintf(&b, "Requester: %s <%s>\r\n", strings.TrimSpace(*delivery.RecipientName), delivery.RecipientEmail)
+	} else {
+		fmt.Fprintf(&b, "Requester: <%s>\r\n", delivery.RecipientEmail)
+	}
+	fmt.Fprintf(&b, "Requested quota: %d\r\n", delivery.RequestedQuota)
+	if delivery.ApprovedQuota != nil {
+		fmt.Fprintf(&b, "Approved quota: %d\r\n", *delivery.ApprovedQuota)
+	}
+	if delivery.DecisionReason != nil && strings.TrimSpace(*delivery.DecisionReason) != "" {
+		fmt.Fprintf(&b, "Decision reason: %s\r\n", strings.TrimSpace(*delivery.DecisionReason))
+	}
+	return b.String()
+}
+
+func buildSMTPMessage(from, to, subject, body string) []byte {
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "To: %s\r\n", to)
+	fmt.Fprintf(&b, "From: %s\r\n", from)
+	fmt.Fprintf(&b, "Subject: %s\r\n", subject)
+	b.WriteString("MIME-Version: 1.0\r\n")
+	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+	b.WriteString("\r\n")
+	b.WriteString(body)
+	return b.Bytes()
+}
+
+func NewWithAuthTokenAndNotificationSink(store *store.Store, authService *auth.Service, authSink AuthTokenSink, notificationSink QuotaRaiseNotificationSink) *Server {
+	server := newServer(store, authService, authSink)
+	server.quotaRaiseNotificationSink = notificationSink
+	return server
 }
 
 func (s *Server) Router() *gin.Engine {
@@ -77,6 +196,7 @@ func (s *Server) Router() *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	v1.POST("/auth/register", s.register)
+	v1.POST("/auth/signup", s.signup)
 	v1.POST("/auth/login", s.login)
 	v1.POST("/auth/refresh", s.refresh)
 	v1.POST("/auth/verify-email", s.verifyEmail)
@@ -95,6 +215,7 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/orgs", s.createOrganization)
 	protected.GET("/orgs/:orgId", s.getOrganization)
 	protected.PATCH("/orgs/:orgId", s.requireOrgRole(model.RoleOwner), s.updateOrganization)
+	protected.POST("/orgs/:orgId/quota-raise-requests", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.createQuotaRaiseRequest)
 	protected.GET("/orgs/:orgId/members", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.listMembers)
 	protected.POST("/orgs/:orgId/members", s.requireOrgRole(model.RoleOwner), s.addMember)
 	protected.PATCH("/orgs/:orgId/members/:userId", s.requireOrgRole(model.RoleOwner), s.updateMemberRole)
@@ -124,6 +245,10 @@ func (s *Server) Router() *gin.Engine {
 	protected.DELETE("/orgs/:orgId/devices/:deviceId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.deleteDevice)
 	protected.PATCH("/orgs/:orgId/devices/:deviceId/status", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.updateDeviceStatus)
 
+	protected.POST("/admin/quota-raise-requests/:requestId/approve", s.requirePlatformAdmin(), s.approveQuotaRaiseRequest)
+	protected.POST("/admin/quota-raise-requests/:requestId/decline", s.requirePlatformAdmin(), s.declineQuotaRaiseRequest)
+	protected.GET("/admin/metrics", s.requirePlatformAdmin(), s.adminMetrics)
+
 	return r
 }
 
@@ -148,10 +273,13 @@ func (s *Server) register(c *gin.Context) {
 		return
 	}
 	result, err := s.store.Register(c.Request.Context(), store.RegisterInput{
-		Email:            strings.ToLower(strings.TrimSpace(req.Email)),
-		PasswordHash:     hash,
-		DisplayName:      req.DisplayName,
-		OrganizationName: strings.TrimSpace(req.OrganizationName),
+		Email:                     strings.ToLower(strings.TrimSpace(req.Email)),
+		PasswordHash:              hash,
+		DisplayName:               req.DisplayName,
+		OrganizationName:          strings.TrimSpace(req.OrganizationName),
+		OrganizationTier:          model.OrganizationTierCommercial,
+		EvaluationDeviceQuota:     5,
+		SignupPendingVerification: false,
 	})
 	if err != nil {
 		writeStoreError(c, err)
@@ -186,6 +314,10 @@ func (s *Server) login(c *gin.Context) {
 	}
 	user, hash, err := s.store.GetUserPassword(c.Request.Context(), strings.ToLower(strings.TrimSpace(req.Email)))
 	if err != nil || !auth.CheckPassword(hash, req.Password) {
+		writeError(c, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
+		return
+	}
+	if user.SignupPendingVerification {
 		writeError(c, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
 		return
 	}
@@ -902,6 +1034,13 @@ func bind(c *gin.Context, dst any) bool {
 	return true
 }
 
+func bindOptional(c *gin.Context, dst any) bool {
+	if c.Request.ContentLength == 0 {
+		return true
+	}
+	return bind(c, dst)
+}
+
 func bindStrict(c *gin.Context, dst any) bool {
 	decoder := json.NewDecoder(c.Request.Body)
 	decoder.DisallowUnknownFields()
@@ -1000,6 +1139,8 @@ func writeStoreError(c *gin.Context, err error) {
 		writeError(c, http.StatusConflict, "conflict", "Resource already exists with conflicting data")
 	case errors.Is(err, store.ErrRateLimited):
 		writeError(c, http.StatusTooManyRequests, "rate_limited", "Too many token requests")
+	case errors.Is(err, store.ErrEvaluationQuotaExceeded):
+		writeError(c, http.StatusConflict, "EVALUATION_QUOTA_EXCEEDED", "Evaluation device quota exceeded")
 	case errors.Is(err, errOperationStateInconsistent):
 		writeError(c, http.StatusInternalServerError, "operation_state_inconsistent", err.Error())
 	case strings.Contains(err.Error(), "duplicate key"):

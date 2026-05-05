@@ -48,6 +48,11 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	t.Setenv("REFRESH_TOKEN_TTL", "24h")
 	t.Setenv("PORT", "9090")
 	t.Setenv("AUTH_TOKEN_DELIVERY", "log")
+	t.Setenv("SMTP_HOST", "smtp.example")
+	t.Setenv("SMTP_PORT", "2525")
+	t.Setenv("SMTP_USERNAME", "smtp-user")
+	t.Setenv("SMTP_PASSWORD", "smtp-pass")
+	t.Setenv("SMTP_FROM", "noreply@example.com")
 	t.Setenv("AZURE_EVENTHUB_CONNECTION_STRING", "Endpoint=sb://example/")
 	t.Setenv("AZURE_EVENTHUB_CHECKPOINT_FILE", "/tmp/eventhub-checkpoints.json")
 
@@ -72,6 +77,9 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	}
 	if cfg.AuthTokenDelivery != "log" {
 		t.Fatalf("unexpected auth token delivery: %q", cfg.AuthTokenDelivery)
+	}
+	if cfg.SMTPHost != "smtp.example" || cfg.SMTPPort != "2525" || cfg.SMTPUsername != "smtp-user" || cfg.SMTPPassword != "smtp-pass" || cfg.SMTPFrom != "noreply@example.com" {
+		t.Fatalf("unexpected smtp config: %+v", cfg)
 	}
 	if cfg.CrossServiceBroker != "log" {
 		t.Fatalf("unexpected broker: %q", cfg.CrossServiceBroker)

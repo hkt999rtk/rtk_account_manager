@@ -20,6 +20,15 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	env := newIntegrationEnv(t)
 	contract := newResponseContract(t)
 
+	signupRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
+		"email":             "contract-signup@example.com",
+		"password":          "password123",
+		"display_name":      "Contract Signup",
+		"organization_name": "Contract Signup Org",
+	}, "")
+	contract.validate(t, http.MethodPost, "/v1/auth/signup", signupRes)
+	signupBody := decodeBody[signupBody](t, signupRes)
+
 	registered := registerUser(t, env.router, "contract-owner@example.com", "Contract Org")
 	registerRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
 		"email":    "contract-owner@example.com",
@@ -62,6 +71,35 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 
 	tagsRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/tags", nil, registered.Tokens.AccessToken)
 	contract.validate(t, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/tags", tagsRes)
+
+	verifyToken := latestAuthToken(t, env.tokenSink, "contract-signup@example.com", "email_verification")
+	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": verifyToken,
+	}, "")
+	contract.validate(t, http.MethodPost, "/v1/auth/verify-email", verifyRes)
+	signupLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "contract-signup@example.com",
+		"password": "password123",
+	}, "")
+	contract.validate(t, http.MethodPost, "/v1/auth/login", signupLoginRes)
+	signupLoginBody := decodeBody[tokenBody](t, signupLoginRes)
+
+	raiseReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", map[string]any{
+		"requested_quota": 8,
+		"use_case":        "contract test",
+		"contact_info": map[string]any{
+			"email": "contract@example.com",
+		},
+	}, signupLoginBody.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", raiseReqRes)
+	raiseReqBody := decodeBody[quotaRaiseRequestBody](t, raiseReqRes)
+
+	admin := registerUser(t, env.router, "contract-platform-admin@example.com", "Contract Admin Org")
+	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	approveReqRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", approveReqRes)
 
 	badDeviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices", map[string]any{
 		"name":     "contract-device",

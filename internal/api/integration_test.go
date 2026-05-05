@@ -24,9 +24,10 @@ import (
 )
 
 type integrationEnv struct {
-	router    *gin.Engine
-	db        *pgxpool.Pool
-	tokenSink *recordingAuthTokenSink
+	router           *gin.Engine
+	db               *pgxpool.Pool
+	tokenSink        *recordingAuthTokenSink
+	notificationSink *recordingQuotaRaiseNotificationSink
 }
 
 type recordingAuthTokenSink struct {
@@ -34,6 +35,15 @@ type recordingAuthTokenSink struct {
 }
 
 func (s *recordingAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthTokenDelivery) error {
+	s.deliveries = append(s.deliveries, delivery)
+	return nil
+}
+
+type recordingQuotaRaiseNotificationSink struct {
+	deliveries []QuotaRaiseNotificationDelivery
+}
+
+func (s *recordingQuotaRaiseNotificationSink) DeliverQuotaRaiseNotification(_ context.Context, delivery QuotaRaiseNotificationDelivery) error {
 	s.deliveries = append(s.deliveries, delivery)
 	return nil
 }
@@ -59,7 +69,7 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		TRUNCATE auth_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
+		TRUNCATE auth_tokens, quota_raise_requests, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatal(err)
@@ -68,10 +78,12 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 	gin.SetMode(gin.TestMode)
 	authService := auth.NewService("test-access-secret", "test-refresh-secret", time.Minute, time.Hour)
 	tokenSink := &recordingAuthTokenSink{}
+	notificationSink := &recordingQuotaRaiseNotificationSink{}
 	return integrationEnv{
-		router:    NewWithAuthTokenSink(store.New(db), authService, tokenSink).Router(),
-		db:        db,
-		tokenSink: tokenSink,
+		router:           NewWithAuthTokenAndNotificationSink(store.New(db), authService, tokenSink, notificationSink).Router(),
+		db:               db,
+		tokenSink:        tokenSink,
+		notificationSink: notificationSink,
 	}
 }
 
@@ -390,6 +402,289 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	}, "")
 	if disabledResendRes.Code != http.StatusAccepted {
 		t.Fatalf("expected disabled resend-verification to remain enumeration-safe 202, got %d", disabledResendRes.Code)
+	}
+}
+
+func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	signupRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
+		"email":             "eval@example.com",
+		"password":          "password123",
+		"display_name":      "Eval User",
+		"organization_name": "Eval Org",
+	}, "")
+	if signupRes.Code != http.StatusAccepted {
+		t.Fatalf("expected signup 202, got %d: %s", signupRes.Code, signupRes.Body.String())
+	}
+	signupBody := decodeBody[signupBody](t, signupRes)
+	if !signupBody.User.SignupPendingVerification || signupBody.User.EmailVerified {
+		t.Fatalf("expected signup-pending user, got %+v", signupBody.User)
+	}
+	if signupBody.Organization.Tier != string(model.OrganizationTierEvaluation) || signupBody.Organization.EvaluationDeviceQuota != 5 {
+		t.Fatalf("expected evaluation org quota defaults, got %+v", signupBody.Organization)
+	}
+
+	unauthorizedLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "eval@example.com",
+		"password": "password123",
+	}, "")
+	if unauthorizedLoginRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected pending signup login to fail, got %d", unauthorizedLoginRes.Code)
+	}
+
+	verifyToken := latestAuthToken(t, env.tokenSink, "eval@example.com", "email_verification")
+	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": verifyToken,
+	}, "")
+	if verifyRes.Code != http.StatusOK {
+		t.Fatalf("expected signup verification 200, got %d: %s", verifyRes.Code, verifyRes.Body.String())
+	}
+	verifiedBody := decodeBody[userBody](t, verifyRes)
+	if !verifiedBody.User.EmailVerified || verifiedBody.User.SignupPendingVerification {
+		t.Fatalf("expected verified signup user, got %+v", verifiedBody.User)
+	}
+
+	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "eval@example.com",
+		"password": "password123",
+	}, "")
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("expected verified signup login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
+	}
+	loginBody := decodeBody[tokenBody](t, loginRes)
+
+	for i := 0; i < 5; i++ {
+		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/devices", devicePayload("eval-device-"+strconv.Itoa(i), "EVAL-"+strconv.Itoa(i)), loginBody.Tokens.AccessToken)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("expected device %d create 201, got %d: %s", i, res.Code, res.Body.String())
+		}
+	}
+	quotaExceededRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/devices", devicePayload("eval-device-5", "EVAL-5"), loginBody.Tokens.AccessToken)
+	if quotaExceededRes.Code != http.StatusConflict {
+		t.Fatalf("expected quota exceeded 409, got %d: %s", quotaExceededRes.Code, quotaExceededRes.Body.String())
+	}
+	var quotaExceeded struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(quotaExceededRes.Body.Bytes(), &quotaExceeded); err != nil {
+		t.Fatal(err)
+	}
+	if quotaExceeded.Error.Code != "EVALUATION_QUOTA_EXCEEDED" {
+		t.Fatalf("expected evaluation quota error code, got %+v", quotaExceeded)
+	}
+
+	raiseReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", map[string]any{
+		"requested_quota": 8,
+		"use_case":        "pilot expansion",
+		"contact_info": map[string]any{
+			"email": "buyer@example.com",
+		},
+	}, loginBody.Tokens.AccessToken)
+	if raiseReqRes.Code != http.StatusCreated {
+		t.Fatalf("expected quota raise request 201, got %d: %s", raiseReqRes.Code, raiseReqRes.Body.String())
+	}
+	raiseReqBody := decodeBody[quotaRaiseRequestBody](t, raiseReqRes)
+	if raiseReqBody.QuotaRaiseRequest.Status != string(model.QuotaRaiseRequestStatusPending) {
+		t.Fatalf("expected pending quota raise request, got %+v", raiseReqBody.QuotaRaiseRequest)
+	}
+
+	nonAdminApproveRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", map[string]any{
+		"approved_quota": 500,
+	}, loginBody.Tokens.AccessToken)
+	if nonAdminApproveRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-admin approval attempt 403, got %d: %s", nonAdminApproveRes.Code, nonAdminApproveRes.Body.String())
+	}
+
+	admin := registerUser(t, env.router, "platform-admin@example.com", "Admin Org")
+	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	approveRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", map[string]any{
+		"approved_quota": 500,
+	}, admin.Tokens.AccessToken)
+	if approveRes.Code != http.StatusOK {
+		t.Fatalf("expected quota approval 200, got %d: %s", approveRes.Code, approveRes.Body.String())
+	}
+	approvedBody := decodeBody[quotaRaiseDecisionBody](t, approveRes)
+	if approvedBody.Organization.EvaluationDeviceQuota != 200 {
+		t.Fatalf("expected approved quota to cap at 200, got %+v", approvedBody.Organization)
+	}
+
+	declineReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", map[string]any{
+		"requested_quota": 12,
+		"use_case":        "contract exit",
+		"contact_info": map[string]any{
+			"email": "buyer@example.com",
+		},
+	}, loginBody.Tokens.AccessToken)
+	if declineReqRes.Code != http.StatusCreated {
+		t.Fatalf("expected second quota raise request 201, got %d: %s", declineReqRes.Code, declineReqRes.Body.String())
+	}
+	declineReqBody := decodeBody[quotaRaiseRequestBody](t, declineReqRes)
+	declineRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+declineReqBody.QuotaRaiseRequest.ID+"/decline", map[string]any{
+		"decision_reason": "not enough supporting detail",
+	}, admin.Tokens.AccessToken)
+	if declineRes.Code != http.StatusOK {
+		t.Fatalf("expected quota decline 200, got %d: %s", declineRes.Code, declineRes.Body.String())
+	}
+	declinedBody := decodeBody[quotaRaiseDecisionBody](t, declineRes)
+	if declinedBody.QuotaRaiseRequest.Status != string(model.QuotaRaiseRequestStatusDeclined) {
+		t.Fatalf("expected declined quota raise request, got %+v", declinedBody.QuotaRaiseRequest)
+	}
+	if declinedBody.Organization.EvaluationDeviceQuota != 200 {
+		t.Fatalf("expected decline to keep capped quota at 200, got %+v", declinedBody.Organization)
+	}
+
+	metricsRes := performJSON(env.router, http.MethodGet, "/v1/admin/metrics", nil, admin.Tokens.AccessToken)
+	if metricsRes.Code != http.StatusOK {
+		t.Fatalf("expected admin metrics 200, got %d: %s", metricsRes.Code, metricsRes.Body.String())
+	}
+	metricsBody := decodeBody[evalTierMetricsBody](t, metricsRes)
+	if metricsBody.Signups.EvaluationCreated != 1 {
+		t.Fatalf("expected one evaluation signup, got %+v", metricsBody.Signups)
+	}
+	if metricsBody.Signups.VerificationCompleted != 1 {
+		t.Fatalf("expected one signup verification completion, got %+v", metricsBody.Signups)
+	}
+	if metricsBody.Signups.VerificationCompletionRate != 1 {
+		t.Fatalf("expected 100%% verification completion, got %+v", metricsBody.Signups)
+	}
+	if metricsBody.QuotaRaiseRequests.Pending != 0 || metricsBody.QuotaRaiseRequests.Approved != 1 || metricsBody.QuotaRaiseRequests.Declined != 1 {
+		t.Fatalf("expected quota raise status counts to reflect one approve and one decline, got %+v", metricsBody.QuotaRaiseRequests)
+	}
+	if len(metricsBody.EvaluationQuotaUsage) != 1 {
+		t.Fatalf("expected one evaluation org usage entry, got %+v", metricsBody.EvaluationQuotaUsage)
+	}
+	if metricsBody.EvaluationQuotaUsage[0].ActiveDevices != 5 || metricsBody.EvaluationQuotaUsage[0].EvaluationDeviceQuota != 200 {
+		t.Fatalf("expected live quota usage to reflect approved quota and existing devices, got %+v", metricsBody.EvaluationQuotaUsage[0])
+	}
+
+	postApprovalRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/devices", devicePayload("eval-device-5", "EVAL-5"), loginBody.Tokens.AccessToken)
+	if postApprovalRes.Code != http.StatusCreated {
+		t.Fatalf("expected device create after approval 201, got %d: %s", postApprovalRes.Code, postApprovalRes.Body.String())
+	}
+}
+
+func TestIntegrationAdminMetricsReportsEmptySnapshot(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	admin := registerUser(t, env.router, "metrics-admin@example.com", "Metrics Admin Org")
+	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	metricsRes := performJSON(env.router, http.MethodGet, "/v1/admin/metrics", nil, admin.Tokens.AccessToken)
+	if metricsRes.Code != http.StatusOK {
+		t.Fatalf("expected empty admin metrics 200, got %d: %s", metricsRes.Code, metricsRes.Body.String())
+	}
+	metricsBody := decodeBody[evalTierMetricsBody](t, metricsRes)
+	if metricsBody.Signups.EvaluationCreated != 0 || metricsBody.Signups.VerificationCompleted != 0 || metricsBody.Signups.VerificationCompletionRate != 0 {
+		t.Fatalf("expected empty signup metrics, got %+v", metricsBody.Signups)
+	}
+	if metricsBody.QuotaRaiseRequests.Pending != 0 || metricsBody.QuotaRaiseRequests.Approved != 0 || metricsBody.QuotaRaiseRequests.Declined != 0 {
+		t.Fatalf("expected empty quota-raise metrics, got %+v", metricsBody.QuotaRaiseRequests)
+	}
+	if len(metricsBody.EvaluationQuotaUsage) != 0 {
+		t.Fatalf("expected no evaluation quota usage rows, got %+v", metricsBody.EvaluationQuotaUsage)
+	}
+}
+
+func TestIntegrationQuotaRaiseValidationAndDefaultApproval(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	signupRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
+		"email":             "validate-quota@example.com",
+		"password":          "password123",
+		"display_name":      "Validate Quota",
+		"organization_name": "Validate Quota Org",
+	}, "")
+	if signupRes.Code != http.StatusAccepted {
+		t.Fatalf("expected signup 202, got %d: %s", signupRes.Code, signupRes.Body.String())
+	}
+	signupBody := decodeBody[signupBody](t, signupRes)
+	verifyToken := latestAuthToken(t, env.tokenSink, "validate-quota@example.com", "email_verification")
+	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": verifyToken,
+	}, "")
+	if verifyRes.Code != http.StatusOK {
+		t.Fatalf("expected verify 200, got %d: %s", verifyRes.Code, verifyRes.Body.String())
+	}
+	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "validate-quota@example.com",
+		"password": "password123",
+	}, "")
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("expected login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
+	}
+	loginBody := decodeBody[tokenBody](t, loginRes)
+
+	invalidRequests := []map[string]any{
+		{"requested_quota": 0, "use_case": "pilot", "contact_info": map[string]any{"email": "buyer@example.com"}},
+		{"requested_quota": 201, "use_case": "pilot", "contact_info": map[string]any{"email": "buyer@example.com"}},
+		{"requested_quota": 8, "use_case": "   ", "contact_info": map[string]any{"email": "buyer@example.com"}},
+		{"requested_quota": 8, "use_case": "pilot", "contact_info": map[string]any{}},
+	}
+	for i, body := range invalidRequests {
+		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", body, loginBody.Tokens.AccessToken)
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("expected invalid quota raise request %d to fail 400, got %d: %s", i, res.Code, res.Body.String())
+		}
+	}
+
+	raiseReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", map[string]any{
+		"requested_quota": 8,
+		"use_case":        "pilot expansion",
+		"contact_info": map[string]any{
+			"email": "buyer@example.com",
+		},
+	}, loginBody.Tokens.AccessToken)
+	if raiseReqRes.Code != http.StatusCreated {
+		t.Fatalf("expected quota raise request 201, got %d: %s", raiseReqRes.Code, raiseReqRes.Body.String())
+	}
+	raiseReqBody := decodeBody[quotaRaiseRequestBody](t, raiseReqRes)
+
+	admin := registerUser(t, env.router, "validate-quota-admin@example.com", "Validate Quota Admin Org")
+	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	approveRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", nil, admin.Tokens.AccessToken)
+	if approveRes.Code != http.StatusOK {
+		t.Fatalf("expected quota approval 200, got %d: %s", approveRes.Code, approveRes.Body.String())
+	}
+	approvedBody := decodeBody[quotaRaiseDecisionBody](t, approveRes)
+	if approvedBody.Organization.EvaluationDeviceQuota != 8 {
+		t.Fatalf("expected default approval quota to use requested amount, got %+v", approvedBody.Organization)
+	}
+	declineReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", map[string]any{
+		"requested_quota": 12,
+		"use_case":        "contract exit",
+		"contact_info": map[string]any{
+			"email": "buyer@example.com",
+		},
+	}, loginBody.Tokens.AccessToken)
+	if declineReqRes.Code != http.StatusCreated {
+		t.Fatalf("expected decline quota raise request 201, got %d: %s", declineReqRes.Code, declineReqRes.Body.String())
+	}
+	declineReqBody := decodeBody[quotaRaiseRequestBody](t, declineReqRes)
+	declineRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+declineReqBody.QuotaRaiseRequest.ID+"/decline", nil, admin.Tokens.AccessToken)
+	if declineRes.Code != http.StatusOK {
+		t.Fatalf("expected quota decline 200, got %d: %s", declineRes.Code, declineRes.Body.String())
+	}
+	declinedBody := decodeBody[quotaRaiseDecisionBody](t, declineRes)
+	if declinedBody.QuotaRaiseRequest.Status != string(model.QuotaRaiseRequestStatusDeclined) {
+		t.Fatalf("expected declined quota raise request, got %+v", declinedBody.QuotaRaiseRequest)
+	}
+	if len(env.notificationSink.deliveries) != 2 {
+		t.Fatalf("expected approval and decline notifications, got %+v", env.notificationSink.deliveries)
+	}
+	if env.notificationSink.deliveries[0].Decision != string(model.QuotaRaiseRequestStatusApproved) || env.notificationSink.deliveries[0].RecipientEmail != "validate-quota@example.com" {
+		t.Fatalf("expected approval notification for requester, got %+v", env.notificationSink.deliveries[0])
+	}
+	if env.notificationSink.deliveries[1].Decision != string(model.QuotaRaiseRequestStatusDeclined) || env.notificationSink.deliveries[1].RecipientEmail != "validate-quota@example.com" {
+		t.Fatalf("expected decline notification for requester, got %+v", env.notificationSink.deliveries[1])
 	}
 }
 
@@ -1889,11 +2184,14 @@ func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 
 type registerBody struct {
 	User struct {
-		ID            string `json:"id"`
-		EmailVerified bool   `json:"email_verified"`
+		ID                        string `json:"id"`
+		EmailVerified             bool   `json:"email_verified"`
+		SignupPendingVerification bool   `json:"signup_pending_verification"`
 	} `json:"user"`
 	Organization struct {
-		ID string `json:"id"`
+		ID                    string `json:"id"`
+		Tier                  string `json:"tier"`
+		EvaluationDeviceQuota int    `json:"evaluation_device_quota"`
 	} `json:"organization"`
 	Tokens struct {
 		AccessToken  string `json:"access_token"`
@@ -1901,11 +2199,25 @@ type registerBody struct {
 	} `json:"tokens"`
 }
 
+type signupBody struct {
+	User struct {
+		ID                        string `json:"id"`
+		EmailVerified             bool   `json:"email_verified"`
+		SignupPendingVerification bool   `json:"signup_pending_verification"`
+	} `json:"user"`
+	Organization struct {
+		ID                    string `json:"id"`
+		Tier                  string `json:"tier"`
+		EvaluationDeviceQuota int    `json:"evaluation_device_quota"`
+	} `json:"organization"`
+}
+
 type userBody struct {
 	User struct {
-		ID              string     `json:"id"`
-		EmailVerified   bool       `json:"email_verified"`
-		EmailVerifiedAt *time.Time `json:"email_verified_at"`
+		ID                        string     `json:"id"`
+		EmailVerified             bool       `json:"email_verified"`
+		SignupPendingVerification bool       `json:"signup_pending_verification"`
+		EmailVerifiedAt           *time.Time `json:"email_verified_at"`
 	} `json:"user"`
 }
 
@@ -1975,10 +2287,54 @@ type organizationsBody struct {
 
 type organizationBody struct {
 	Organization struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-		Role string `json:"role"`
+		ID                    string `json:"id"`
+		Name                  string `json:"name"`
+		Role                  string `json:"role"`
+		Tier                  string `json:"tier"`
+		EvaluationDeviceQuota int    `json:"evaluation_device_quota"`
 	} `json:"organization"`
+}
+
+type quotaRaiseRequestBody struct {
+	QuotaRaiseRequest struct {
+		ID             string `json:"id"`
+		Status         string `json:"status"`
+		RequestedQuota int    `json:"requested_quota"`
+	} `json:"quota_raise_request"`
+}
+
+type quotaRaiseDecisionBody struct {
+	QuotaRaiseRequest struct {
+		ID             string `json:"id"`
+		Status         string `json:"status"`
+		RequestedQuota int    `json:"requested_quota"`
+	} `json:"quota_raise_request"`
+	Organization struct {
+		ID                    string `json:"id"`
+		Tier                  string `json:"tier"`
+		EvaluationDeviceQuota int    `json:"evaluation_device_quota"`
+	} `json:"organization"`
+}
+
+type evalTierMetricsBody struct {
+	Signups struct {
+		EvaluationCreated          int64   `json:"evaluation_created"`
+		CommercialCreated          int64   `json:"commercial_created"`
+		VerificationCompleted      int64   `json:"verification_completed"`
+		VerificationCompletionRate float64 `json:"verification_completion_rate"`
+	} `json:"signups"`
+	QuotaRaiseRequests struct {
+		Pending  int64 `json:"pending"`
+		Approved int64 `json:"approved"`
+		Declined int64 `json:"declined"`
+	} `json:"quota_raise_requests"`
+	EvaluationQuotaUsage []struct {
+		OrganizationID        string  `json:"organization_id"`
+		OrganizationName      string  `json:"organization_name"`
+		ActiveDevices         int     `json:"active_devices"`
+		EvaluationDeviceQuota int     `json:"evaluation_device_quota"`
+		Utilization           float64 `json:"utilization"`
+	} `json:"evaluation_quota_usage"`
 }
 
 type membersBody struct {

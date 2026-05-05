@@ -17,6 +17,11 @@ type Config struct {
 	RefreshTokenTTL               time.Duration
 	Port                          string
 	AuthTokenDelivery             string
+	SMTPHost                      string
+	SMTPPort                      string
+	SMTPUsername                  string
+	SMTPPassword                  string
+	SMTPFrom                      string
 	CrossServiceBroker            string
 	AzureEventHubConnectionString string
 	AzureEventHubCheckpointFile   string
@@ -61,6 +66,11 @@ func load() (Config, error) {
 		RefreshTokenTTL:               duration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
 		Port:                          getenv("PORT", "8080"),
 		AuthTokenDelivery:             getenv("AUTH_TOKEN_DELIVERY", "log"),
+		SMTPHost:                      getenv("SMTP_HOST", ""),
+		SMTPPort:                      getenv("SMTP_PORT", "587"),
+		SMTPUsername:                  getenv("SMTP_USERNAME", ""),
+		SMTPPassword:                  getenv("SMTP_PASSWORD", ""),
+		SMTPFrom:                      getenv("SMTP_FROM", ""),
 		CrossServiceBroker:            getenv("CROSS_SERVICE_BROKER", "log"),
 		AzureEventHubConnectionString: getenv("AZURE_EVENTHUB_CONNECTION_STRING", ""),
 		AzureEventHubCheckpointFile:   getenv("AZURE_EVENTHUB_CHECKPOINT_FILE", ""),
