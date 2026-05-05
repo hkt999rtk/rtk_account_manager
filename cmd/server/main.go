@@ -25,7 +25,14 @@ func main() {
 	defer db.Close()
 
 	authService := auth.NewService(cfg.AccessSecret, cfg.RefreshSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
-	server := api.New(store.New(db), authService)
+	var authTokenSink api.AuthTokenSink
+	switch cfg.AuthTokenDelivery {
+	case "log":
+		authTokenSink = api.NewLogAuthTokenSink(log.Default())
+	default:
+		log.Fatalf("unsupported AUTH_TOKEN_DELIVERY %q", cfg.AuthTokenDelivery)
+	}
+	server := api.NewWithAuthTokenSink(store.New(db), authService, authTokenSink)
 
 	log.Printf("listening on :%s", cfg.Port)
 	if err := server.Router().Run(":" + cfg.Port); err != nil {

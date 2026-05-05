@@ -389,9 +389,10 @@ Constraints:
   hashed, become one-time-use after consumption, and are throttled to five
   issued tokens per user/purpose per hour.
 - Auth token delivery is an explicit adapter boundary. The API process accepts
-  an `AuthTokenSink` implementation for email/SMS/dev-test delivery; the default
-  constructor performs no delivery and is suitable only when another embedding
-  layer wires the sink before exposing self-service recovery.
+  an `AuthTokenSink` implementation for email/SMS/dev-test delivery. The
+  production server entrypoint wires `AUTH_TOKEN_DELIVERY=log` as the local
+  dev/test adapter so one-time verification and reset tokens are emitted to the
+  server log until a real mail or SMS adapter is configured.
 - Third-party/social login is a deferred first-phase lifecycle capability and
   must not be presented as available API behavior until implemented.
 - Expired or revoked refresh tokens may be removed by an explicit maintenance command.
@@ -828,6 +829,7 @@ Required configuration:
 | `ACCESS_TOKEN_TTL` | Access token lifetime. |
 | `REFRESH_TOKEN_TTL` | Refresh token lifetime. |
 | `PORT` | HTTP server port. |
+| `AUTH_TOKEN_DELIVERY` | Auth verification/reset token delivery adapter. Use `log` for the local dev/test adapter. |
 
 V2 cross-service configuration:
 

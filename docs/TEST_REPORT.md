@@ -1,6 +1,6 @@
 # Test Report
 
-Generated: 2026-05-04T23:49:53Z
+Generated: 2026-05-05T00:37:48Z
 
 ## Summary
 
@@ -26,8 +26,8 @@ Generated: 2026-05-04T23:49:53Z
 | Metric | Value |
 | --- | --- |
 | Go packages | 18 |
-| Test cases started | 226 |
-| JSON pass events | 237 |
+| Test cases started | 227 |
+| JSON pass events | 238 |
 | JSON fail events | 0 |
 | Integration database | Postgres via TEST_DATABASE_URL |
 
@@ -97,6 +97,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness`
 - `rtk_account_manager/internal/api`: `TestIntegrationStoreRefreshTokenHelpers`
 - `rtk_account_manager/internal/api`: `TestIntegrationValidationAndNotFoundErrors`
+- `rtk_account_manager/internal/api`: `TestLogAuthTokenSinkWritesDelivery`
 - `rtk_account_manager/internal/api`: `TestMatchExistingDeactivateOperation`
 - `rtk_account_manager/internal/api`: `TestMatchExistingProvisionOperation`
 - `rtk_account_manager/internal/api`: `TestNewAuthTokenAndUnsupportedPurpose`

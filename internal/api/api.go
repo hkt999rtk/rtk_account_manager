@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -23,6 +24,8 @@ type Server struct {
 	authTokenSink AuthTokenSink
 }
 
+var ErrAuthTokenSinkUnavailable = errors.New("auth token sink unavailable")
+
 func New(store *store.Store, authService *auth.Service) *Server {
 	return &Server{store: store, auth: authService}
 }
@@ -36,6 +39,29 @@ type AuthTokenDelivery struct {
 
 type AuthTokenSink interface {
 	DeliverAuthToken(context.Context, AuthTokenDelivery) error
+}
+
+type LogAuthTokenSink struct {
+	logger *log.Logger
+}
+
+func NewLogAuthTokenSink(logger *log.Logger) LogAuthTokenSink {
+	return LogAuthTokenSink{logger: logger}
+}
+
+func (s LogAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthTokenDelivery) error {
+	logger := s.logger
+	if logger == nil {
+		logger = log.Default()
+	}
+	logger.Printf(
+		"auth token delivery purpose=%s email=%s token=%s expires_at=%s",
+		delivery.Purpose,
+		delivery.Email,
+		delivery.Token,
+		delivery.ExpiresAt.Format(time.RFC3339),
+	)
+	return nil
 }
 
 func NewWithAuthTokenSink(store *store.Store, authService *auth.Service, sink AuthTokenSink) *Server {
@@ -358,7 +384,7 @@ func (s *Server) createAuthToken(c *gin.Context, userID, purpose string) (string
 
 func (s *Server) deliverAuthToken(c *gin.Context, email, purpose, token string, expiresAt time.Time) error {
 	if s.authTokenSink == nil {
-		return nil
+		return ErrAuthTokenSinkUnavailable
 	}
 	return s.authTokenSink.DeliverAuthToken(c.Request.Context(), AuthTokenDelivery{
 		Purpose:   purpose,

@@ -1,9 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -63,14 +65,42 @@ func TestAuthTokenDeliveryHook(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
 
-	noopServer := New(nil, nil)
-	if err := noopServer.deliverAuthToken(c, "user@example.com", "email_verification", "token", time.Now()); err != nil {
-		t.Fatalf("expected nil sink delivery to be no-op, got %v", err)
+	noSinkServer := New(nil, nil)
+	if err := noSinkServer.deliverAuthToken(c, "user@example.com", "email_verification", "token", time.Now()); !errors.Is(err, ErrAuthTokenSinkUnavailable) {
+		t.Fatalf("expected unavailable sink error, got %v", err)
 	}
 
 	errorServer := NewWithAuthTokenSink(nil, nil, failingAuthTokenSink{})
 	if err := errorServer.deliverAuthToken(c, "user@example.com", "email_verification", "token", time.Now()); err == nil {
 		t.Fatal("expected sink delivery error")
+	}
+}
+
+func TestLogAuthTokenSinkWritesDelivery(t *testing.T) {
+	var buf bytes.Buffer
+	sink := NewLogAuthTokenSink(log.New(&buf, "", 0))
+	expiresAt := time.Date(2026, 5, 4, 12, 30, 0, 0, time.UTC)
+
+	err := sink.DeliverAuthToken(context.Background(), AuthTokenDelivery{
+		Purpose:   "password_reset",
+		Email:     "user@example.com",
+		Token:     "reset-token",
+		ExpiresAt: expiresAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := buf.String()
+	for _, want := range []string{
+		"purpose=password_reset",
+		"email=user@example.com",
+		"token=reset-token",
+		"expires_at=2026-05-04T12:30:00Z",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected log output to contain %q, got %q", want, got)
+		}
 	}
 }
 
