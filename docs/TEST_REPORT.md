@@ -1,6 +1,6 @@
 # Test Report
 
-Generated: 2026-05-05T00:37:48Z
+Generated: 2026-05-06T23:52:09Z
 
 ## Summary
 
@@ -16,7 +16,7 @@ Generated: 2026-05-05T00:37:48Z
 
 | Metric | Value |
 | --- | --- |
-| Total statement coverage | 80.1% |
+| Total statement coverage | 80.7% |
 | Minimum required coverage | 80.0% |
 | Coverage mode | atomic |
 | Coverage scope | ./internal/... |
@@ -25,9 +25,9 @@ Generated: 2026-05-05T00:37:48Z
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 18 |
-| Test cases started | 227 |
-| JSON pass events | 238 |
+| Go packages | 20 |
+| Test cases started | 234 |
+| JSON pass events | 246 |
 | JSON fail events | 0 |
 | Integration database | Postgres via TEST_DATABASE_URL |
 
@@ -227,6 +227,13 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/config`: `TestLoadWorkerFallsBackForInvalidMaxAttempts`
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirMissing`
 - `rtk_account_manager/internal/openapi`: `TestOpenAPIContractIsValid`
+- `rtk_account_manager/internal/readiness`: `TestReadinessFallbackLookupsAndSuccessPaths`
+- `rtk_account_manager/internal/readiness`: `TestReadinessSkipAndFailurePaths`
+- `rtk_account_manager/internal/readiness`: `TestRunDryRunProducesRedactedSkips`
+- `rtk_account_manager/internal/readiness`: `TestRunMigrationCheckWithAppliedMigrations`
+- `rtk_account_manager/internal/readiness`: `TestRunSmokeFailsOnMissingMigration`
+- `rtk_account_manager/internal/readiness`: `TestRunSmokeReadsHealthAuthOrgDeviceAndProvisioning`
+- `rtk_account_manager/internal/readiness`: `TestUtilityHelpersAndEnvFallbacks`
 - `rtk_account_manager/internal/store`: `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`
 - `rtk_account_manager/internal/store`: `TestClaimOutboxMessagesReadyLeasesRows`
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshotWithLossyUTF8`
