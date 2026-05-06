@@ -9,6 +9,7 @@ The backend uses three test layers:
 | Unit tests | `make test` | Fast package-level checks that do not require Postgres unless `TEST_DATABASE_URL` is set. |
 | Integration tests | `make integration-test` | Runs the API, store, migrations, auth, authorization, and device lifecycle tests against Postgres. |
 | Full report | `make test-report` | Runs formatting, integration-aware tests, coverage, build validation, and writes `docs/TEST_REPORT.md`. |
+| Readiness smoke | `make readiness-smoke` | Emits a redacted private-cloud readiness artifact against a running deployment. |
 
 `make integration-test` and `make test-report` expect Postgres to be reachable at `TEST_DATABASE_URL`.
 For the default local setup, start it first with `make db-up`.
@@ -58,6 +59,31 @@ Update tests whenever changing:
 | `reports/test-cases.md` | Passing test case list extracted from Go JSON events. |
 
 `reports/` is ignored by git. Commit `docs/TEST_REPORT.md` when intentionally refreshing the maintained report.
+
+## Readiness Smoke Artifact
+
+`go run ./cmd/readiness-smoke` produces a JSON artifact that is safe to attach to
+private-cloud deployment sign-off. It redacts credentials and token material and
+does not create, update, or delete account-manager data.
+
+Configure it with existing deployment resources:
+
+```sh
+ACCOUNT_MANAGER_BASE_URL='https://account-manager.example.internal' \
+ACCOUNT_MANAGER_VERSION='2026.05.07+build' \
+DATABASE_URL='postgres://...' \
+READINESS_SMOKE_EMAIL='owner@example.com' \
+READINESS_SMOKE_PASSWORD='...' \
+READINESS_SMOKE_ORG_ID='...' \
+READINESS_SMOKE_DEVICE_ID='...' \
+go run ./cmd/readiness-smoke -output reports/readiness-smoke.json
+```
+
+The checks cover service version input, `/v1/health`, applied SQL migrations,
+login, organization/device readability, and provisioning/readiness evidence for
+the selected device. Disabled optional features such as SMTP or the
+cross-service channel are emitted as explicit `SKIP` checks rather than hidden.
+Use `go run ./cmd/readiness-smoke -dry-run` for configuration-only validation.
 
 ## Correctness Versus Coverage
 

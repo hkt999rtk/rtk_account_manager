@@ -1,4 +1,4 @@
-.PHONY: tidy test integration-test test-report run run-outbox-worker run-inbox-worker db-up db-down migrate cleanup-tokens
+.PHONY: tidy test integration-test test-report readiness-smoke run run-outbox-worker run-inbox-worker db-up db-down migrate cleanup-tokens
 
 tidy:
 	go mod tidy
@@ -11,6 +11,9 @@ integration-test:
 
 test-report:
 	./scripts/test-report.sh
+
+readiness-smoke:
+	go run ./cmd/readiness-smoke
 
 run:
 	go run ./cmd/server
