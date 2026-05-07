@@ -1,0 +1,22 @@
+[Unit]
+Description=RTK Account Manager inbox worker
+After=network-online.target rtk-account-manager.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rtk-account-manager
+Group=rtk-account-manager
+EnvironmentFile=/etc/rtk-account-manager/account-manager.env
+ExecStart=/opt/rtk-account-manager/bin/rtk-account-manager-inbox-worker
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/rtk-account-manager
+WorkingDirectory=/opt/rtk-account-manager
+
+[Install]
+WantedBy=multi-user.target

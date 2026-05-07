@@ -1,0 +1,14 @@
+[Unit]
+Description=RTK Account Manager refresh-token cleanup
+
+[Service]
+Type=oneshot
+User=rtk-account-manager
+Group=rtk-account-manager
+EnvironmentFile=/etc/rtk-account-manager/account-manager.env
+ExecStart=/opt/rtk-account-manager/bin/rtk-account-manager-cleanup-tokens
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+WorkingDirectory=/opt/rtk-account-manager
