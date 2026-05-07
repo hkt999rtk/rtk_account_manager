@@ -249,6 +249,10 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/admin/quota-raise-requests/:requestId/approve", s.requirePlatformAdmin(), s.approveQuotaRaiseRequest)
 	protected.POST("/admin/quota-raise-requests/:requestId/decline", s.requirePlatformAdmin(), s.declineQuotaRaiseRequest)
 	protected.GET("/admin/metrics", s.requirePlatformAdmin(), s.adminMetrics)
+	protected.POST("/admin/device-claim-tokens", s.requirePlatformAdmin(), s.createDeviceClaimToken)
+	protected.GET("/admin/device-claim-tokens", s.requirePlatformAdmin(), s.listDeviceClaimTokens)
+	protected.GET("/admin/device-claim-tokens/:tokenId", s.requirePlatformAdmin(), s.getDeviceClaimToken)
+	protected.POST("/admin/device-claim-tokens/:tokenId/revoke", s.requirePlatformAdmin(), s.revokeDeviceClaimToken)
 
 	return r
 }
@@ -1159,6 +1163,8 @@ func writeClaimResolveError(c *gin.Context, err error) {
 		writeError(c, http.StatusBadRequest, "expired_claim_token", "Claim token has expired")
 	case errors.Is(err, store.ErrClaimAlreadyClaimed):
 		writeError(c, http.StatusConflict, "already_claimed", "Claim token has already been claimed")
+	case errors.Is(err, store.ErrClaimRevoked):
+		writeError(c, http.StatusNotFound, "invalid_claim_token", "Invalid claim token")
 	case errors.Is(err, store.ErrClaimCrossOrganization):
 		writeError(c, http.StatusForbidden, "forbidden", "Claim token does not belong to this organization")
 	case errors.Is(err, store.ErrClaimUnsupportedCategory):

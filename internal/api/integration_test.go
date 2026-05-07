@@ -69,7 +69,7 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		TRUNCATE auth_tokens, quota_raise_requests, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
+		TRUNCATE auth_tokens, quota_raise_requests, device_claims, device_claim_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatal(err)
@@ -2205,6 +2205,115 @@ func TestIntegrationClaimResolveEndpoint(t *testing.T) {
 	assertErrorCode(t, unsupportedClaimRes, http.StatusBadRequest, "unsupported_device_category")
 }
 
+func TestIntegrationAdminDeviceClaimTokenWorkflow(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+
+	admin := registerUser(t, env.router, "claim-token-platform-admin@example.com", "Claim Token Admin Org")
+	nonAdmin := registerUser(t, env.router, "claim-token-non-admin@example.com", "Claim Token Non Admin Org")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	createPayload := map[string]any{
+		"organization_id":   nonAdmin.Organization.ID,
+		"category":          "ip_camera",
+		"video_cloud_devid": "admin-claim-video-1",
+		"activity_id":       "admin-claim-activity-1",
+		"clip_public_key":   "admin-claim-clip-key-1",
+		"expires_at":        time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano),
+		"metadata":          map[string]any{"batch": "generated"},
+		"notes":             "generated token",
+	}
+	nonAdminCreateRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claim-tokens", createPayload, nonAdmin.Tokens.AccessToken)
+	if nonAdminCreateRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-admin create 403, got %d: %s", nonAdminCreateRes.Code, nonAdminCreateRes.Body.String())
+	}
+
+	createRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claim-tokens", createPayload, admin.Tokens.AccessToken)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected claim token create 201, got %d: %s", createRes.Code, createRes.Body.String())
+	}
+	generated := decodeBody[deviceClaimTokenAdminBody](t, createRes)
+	if generated.DeviceClaimToken.ID == "" || generated.ClaimToken == nil || *generated.ClaimToken == "" {
+		t.Fatalf("expected generated raw token once, got %+v", generated)
+	}
+	if generated.DeviceClaimToken.CreatedBy == nil || *generated.DeviceClaimToken.CreatedBy != admin.User.ID {
+		t.Fatalf("expected created_by platform admin, got %+v", generated.DeviceClaimToken)
+	}
+
+	listRes := performJSON(env.router, http.MethodGet, "/v1/admin/device-claim-tokens", nil, admin.Tokens.AccessToken)
+	if listRes.Code != http.StatusOK {
+		t.Fatalf("expected list 200, got %d: %s", listRes.Code, listRes.Body.String())
+	}
+	listBody := decodeBody[deviceClaimTokensAdminBody](t, listRes)
+	if listBody.Pagination.Total != 1 || len(listBody.DeviceClaimTokens) != 1 {
+		t.Fatalf("expected one claim token in list, got %+v", listBody)
+	}
+
+	getRes := performJSON(env.router, http.MethodGet, "/v1/admin/device-claim-tokens/"+generated.DeviceClaimToken.ID, nil, admin.Tokens.AccessToken)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("expected get 200, got %d: %s", getRes.Code, getRes.Body.String())
+	}
+	got := decodeBody[deviceClaimTokenAdminBody](t, getRes)
+	if got.ClaimToken != nil {
+		t.Fatalf("raw generated token must not be returned after create, got %+v", got)
+	}
+
+	resolveGeneratedRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+nonAdmin.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": *generated.ClaimToken,
+		"device_name": "Generated Camera",
+	}, nonAdmin.Tokens.AccessToken)
+	if resolveGeneratedRes.Code != http.StatusCreated {
+		t.Fatalf("expected generated token resolve 201, got %d: %s", resolveGeneratedRes.Code, resolveGeneratedRes.Body.String())
+	}
+
+	importedRaw := "imported-claim-token-secret"
+	importRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claim-tokens", map[string]any{
+		"claim_token":       importedRaw,
+		"category":          "ip_camera",
+		"video_cloud_devid": "admin-claim-video-2",
+		"activity_id":       "admin-claim-activity-2",
+		"clip_public_key":   "admin-claim-clip-key-2",
+		"expires_at":        time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano),
+		"metadata":          map[string]any{"batch": "imported"},
+	}, admin.Tokens.AccessToken)
+	if importRes.Code != http.StatusCreated {
+		t.Fatalf("expected imported claim token create 201, got %d: %s", importRes.Code, importRes.Body.String())
+	}
+	imported := decodeBody[deviceClaimTokenAdminBody](t, importRes)
+	if imported.ClaimToken != nil {
+		t.Fatalf("imported raw token must not be echoed, got %+v", imported)
+	}
+
+	var rawTokenCount int
+	if err := env.db.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM device_claim_tokens
+		WHERE token_hash = $1 OR metadata::text LIKE '%' || $1 || '%' OR COALESCE(notes, '') LIKE '%' || $1 || '%'
+	`, importedRaw).Scan(&rawTokenCount); err != nil {
+		t.Fatal(err)
+	}
+	if rawTokenCount != 0 {
+		t.Fatal("raw imported claim token was persisted")
+	}
+
+	revokeRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claim-tokens/"+imported.DeviceClaimToken.ID+"/revoke", nil, admin.Tokens.AccessToken)
+	if revokeRes.Code != http.StatusOK {
+		t.Fatalf("expected revoke 200, got %d: %s", revokeRes.Code, revokeRes.Body.String())
+	}
+	revoked := decodeBody[deviceClaimTokenAdminBody](t, revokeRes)
+	if revoked.DeviceClaimToken.RevokedAt == nil {
+		t.Fatalf("expected revoked_at, got %+v", revoked.DeviceClaimToken)
+	}
+
+	resolveRevokedRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+nonAdmin.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": importedRaw,
+		"device_name": "Revoked Camera",
+	}, nonAdmin.Tokens.AccessToken)
+	assertErrorCode(t, resolveRevokedRes, http.StatusNotFound, "invalid_claim_token")
+}
+
 func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 	env := newIntegrationEnv(t)
 
@@ -2457,6 +2566,24 @@ type claimResolveBody struct {
 		ActivityID      string `json:"activity_id"`
 		ClipPublicKey   string `json:"clip_public_key"`
 	} `json:"provision_input"`
+}
+
+type deviceClaimTokenAdminBody struct {
+	DeviceClaimToken struct {
+		ID              string     `json:"id"`
+		OrganizationID  *string    `json:"organization_id"`
+		CreatedBy       *string    `json:"created_by"`
+		VideoCloudDevid string     `json:"video_cloud_devid"`
+		RevokedAt       *time.Time `json:"revoked_at"`
+	} `json:"device_claim_token"`
+	ClaimToken *string `json:"claim_token"`
+}
+
+type deviceClaimTokensAdminBody struct {
+	DeviceClaimTokens []struct {
+		ID string `json:"id"`
+	} `json:"device_claim_tokens"`
+	Pagination paginationBody `json:"pagination"`
 }
 
 type registryOnlyProvisioningBody struct {

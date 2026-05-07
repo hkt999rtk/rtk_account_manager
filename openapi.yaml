@@ -409,6 +409,95 @@ paths:
           $ref: "#/components/responses/Error"
         "403":
           $ref: "#/components/responses/Error"
+  /v1/admin/device-claim-tokens:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Create or import a device Claim Token.
+      description: >
+        Platform-admin only. The server stores only a hash of the raw Claim
+        Token. When `claim_token` is omitted, the server generates a raw token
+        and returns it exactly once in the create response. Imported raw tokens
+        are never echoed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminDeviceClaimTokenCreateRequest"
+      responses:
+        "201":
+          description: Device Claim Token created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminDeviceClaimTokenResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+    get:
+      security:
+        - bearerAuth: []
+      summary: List device Claim Tokens.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Device Claim Token list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminDeviceClaimTokensResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/admin/device-claim-tokens/{tokenId}:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get a device Claim Token.
+      parameters:
+        - $ref: "#/components/parameters/TokenId"
+      responses:
+        "200":
+          description: Device Claim Token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminDeviceClaimTokenResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/admin/device-claim-tokens/{tokenId}/revoke:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Revoke a device Claim Token.
+      parameters:
+        - $ref: "#/components/parameters/TokenId"
+      responses:
+        "200":
+          description: Device Claim Token revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminDeviceClaimTokenResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/members:
     get:
       security:
@@ -1129,6 +1218,13 @@ components:
       schema:
         type: string
         format: uuid
+    TokenId:
+      name: tokenId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     GroupId:
       name: groupId
       in: path
@@ -1384,6 +1480,57 @@ components:
           $ref: "#/components/schemas/Device"
         provision_input:
           $ref: "#/components/schemas/ClaimProvisionInput"
+    AdminDeviceClaimTokenCreateRequest:
+      type: object
+      required: [category, video_cloud_devid, activity_id, clip_public_key, expires_at]
+      additionalProperties: false
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+          description: Optional organization scope; omitted tokens can be resolved by any organization until claimed.
+        claim_token:
+          type: string
+          minLength: 1
+          description: Optional imported raw Claim Token. Stored as a hash and never echoed.
+        category:
+          $ref: "#/components/schemas/DeviceCategory"
+        video_cloud_devid:
+          type: string
+          minLength: 1
+        activity_id:
+          type: string
+          minLength: 1
+        clip_public_key:
+          type: string
+          minLength: 1
+        expires_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+        notes:
+          type: string
+    AdminDeviceClaimTokenResponse:
+      type: object
+      required: [device_claim_token]
+      properties:
+        device_claim_token:
+          $ref: "#/components/schemas/DeviceClaimToken"
+        claim_token:
+          type: string
+          description: Present only when the server generated the raw token for this create response.
+    AdminDeviceClaimTokensResponse:
+      type: object
+      required: [device_claim_tokens, pagination]
+      properties:
+        device_claim_tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeviceClaimToken"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
     DeactivateDeviceRequest:
       type: object
       properties:
@@ -1869,6 +2016,47 @@ components:
     QuotaRaiseRequestStatus:
       type: string
       enum: [pending, approved, declined]
+    DeviceClaimToken:
+      type: object
+      required: [id, category, video_cloud_devid, activity_id, clip_public_key, metadata, expires_at, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        created_by:
+          type: string
+          format: uuid
+        category:
+          $ref: "#/components/schemas/DeviceCategory"
+        video_cloud_devid:
+          type: string
+        activity_id:
+          type: string
+        clip_public_key:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        notes:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        claimed_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     DeviceOperationSummary:
       type: object
       required: [operation_id, correlation_id, message_id, device_id, operation_type, status, created_at, updated_at]

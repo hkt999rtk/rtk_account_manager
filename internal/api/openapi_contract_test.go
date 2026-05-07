@@ -124,6 +124,22 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
+	adminClaimTokenRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claim-tokens", map[string]any{
+		"organization_id":   registered.Organization.ID,
+		"category":          "ip_camera",
+		"video_cloud_devid": "contract-admin-claim-video-1",
+		"activity_id":       "contract-admin-claim-activity-1",
+		"clip_public_key":   "contract-admin-claim-clip-key-1",
+		"expires_at":        time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339Nano),
+	}, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/device-claim-tokens", adminClaimTokenRes)
+	adminClaimTokenBody := decodeBody[deviceClaimTokenAdminBody](t, adminClaimTokenRes)
+	adminClaimTokensRes := performJSON(env.router, http.MethodGet, "/v1/admin/device-claim-tokens", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/admin/device-claim-tokens", adminClaimTokensRes)
+	adminClaimTokenGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID, nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID, adminClaimTokenGetRes)
+	adminClaimTokenRevokeRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID+"/revoke", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID+"/revoke", adminClaimTokenRevokeRes)
 	approveReqRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", approveReqRes)
 

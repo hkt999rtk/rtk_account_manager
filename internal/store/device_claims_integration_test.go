@@ -204,6 +204,78 @@ func TestResolveDeviceClaimTokenRejectsExpiredToken(t *testing.T) {
 	}
 }
 
+func TestDeviceClaimTokenAdminLifecycle(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	registered, err := env.store.Register(ctx, RegisterInput{
+		Email:            "claim-admin-store@example.com",
+		PasswordHash:     "hash",
+		OrganizationName: "Claim Admin Store Org",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	notes := "factory batch 7"
+	token, err := env.store.CreateDeviceClaimToken(ctx, DeviceClaimTokenCreateInput{
+		TokenHash:       "hashed-admin-token",
+		OrganizationID:  &registered.Organization.ID,
+		CreatedBy:       &registered.User.ID,
+		Category:        model.DeviceCategoryIPCamera,
+		VideoCloudDevid: "admin-video-device",
+		ActivityID:      "admin-activity",
+		ClipPublicKey:   "admin-clip-key",
+		Metadata:        map[string]any{"batch": "7"},
+		Notes:           &notes,
+		ExpiresAt:       now.Add(time.Hour),
+		Now:             now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token.CreatedBy == nil || *token.CreatedBy != registered.User.ID {
+		t.Fatalf("expected created_by to be tracked, got %+v", token)
+	}
+	if token.Notes == nil || *token.Notes != notes {
+		t.Fatalf("expected notes to be tracked, got %+v", token)
+	}
+
+	listed, err := env.store.ListDeviceClaimTokens(ctx, DeviceClaimTokenListFilter{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listed.Page.Total != 1 || len(listed.Tokens) != 1 || listed.Tokens[0].ID != token.ID {
+		t.Fatalf("expected token in list, got %+v", listed)
+	}
+
+	fetched, err := env.store.GetDeviceClaimToken(ctx, token.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetched.ID != token.ID || fetched.VideoCloudDevid != "admin-video-device" {
+		t.Fatalf("unexpected fetched token: %+v", fetched)
+	}
+
+	revoked, err := env.store.RevokeDeviceClaimToken(ctx, token.ID, now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revoked.RevokedAt == nil {
+		t.Fatalf("expected revoked_at, got %+v", revoked)
+	}
+
+	_, err = env.store.ResolveDeviceClaimToken(ctx, DeviceClaimResolveInput{
+		TokenHash:      "hashed-admin-token",
+		OrganizationID: registered.Organization.ID,
+		RequestedBy:    registered.User.ID,
+		DeviceName:     "Revoked Camera",
+		Now:            now.Add(2 * time.Minute),
+	})
+	if !errors.Is(err, ErrClaimRevoked) {
+		t.Fatalf("expected ErrClaimRevoked, got %v", err)
+	}
+}
+
 func TestResolveDeviceClaimTokenRejectsAlreadyClaimedToken(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()
