@@ -601,6 +601,7 @@ Fleet registry APIs are selection primitives only. Account manager owns group, t
 | `POST` | `/v1/orgs/:orgId/devices/:deviceId/provision` | Yes | `owner`, `admin` | Create or reuse a provisioning operation and enqueue `DeviceProvisionRequested`. |
 | `GET` | `/v1/orgs/:orgId/devices/:deviceId/provisioning` | Yes | `owner`, `admin`, `member` | Return latest provisioning operation, account-side readiness projection, and projected video metadata. |
 | `POST` | `/v1/orgs/:orgId/devices/:deviceId/deactivate` | Yes | `owner`, `admin` | Create or reuse a deactivation operation and enqueue `DeviceDeactivateRequested`. |
+| `POST` | `/v1/orgs/:orgId/devices/claim/resolve` | Yes | `owner`, `admin` | Resolve an opaque Claim Token into an organization-owned registry device and provisioning input. |
 
 Provision request body:
 
@@ -634,9 +635,9 @@ surface:
 POST /v1/orgs/:orgId/devices/claim/resolve
 ```
 
-That follow-up endpoint will accept an opaque `claim_token` plus a display name,
-make the account-manager-owned claim/bind policy decision, create or match the
-organization registry device, and return `claim_id`, `device`, and
+The implemented endpoint accepts an opaque `claim_token` plus a display name,
+makes the account-manager-owned claim/bind policy decision, creates or matches the
+organization registry device, and returns `claim_id`, `device`, and
 `provision_input` containing `video_cloud_devid`, `activity_id`, and
 `clip_public_key`. Claim resolution remains separate from cloud provisioning:
 resolving a Claim Token must not create a provisioning operation, publish an
@@ -644,10 +645,10 @@ outbox message, or call Realtek video server directly.
 
 Raw claim-material endpoint decision:
 
-- `rtk_account_manager` should expose the contract-defined
+- `rtk_account_manager` exposes the contract-defined
   `POST /v1/orgs/:orgId/devices/claim/resolve` endpoint as the first app-facing
-  Claim Token flow, then keep broader transfer, reset, and already-claimed
-  policy extensions behind future endpoints.
+  Claim Token flow. Broader transfer, reset, and already-claimed policy
+  extensions remain behind future endpoints.
 - The current `POST .../provision` endpoint only accepts the existing-device
   video lifecycle fields `video_cloud_devid`, `activity_id`, and
   `clip_public_key`, plus optional `operation_id`.
@@ -1023,16 +1024,16 @@ The v2 provisioning/event-channel implementation is acceptable when:
 
 ## 12. Contract Follow-Up Scope
 
-The account-manager implementation owns the account-side API, persistence, outbox, inbox, projection, and broker adapter surfaces. The broader product-level provisioning contract depends on the external video-side lifecycle runtime plus follow-up account-manager surfaces for Claim Token resolution and registry-only readiness behavior.
+The account-manager implementation owns the account-side API, persistence, outbox, inbox, projection, broker adapter surfaces, Claim Token resolution, and registry-only readiness behavior. The broader product-level provisioning contract still depends on the external video-side lifecycle runtime and other service-owned readiness inputs.
 
 Current external dependency:
 
 - The video-side lifecycle integration worker lives in the separate `rtk_video_cloud` `cmd/crossservice` runtime. Account manager depends on that external service to consume `account.video.commands`, call Realtek video server `POST /activate_camera` and `POST /deactivate_camera`, and publish `video.account.events`. The previously tracked video-side worker hardening in `hkt999rtk/rtk_video_cloud#128`, `hkt999rtk/rtk_video_cloud#129`, `hkt999rtk/rtk_video_cloud#131`, and PR `hkt999rtk/rtk_video_cloud#146` is closed or merged as of this spec update.
 
-Remaining follow-up items:
+Current verified behavior:
 
-- Claim Token persistence and `POST /v1/orgs/:orgId/devices/claim/resolve` remain account-manager follow-up work.
-- `GET /provisioning` should return registry-only readiness for an existing device with no provisioning operation.
+- Claim Token persistence and `POST /v1/orgs/:orgId/devices/claim/resolve` are implemented and covered by `openapi.yaml`, `docs/TESTING.md`, and `docs/TEST_REPORT.md`.
+- `GET /provisioning` returns registry-only readiness for an existing device with no provisioning operation.
 - Retry and dead-letter rows are inspectable in Postgres, and `cmd/lifecycle-admin` exposes list, inspect, and safe requeue workflows for operators.
 - Account registry soft-delete and product-level video deactivation remain separate. Product teardown requires explicit `POST /deactivate`; `DELETE /devices/:deviceId` only disables the account-side registry record.
 - Account manager exposes an account-side readiness projection on `GET /provisioning`, but it still does not own a final cross-service "product ready" boolean. Any future unified readiness surface must compose account record, video activation, subject-bound token issuance, device info/config, and transport ownership across service boundaries.

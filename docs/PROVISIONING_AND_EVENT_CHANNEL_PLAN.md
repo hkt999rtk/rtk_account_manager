@@ -13,7 +13,7 @@ This plan is derived from:
 - `contracts/PRODUCT_READINESS.md`
 - `docs/SPEC.md`
 
-As of May 7, 2026, `origin/main` already includes the merged persistence, API, worker, broker, test-report, runbook, pending-metadata, lifecycle-admin, delete-policy, readiness-contract, and private-cloud readiness slices for the original v2 lifecycle milestone. The video-side lifecycle hardening previously tracked in `hkt999rtk/rtk_video_cloud#128`, `hkt999rtk/rtk_video_cloud#129`, `hkt999rtk/rtk_video_cloud#131`, and PR `hkt999rtk/rtk_video_cloud#146` is closed or merged. The current account-manager follow-up scope is Claim Token resolution, registry-only readiness behavior, and the corresponding test-report update.
+As of May 2026, `origin/main` includes the merged persistence, API, worker, broker, test-report, runbook, pending-metadata, lifecycle-admin, delete-policy, readiness-contract, private-cloud readiness, Claim Token resolution, registry-only readiness, and corresponding test-report slices for the v2 lifecycle milestone. The video-side lifecycle hardening previously tracked in `hkt999rtk/rtk_video_cloud#128`, `hkt999rtk/rtk_video_cloud#129`, `hkt999rtk/rtk_video_cloud#131`, and PR `hkt999rtk/rtk_video_cloud#146` is closed or merged.
 
 ## Current Implementation Snapshot
 
@@ -27,11 +27,11 @@ The current account manager now implements:
 - Maintained v2 test reporting and a local worker runbook.
 - Lifecycle admin commands for listing, inspecting, and requeueing eligible inbox/outbox rows.
 
-Residual contract follow-up gaps for this milestone snapshot:
+Verified contract follow-up closure for this milestone snapshot:
 
-- Implement account-manager Claim Token persistence and `POST /v1/orgs/:orgId/devices/claim/resolve`.
-- Let `GET /provisioning` return registry-only readiness for existing devices before a provisioning operation exists.
-- Extend the maintained test report for Claim Token and registry-only readiness correctness.
+- Account-manager Claim Token persistence and `POST /v1/orgs/:orgId/devices/claim/resolve` are implemented.
+- `GET /provisioning` returns registry-only readiness for existing devices before a provisioning operation exists.
+- `make test-report`, `docs/TESTING.md`, and `docs/TEST_REPORT.md` cover Claim Token and registry-only readiness correctness.
 - Keep this repo's contract docs explicit that `DELETE /devices/:deviceId` remains registry-only while product teardown still requires `POST /deactivate`, unless product policy changes later.
 
 ## Milestone And Issue Map
@@ -52,16 +52,16 @@ Milestone: `v2-provisioning-event-channel`
 | #10 `[Testing] Extend automated test report for v2` | P2 | `testing`, `v2` | #6, #7, #8 | verified | PR #23, `docs/TEST_REPORT.md` | `make test-report` includes v2 behavior evidence and keeps coverage at or above 80%. |
 | #11 `[Docs] Add local runbook for provisioning/event workers` | P2 | `docs`, `v2` | #6, #7, #8, #9 | verified | PR #25, `README.md` | Local runbook for Postgres, API server, outbox worker, inbox worker, and local broker flow. |
 
-## Contract Follow-Up Issue Map
+## Contract Follow-Up Closure Map
 
-These issues are follow-ups to the merged account-manager v2 implementation. They are intentionally separate from the original v2 rollout issues above.
+These issues were follow-ups to the merged account-manager v2 implementation. They are now part of the verified mainline behavior and remain here as traceability evidence.
 
-| Issue | Priority | Suggested labels | Repo ownership | Deliverable |
-| --- | --- | --- | --- | --- |
-| `#87 [API/DB] Add Claim Token resolve persistence and policy model` | P1 | `backend`, `database`, `api`, `v2` | `rtk_account_manager` | Add hashed Claim Token persistence, claim/bind policy state, registry-device create/match behavior, and provisioning input projection. |
-| `#88 [API] Implement POST /v1/orgs/:orgId/devices/claim/resolve` | P1 | `api`, `backend`, `v2` | `rtk_account_manager` | Implement the app-facing Claim Token resolve endpoint defined by `contracts/PROVISION.md` and `contracts/PRODUCT_ONBOARDING.md`. |
-| `#89 [API] Return registry-only readiness from GET /provisioning` | P2 | `api`, `backend`, `v2` | `rtk_account_manager` | Return account-side readiness for existing registry devices that have no provisioning operation yet. |
-| `#90 [Testing] Extend report for Claim Token and readiness gaps` | P2 | `testing`, `v2` | `rtk_account_manager` | Extend `make test-report`, `docs/TESTING.md`, and `docs/TEST_REPORT.md` with Claim Token and registry-only readiness correctness evidence. |
+| Issue | Status | Evidence | Deliverable |
+| --- | --- | --- | --- |
+| `#87 [API/DB] Add Claim Token resolve persistence and policy model` | implemented | `openapi.yaml`, `docs/TEST_REPORT.md` | Hashed Claim Token persistence, claim/bind policy state, registry-device create/match behavior, and provisioning input projection. |
+| `#88 [API] Implement POST /v1/orgs/:orgId/devices/claim/resolve` | implemented | `openapi.yaml`, `docs/SPEC.md` | App-facing Claim Token resolve endpoint defined by `contracts/PROVISION.md` and `contracts/PRODUCT_ONBOARDING.md`. |
+| `#89 [API] Return registry-only readiness from GET /provisioning` | implemented | `docs/TEST_REPORT.md` | Account-side readiness for existing registry devices that have no provisioning operation yet. |
+| `#90 [Testing] Extend report for Claim Token and readiness gaps` | verified | `make test-report`, `docs/TESTING.md`, `docs/TEST_REPORT.md` | Maintained evidence for Claim Token and registry-only readiness correctness. |
 
 Status values:
 
