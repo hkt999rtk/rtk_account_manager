@@ -140,6 +140,12 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	contract.validate(t, http.MethodGet, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID, adminClaimTokenGetRes)
 	adminClaimTokenRevokeRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID+"/revoke", nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID+"/revoke", adminClaimTokenRevokeRes)
+	quotaRaiseListRes := performJSON(env.router, http.MethodGet, "/v1/admin/quota-raise-requests", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/admin/quota-raise-requests", quotaRaiseListRes)
+	quotaRaiseShowRes := performJSON(env.router, http.MethodGet, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID, nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID, quotaRaiseShowRes)
+	auditEventsRes := performJSON(env.router, http.MethodGet, "/v1/admin/audit-events", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/admin/audit-events", auditEventsRes)
 	approveReqRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", approveReqRes)
 

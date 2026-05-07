@@ -253,6 +253,9 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/admin/device-claim-tokens", s.requirePlatformAdmin(), s.listDeviceClaimTokens)
 	protected.GET("/admin/device-claim-tokens/:tokenId", s.requirePlatformAdmin(), s.getDeviceClaimToken)
 	protected.POST("/admin/device-claim-tokens/:tokenId/revoke", s.requirePlatformAdmin(), s.revokeDeviceClaimToken)
+	protected.GET("/admin/quota-raise-requests", s.requirePlatformAdmin(), s.listAdminQuotaRaiseRequests)
+	protected.GET("/admin/quota-raise-requests/:requestId", s.requirePlatformAdmin(), s.getAdminQuotaRaiseRequest)
+	protected.GET("/admin/audit-events", s.requirePlatformAdmin(), s.listAdminAuditEvents)
 
 	return r
 }

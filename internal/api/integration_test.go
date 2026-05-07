@@ -502,6 +502,26 @@ func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
 	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
+	nonAdminListRes := performJSON(env.router, http.MethodGet, "/v1/admin/quota-raise-requests", nil, loginBody.Tokens.AccessToken)
+	if nonAdminListRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-admin quota list 403, got %d: %s", nonAdminListRes.Code, nonAdminListRes.Body.String())
+	}
+	pendingListRes := performJSON(env.router, http.MethodGet, "/v1/admin/quota-raise-requests?status=pending&limit=1&offset=0", nil, admin.Tokens.AccessToken)
+	if pendingListRes.Code != http.StatusOK {
+		t.Fatalf("expected pending quota list 200, got %d: %s", pendingListRes.Code, pendingListRes.Body.String())
+	}
+	pendingList := decodeBody[quotaRaiseRequestsBody](t, pendingListRes)
+	if pendingList.Pagination.Total != 1 || len(pendingList.QuotaRaiseRequests) != 1 || pendingList.QuotaRaiseRequests[0].ID != raiseReqBody.QuotaRaiseRequest.ID {
+		t.Fatalf("expected pending quota list to include request, got %+v", pendingList)
+	}
+	showReqRes := performJSON(env.router, http.MethodGet, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID, nil, admin.Tokens.AccessToken)
+	if showReqRes.Code != http.StatusOK {
+		t.Fatalf("expected quota show 200, got %d: %s", showReqRes.Code, showReqRes.Body.String())
+	}
+	showReqBody := decodeBody[quotaRaiseRequestBody](t, showReqRes)
+	if showReqBody.QuotaRaiseRequest.ID != raiseReqBody.QuotaRaiseRequest.ID {
+		t.Fatalf("expected quota show to return request, got %+v", showReqBody)
+	}
 	approveRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", map[string]any{
 		"approved_quota": 500,
 	}, admin.Tokens.AccessToken)
@@ -536,6 +556,36 @@ func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
 	}
 	if declinedBody.Organization.EvaluationDeviceQuota != 200 {
 		t.Fatalf("expected decline to keep capped quota at 200, got %+v", declinedBody.Organization)
+	}
+
+	approvedListRes := performJSON(env.router, http.MethodGet, "/v1/admin/quota-raise-requests?status=approved", nil, admin.Tokens.AccessToken)
+	if approvedListRes.Code != http.StatusOK {
+		t.Fatalf("expected approved quota list 200, got %d: %s", approvedListRes.Code, approvedListRes.Body.String())
+	}
+	approvedList := decodeBody[quotaRaiseRequestsBody](t, approvedListRes)
+	if approvedList.Pagination.Total != 1 || len(approvedList.QuotaRaiseRequests) != 1 || approvedList.QuotaRaiseRequests[0].Status != string(model.QuotaRaiseRequestStatusApproved) {
+		t.Fatalf("expected one approved quota request, got %+v", approvedList)
+	}
+	invalidStatusRes := performJSON(env.router, http.MethodGet, "/v1/admin/quota-raise-requests?status=unknown", nil, admin.Tokens.AccessToken)
+	if invalidStatusRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid status 400, got %d: %s", invalidStatusRes.Code, invalidStatusRes.Body.String())
+	}
+
+	auditListRes := performJSON(env.router, http.MethodGet, "/v1/admin/audit-events?event_type=quota_raise_approved", nil, admin.Tokens.AccessToken)
+	if auditListRes.Code != http.StatusOK {
+		t.Fatalf("expected audit list 200, got %d: %s", auditListRes.Code, auditListRes.Body.String())
+	}
+	auditList := decodeBody[auditEventsBody](t, auditListRes)
+	if auditList.Pagination.Total != 1 || len(auditList.AuditEvents) != 1 || auditList.AuditEvents[0].EventType != "quota_raise_approved" {
+		t.Fatalf("expected one quota_raise_approved audit event, got %+v", auditList)
+	}
+	auditSubjectListRes := performJSON(env.router, http.MethodGet, "/v1/admin/audit-events?subject_type=quota_raise_request&limit=2", nil, admin.Tokens.AccessToken)
+	if auditSubjectListRes.Code != http.StatusOK {
+		t.Fatalf("expected audit subject list 200, got %d: %s", auditSubjectListRes.Code, auditSubjectListRes.Body.String())
+	}
+	auditSubjectList := decodeBody[auditEventsBody](t, auditSubjectListRes)
+	if auditSubjectList.Pagination.Total != 4 || len(auditSubjectList.AuditEvents) != 2 {
+		t.Fatalf("expected paginated quota_raise_request audit events, got %+v", auditSubjectList)
 	}
 
 	metricsRes := performJSON(env.router, http.MethodGet, "/v1/admin/metrics", nil, admin.Tokens.AccessToken)
@@ -2725,6 +2775,23 @@ type quotaRaiseRequestBody struct {
 		Status         string `json:"status"`
 		RequestedQuota int    `json:"requested_quota"`
 	} `json:"quota_raise_request"`
+}
+
+type quotaRaiseRequestsBody struct {
+	QuotaRaiseRequests []struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	} `json:"quota_raise_requests"`
+	Pagination paginationBody `json:"pagination"`
+}
+
+type auditEventsBody struct {
+	AuditEvents []struct {
+		ID          string `json:"id"`
+		EventType   string `json:"event_type"`
+		SubjectType string `json:"subject_type"`
+	} `json:"audit_events"`
+	Pagination paginationBody `json:"pagination"`
 }
 
 type quotaRaiseDecisionBody struct {

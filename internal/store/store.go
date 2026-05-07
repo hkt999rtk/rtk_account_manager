@@ -71,6 +71,16 @@ type DeviceClaimTokenPage struct {
 	Page   Page
 }
 
+type QuotaRaiseRequestPage struct {
+	Requests []model.QuotaRaiseRequest
+	Page     Page
+}
+
+type AuditEventPage struct {
+	Events []model.AuditEvent
+	Page   Page
+}
+
 type RegisterInput struct {
 	Email                     string
 	PasswordHash              string

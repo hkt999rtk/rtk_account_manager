@@ -27,6 +27,12 @@ type QuotaRaiseDecisionInput struct {
 	Approved       bool
 }
 
+type QuotaRaiseRequestListFilter struct {
+	Status model.QuotaRaiseRequestStatus
+	Limit  int
+	Offset int
+}
+
 func (s *Store) IsPlatformAdmin(ctx context.Context, userID string) (bool, error) {
 	var platformAdmin bool
 	err := s.db.QueryRow(ctx, `
@@ -120,9 +126,7 @@ func (s *Store) CreateQuotaRaiseRequest(ctx context.Context, in QuotaRaiseReques
 }
 
 func (s *Store) GetQuotaRaiseRequest(ctx context.Context, requestID string) (model.QuotaRaiseRequest, error) {
-	var request model.QuotaRaiseRequest
-	var rawContactInfo []byte
-	err := s.db.QueryRow(ctx, `
+	request, err := scanQuotaRaiseRequest(s.db.QueryRow(ctx, `
 		SELECT
 			id::text,
 			organization_id::text,
@@ -138,7 +142,64 @@ func (s *Store) GetQuotaRaiseRequest(ctx context.Context, requestID string) (mod
 			decided_at
 		FROM quota_raise_requests
 		WHERE id = $1
-	`, requestID).Scan(
+	`, requestID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.QuotaRaiseRequest{}, ErrNotFound
+	}
+	return request, err
+}
+
+func (s *Store) ListQuotaRaiseRequests(ctx context.Context, in QuotaRaiseRequestListFilter) (QuotaRaiseRequestPage, error) {
+	var total int
+	if err := s.db.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM quota_raise_requests
+		WHERE ($1 = '' OR status = $1)
+	`, in.Status).Scan(&total); err != nil {
+		return QuotaRaiseRequestPage{}, err
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT
+			id::text,
+			organization_id::text,
+			requested_by::text,
+			requested_quota,
+			use_case,
+			contact_info,
+			status,
+			decided_by::text,
+			decision_reason,
+			created_at,
+			updated_at,
+			decided_at
+		FROM quota_raise_requests
+		WHERE ($1 = '' OR status = $1)
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`, in.Status, in.Limit, in.Offset)
+	if err != nil {
+		return QuotaRaiseRequestPage{}, err
+	}
+	defer rows.Close()
+
+	requests := []model.QuotaRaiseRequest{}
+	for rows.Next() {
+		request, err := scanQuotaRaiseRequest(rows)
+		if err != nil {
+			return QuotaRaiseRequestPage{}, err
+		}
+		requests = append(requests, request)
+	}
+	if err := rows.Err(); err != nil {
+		return QuotaRaiseRequestPage{}, err
+	}
+	return QuotaRaiseRequestPage{Requests: requests, Page: Page{Limit: in.Limit, Offset: in.Offset, Total: total}}, nil
+}
+
+func scanQuotaRaiseRequest(row rowScanner) (model.QuotaRaiseRequest, error) {
+	var request model.QuotaRaiseRequest
+	var rawContactInfo []byte
+	err := row.Scan(
 		&request.ID,
 		&request.OrganizationID,
 		&request.RequestedBy,
@@ -152,9 +213,6 @@ func (s *Store) GetQuotaRaiseRequest(ctx context.Context, requestID string) (mod
 		&request.UpdatedAt,
 		&request.DecidedAt,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return model.QuotaRaiseRequest{}, ErrNotFound
-	}
 	if err == nil {
 		if err := json.Unmarshal(rawContactInfo, &request.ContactInfo); err != nil {
 			return model.QuotaRaiseRequest{}, err

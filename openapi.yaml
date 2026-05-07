@@ -333,6 +333,52 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+  /v1/admin/quota-raise-requests:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List quota-raise requests.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/QuotaRaiseRequestStatus"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Quota-raise request list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuotaRaiseRequestsResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/admin/quota-raise-requests/{requestId}:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get a quota-raise request.
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Quota-raise request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuotaRaiseRequestResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
   /v1/admin/quota-raise-requests/{requestId}/approve:
     post:
       security:
@@ -405,6 +451,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EvalTierMetricsResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/admin/audit-events:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List audit events.
+      parameters:
+        - name: event_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: subject_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Audit event list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditEventsResponse"
         "401":
           $ref: "#/components/responses/Error"
         "403":
@@ -1648,6 +1723,16 @@ components:
       properties:
         quota_raise_request:
           $ref: "#/components/schemas/QuotaRaiseRequest"
+    QuotaRaiseRequestsResponse:
+      type: object
+      required: [quota_raise_requests, pagination]
+      properties:
+        quota_raise_requests:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuotaRaiseRequest"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
     QuotaRaiseDecisionResponse:
       type: object
       required: [quota_raise_request, organization]
@@ -2056,6 +2141,44 @@ components:
     QuotaRaiseRequestStatus:
       type: string
       enum: [pending, approved, declined]
+    AuditEventsResponse:
+      type: object
+      required: [audit_events, pagination]
+      properties:
+        audit_events:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+    AuditEvent:
+      type: object
+      required: [id, event_type, subject_type, subject_id, payload, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        actor_user_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        subject_type:
+          type: string
+        subject_id:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     DeviceClaimToken:
       type: object
       required: [id, category, video_cloud_devid, activity_id, clip_public_key, metadata, expires_at, created_at, updated_at]
