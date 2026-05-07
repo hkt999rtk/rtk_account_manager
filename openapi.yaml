@@ -1633,7 +1633,9 @@ components:
       required: [operation, readiness, video_metadata]
       properties:
         operation:
-          $ref: "#/components/schemas/DeviceOperationSummary"
+          nullable: true
+          oneOf:
+            - $ref: "#/components/schemas/DeviceOperationSummary"
         readiness:
           $ref: "#/components/schemas/DeviceReadinessProjection"
         video_metadata:
@@ -1649,13 +1651,14 @@ components:
           $ref: "#/components/schemas/ProductReadinessState"
         sources:
           type: object
-          required: [device_enabled, device_status, provisioning_operation_status]
+          required: [device_enabled, device_status]
           properties:
             device_enabled:
               type: boolean
             device_status:
               $ref: "#/components/schemas/DeviceStatus"
             provisioning_operation_status:
+              nullable: true
               $ref: "#/components/schemas/DeviceOperationStatus"
             video_cloud_activation_status:
               $ref: "#/components/schemas/VideoCloudActivationStatus"

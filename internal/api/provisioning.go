@@ -55,9 +55,9 @@ type claimResolveResponse struct {
 }
 
 type provisioningBody struct {
-	Operation     operationResponse `json:"operation"`
-	Readiness     readinessResponse `json:"readiness"`
-	VideoMetadata map[string]any    `json:"video_metadata"`
+	Operation     *operationResponse `json:"operation"`
+	Readiness     readinessResponse  `json:"readiness"`
+	VideoMetadata map[string]any     `json:"video_metadata"`
 }
 
 type operationResponse struct {
@@ -85,7 +85,7 @@ type readinessResponse struct {
 type readinessSourcesResponse struct {
 	DeviceEnabled               bool                         `json:"device_enabled"`
 	DeviceStatus                model.DeviceStatus           `json:"device_status"`
-	ProvisioningOperationStatus model.DeviceOperationStatus  `json:"provisioning_operation_status"`
+	ProvisioningOperationStatus *model.DeviceOperationStatus `json:"provisioning_operation_status,omitempty"`
 	VideoCloudActivationStatus  *string                      `json:"video_cloud_activation_status,omitempty"`
 	DeactivationOperationStatus *model.DeviceOperationStatus `json:"deactivation_operation_status,omitempty"`
 	VideoCloudLastError         any                          `json:"video_cloud_last_error,omitempty"`
@@ -235,19 +235,25 @@ func (s *Server) getProvisioningState(c *gin.Context) {
 	}
 
 	operation, err := s.store.GetLatestDeviceOperationByType(c.Request.Context(), c.Param("orgId"), c.Param("deviceId"), model.DeviceOperationTypeProvision)
-	if err != nil {
+	var latestProvision *model.DeviceOperation
+	var operationResponseValue *operationResponse
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		writeStoreError(c, err)
 		return
 	}
-
-	message, err := s.store.GetLatestOutboxMessageByOperationID(c.Request.Context(), operation.OperationID)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeStoreError(c, errOperationStateInconsistent)
+	if err == nil {
+		latestProvision = &operation
+		message, err := s.store.GetLatestOutboxMessageByOperationID(c.Request.Context(), operation.OperationID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				writeStoreError(c, errOperationStateInconsistent)
+				return
+			}
+			writeStoreError(c, err)
 			return
 		}
-		writeStoreError(c, err)
-		return
+		value := operationFromResult(operation, message)
+		operationResponseValue = &value
 	}
 
 	deactivationOperation, err := s.store.GetLatestDeviceOperationByType(c.Request.Context(), c.Param("orgId"), c.Param("deviceId"), model.DeviceOperationTypeDeactivate)
@@ -261,8 +267,8 @@ func (s *Server) getProvisioningState(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, provisioningBody{
-		Operation:     operationFromResult(operation, message),
-		Readiness:     readinessFromProjection(device, operation, latestDeactivation),
+		Operation:     operationResponseValue,
+		Readiness:     readinessFromProjection(device, latestProvision, latestDeactivation),
 		VideoMetadata: projectedVideoMetadata(device.Metadata),
 	})
 }
@@ -434,11 +440,13 @@ func projectedVideoMetadata(metadata map[string]any) map[string]any {
 	return projected
 }
 
-func readinessFromProjection(device model.Device, provisioningOperation model.DeviceOperation, latestDeactivation *model.DeviceOperation) readinessResponse {
+func readinessFromProjection(device model.Device, provisioningOperation *model.DeviceOperation, latestDeactivation *model.DeviceOperation) readinessResponse {
 	sources := readinessSourcesResponse{
-		DeviceEnabled:               device.DisabledAt == nil,
-		DeviceStatus:                device.Status,
-		ProvisioningOperationStatus: provisioningOperation.Status,
+		DeviceEnabled: device.DisabledAt == nil,
+		DeviceStatus:  device.Status,
+	}
+	if provisioningOperation != nil {
+		sources.ProvisioningOperationStatus = &provisioningOperation.Status
 	}
 	if activationStatus, ok := metadataString(device.Metadata, model.DeviceMetadataVideoCloudActivationStatus); ok {
 		sources.VideoCloudActivationStatus = &activationStatus
@@ -477,14 +485,16 @@ func readinessStateFromSources(sources readinessSourcesResponse) model.DeviceRea
 		return model.DeviceReadinessStateDisabled
 	}
 
-	if sources.ProvisioningOperationStatus == model.DeviceOperationStatusFailed ||
-		sources.ProvisioningOperationStatus == model.DeviceOperationStatusDeadLettered ||
+	if (sources.ProvisioningOperationStatus != nil &&
+		(*sources.ProvisioningOperationStatus == model.DeviceOperationStatusFailed ||
+			*sources.ProvisioningOperationStatus == model.DeviceOperationStatusDeadLettered)) ||
 		(sources.VideoCloudActivationStatus != nil && *sources.VideoCloudActivationStatus == string(model.VideoCloudActivationStatusFailed)) ||
 		sources.VideoCloudLastError != nil {
 		return model.DeviceReadinessStateActivationFailed
 	}
 
-	if sources.ProvisioningOperationStatus == model.DeviceOperationStatusSucceeded &&
+	if sources.ProvisioningOperationStatus != nil &&
+		*sources.ProvisioningOperationStatus == model.DeviceOperationStatusSucceeded &&
 		sources.VideoCloudActivationStatus != nil &&
 		*sources.VideoCloudActivationStatus == string(model.VideoCloudActivationStatusActivated) {
 		if sources.DeviceStatus == model.DeviceStatusOnline {
@@ -516,20 +526,26 @@ func productReadinessStateFromSources(sources readinessSourcesResponse) model.Pr
 		return model.ProductReadinessStateRegistered
 	}
 
-	if sources.ProvisioningOperationStatus == model.DeviceOperationStatusFailed ||
-		sources.ProvisioningOperationStatus == model.DeviceOperationStatusDeadLettered ||
+	if (sources.ProvisioningOperationStatus != nil &&
+		(*sources.ProvisioningOperationStatus == model.DeviceOperationStatusFailed ||
+			*sources.ProvisioningOperationStatus == model.DeviceOperationStatusDeadLettered)) ||
 		(sources.VideoCloudActivationStatus != nil && *sources.VideoCloudActivationStatus == string(model.VideoCloudActivationStatusFailed)) ||
 		sources.VideoCloudLastError != nil {
 		return model.ProductReadinessStateFailed
 	}
 
-	if sources.ProvisioningOperationStatus == model.DeviceOperationStatusSucceeded &&
+	if sources.ProvisioningOperationStatus != nil &&
+		*sources.ProvisioningOperationStatus == model.DeviceOperationStatusSucceeded &&
 		sources.VideoCloudActivationStatus != nil &&
 		*sources.VideoCloudActivationStatus == string(model.VideoCloudActivationStatusActivated) {
 		if sources.DeviceStatus == model.DeviceStatusOnline {
 			return model.ProductReadinessStateOnline
 		}
 		return model.ProductReadinessStateActivated
+	}
+
+	if sources.ProvisioningOperationStatus == nil {
+		return model.ProductReadinessStateRegistered
 	}
 
 	return model.ProductReadinessStateCloudActivationPending

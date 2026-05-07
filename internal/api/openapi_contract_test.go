@@ -77,6 +77,9 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	tagsRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/tags", nil, registered.Tokens.AccessToken)
 	contract.validate(t, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/tags", tagsRes)
 
+	registryOnlyStateRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/provisioning", nil, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/provisioning", registryOnlyStateRes)
+
 	registeredOrgID := registered.Organization.ID
 	if _, err := store.New(env.db).CreateDeviceClaimToken(context.Background(), store.DeviceClaimTokenCreateInput{
 		OrganizationID:  &registeredOrgID,
