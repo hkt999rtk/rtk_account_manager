@@ -700,6 +700,46 @@ Ownership consequences:
   does not transfer ownership, factory-reset the product, or enqueue product
   teardown.
 
+Claim transfer, reclaim, and factory-reset policy:
+
+- Already-claimed Claim Tokens remain rejected by `POST
+  /v1/orgs/:orgId/devices/claim/resolve`. This applies to both the same
+  organization and a different organization. Same-organization repeat use
+  should direct clients to the existing registry device or provisioning state,
+  not create another device or claim.
+- Cross-organization already-claimed tokens remain rejected. Account manager
+  must not infer transfer intent from possession of a token, QR code, serial
+  number, MAC address, factory identity, or a product factory reset event.
+- Registry soft-delete does not release Claim Token material, clear the
+  `device_claims` record, or make the token reusable. Soft-delete only disables
+  the account registry row.
+- Product-level deactivation does not release Claim Token material by itself.
+  It proves product teardown was requested/completed; it does not authorize a
+  new account owner.
+- Factory reset does not allow automatic reclaim in account manager. Reclaim
+  requires an explicit future account-manager operation with platform policy,
+  operator authorization, and audit evidence.
+- Operator override, transfer, or reclaim must require `platform_admin` unless
+  a later product policy deliberately defines a narrower self-service path.
+- Every future transfer/reclaim/override operation must emit an audit event
+  with actor user id, source organization, target organization when known,
+  claim token id or device id, reason, and before/after ownership facts.
+
+Future endpoint proposal:
+
+| Method | Path | Role | Purpose |
+| --- | --- | --- | --- |
+| `POST` | `/v1/admin/device-claims/:claimId/transfer` | Platform admin | Transfer an already-resolved claim to another organization after product-policy checks. |
+| `POST` | `/v1/admin/device-claim-tokens/:tokenId/reclaim` | Platform admin | Mark a claimed token/device eligible for a controlled reclaim flow after factory-reset or support verification. |
+
+Until those endpoints are implemented, the system must continue to reject:
+
+- Same-organization repeated Claim Token resolve after `claimed_at` is set.
+- Cross-organization Claim Token resolve after `claimed_at` is set.
+- Reclaim based only on registry soft-delete.
+- Reclaim based only on product deactivation.
+- Reclaim based only on factory reset.
+
 Deactivation request body:
 
 ```json
@@ -1040,7 +1080,7 @@ Current verified behavior:
 Remaining post-v2 follow-up items:
 
 - Add a platform-admin Claim Token issuance/import/revoke workflow so tokens do not need to be seeded through store/test paths.
-- Define and implement transfer, reclaim, and factory-reset policy for already-claimed devices.
+- Implement the documented transfer, reclaim, and factory-reset policy for already-claimed devices.
 - Add product-readiness failure attribution fields to failed provisioning and deactivation readiness responses.
 - Retry and dead-letter rows are inspectable in Postgres, and `cmd/lifecycle-admin` exposes list, inspect, and safe requeue workflows for operators.
 - Account registry soft-delete and product-level video deactivation remain separate. Product teardown requires explicit `POST /deactivate`; `DELETE /devices/:deviceId` only disables the account-side registry record.
