@@ -43,9 +43,9 @@ func newStoreIntegrationEnv(t *testing.T) storeIntegrationEnv {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		TRUNCATE device_message_inbox, device_message_outbox, device_operations, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
-		RESTART IDENTITY CASCADE
-	`); err != nil {
+			TRUNCATE device_claims, device_claim_tokens, device_message_inbox, device_message_outbox, device_operations, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
+			RESTART IDENTITY CASCADE
+		`); err != nil {
 		t.Fatal(err)
 	}
 

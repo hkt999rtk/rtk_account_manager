@@ -13,13 +13,17 @@ import (
 )
 
 var (
-	ErrNotFound                = errors.New("not found")
-	ErrLastOwner               = errors.New("last owner cannot be removed or downgraded")
-	ErrDisabled                = errors.New("resource is disabled")
-	ErrConflict                = errors.New("conflict")
-	ErrNotProvisioned          = errors.New("device is not provisioned")
-	ErrRateLimited             = errors.New("rate limited")
-	ErrEvaluationQuotaExceeded = errors.New("evaluation device quota exceeded")
+	ErrNotFound                 = errors.New("not found")
+	ErrLastOwner                = errors.New("last owner cannot be removed or downgraded")
+	ErrDisabled                 = errors.New("resource is disabled")
+	ErrConflict                 = errors.New("conflict")
+	ErrNotProvisioned           = errors.New("device is not provisioned")
+	ErrRateLimited              = errors.New("rate limited")
+	ErrEvaluationQuotaExceeded  = errors.New("evaluation device quota exceeded")
+	ErrClaimExpired             = errors.New("claim token expired")
+	ErrClaimAlreadyClaimed      = errors.New("claim token already claimed")
+	ErrClaimCrossOrganization   = errors.New("claim token belongs to another organization")
+	ErrClaimUnsupportedCategory = errors.New("claim token category is unsupported")
 )
 
 type Store struct {
