@@ -26,12 +26,21 @@ The current account manager now implements:
 - Local `log` broker support plus Azure Event Hubs adapter wiring.
 - Maintained v2 test reporting and a local worker runbook.
 - Lifecycle admin commands for listing, inspecting, and requeueing eligible inbox/outbox rows.
+- Hashed Claim Token persistence and the app-facing `POST /v1/orgs/:orgId/devices/claim/resolve` endpoint.
+- Registry-only readiness responses for existing devices before a provisioning operation exists.
+- Test-report coverage for Claim Token resolve and registry-only readiness correctness.
 
 Verified contract follow-up closure for this milestone snapshot:
 
 - Account-manager Claim Token persistence and `POST /v1/orgs/:orgId/devices/claim/resolve` are implemented.
 - `GET /provisioning` returns registry-only readiness for existing devices before a provisioning operation exists.
 - `make test-report`, `docs/TESTING.md`, and `docs/TEST_REPORT.md` cover Claim Token and registry-only readiness correctness.
+
+Remaining post-v2 contract follow-up gaps for this milestone snapshot:
+
+- Add a platform-admin Claim Token issuance/import/revoke workflow so tokens do not need to be seeded through store/test paths.
+- Define and later implement transfer, reclaim, and factory-reset policy for already-claimed devices.
+- Add product-readiness failure attribution fields for failed provisioning and deactivation states.
 - Keep this repo's contract docs explicit that `DELETE /devices/:deviceId` remains registry-only while product teardown still requires `POST /deactivate`, unless product policy changes later.
 
 ## Milestone And Issue Map
@@ -58,10 +67,10 @@ These issues were follow-ups to the merged account-manager v2 implementation. Th
 
 | Issue | Status | Evidence | Deliverable |
 | --- | --- | --- | --- |
-| `#87 [API/DB] Add Claim Token resolve persistence and policy model` | implemented | `openapi.yaml`, `docs/TEST_REPORT.md` | Hashed Claim Token persistence, claim/bind policy state, registry-device create/match behavior, and provisioning input projection. |
-| `#88 [API] Implement POST /v1/orgs/:orgId/devices/claim/resolve` | implemented | `openapi.yaml`, `docs/SPEC.md` | App-facing Claim Token resolve endpoint defined by `contracts/PROVISION.md` and `contracts/PRODUCT_ONBOARDING.md`. |
-| `#89 [API] Return registry-only readiness from GET /provisioning` | implemented | `docs/TEST_REPORT.md` | Account-side readiness for existing registry devices that have no provisioning operation yet. |
-| `#90 [Testing] Extend report for Claim Token and readiness gaps` | verified | `make test-report`, `docs/TESTING.md`, `docs/TEST_REPORT.md` | Maintained evidence for Claim Token and registry-only readiness correctness. |
+| `#87 [API/DB] Add Claim Token resolve persistence and policy model` | verified | PR #92, `openapi.yaml`, `docs/TEST_REPORT.md` | Hashed Claim Token persistence, claim/bind policy state, registry-device create/match behavior, and provisioning input projection. |
+| `#88 [API] Implement POST /v1/orgs/:orgId/devices/claim/resolve` | verified | PR #93, `openapi.yaml`, `docs/SPEC.md` | App-facing Claim Token resolve endpoint defined by `contracts/PROVISION.md` and `contracts/PRODUCT_ONBOARDING.md`. |
+| `#89 [API] Return registry-only readiness from GET /provisioning` | verified | PR #94, `docs/TEST_REPORT.md` | Account-side readiness for existing registry devices that have no provisioning operation yet. |
+| `#90 [Testing] Extend report for Claim Token and readiness gaps` | verified | PR #95, `make test-report`, `docs/TESTING.md`, `docs/TEST_REPORT.md` | Maintained evidence for Claim Token and registry-only readiness correctness. |
 
 Status values:
 
