@@ -553,6 +553,36 @@ func TestBindStrictRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func FuzzBindStrictRequestShape(f *testing.F) {
+	gin.SetMode(gin.TestMode)
+
+	type strictRequest struct {
+		Name string `json:"name"`
+	}
+
+	f.Add(`{"name":"camera"}`)
+	f.Add(`{"name":"camera","claim_material":{"serial_number":"CAM-001"}}`)
+	f.Add(`{"name":"camera"} {}`)
+	f.Add(`{"name":"   "}`)
+	f.Add(`not json`)
+	f.Add(`{"name":1}`)
+
+	f.Fuzz(func(t *testing.T, body string) {
+		recorder := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(recorder)
+		context.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+
+		var req strictRequest
+		ok := bindStrict(context, &req)
+		if ok && recorder.Code >= http.StatusBadRequest {
+			t.Fatalf("bindStrict accepted request but wrote error status %d: %s", recorder.Code, recorder.Body.String())
+		}
+		if !ok && recorder.Code < http.StatusBadRequest {
+			t.Fatalf("bindStrict rejected request without error status, code=%d body=%s", recorder.Code, recorder.Body.String())
+		}
+	})
+}
+
 func TestRejectUnsupportedClaimMaterial(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -910,6 +910,43 @@ func TestDecodeStrictJSONRejectsMultipleJSONValues(t *testing.T) {
 	}
 }
 
+func FuzzEnvelopeStrictJSONAndValidation(f *testing.F) {
+	valid := validEnvelope(MessageTypeDeviceProvisionRequested, DeviceProvisionRequestedPayload{
+		OrgID:           testOrgID,
+		AccountDeviceID: testDeviceID,
+		VideoCloudDevid: "video-1",
+		ActivityID:      "activity-1",
+		ClipPublicKey:   "clip-key",
+		RequestedBy:     "user-1",
+	})
+	validJSON, err := json.Marshal(valid)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(string(validJSON), StreamAccountVideoCommands)
+	f.Add(`{"message_id":"msg-1","correlation_id":"corr-1","operation_id":"op-1","source_service":"rtk_account_manager","target_service":"realtek_video_server","message_type":"DeviceProvisionRequested","schema_version":"1.0","partition_key":"22222222-2222-2222-2222-222222222222","occurred_at":"2026-04-28T12:00:00Z","payload":{},"unexpected":"value"}`, StreamAccountVideoCommands)
+	f.Add(string(validJSON)+` {}`, StreamAccountVideoCommands)
+	f.Add(strings.ReplaceAll(string(validJSON), "DeviceProvisionRequested", "UnknownMessage"), StreamAccountVideoCommands)
+	f.Add(strings.ReplaceAll(string(validJSON), StreamAccountVideoCommands, StreamVideoAccountEvents), StreamVideoAccountEvents)
+	f.Add(strings.ReplaceAll(string(validJSON), testDeviceID, "33333333-3333-3333-3333-333333333333"), StreamAccountVideoCommands)
+	f.Add(`not json`, StreamAccountVideoCommands)
+
+	f.Fuzz(func(t *testing.T, data string, stream string) {
+		var envelope Envelope
+		err := json.Unmarshal([]byte(data), &envelope)
+		if err != nil {
+			return
+		}
+		payload, err := envelope.ValidateAndDecode(stream)
+		if err != nil {
+			return
+		}
+		if payload.PartitionKey() == "" {
+			t.Fatalf("validated payload has empty partition key: %+v", payload)
+		}
+	})
+}
+
 func validEnvelope(messageType MessageType, payload any) Envelope {
 	raw, err := json.Marshal(payload)
 	if err != nil {

@@ -2,18 +2,26 @@
 
 ## Test Layers
 
-The backend uses three test layers:
+The backend uses these test layers:
 
 | Layer | Command | Purpose |
 | --- | --- | --- |
 | Unit tests | `make test` | Fast package-level checks that do not require Postgres unless `TEST_DATABASE_URL` is set. |
 | Integration tests | `make integration-test` | Runs the API, store, migrations, auth, authorization, and device lifecycle tests against Postgres. |
 | Full report | `make test-report` | Runs formatting, integration-aware tests, coverage, build validation, and writes `docs/TEST_REPORT.md`. |
+| Race tests | `make test-race` | Runs Go's race detector against packages that do not need the shared integration database. |
+| Repeatability smoke | `make test-repeat` | Runs selected unit packages with `-shuffle=on -count=3` to catch order coupling and flakes. |
+| Fuzz smoke | `make fuzz-smoke` | Runs short seeded fuzz checks for strict JSON and contract parser behavior. |
 | Readiness smoke | `make readiness-smoke` | Emits a redacted private-cloud readiness artifact against a running deployment. |
 
 `make integration-test` and `make test-report` expect Postgres to be reachable at `TEST_DATABASE_URL`.
 For the default local setup, start it first with `make db-up`.
 `make test-report` now fails fast with that prerequisite message instead of overwriting `docs/TEST_REPORT.md` with a misleading low-coverage report.
+
+Integration tests share one Postgres database and use an advisory lock through
+`internal/testutil.LockIntegrationDatabase`. Do not make these tests parallel
+unless each test receives an isolated database/schema or the truncation strategy
+is changed first.
 
 ## Coverage Policy
 
@@ -30,6 +38,10 @@ COVERAGE_THRESHOLD=82.0 make test-report
 ```
 
 Coverage scope is `./internal/...` because command entry points under `cmd/*` are validated by `go build ./...`.
+
+The project intentionally keeps the minimum at `80.0%` while adding stronger
+correctness gates. Raising coverage should be a separate baseline change, not a
+side effect of feature work.
 
 ## Required Test Updates
 
@@ -57,6 +69,10 @@ Update tests whenever changing:
 | `reports/gofmt.txt` | Files that need formatting, empty when formatting passes. |
 | `reports/build.txt` | Build output, empty when build passes. |
 | `reports/test-cases.md` | Passing test case list extracted from Go JSON events. |
+| `reports/correctness-gates.md` | Required behavior gates and representative passing tests. |
+| `reports/test-repeat.txt` | `make test-repeat` output when that target runs. |
+| `reports/test-race.txt` | `make test-race` output when that target runs. |
+| `reports/fuzz-smoke-*.txt` | `make fuzz-smoke` output when that target runs. |
 
 `reports/` is ignored by git. Commit `docs/TEST_REPORT.md` when intentionally refreshing the maintained report.
 
@@ -87,7 +103,7 @@ Use `go run ./cmd/readiness-smoke -dry-run` for configuration-only validation.
 
 ## Correctness Versus Coverage
 
-Coverage only proves that statements executed. Correctness comes from assertions that check externally visible behavior and database state. The maintained report includes a correctness validation section that maps tests back to behavior groups from `docs/SPEC.md`.
+Coverage only proves that statements executed. Correctness comes from assertions that check externally visible behavior and database state. The maintained report includes correctness gates and a correctness validation section that map tests back to behavior groups from `docs/SPEC.md`.
 
 When adding a feature, do not rely on line coverage alone. Add assertions for:
 
@@ -97,6 +113,11 @@ When adding a feature, do not rely on line coverage alone. Add assertions for:
 - Token lifecycle behavior.
 - Outbox/inbox idempotency and retry/dead-letter behavior.
 - OpenAPI response compatibility when API payloads change.
+
+`make test-report` fails when a required correctness gate is missing a passing
+representative test. When renaming or replacing a representative test, update
+`scripts/test-report.sh` in the same change so the executable gate and the
+human-readable report stay aligned.
 
 For the current Claim Token and readiness scope, the maintained report must
 name representative tests for Claim Token persistence, Claim Token resolve API
@@ -114,10 +135,12 @@ When implementing the v2 provisioning/event-channel milestone, the maintained re
 | Deactivation API | Creating a deactivation operation writes the correct operation and outbox command. |
 | Authorization | `owner` and `admin` may initiate lifecycle operations; `member` may only read provisioning state. |
 | Device scoping | Cross-organization and missing devices are rejected without leaking resource existence. |
+| Authorization matrix | Owner/admin/member/platform-admin/outsider/disabled-user behavior is checked across device, claim, lifecycle, quota, and audit endpoints. |
 | Disabled devices | Disabled devices cannot be provisioned. |
 | Operation idempotency | Reusing `operation_id` with the same payload returns the existing operation. |
 | Operation conflicts | Reusing `operation_id` with a different payload returns `409 Conflict`. |
 | Message validation | Required envelope fields, supported `schema_version`, message type, stream, and partition key are validated. |
+| Parser fuzz seeds | Strict JSON, envelope, and API bind parser seeds cover malformed JSON, unknown fields, wrong stream/message type, wrong partition key, and multiple JSON values. |
 | Outbox worker | Publish success marks rows `published`; transient failure retries; exhausted failure becomes `dead_lettered`. |
 | Inbox worker | Duplicate `message_id` is ignored safely and does not repeat side effects. |
 | Projection idempotency | Replayed events with the same `operation_id` do not corrupt final state. |
@@ -132,6 +155,7 @@ When implementing the v2 provisioning/event-channel milestone, the maintained re
 | Registry-only readiness | `GET /provisioning` returns account-side readiness with nullable `operation` for enabled and disabled registry-only devices while preserving `404` for missing devices. |
 | Readiness failure attribution | Failed/dead-lettered provisioning and deactivation readiness responses include `readiness.failure` with layer, source state, retryability, error fields, operation id, and occurrence time. |
 | Admin visibility | Platform-admin quota request list/show and audit event list endpoints enforce admin-only access, pagination, and filters. |
+| Database schema invariants | Catalog tests verify critical tables, columns, constraints, indexes, token hashing columns, message dedupe keys, and audit/query filter indexes. |
 | OpenAPI contract validation | Claim resolve, registry-only provisioning-state, provisioned provisioning-state, provisioning, and deactivation responses validate against `openapi.yaml`. |
 | Broker adapters | Local broker tests are deterministic; Azure Event Hubs tests do not run unless explicitly configured. |
 
@@ -139,4 +163,24 @@ The v2 test report must distinguish coverage from correctness by naming represen
 
 ## CI
 
-GitHub Actions runs `make test-report` on pushes to `main` and on pull requests. The workflow starts a Postgres service, runs the report, builds all packages, and uploads the report artifacts.
+GitHub Actions runs `make test-report` and `make test-repeat` on pushes to
+`main` and on pull requests. The workflow starts a Postgres service, runs the
+report, builds all packages, and uploads the report artifacts.
+
+Scheduled/manual CI also runs the heavier `make test-race` and
+`make fuzz-smoke` targets. These are kept out of the normal PR critical path so
+developer feedback stays fast while still giving the project a recurring deeper
+signal.
+
+When CI fails:
+
+- Postgres unreachable: confirm the service health check and `TEST_DATABASE_URL`.
+- Migration or schema failure: inspect the first failing integration test and
+  compare the migration catalog checks with the intended schema.
+- OpenAPI drift: update `openapi.yaml` and the response contract test together.
+- Correctness gate failure: restore the missing representative test or update
+  the gate if the behavior moved to a renamed test.
+- Coverage regression: add meaningful assertions for the changed behavior
+  before considering a threshold override.
+- Race/repeat/fuzz failure: treat it as test isolation or parser correctness
+  evidence; do not paper over it by removing the target.

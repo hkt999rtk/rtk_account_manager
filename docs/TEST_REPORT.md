@@ -1,6 +1,6 @@
 # Test Report
 
-Generated: 2026-05-07T14:45:28Z
+Generated: 2026-05-07T15:52:31Z
 
 ## Summary
 
@@ -11,12 +11,13 @@ Generated: 2026-05-07T14:45:28Z
 | Tests | PASS |
 | Build | PASS |
 | Coverage threshold | PASS |
+| Correctness gates | PASS |
 
 ## Coverage
 
 | Metric | Value |
 | --- | --- |
-| Total statement coverage | 80.5% |
+| Total statement coverage | 80.6% |
 | Minimum required coverage | 80.0% |
 | Coverage mode | atomic |
 | Coverage scope | ./internal/... |
@@ -26,10 +27,41 @@ Generated: 2026-05-07T14:45:28Z
 | Metric | Value |
 | --- | --- |
 | Go packages | 20 |
-| Test cases started | 264 |
-| JSON pass events | 276 |
+| Test cases started | 308 |
+| JSON pass events | 320 |
 | JSON fail events | 0 |
 | Integration database | Postgres via TEST_DATABASE_URL |
+
+## Correctness Gates
+
+`make test-report` fails when any required behavior group below is missing a passing representative test. These gates protect the maintained report from drifting away from the executable suite.
+
+| Behavior group | Required test | Result |
+| --- | --- | --- |
+| Auth and sessions | `TestIntegrationRegisterLoginRefreshAndLogout` | PASS |
+| Disabled users | `TestIntegrationDisabledUserCannotUseExistingTokens` | PASS |
+| Organization access | `TestIntegrationOwnerCanUpdateOrganization` | PASS |
+| Member management | `TestIntegrationLastOwnerCannotBeRemovedOrDowngraded` | PASS |
+| Device lifecycle | `TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness` | PASS |
+| Authorization and tenancy matrix | `TestIntegrationAuthorizationAndTenancyMatrix` | PASS |
+| Provisioning API | `TestIntegrationProvisioningEndpoints` | PASS |
+| Claim Token persistence | `TestResolveDeviceClaimTokenCreatesDeviceAndClaim` | PASS |
+| Claim Token admin workflow | `TestDeviceClaimTokenAdminLifecycle` | PASS |
+| Claim resolve API | `TestIntegrationClaimResolveEndpoint` | PASS |
+| Deactivation API | `TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata` | PASS |
+| Message validation | `TestValidateRejectsEnvelopeContractMismatches` | PASS |
+| Contract parser fuzz seeds | `FuzzEnvelopeStrictJSONAndValidation` | PASS |
+| Strict API bind fuzz seeds | `FuzzBindStrictRequestShape` | PASS |
+| Outbox worker | `TestRunOnceMarksSuccessfulPublishes` | PASS |
+| Inbox worker | `TestRunOnceSkipsPreviouslyProcessedDuplicates` | PASS |
+| Projection idempotency and metadata merge | `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil` | PASS |
+| Account readiness projection | `TestReadinessFromProjectionStates` | PASS |
+| Registry-only readiness | `TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness` | PASS |
+| Admin quota and audit visibility | `TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow` | PASS |
+| Broker adapters | `TestAzureEventHubsPublisherPublishesJSONRecord` | PASS |
+| Database invariants | `TestIntegrationDatabaseSchemaInvariants` | PASS |
+| OpenAPI contract | `TestIntegrationResponsesMatchOpenAPIContract` | PASS |
+| Configuration and maintenance | `TestLoadReadsEnvironmentAndDurations` | PASS |
 
 ## Correctness Validation
 
@@ -42,6 +74,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Organization access | Current-user organization listing, organization create/get/update, cross-organization organization access rejection. |
 | Member management | Owner add/update/remove/disable/enable member flows, admin/member forbidden paths, last-owner downgrade/remove/disable protection. |
 | Device lifecycle | Device create/list/get/update/status update/soft-delete, disabled-device read-only behavior, duplicate serial rejection, same serial in another org allowed. |
+| Authorization and tenancy matrix | `TestIntegrationAuthorizationAndTenancyMatrix` verifies owner/admin/member/platform-admin/outsider/disabled-user behavior across device reads/writes, claim resolve, provisioning, deactivation, quota visibility, audit visibility, and foreign organization access. |
 | Provisioning API | `TestIntegrationProvisioningEndpoints` verifies owner/admin initiation, member read-only access, raw claim-material rejection, transactional `device_operations` plus `device_message_outbox` writes, projected command payload shape, account-side readiness source facts, disabled-device rejection, and idempotent `operation_id` reuse. |
 | Claim Token persistence | `TestResolveDeviceClaimTokenCreatesDeviceAndClaim`, `TestResolveDeviceClaimTokenMatchesExistingDevice`, `TestResolveDeviceClaimTokenRejectsInvalidToken`, `TestResolveDeviceClaimTokenRejectsExpiredToken`, `TestResolveDeviceClaimTokenRejectsAlreadyClaimedToken`, `TestResolveDeviceClaimTokenRejectsCrossOrganizationToken`, and `TestResolveDeviceClaimTokenRejectsUnsupportedCategory` verify account-manager-owned Claim Token storage, raw-token non-persistence, hashed-token lookup, expiry, idempotent ownership matching, category policy, and organization boundaries. |
 | Claim Token admin workflow | `TestDeviceClaimTokenAdminLifecycle` and `TestIntegrationAdminDeviceClaimTokenWorkflow` verify platform-admin token creation/import/list/show/revoke, raw-token non-persistence, generated raw-token one-time return, platform-admin-only access, and revoked-token resolve rejection. |
@@ -53,6 +86,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Operation idempotency | Reusing the same lifecycle `operation_id` returns the existing operation and preserves the original outbox `message_id`, including retries after device disablement or missing live metadata. |
 | Operation conflicts | Reusing a lifecycle `operation_id` with conflicting provision activity data or deactivation reason returns `409 Conflict`. |
 | Message validation | Envelope fields, supported `schema_version`, message-type/stream/service pairing, lifecycle UUIDs, UTC timestamps, and `partition_key` validation for cross-service messages. |
+| Contract parser fuzz seeds | `FuzzEnvelopeStrictJSONAndValidation` and `FuzzBindStrictRequestShape` run seeded malformed JSON, unknown-field, wrong stream/message type, wrong partition key, and strict bind request-shape cases during normal `go test`. |
 | Outbox worker | `TestRunOnceMarksSuccessfulPublishes`, `TestRunOnceSchedulesTransientRetry`, `TestRunOnceDeadLettersExhaustedPublishFailures`, `TestRunOnceIgnoresStaleLeaseTransitionConflict`, and `TestRunOnceIgnoresConflictWhenRetryLosesToPublished` verify publish success, retry, dead-letter, and stale-lease conflict handling when another worker already won the publish race. |
 | Outbox publish race recovery | `TestRecordOutboxPublishTransitionRejectsStaleLease`, `TestRecordOutboxPublishTransitionLetsPublishedOutcomeOverrideLaterFailure`, and `TestRecordOutboxPublishTransitionPreservesInboxCompletedOperation` verify stale workers cannot roll back a published outbox row or overwrite an inbox-completed device operation. |
 | Inbox worker | `TestRunOnceSkipsPreviouslyProcessedDuplicates`, `TestRunOnceDeadLettersInvalidMessages`, and `TestRunOnceRetriesTransientProjectionFailures` verify message-id dedupe, dead-lettering, and transient projection retry behavior. |
@@ -65,12 +99,19 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Registry-only readiness | `TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness` verifies enabled and disabled registry-only devices return `200 OK`, `operation: null`, account-side readiness, `product_state=registered`, and preserve `404 Not Found` for truly missing devices. |
 | Admin quota and audit visibility | `TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow`, `TestIntegrationResponsesMatchOpenAPIContract`, and `TestListAuditEventsReturnsRecordedLifecycleEvents` verify platform-admin-only quota request list/show, audit event filters, pagination metadata, and existing approve/decline behavior. |
 | Broker adapters | `TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds`, `TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds`, `TestLogPublisherWritesEnvelopeJSON`, `TestLogConsumerReadsEnvelopeJSON`, `TestAzureEventHubsPublisherPublishesJSONRecord`, `TestAzureEventHubsConsumerReadsAcrossPartitions`, `TestAzureEventHubsConsumerAcknowledgesAndResumesFromCheckpoint`, and `TestOpenAzurePartitionsUsesStoredCheckpointWhenPresent` cover the deterministic local default adapter plus Azure Event Hubs publish/consume and durable checkpoint resume behavior without requiring live Azure. |
-| Database invariants | Idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, automatic `updated_at` triggers. |
+| Database invariants | `TestIntegrationDatabaseSchemaInvariants` plus existing migration tests verify idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, critical tables/columns/constraints/indexes, and automatic `updated_at` triggers. |
 | OpenAPI contract | `TestIntegrationResponsesMatchOpenAPIContract` plus OpenAPI schema validation cover representative Claim Token resolve/admin, registry-only provisioning-state with nullable `operation`, provisioned/failed provisioning-state, provisioning, deactivation, quota visibility, and audit visibility responses against `openapi.yaml`. |
 | Configuration and maintenance | `.env` loading, TTL parsing/fallbacks, worker-specific broker config defaults, required JWT secrets, and refresh-token cleanup behavior. |
 
 ## Executed Test Cases
 
+- `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#0`
+- `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#1`
+- `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#2`
+- `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#3`
+- `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#4`
+- `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#5`
+- `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape`
 - `rtk_account_manager/internal/api`: `TestAllowSignupEnforcesCaptchaDisposableAndRateLimit`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsBlankTokens/reset_password_blank_token`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsBlankTokens/verify_email_blank_token`
@@ -85,6 +126,34 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestHealthRoute`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminDeviceClaimTokenWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminMetricsReportsEmptySnapshot`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/admin_can_create_device`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/admin_can_list_devices`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/admin_can_resolve_claim`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/admin_can_start_provision`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/disabled_user_cannot_list_own_devices`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/member_can_list_devices`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/member_cannot_create_device`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/member_cannot_list_quota_requests_as_platform_admin`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/member_cannot_resolve_claim`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/member_cannot_start_deactivation`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/member_cannot_start_provision`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/outsider_cannot_create_device_in_foreign_org`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/outsider_cannot_list_org_devices`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/outsider_cannot_resolve_claim_in_foreign_org`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/outsider_cannot_start_deactivation_in_foreign_org`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/outsider_cannot_start_provision_in_foreign_org`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/owner_can_create_device`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/owner_can_list_devices`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/owner_can_resolve_claim`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/owner_can_start_deactivation`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/owner_can_start_provision`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/owner_cannot_list_audit_events`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/owner_cannot_list_claim_tokens_as_platform_admin`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/platform_admin_can_list_audit_events`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/platform_admin_can_list_claim_tokens`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/platform_admin_can_list_quota_requests`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/platform_admin_can_show_quota_request`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix`
 - `rtk_account_manager/internal/api`: `TestIntegrationClaimResolveEndpoint`
 - `rtk_account_manager/internal/api`: `TestIntegrationCleanupRefreshTokensRemovesExpiredAndRevokedRows`
 - `rtk_account_manager/internal/api`: `TestIntegrationCurrentUserCanChangePassword`
@@ -179,6 +248,14 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/broker`: `TestOpenAzurePartitionsUsesStoredCheckpointWhenPresent`
 - `rtk_account_manager/internal/broker`: `TestTransientHelpersExposeWrappedError`
 - `rtk_account_manager/internal/broker`: `TestTransientMarker`
+- `rtk_account_manager/internal/channel`: `FuzzEnvelopeStrictJSONAndValidation/seed#0`
+- `rtk_account_manager/internal/channel`: `FuzzEnvelopeStrictJSONAndValidation/seed#1`
+- `rtk_account_manager/internal/channel`: `FuzzEnvelopeStrictJSONAndValidation/seed#2`
+- `rtk_account_manager/internal/channel`: `FuzzEnvelopeStrictJSONAndValidation/seed#3`
+- `rtk_account_manager/internal/channel`: `FuzzEnvelopeStrictJSONAndValidation/seed#4`
+- `rtk_account_manager/internal/channel`: `FuzzEnvelopeStrictJSONAndValidation/seed#5`
+- `rtk_account_manager/internal/channel`: `FuzzEnvelopeStrictJSONAndValidation/seed#6`
+- `rtk_account_manager/internal/channel`: `FuzzEnvelopeStrictJSONAndValidation`
 - `rtk_account_manager/internal/channel`: `TestDecodeStrictJSONRejectsMultipleJSONValues`
 - `rtk_account_manager/internal/channel`: `TestEnvelopeUnmarshalRejectsUnknownFields`
 - `rtk_account_manager/internal/channel`: `TestValidateAcceptsExplicitFalseRetryable/deactivate_failed`
@@ -274,6 +351,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
 - `rtk_account_manager/internal/store`: `TestEvaluationQuotaUsageUtilizationHandlesZeroAndNonZeroQuotas`
 - `rtk_account_manager/internal/store`: `TestGetOutboxMessageDetailIncludesOperation`
+- `rtk_account_manager/internal/store`: `TestIntegrationDatabaseSchemaInvariants`
 - `rtk_account_manager/internal/store`: `TestJSONHelpers`
 - `rtk_account_manager/internal/store`: `TestListAuditEventsReturnsRecordedLifecycleEvents`
 - `rtk_account_manager/internal/store`: `TestListInboxMessagesByStatusAndShowDetail`
@@ -357,6 +435,7 @@ go build ./...
 | reports/gofmt.txt | Files requiring gofmt, empty when formatting passes. |
 | reports/build.txt | Build output, empty when build passes. |
 | reports/test-cases.md | Markdown list of passing test cases captured from Go JSON events. |
+| reports/correctness-gates.md | Required correctness behavior gates and pass/fail status. |
 
 ## Coverage Gaps To Watch
 

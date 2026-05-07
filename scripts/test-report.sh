@@ -47,6 +47,7 @@ format_status=0
 test_status=0
 build_status=0
 coverage_status=0
+correctness_status=0
 
 require_postgres
 
@@ -78,11 +79,6 @@ if ! awk -v actual="$coverage_number" -v minimum="$COVERAGE_THRESHOLD" 'BEGIN { 
 	coverage_status=1
 fi
 
-overall_status="PASS"
-if [ "$format_status" -ne 0 ] || [ "$test_status" -ne 0 ] || [ "$build_status" -ne 0 ] || [ "$coverage_status" -ne 0 ]; then
-	overall_status="FAIL"
-fi
-
 package_count="$(go list ./... | wc -l | tr -d ' ')"
 test_count="$(grep -c '"Action":"run"' "$TEST_EVENTS" 2>/dev/null || true)"
 pass_count="$(grep -c '"Action":"pass"' "$TEST_EVENTS" 2>/dev/null || true)"
@@ -91,6 +87,55 @@ fail_count="$(grep -c '"Action":"fail"' "$TEST_EVENTS" 2>/dev/null || true)"
 grep '"Action":"pass".*"Test":' "$TEST_EVENTS" 2>/dev/null \
 	| sed -E 's/.*"Package":"([^"]+)","Test":"([^"]+)".*/- `\1`: `\2`/' \
 	| sort -u >"$TEST_CASES_MD" || true
+
+CORRECTNESS_GATES="$REPORT_DIR/correctness-gates.md"
+cat >"$CORRECTNESS_GATES" <<'EOF'
+| Behavior group | Required test | Result |
+| --- | --- | --- |
+EOF
+
+require_passed_test() {
+	local group test_name
+	group="$1"
+	test_name="$2"
+
+	if grep -Eq '"Action":"pass".*"Test":"'"$test_name"'("|/)' "$TEST_EVENTS" 2>/dev/null; then
+		printf '| %s | `%s` | PASS |\n' "$group" "$test_name" >>"$CORRECTNESS_GATES"
+	else
+		printf '| %s | `%s` | FAIL |\n' "$group" "$test_name" >>"$CORRECTNESS_GATES"
+		correctness_status=1
+	fi
+}
+
+require_passed_test "Auth and sessions" "TestIntegrationRegisterLoginRefreshAndLogout"
+require_passed_test "Disabled users" "TestIntegrationDisabledUserCannotUseExistingTokens"
+require_passed_test "Organization access" "TestIntegrationOwnerCanUpdateOrganization"
+require_passed_test "Member management" "TestIntegrationLastOwnerCannotBeRemovedOrDowngraded"
+require_passed_test "Device lifecycle" "TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness"
+require_passed_test "Authorization and tenancy matrix" "TestIntegrationAuthorizationAndTenancyMatrix"
+require_passed_test "Provisioning API" "TestIntegrationProvisioningEndpoints"
+require_passed_test "Claim Token persistence" "TestResolveDeviceClaimTokenCreatesDeviceAndClaim"
+require_passed_test "Claim Token admin workflow" "TestDeviceClaimTokenAdminLifecycle"
+require_passed_test "Claim resolve API" "TestIntegrationClaimResolveEndpoint"
+require_passed_test "Deactivation API" "TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata"
+require_passed_test "Message validation" "TestValidateRejectsEnvelopeContractMismatches"
+require_passed_test "Contract parser fuzz seeds" "FuzzEnvelopeStrictJSONAndValidation"
+require_passed_test "Strict API bind fuzz seeds" "FuzzBindStrictRequestShape"
+require_passed_test "Outbox worker" "TestRunOnceMarksSuccessfulPublishes"
+require_passed_test "Inbox worker" "TestRunOnceSkipsPreviouslyProcessedDuplicates"
+require_passed_test "Projection idempotency and metadata merge" "TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil"
+require_passed_test "Account readiness projection" "TestReadinessFromProjectionStates"
+require_passed_test "Registry-only readiness" "TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness"
+require_passed_test "Admin quota and audit visibility" "TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow"
+require_passed_test "Broker adapters" "TestAzureEventHubsPublisherPublishesJSONRecord"
+require_passed_test "Database invariants" "TestIntegrationDatabaseSchemaInvariants"
+require_passed_test "OpenAPI contract" "TestIntegrationResponsesMatchOpenAPIContract"
+require_passed_test "Configuration and maintenance" "TestLoadReadsEnvironmentAndDurations"
+
+overall_status="PASS"
+if [ "$format_status" -ne 0 ] || [ "$test_status" -ne 0 ] || [ "$build_status" -ne 0 ] || [ "$coverage_status" -ne 0 ] || [ "$correctness_status" -ne 0 ]; then
+	overall_status="FAIL"
+fi
 
 cat >"$REPORT_FILE" <<EOF
 # Test Report
@@ -106,6 +151,7 @@ Generated: $started_at
 | Tests | $(if [ "$test_status" -eq 0 ]; then echo PASS; else echo FAIL; fi) |
 | Build | $(if [ "$build_status" -eq 0 ]; then echo PASS; else echo FAIL; fi) |
 | Coverage threshold | $(if [ "$coverage_status" -eq 0 ]; then echo PASS; else echo FAIL; fi) |
+| Correctness gates | $(if [ "$correctness_status" -eq 0 ]; then echo PASS; else echo FAIL; fi) |
 
 ## Coverage
 
@@ -126,6 +172,12 @@ Generated: $started_at
 | JSON fail events | $fail_count |
 | Integration database | Postgres via TEST_DATABASE_URL |
 
+## Correctness Gates
+
+\`make test-report\` fails when any required behavior group below is missing a passing representative test. These gates protect the maintained report from drifting away from the executable suite.
+
+$(cat "$CORRECTNESS_GATES")
+
 ## Correctness Validation
 
 Coverage is only a signal that code executed. Correctness is validated by assertions in the automated tests. This report confirms the following behavior groups were exercised:
@@ -137,6 +189,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Organization access | Current-user organization listing, organization create/get/update, cross-organization organization access rejection. |
 | Member management | Owner add/update/remove/disable/enable member flows, admin/member forbidden paths, last-owner downgrade/remove/disable protection. |
 | Device lifecycle | Device create/list/get/update/status update/soft-delete, disabled-device read-only behavior, duplicate serial rejection, same serial in another org allowed. |
+| Authorization and tenancy matrix | \`TestIntegrationAuthorizationAndTenancyMatrix\` verifies owner/admin/member/platform-admin/outsider/disabled-user behavior across device reads/writes, claim resolve, provisioning, deactivation, quota visibility, audit visibility, and foreign organization access. |
 | Provisioning API | \`TestIntegrationProvisioningEndpoints\` verifies owner/admin initiation, member read-only access, raw claim-material rejection, transactional \`device_operations\` plus \`device_message_outbox\` writes, projected command payload shape, account-side readiness source facts, disabled-device rejection, and idempotent \`operation_id\` reuse. |
 | Claim Token persistence | \`TestResolveDeviceClaimTokenCreatesDeviceAndClaim\`, \`TestResolveDeviceClaimTokenMatchesExistingDevice\`, \`TestResolveDeviceClaimTokenRejectsInvalidToken\`, \`TestResolveDeviceClaimTokenRejectsExpiredToken\`, \`TestResolveDeviceClaimTokenRejectsAlreadyClaimedToken\`, \`TestResolveDeviceClaimTokenRejectsCrossOrganizationToken\`, and \`TestResolveDeviceClaimTokenRejectsUnsupportedCategory\` verify account-manager-owned Claim Token storage, raw-token non-persistence, hashed-token lookup, expiry, idempotent ownership matching, category policy, and organization boundaries. |
 | Claim Token admin workflow | \`TestDeviceClaimTokenAdminLifecycle\` and \`TestIntegrationAdminDeviceClaimTokenWorkflow\` verify platform-admin token creation/import/list/show/revoke, raw-token non-persistence, generated raw-token one-time return, platform-admin-only access, and revoked-token resolve rejection. |
@@ -148,6 +201,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Operation idempotency | Reusing the same lifecycle \`operation_id\` returns the existing operation and preserves the original outbox \`message_id\`, including retries after device disablement or missing live metadata. |
 | Operation conflicts | Reusing a lifecycle \`operation_id\` with conflicting provision activity data or deactivation reason returns \`409 Conflict\`. |
 | Message validation | Envelope fields, supported \`schema_version\`, message-type/stream/service pairing, lifecycle UUIDs, UTC timestamps, and \`partition_key\` validation for cross-service messages. |
+| Contract parser fuzz seeds | \`FuzzEnvelopeStrictJSONAndValidation\` and \`FuzzBindStrictRequestShape\` run seeded malformed JSON, unknown-field, wrong stream/message type, wrong partition key, and strict bind request-shape cases during normal \`go test\`. |
 | Outbox worker | \`TestRunOnceMarksSuccessfulPublishes\`, \`TestRunOnceSchedulesTransientRetry\`, \`TestRunOnceDeadLettersExhaustedPublishFailures\`, \`TestRunOnceIgnoresStaleLeaseTransitionConflict\`, and \`TestRunOnceIgnoresConflictWhenRetryLosesToPublished\` verify publish success, retry, dead-letter, and stale-lease conflict handling when another worker already won the publish race. |
 | Outbox publish race recovery | \`TestRecordOutboxPublishTransitionRejectsStaleLease\`, \`TestRecordOutboxPublishTransitionLetsPublishedOutcomeOverrideLaterFailure\`, and \`TestRecordOutboxPublishTransitionPreservesInboxCompletedOperation\` verify stale workers cannot roll back a published outbox row or overwrite an inbox-completed device operation. |
 | Inbox worker | \`TestRunOnceSkipsPreviouslyProcessedDuplicates\`, \`TestRunOnceDeadLettersInvalidMessages\`, and \`TestRunOnceRetriesTransientProjectionFailures\` verify message-id dedupe, dead-lettering, and transient projection retry behavior. |
@@ -160,7 +214,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Registry-only readiness | \`TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness\` verifies enabled and disabled registry-only devices return \`200 OK\`, \`operation: null\`, account-side readiness, \`product_state=registered\`, and preserve \`404 Not Found\` for truly missing devices. |
 | Admin quota and audit visibility | \`TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow\`, \`TestIntegrationResponsesMatchOpenAPIContract\`, and \`TestListAuditEventsReturnsRecordedLifecycleEvents\` verify platform-admin-only quota request list/show, audit event filters, pagination metadata, and existing approve/decline behavior. |
 | Broker adapters | \`TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds\`, \`TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds\`, \`TestLogPublisherWritesEnvelopeJSON\`, \`TestLogConsumerReadsEnvelopeJSON\`, \`TestAzureEventHubsPublisherPublishesJSONRecord\`, \`TestAzureEventHubsConsumerReadsAcrossPartitions\`, \`TestAzureEventHubsConsumerAcknowledgesAndResumesFromCheckpoint\`, and \`TestOpenAzurePartitionsUsesStoredCheckpointWhenPresent\` cover the deterministic local default adapter plus Azure Event Hubs publish/consume and durable checkpoint resume behavior without requiring live Azure. |
-| Database invariants | Idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, automatic \`updated_at\` triggers. |
+| Database invariants | \`TestIntegrationDatabaseSchemaInvariants\` plus existing migration tests verify idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, critical tables/columns/constraints/indexes, and automatic \`updated_at\` triggers. |
 | OpenAPI contract | \`TestIntegrationResponsesMatchOpenAPIContract\` plus OpenAPI schema validation cover representative Claim Token resolve/admin, registry-only provisioning-state with nullable \`operation\`, provisioned/failed provisioning-state, provisioning, deactivation, quota visibility, and audit visibility responses against \`openapi.yaml\`. |
 | Configuration and maintenance | \`.env\` loading, TTL parsing/fallbacks, worker-specific broker config defaults, required JWT secrets, and refresh-token cleanup behavior. |
 
@@ -189,6 +243,7 @@ go build ./...
 | $FORMAT_OUT | Files requiring gofmt, empty when formatting passes. |
 | $BUILD_OUT | Build output, empty when build passes. |
 | $TEST_CASES_MD | Markdown list of passing test cases captured from Go JSON events. |
+| $CORRECTNESS_GATES | Required correctness behavior gates and pass/fail status. |
 
 ## Coverage Gaps To Watch
 
