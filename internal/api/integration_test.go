@@ -1910,7 +1910,7 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 		t.Fatalf("expected member provisioning state 200, got %d: %s", memberStateRes.Code, memberStateRes.Body.String())
 	}
 	memberState := decodeBody[provisioningBody](t, memberStateRes)
-	if memberState.Operation.OperationID != "provision-op-1" {
+	if memberState.Operation == nil || memberState.Operation.OperationID != "provision-op-1" {
 		t.Fatalf("unexpected provisioning state operation: %+v", memberState.Operation)
 	}
 	if got := memberState.VideoMetadata[model.DeviceMetadataVideoCloudDevid]; got != "video-device-1" {
@@ -1932,7 +1932,8 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 		t.Fatalf("expected pending product readiness state, got %+v", memberState.Readiness)
 	}
 	if memberState.Readiness.Sources.DeviceStatus != model.DeviceStatusUnknown ||
-		memberState.Readiness.Sources.ProvisioningOperationStatus != model.DeviceOperationStatusPending ||
+		memberState.Readiness.Sources.ProvisioningOperationStatus == nil ||
+		*memberState.Readiness.Sources.ProvisioningOperationStatus != model.DeviceOperationStatusPending ||
 		memberState.Readiness.Sources.VideoCloudActivationStatus == nil ||
 		*memberState.Readiness.Sources.VideoCloudActivationStatus != string(model.VideoCloudActivationStatusPending) {
 		t.Fatalf("expected readiness sources to identify pending lifecycle facts, got %+v", memberState.Readiness.Sources)
@@ -2002,6 +2003,74 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 	}, admin.Tokens.AccessToken)
 	if adminProvisionRes.Code != http.StatusCreated {
 		t.Fatalf("expected admin provision 201, got %d: %s", adminProvisionRes.Code, adminProvisionRes.Body.String())
+	}
+}
+
+func TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	owner := registerUser(t, env.router, "registry-owner@example.com", "Registry Owner Org")
+	member := registerUser(t, env.router, "registry-member@example.com", "Registry Member Org")
+
+	addMemberRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
+		"email": "registry-member@example.com",
+		"role":  "member",
+	}, owner.Tokens.AccessToken)
+	if addMemberRes.Code != http.StatusCreated {
+		t.Fatalf("expected add member 201, got %d: %s", addMemberRes.Code, addMemberRes.Body.String())
+	}
+
+	deviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("registry-only-device", "REGISTRY-001"), owner.Tokens.AccessToken)
+	if deviceRes.Code != http.StatusCreated {
+		t.Fatalf("expected create device 201, got %d: %s", deviceRes.Code, deviceRes.Body.String())
+	}
+	device := decodeBody[deviceBody](t, deviceRes)
+
+	stateRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provisioning", nil, member.Tokens.AccessToken)
+	if stateRes.Code != http.StatusOK {
+		t.Fatalf("expected registry-only provisioning state 200, got %d: %s", stateRes.Code, stateRes.Body.String())
+	}
+	state := decodeBody[registryOnlyProvisioningBody](t, stateRes)
+	if state.Operation != nil {
+		t.Fatalf("expected registry-only operation to be nil, got %+v", state.Operation)
+	}
+	if state.Readiness.State != model.DeviceReadinessStateActivationPending {
+		t.Fatalf("expected registry-only readiness activation_pending, got %+v", state.Readiness)
+	}
+	if state.Readiness.ProductState != model.ProductReadinessStateRegistered {
+		t.Fatalf("expected registry-only product state registered, got %+v", state.Readiness)
+	}
+	if state.Readiness.Sources.ProvisioningOperationStatus != nil {
+		t.Fatalf("expected registry-only provisioning operation source to be nil, got %+v", state.Readiness.Sources)
+	}
+
+	disabledDeviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("disabled-registry-device", "REGISTRY-002"), owner.Tokens.AccessToken)
+	if disabledDeviceRes.Code != http.StatusCreated {
+		t.Fatalf("expected create disabled fixture 201, got %d: %s", disabledDeviceRes.Code, disabledDeviceRes.Body.String())
+	}
+	disabledDevice := decodeBody[deviceBody](t, disabledDeviceRes)
+	deleteDisabledRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/devices/"+disabledDevice.Device.ID, nil, owner.Tokens.AccessToken)
+	if deleteDisabledRes.Code != http.StatusNoContent {
+		t.Fatalf("expected disable registry fixture 204, got %d: %s", deleteDisabledRes.Code, deleteDisabledRes.Body.String())
+	}
+	disabledStateRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/"+disabledDevice.Device.ID+"/provisioning", nil, owner.Tokens.AccessToken)
+	if disabledStateRes.Code != http.StatusOK {
+		t.Fatalf("expected disabled registry-only provisioning state 200, got %d: %s", disabledStateRes.Code, disabledStateRes.Body.String())
+	}
+	disabledState := decodeBody[registryOnlyProvisioningBody](t, disabledStateRes)
+	if disabledState.Operation != nil {
+		t.Fatalf("expected disabled registry-only operation to be nil, got %+v", disabledState.Operation)
+	}
+	if disabledState.Readiness.State != model.DeviceReadinessStateDisabled {
+		t.Fatalf("expected disabled registry-only readiness disabled, got %+v", disabledState.Readiness)
+	}
+	if disabledState.Readiness.ProductState != model.ProductReadinessStateRegistered {
+		t.Fatalf("expected disabled registry-only product state registered, got %+v", disabledState.Readiness)
+	}
+
+	missingStateRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/00000000-0000-0000-0000-000000000000/provisioning", nil, owner.Tokens.AccessToken)
+	if missingStateRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing device provisioning state 404, got %d: %s", missingStateRes.Code, missingStateRes.Body.String())
 	}
 }
 
@@ -2388,6 +2457,17 @@ type claimResolveBody struct {
 		ActivityID      string `json:"activity_id"`
 		ClipPublicKey   string `json:"clip_public_key"`
 	} `json:"provision_input"`
+}
+
+type registryOnlyProvisioningBody struct {
+	Operation *operationResponse `json:"operation"`
+	Readiness struct {
+		State        model.DeviceReadinessState  `json:"state"`
+		ProductState model.ProductReadinessState `json:"product_state"`
+		Sources      struct {
+			ProvisioningOperationStatus *model.DeviceOperationStatus `json:"provisioning_operation_status"`
+		} `json:"sources"`
+	} `json:"readiness"`
 }
 
 type devicesBody struct {

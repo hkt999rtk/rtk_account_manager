@@ -732,10 +732,11 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 				}
 			}
 
-			got := readinessFromProjection(tt.device, model.DeviceOperation{
+			provisioningOperation := model.DeviceOperation{
 				OperationType: model.DeviceOperationTypeProvision,
 				Status:        tt.provisioningStatus,
-			}, latestDeactivation)
+			}
+			got := readinessFromProjection(tt.device, &provisioningOperation, latestDeactivation)
 
 			if got.State != tt.want {
 				t.Fatalf("expected readiness %s, got %+v", tt.want, got)
@@ -743,7 +744,9 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 			if got.ProductState != tt.wantProduct {
 				t.Fatalf("expected product readiness %s, got %+v", tt.wantProduct, got)
 			}
-			if got.Sources.DeviceStatus != tt.device.Status || got.Sources.ProvisioningOperationStatus != tt.provisioningStatus {
+			if got.Sources.DeviceStatus != tt.device.Status ||
+				got.Sources.ProvisioningOperationStatus == nil ||
+				*got.Sources.ProvisioningOperationStatus != tt.provisioningStatus {
 				t.Fatalf("expected source facts to reflect device and operation, got %+v", got.Sources)
 			}
 			if tt.deactivationStatus != nil && (got.Sources.DeactivationOperationStatus == nil || *got.Sources.DeactivationOperationStatus != *tt.deactivationStatus) {
