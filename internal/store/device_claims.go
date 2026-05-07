@@ -14,14 +14,21 @@ import (
 
 type DeviceClaimTokenCreateInput struct {
 	OrganizationID  *string
+	CreatedBy       *string
 	TokenHash       string
 	Category        model.DeviceCategory
 	VideoCloudDevid string
 	ActivityID      string
 	ClipPublicKey   string
 	Metadata        map[string]any
+	Notes           *string
 	ExpiresAt       time.Time
 	Now             time.Time
+}
+
+type DeviceClaimTokenListFilter struct {
+	Limit  int
+	Offset int
 }
 
 type DeviceClaimResolveInput struct {
@@ -56,23 +63,83 @@ func (s *Store) CreateDeviceClaimToken(ctx context.Context, in DeviceClaimTokenC
 	token, err := scanDeviceClaimToken(s.db.QueryRow(ctx, `
 		INSERT INTO device_claim_tokens (
 			organization_id,
+			created_by,
 			token_hash,
 			category,
 			video_cloud_devid,
 			activity_id,
 			clip_public_key,
 			metadata,
+			notes,
 			expires_at,
 			created_at,
 			updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
-		RETURNING id::text, organization_id::text, category, video_cloud_devid, activity_id, clip_public_key, metadata, expires_at, claimed_at, created_at, updated_at
-	`, in.OrganizationID, in.TokenHash, in.Category, in.VideoCloudDevid, in.ActivityID, in.ClipPublicKey, metadata, in.ExpiresAt, now))
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+		RETURNING id::text, organization_id::text, created_by::text, category, video_cloud_devid, activity_id, clip_public_key, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
+	`, in.OrganizationID, in.CreatedBy, in.TokenHash, in.Category, in.VideoCloudDevid, in.ActivityID, in.ClipPublicKey, metadata, in.Notes, in.ExpiresAt, now))
 	if err != nil {
 		return model.DeviceClaimToken{}, err
 	}
 	return token, nil
+}
+
+func (s *Store) ListDeviceClaimTokens(ctx context.Context, in DeviceClaimTokenListFilter) (DeviceClaimTokenPage, error) {
+	var total int
+	if err := s.db.QueryRow(ctx, `SELECT count(*)::int FROM device_claim_tokens`).Scan(&total); err != nil {
+		return DeviceClaimTokenPage{}, err
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT id::text, organization_id::text, created_by::text, category, video_cloud_devid, activity_id, clip_public_key, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
+		FROM device_claim_tokens
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2
+	`, in.Limit, in.Offset)
+	if err != nil {
+		return DeviceClaimTokenPage{}, err
+	}
+	defer rows.Close()
+
+	tokens := []model.DeviceClaimToken{}
+	for rows.Next() {
+		token, err := scanDeviceClaimToken(rows)
+		if err != nil {
+			return DeviceClaimTokenPage{}, err
+		}
+		tokens = append(tokens, token)
+	}
+	if err := rows.Err(); err != nil {
+		return DeviceClaimTokenPage{}, err
+	}
+	return DeviceClaimTokenPage{Tokens: tokens, Page: Page{Limit: in.Limit, Offset: in.Offset, Total: total}}, nil
+}
+
+func (s *Store) GetDeviceClaimToken(ctx context.Context, tokenID string) (model.DeviceClaimToken, error) {
+	token, err := scanDeviceClaimToken(s.db.QueryRow(ctx, `
+		SELECT id::text, organization_id::text, created_by::text, category, video_cloud_devid, activity_id, clip_public_key, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
+		FROM device_claim_tokens
+		WHERE id = $1
+	`, tokenID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.DeviceClaimToken{}, ErrNotFound
+	}
+	return token, err
+}
+
+func (s *Store) RevokeDeviceClaimToken(ctx context.Context, tokenID string, now time.Time) (model.DeviceClaimToken, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	token, err := scanDeviceClaimToken(s.db.QueryRow(ctx, `
+		UPDATE device_claim_tokens
+		SET revoked_at = COALESCE(revoked_at, $2), updated_at = $2
+		WHERE id = $1
+		RETURNING id::text, organization_id::text, created_by::text, category, video_cloud_devid, activity_id, clip_public_key, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
+	`, tokenID, now))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.DeviceClaimToken{}, ErrNotFound
+	}
+	return token, err
 }
 
 func (s *Store) ResolveDeviceClaimToken(ctx context.Context, in DeviceClaimResolveInput) (DeviceClaimResolveResult, error) {
@@ -88,7 +155,7 @@ func (s *Store) ResolveDeviceClaimToken(ctx context.Context, in DeviceClaimResol
 	}
 
 	token, err := scanDeviceClaimToken(tx.QueryRow(ctx, `
-		SELECT id::text, organization_id::text, category, video_cloud_devid, activity_id, clip_public_key, metadata, expires_at, claimed_at, created_at, updated_at
+		SELECT id::text, organization_id::text, created_by::text, category, video_cloud_devid, activity_id, clip_public_key, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
 		FROM device_claim_tokens
 		WHERE token_hash = $1
 		FOR UPDATE
@@ -101,6 +168,9 @@ func (s *Store) ResolveDeviceClaimToken(ctx context.Context, in DeviceClaimResol
 	}
 	if token.ClaimedAt != nil {
 		return DeviceClaimResolveResult{}, ErrClaimAlreadyClaimed
+	}
+	if token.RevokedAt != nil {
+		return DeviceClaimResolveResult{}, ErrClaimRevoked
 	}
 	if !token.ExpiresAt.After(now) {
 		return DeviceClaimResolveResult{}, ErrClaimExpired
@@ -250,13 +320,16 @@ func scanDeviceClaimToken(row rowScanner) (model.DeviceClaimToken, error) {
 	err := row.Scan(
 		&token.ID,
 		&token.OrganizationID,
+		&token.CreatedBy,
 		&token.Category,
 		&token.VideoCloudDevid,
 		&token.ActivityID,
 		&token.ClipPublicKey,
 		&metadata,
+		&token.Notes,
 		&token.ExpiresAt,
 		&token.ClaimedAt,
+		&token.RevokedAt,
 		&token.CreatedAt,
 		&token.UpdatedAt,
 	)

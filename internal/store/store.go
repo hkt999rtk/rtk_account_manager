@@ -22,6 +22,7 @@ var (
 	ErrEvaluationQuotaExceeded  = errors.New("evaluation device quota exceeded")
 	ErrClaimExpired             = errors.New("claim token expired")
 	ErrClaimAlreadyClaimed      = errors.New("claim token already claimed")
+	ErrClaimRevoked             = errors.New("claim token revoked")
 	ErrClaimCrossOrganization   = errors.New("claim token belongs to another organization")
 	ErrClaimUnsupportedCategory = errors.New("claim token category is unsupported")
 )
@@ -63,6 +64,11 @@ type DeviceGroupPage struct {
 type DeviceTagPage struct {
 	Tags []model.DeviceTag
 	Page Page
+}
+
+type DeviceClaimTokenPage struct {
+	Tokens []model.DeviceClaimToken
+	Page   Page
 }
 
 type RegisterInput struct {

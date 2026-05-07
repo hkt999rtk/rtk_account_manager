@@ -40,13 +40,16 @@ type AuditEvent struct {
 type DeviceClaimToken struct {
 	ID              string         `json:"id"`
 	OrganizationID  *string        `json:"organization_id,omitempty"`
+	CreatedBy       *string        `json:"created_by,omitempty"`
 	Category        DeviceCategory `json:"category"`
 	VideoCloudDevid string         `json:"video_cloud_devid"`
 	ActivityID      string         `json:"activity_id"`
 	ClipPublicKey   string         `json:"clip_public_key"`
 	Metadata        map[string]any `json:"metadata"`
+	Notes           *string        `json:"notes,omitempty"`
 	ExpiresAt       time.Time      `json:"expires_at"`
 	ClaimedAt       *time.Time     `json:"claimed_at,omitempty"`
+	RevokedAt       *time.Time     `json:"revoked_at,omitempty"`
 	CreatedAt       time.Time      `json:"created_at"`
 	UpdatedAt       time.Time      `json:"updated_at"`
 }
