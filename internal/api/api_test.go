@@ -713,6 +713,7 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 		deactivationStatus *model.DeviceOperationStatus
 		want               model.DeviceReadinessState
 		wantProduct        model.ProductReadinessState
+		wantFailureLayer   string
 	}{
 		{
 			name: "accepted provisioning waits for activation",
@@ -734,6 +735,7 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 			provisioningStatus: model.DeviceOperationStatusFailed,
 			want:               model.DeviceReadinessStateActivationFailed,
 			wantProduct:        model.ProductReadinessStateFailed,
+			wantFailureLayer:   "cloud_activation",
 		},
 		{
 			name: "activation succeeded but offline waits for transport",
@@ -764,6 +766,17 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 			wantProduct:        model.ProductReadinessStateDeactivationPending,
 		},
 		{
+			name: "deactivation failure is attributed",
+			device: readinessDevice(model.DeviceStatusOffline, map[string]any{
+				model.DeviceMetadataVideoCloudActivationStatus: string(model.VideoCloudActivationStatusActivated),
+			}),
+			provisioningStatus: model.DeviceOperationStatusSucceeded,
+			deactivationStatus: operationStatusPtr(model.DeviceOperationStatusDeadLettered),
+			want:               model.DeviceReadinessStateDeactivationFailed,
+			wantProduct:        model.ProductReadinessStateFailed,
+			wantFailureLayer:   "deactivation",
+		},
+		{
 			name: "deactivation success is deactivated",
 			device: readinessDevice(model.DeviceStatusOffline, map[string]any{
 				model.DeviceMetadataVideoCloudActivationStatus: string(model.VideoCloudActivationStatusDeactivated),
@@ -787,14 +800,22 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 			var latestDeactivation *model.DeviceOperation
 			if tt.deactivationStatus != nil {
 				latestDeactivation = &model.DeviceOperation{
+					OperationID:   "deactivate-op",
 					OperationType: model.DeviceOperationTypeDeactivate,
 					Status:        *tt.deactivationStatus,
+					ErrorCode:     stringPtr("deactivate_failed"),
+					ErrorMessage:  stringPtr("Deactivate failed"),
+					UpdatedAt:     time.Now().UTC(),
 				}
 			}
 
 			provisioningOperation := model.DeviceOperation{
+				OperationID:   "provision-op",
 				OperationType: model.DeviceOperationTypeProvision,
 				Status:        tt.provisioningStatus,
+				ErrorCode:     stringPtr("activation_failed"),
+				ErrorMessage:  stringPtr("Activation failed"),
+				UpdatedAt:     time.Now().UTC(),
 			}
 			got := readinessFromProjection(tt.device, &provisioningOperation, latestDeactivation)
 
@@ -811,6 +832,13 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 			}
 			if tt.deactivationStatus != nil && (got.Sources.DeactivationOperationStatus == nil || *got.Sources.DeactivationOperationStatus != *tt.deactivationStatus) {
 				t.Fatalf("expected deactivation source status %s, got %+v", *tt.deactivationStatus, got.Sources.DeactivationOperationStatus)
+			}
+			if tt.wantFailureLayer == "" {
+				if got.Failure != nil {
+					t.Fatalf("did not expect failure attribution, got %+v", got.Failure)
+				}
+			} else if got.Failure == nil || got.Failure.FailedLayer != tt.wantFailureLayer || got.Failure.OperationID == nil {
+				t.Fatalf("expected %s failure attribution with operation id, got %+v", tt.wantFailureLayer, got.Failure)
 			}
 		})
 	}

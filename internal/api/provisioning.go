@@ -80,6 +80,7 @@ type readinessResponse struct {
 	State        model.DeviceReadinessState  `json:"state"`
 	ProductState model.ProductReadinessState `json:"product_state"`
 	Sources      readinessSourcesResponse    `json:"sources"`
+	Failure      *readinessFailureResponse   `json:"failure,omitempty"`
 }
 
 type readinessSourcesResponse struct {
@@ -89,6 +90,16 @@ type readinessSourcesResponse struct {
 	VideoCloudActivationStatus  *string                      `json:"video_cloud_activation_status,omitempty"`
 	DeactivationOperationStatus *model.DeviceOperationStatus `json:"deactivation_operation_status,omitempty"`
 	VideoCloudLastError         any                          `json:"video_cloud_last_error,omitempty"`
+}
+
+type readinessFailureResponse struct {
+	FailedLayer  string     `json:"failed_layer"`
+	SourceState  string     `json:"source_state"`
+	Retryable    bool       `json:"retryable"`
+	ErrorCode    string     `json:"error_code"`
+	ErrorMessage string     `json:"error_message"`
+	OperationID  *string    `json:"operation_id,omitempty"`
+	OccurredAt   *time.Time `json:"occurred_at,omitempty"`
 }
 
 func (s *Server) provisionDevice(c *gin.Context) {
@@ -462,6 +473,77 @@ func readinessFromProjection(device model.Device, provisioningOperation *model.D
 		State:        readinessStateFromSources(sources),
 		ProductState: productReadinessStateFromSources(sources),
 		Sources:      sources,
+		Failure:      readinessFailureFromProjection(device, provisioningOperation, latestDeactivation),
+	}
+}
+
+func readinessFailureFromProjection(device model.Device, provisioningOperation *model.DeviceOperation, latestDeactivation *model.DeviceOperation) *readinessFailureResponse {
+	if latestDeactivation != nil && operationFailed(latestDeactivation.Status) {
+		return failureFromOperation("deactivation", *latestDeactivation)
+	}
+	if provisioningOperation != nil && operationFailed(provisioningOperation.Status) {
+		return failureFromOperation("cloud_activation", *provisioningOperation)
+	}
+	if lastError, ok := device.Metadata[model.DeviceMetadataVideoCloudLastError]; ok {
+		return failureFromMetadata(lastError, device.UpdatedAt)
+	}
+	return nil
+}
+
+func operationFailed(status model.DeviceOperationStatus) bool {
+	return status == model.DeviceOperationStatusFailed || status == model.DeviceOperationStatusDeadLettered
+}
+
+func failureFromOperation(layer string, operation model.DeviceOperation) *readinessFailureResponse {
+	retryable := false
+	if operation.Retryable != nil {
+		retryable = *operation.Retryable
+	}
+	errorCode := "operation_failed"
+	if operation.Status == model.DeviceOperationStatusDeadLettered {
+		errorCode = "dead_lettered"
+	}
+	if operation.ErrorCode != nil && strings.TrimSpace(*operation.ErrorCode) != "" {
+		errorCode = strings.TrimSpace(*operation.ErrorCode)
+	}
+	errorMessage := "Operation failed"
+	if operation.ErrorMessage != nil && strings.TrimSpace(*operation.ErrorMessage) != "" {
+		errorMessage = strings.TrimSpace(*operation.ErrorMessage)
+	}
+	occurredAt := operation.CompletedAt
+	if occurredAt == nil {
+		occurredAt = &operation.UpdatedAt
+	}
+	return &readinessFailureResponse{
+		FailedLayer:  layer,
+		SourceState:  string(operation.Status),
+		Retryable:    retryable,
+		ErrorCode:    errorCode,
+		ErrorMessage: errorMessage,
+		OperationID:  &operation.OperationID,
+		OccurredAt:   occurredAt,
+	}
+}
+
+func failureFromMetadata(lastError any, updatedAt time.Time) *readinessFailureResponse {
+	errorCode := "video_cloud_last_error"
+	errorMessage := "Projected video cloud error"
+	if values, ok := lastError.(map[string]any); ok {
+		if code, ok := metadataString(values, "code"); ok {
+			errorCode = code
+		}
+		if message, ok := metadataString(values, "message"); ok {
+			errorMessage = message
+		}
+	}
+	occurredAt := updatedAt
+	return &readinessFailureResponse{
+		FailedLayer:  "cloud_activation",
+		SourceState:  "video_cloud_last_error",
+		Retryable:    false,
+		ErrorCode:    errorCode,
+		ErrorMessage: errorMessage,
+		OccurredAt:   &occurredAt,
 	}
 }
 
