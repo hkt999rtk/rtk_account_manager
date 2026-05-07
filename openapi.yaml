@@ -1263,6 +1263,23 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            invalid_claim_token:
+              summary: Non-retryable Claim Token error.
+              value:
+                error:
+                  code: invalid_claim_token
+                  message: Invalid claim token
+                  retryable: false
+                  resolution_action: scan_or_enter_a_valid_claim_token
+            claim_service_unavailable:
+              summary: Retryable Claim Token service error.
+              value:
+                error:
+                  code: service_unavailable
+                  message: Claim resolve is temporarily unavailable
+                  retryable: true
+                  resolution_action: retry_later
   schemas:
     HealthResponse:
       type: object
@@ -2151,3 +2168,9 @@ components:
               type: string
             message:
               type: string
+            retryable:
+              type: boolean
+              description: Optional machine-readable hint for Claim Token resolve failures.
+            resolution_action:
+              type: string
+              description: Optional client action hint for Claim Token resolve failures.
