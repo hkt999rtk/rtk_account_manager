@@ -5,6 +5,9 @@ on:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 18 * * *"
 
 jobs:
   test:
@@ -54,6 +57,9 @@ jobs:
       - name: Run tests and generate report
         run: make test-report
 
+      - name: Run repeatability smoke
+        run: make test-repeat
+
       - name: Build packages
         run: go build ./...
 
@@ -65,3 +71,34 @@ jobs:
           path: |
             docs/TEST_REPORT.md
             reports/
+
+  deep-test:
+    runs-on: [self-hosted, account-manager-ci]
+    timeout-minutes: 20
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run race tests
+        run: make test-race
+
+      - name: Run fuzz smoke
+        run: make fuzz-smoke
+
+      - name: Upload deep test artifacts
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: deep-test-report
+          path: reports/

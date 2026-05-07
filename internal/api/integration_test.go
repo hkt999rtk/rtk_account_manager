@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -2159,27 +2160,14 @@ func TestIntegrationClaimResolveEndpoint(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
 	claims := store.New(env.db)
+	fixtures := newAPIFixtureBuilder(t, env)
 
-	owner := registerUser(t, env.router, "claim-owner@example.com", "Claim Owner Org")
-	admin := registerUser(t, env.router, "claim-admin@example.com", "Claim Admin Org")
-	member := registerUser(t, env.router, "claim-member@example.com", "Claim Member Org")
-	otherOwner := registerUser(t, env.router, "claim-other@example.com", "Claim Other Org")
-
-	for _, membership := range []struct {
-		email string
-		role  string
-	}{
-		{email: "claim-admin@example.com", role: "admin"},
-		{email: "claim-member@example.com", role: "member"},
-	} {
-		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
-			"email": membership.email,
-			"role":  membership.role,
-		}, owner.Tokens.AccessToken)
-		if res.Code != http.StatusCreated {
-			t.Fatalf("expected add member %s 201, got %d: %s", membership.email, res.Code, res.Body.String())
-		}
-	}
+	owner := fixtures.register("claim-owner")
+	admin := fixtures.register("claim-admin")
+	member := fixtures.register("claim-member")
+	otherOwner := fixtures.register("claim-other")
+	fixtures.addMember(owner, admin, "admin")
+	fixtures.addMember(owner, member, "member")
 
 	seedClaimToken := func(rawToken, videoDevid string, expiresAt time.Time, orgID *string, category model.DeviceCategory) {
 		t.Helper()
@@ -2298,6 +2286,117 @@ func TestIntegrationClaimResolveEndpoint(t *testing.T) {
 		"device_name": "Quota Camera",
 	}, owner.Tokens.AccessToken)
 	assertErrorDetails(t, quotaClaimRes, http.StatusConflict, "EVALUATION_QUOTA_EXCEEDED", false, "request_quota_raise_or_contact_admin")
+}
+
+func TestIntegrationAuthorizationAndTenancyMatrix(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+	fixtures := newAPIFixtureBuilder(t, env)
+
+	owner := fixtures.register("matrix-owner")
+	admin := fixtures.register("matrix-admin")
+	member := fixtures.register("matrix-member")
+	outsider := fixtures.register("matrix-outsider")
+	platformAdmin := fixtures.register("matrix-platform-admin")
+	disabled := fixtures.register("matrix-disabled")
+	fixtures.addMember(owner, admin, "admin")
+	fixtures.addMember(owner, member, "member")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, platformAdmin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE users SET disabled_at = now() WHERE id = $1`, disabled.User.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	quotaRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/quota-raise-requests", map[string]any{
+		"requested_quota": 8,
+		"use_case":        "matrix",
+		"contact_info":    map[string]any{"email": "matrix@example.com"},
+	}, owner.Tokens.AccessToken)
+	if quotaRes.Code != http.StatusCreated {
+		t.Fatalf("fixture quota raise request failed with %d: %s", quotaRes.Code, quotaRes.Body.String())
+	}
+	quotaBody := decodeBody[quotaRaiseRequestBody](t, quotaRes)
+
+	projectedDevice := fixtures.createDevice(owner, "matrix-projected-device", "MATRIX-PROJECTED-001")
+	if _, err := store.New(env.db).ProjectDevice(ctx, owner.Organization.ID, projectedDevice.Device.ID, store.ProvisionSucceededProjection(channel.DeviceProvisionSucceededPayload{
+		OrgID:           owner.Organization.ID,
+		AccountDeviceID: projectedDevice.Device.ID,
+		VideoCloudDevid: "matrix-video-device",
+		ActivityID:      "matrix-activity",
+		ActivatedAt:     time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC),
+	})); err != nil {
+		t.Fatal(err)
+	}
+
+	type actor struct {
+		name  string
+		token string
+	}
+	actors := map[string]actor{
+		"owner":          {name: "owner", token: owner.Tokens.AccessToken},
+		"admin":          {name: "admin", token: admin.Tokens.AccessToken},
+		"member":         {name: "member", token: member.Tokens.AccessToken},
+		"outsider":       {name: "outsider", token: outsider.Tokens.AccessToken},
+		"platform_admin": {name: "platform_admin", token: platformAdmin.Tokens.AccessToken},
+		"disabled_user":  {name: "disabled_user", token: disabled.Tokens.AccessToken},
+	}
+
+	type matrixCase struct {
+		name       string
+		actor      string
+		method     string
+		path       string
+		body       func(string) any
+		wantStatus int
+	}
+	cases := []matrixCase{
+		{name: "owner can list devices", actor: "owner", method: http.MethodGet, path: "/v1/orgs/" + owner.Organization.ID + "/devices", wantStatus: http.StatusOK},
+		{name: "admin can list devices", actor: "admin", method: http.MethodGet, path: "/v1/orgs/" + owner.Organization.ID + "/devices", wantStatus: http.StatusOK},
+		{name: "member can list devices", actor: "member", method: http.MethodGet, path: "/v1/orgs/" + owner.Organization.ID + "/devices", wantStatus: http.StatusOK},
+		{name: "outsider cannot list org devices", actor: "outsider", method: http.MethodGet, path: "/v1/orgs/" + owner.Organization.ID + "/devices", wantStatus: http.StatusNotFound},
+		{name: "disabled user cannot list own devices", actor: "disabled_user", method: http.MethodGet, path: "/v1/orgs/" + disabled.Organization.ID + "/devices", wantStatus: http.StatusUnauthorized},
+		{name: "owner can create device", actor: "owner", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices", body: func(s string) any { return devicePayload("matrix-owner-device-"+s, "MATRIX-OWNER-"+s) }, wantStatus: http.StatusCreated},
+		{name: "admin can create device", actor: "admin", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices", body: func(s string) any { return devicePayload("matrix-admin-device-"+s, "MATRIX-ADMIN-"+s) }, wantStatus: http.StatusCreated},
+		{name: "member cannot create device", actor: "member", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices", body: func(s string) any { return devicePayload("matrix-member-device-"+s, "MATRIX-MEMBER-"+s) }, wantStatus: http.StatusForbidden},
+		{name: "outsider cannot create device in foreign org", actor: "outsider", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices", body: func(s string) any { return devicePayload("matrix-outsider-device-"+s, "MATRIX-OUTSIDER-"+s) }, wantStatus: http.StatusNotFound},
+		{name: "owner can resolve claim", actor: "owner", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/claim/resolve", body: fixtures.claimResolvePayload(owner.Organization.ID, "owner"), wantStatus: http.StatusCreated},
+		{name: "admin can resolve claim", actor: "admin", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/claim/resolve", body: fixtures.claimResolvePayload(owner.Organization.ID, "admin"), wantStatus: http.StatusCreated},
+		{name: "member cannot resolve claim", actor: "member", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/claim/resolve", body: fixtures.claimResolvePayload(owner.Organization.ID, "member"), wantStatus: http.StatusForbidden},
+		{name: "outsider cannot resolve claim in foreign org", actor: "outsider", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/claim/resolve", body: fixtures.claimResolvePayload(owner.Organization.ID, "outsider"), wantStatus: http.StatusNotFound},
+		{name: "owner can start provision", actor: "owner", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + fixtures.createDevice(owner, "matrix-provision-owner", "MATRIX-PROVISION-OWNER").Device.ID + "/provision", body: lifecycleProvisionPayload("matrix-provision-owner"), wantStatus: http.StatusCreated},
+		{name: "admin can start provision", actor: "admin", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + fixtures.createDevice(owner, "matrix-provision-admin", "MATRIX-PROVISION-ADMIN").Device.ID + "/provision", body: lifecycleProvisionPayload("matrix-provision-admin"), wantStatus: http.StatusCreated},
+		{name: "member cannot start provision", actor: "member", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + fixtures.createDevice(owner, "matrix-provision-member", "MATRIX-PROVISION-MEMBER").Device.ID + "/provision", body: lifecycleProvisionPayload("matrix-provision-member"), wantStatus: http.StatusForbidden},
+		{name: "outsider cannot start provision in foreign org", actor: "outsider", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + fixtures.createDevice(owner, "matrix-provision-outsider", "MATRIX-PROVISION-OUTSIDER").Device.ID + "/provision", body: lifecycleProvisionPayload("matrix-provision-outsider"), wantStatus: http.StatusNotFound},
+		{name: "owner can start deactivation", actor: "owner", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + projectedDevice.Device.ID + "/deactivate", body: lifecycleDeactivatePayload("matrix-deactivate-owner"), wantStatus: http.StatusCreated},
+		{name: "member cannot start deactivation", actor: "member", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + projectedDevice.Device.ID + "/deactivate", body: lifecycleDeactivatePayload("matrix-deactivate-member"), wantStatus: http.StatusForbidden},
+		{name: "outsider cannot start deactivation in foreign org", actor: "outsider", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + projectedDevice.Device.ID + "/deactivate", body: lifecycleDeactivatePayload("matrix-deactivate-outsider"), wantStatus: http.StatusNotFound},
+		{name: "platform admin can list claim tokens", actor: "platform_admin", method: http.MethodGet, path: "/v1/admin/device-claim-tokens", wantStatus: http.StatusOK},
+		{name: "owner cannot list claim tokens as platform admin", actor: "owner", method: http.MethodGet, path: "/v1/admin/device-claim-tokens", wantStatus: http.StatusForbidden},
+		{name: "platform admin can list quota requests", actor: "platform_admin", method: http.MethodGet, path: "/v1/admin/quota-raise-requests", wantStatus: http.StatusOK},
+		{name: "member cannot list quota requests as platform admin", actor: "member", method: http.MethodGet, path: "/v1/admin/quota-raise-requests", wantStatus: http.StatusForbidden},
+		{name: "platform admin can show quota request", actor: "platform_admin", method: http.MethodGet, path: "/v1/admin/quota-raise-requests/" + quotaBody.QuotaRaiseRequest.ID, wantStatus: http.StatusOK},
+		{name: "platform admin can list audit events", actor: "platform_admin", method: http.MethodGet, path: "/v1/admin/audit-events", wantStatus: http.StatusOK},
+		{name: "owner cannot list audit events", actor: "owner", method: http.MethodGet, path: "/v1/admin/audit-events", wantStatus: http.StatusForbidden},
+	}
+
+	for i, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			suffix := fmt.Sprintf("%02d", i)
+			var body any
+			if tc.body != nil {
+				body = tc.body(suffix)
+			}
+			res := performJSON(env.router, tc.method, tc.path, body, actors[tc.actor].token)
+			if res.Code != tc.wantStatus {
+				t.Fatalf("%s as %s expected %d, got %d: %s", tc.name, actors[tc.actor].name, tc.wantStatus, res.Code, res.Body.String())
+			}
+			if tc.wantStatus == http.StatusNotFound && bytes.Contains(res.Body.Bytes(), []byte(projectedDevice.Device.ID)) {
+				t.Fatalf("cross-tenant response leaked foreign device id: %s", res.Body.String())
+			}
+		})
+	}
 }
 
 func TestIntegrationAdminDeviceClaimTokenWorkflow(t *testing.T) {
@@ -2616,6 +2715,7 @@ func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 
 type registerBody struct {
 	User struct {
+		Email                     string `json:"email"`
 		ID                        string `json:"id"`
 		EmailVerified             bool   `json:"email_verified"`
 		SignupPendingVerification bool   `json:"signup_pending_verification"`
@@ -2862,6 +2962,84 @@ func registerUser(t *testing.T, router *gin.Engine, email, orgName string) regis
 		t.Fatalf("expected register 201, got %d: %s", res.Code, res.Body.String())
 	}
 	return decodeBody[registerBody](t, res)
+}
+
+type apiFixtureBuilder struct {
+	t   *testing.T
+	env integrationEnv
+}
+
+func newAPIFixtureBuilder(t *testing.T, env integrationEnv) apiFixtureBuilder {
+	t.Helper()
+	return apiFixtureBuilder{t: t, env: env}
+}
+
+func (b apiFixtureBuilder) register(slug string) registerBody {
+	b.t.Helper()
+	return registerUser(b.t, b.env.router, slug+"@example.com", slug+" Org")
+}
+
+func (b apiFixtureBuilder) addMember(owner registerBody, member registerBody, role string) {
+	b.t.Helper()
+	res := performJSON(b.env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
+		"email": member.User.Email,
+		"role":  role,
+	}, owner.Tokens.AccessToken)
+	if res.Code != http.StatusCreated {
+		b.t.Fatalf("fixture add member %s as %s failed with %d: %s", member.User.Email, role, res.Code, res.Body.String())
+	}
+}
+
+func (b apiFixtureBuilder) createDevice(owner registerBody, name, serial string) deviceBody {
+	b.t.Helper()
+	res := performJSON(b.env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload(name, serial), owner.Tokens.AccessToken)
+	if res.Code != http.StatusCreated {
+		b.t.Fatalf("fixture create device %s/%s failed with %d: %s", name, serial, res.Code, res.Body.String())
+	}
+	return decodeBody[deviceBody](b.t, res)
+}
+
+func (b apiFixtureBuilder) claimResolvePayload(orgID, slug string) func(string) any {
+	b.t.Helper()
+	return func(suffix string) any {
+		rawToken := "claim-token-" + slug + "-" + suffix
+		videoDevid := "claim-video-" + slug + "-" + suffix
+		if _, err := store.New(b.env.db).CreateDeviceClaimToken(context.Background(), store.DeviceClaimTokenCreateInput{
+			OrganizationID:  &orgID,
+			TokenHash:       auth.HashToken(rawToken),
+			Category:        model.DeviceCategoryIPCamera,
+			VideoCloudDevid: videoDevid,
+			ActivityID:      "activity-" + videoDevid,
+			ClipPublicKey:   "clip-key-" + videoDevid,
+			ExpiresAt:       time.Now().UTC().Add(time.Hour),
+			Now:             time.Now().UTC(),
+		}); err != nil {
+			b.t.Fatalf("fixture seed claim token %s failed: %v", rawToken, err)
+		}
+		return map[string]any{
+			"claim_token": rawToken,
+			"device_name": "Claim Camera " + slug + " " + suffix,
+		}
+	}
+}
+
+func lifecycleProvisionPayload(slug string) func(string) any {
+	return func(suffix string) any {
+		return map[string]any{
+			"operation_id":      slug + "-op-" + suffix,
+			"video_cloud_devid": slug + "-video-" + suffix,
+			"activity_id":       slug + "-activity-" + suffix,
+			"clip_public_key":   slug + "-clip-key-" + suffix,
+		}
+	}
+}
+
+func lifecycleDeactivatePayload(slug string) func(string) any {
+	return func(suffix string) any {
+		return map[string]any{
+			"operation_id": slug + "-op-" + suffix,
+		}
+	}
 }
 
 func latestAuthToken(t *testing.T, sink *recordingAuthTokenSink, email, purpose string) string {
