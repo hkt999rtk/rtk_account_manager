@@ -98,6 +98,12 @@ When adding a feature, do not rely on line coverage alone. Add assertions for:
 - Outbox/inbox idempotency and retry/dead-letter behavior.
 - OpenAPI response compatibility when API payloads change.
 
+For the current Claim Token and readiness scope, the maintained report must
+name representative tests for Claim Token persistence, Claim Token resolve API
+policy, registry-only readiness behavior, and OpenAPI response validation. These
+groups are required because they close contract gaps that coverage percentage
+alone cannot prove correct.
+
 ## V2 Provisioning And Event Channel Test Matrix
 
 When implementing the v2 provisioning/event-channel milestone, the maintained report must add evidence for these behavior groups:
@@ -119,6 +125,10 @@ When implementing the v2 provisioning/event-channel milestone, the maintained re
 | Activation projection | `DeviceProvisionSucceeded` updates video metadata but does not set account-manager `status=online`. |
 | Online projection | `DeviceOnlineChanged` updates account-manager `status` and `last_seen_at`. |
 | Failure projection | Provision/deactivation failures record stable error metadata and operation failure state. |
+| Claim Token persistence | Claim Tokens are stored as hashes, resolve once, reject expired/already-claimed/cross-organization tokens, and only support categories accepted by the product policy. |
+| Claim resolve API | `POST /v1/orgs/:orgId/devices/claim/resolve` returns provisioning input, enforces owner/admin authorization, rejects member access, emits machine-readable errors, and does not publish lifecycle outbox work. |
+| Registry-only readiness | `GET /provisioning` returns account-side readiness with nullable `operation` for enabled and disabled registry-only devices while preserving `404` for missing devices. |
+| OpenAPI contract validation | Claim resolve, registry-only provisioning-state, provisioned provisioning-state, provisioning, and deactivation responses validate against `openapi.yaml`. |
 | Broker adapters | Local broker tests are deterministic; Azure Event Hubs tests do not run unless explicitly configured. |
 
 The v2 test report must distinguish coverage from correctness by naming representative tests for each group above.

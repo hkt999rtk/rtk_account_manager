@@ -1,6 +1,6 @@
 # Test Report
 
-Generated: 2026-05-06T23:53:19Z
+Generated: 2026-05-07T09:17:18Z
 
 ## Summary
 
@@ -26,8 +26,8 @@ Generated: 2026-05-06T23:53:19Z
 | Metric | Value |
 | --- | --- |
 | Go packages | 20 |
-| Test cases started | 238 |
-| JSON pass events | 250 |
+| Test cases started | 257 |
+| JSON pass events | 269 |
 | JSON fail events | 0 |
 | Integration database | Postgres via TEST_DATABASE_URL |
 
@@ -43,6 +43,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Member management | Owner add/update/remove/disable/enable member flows, admin/member forbidden paths, last-owner downgrade/remove/disable protection. |
 | Device lifecycle | Device create/list/get/update/status update/soft-delete, disabled-device read-only behavior, duplicate serial rejection, same serial in another org allowed. |
 | Provisioning API | `TestIntegrationProvisioningEndpoints` verifies owner/admin initiation, member read-only access, raw claim-material rejection, transactional `device_operations` plus `device_message_outbox` writes, projected command payload shape, account-side readiness source facts, disabled-device rejection, and idempotent `operation_id` reuse. |
+| Claim Token persistence | `TestResolveDeviceClaimTokenCreatesDeviceAndClaim`, `TestResolveDeviceClaimTokenMatchesExistingDevice`, `TestResolveDeviceClaimTokenRejectsInvalidToken`, `TestResolveDeviceClaimTokenRejectsExpiredToken`, `TestResolveDeviceClaimTokenRejectsAlreadyClaimedToken`, `TestResolveDeviceClaimTokenRejectsCrossOrganizationToken`, and `TestResolveDeviceClaimTokenRejectsUnsupportedCategory` verify account-manager-owned Claim Token storage, raw-token non-persistence, hashed-token lookup, expiry, idempotent ownership matching, category policy, and organization boundaries. |
+| Claim resolve API | `TestIntegrationClaimResolveEndpoint` verifies owner/admin claim resolution, member rejection, invalid/expired/already-claimed/cross-organization/unsupported-category error codes, returned provisioning input, and that resolve does not create provisioning operations or outbox messages. |
 | Deactivation API | `TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata` verifies projected metadata is required for new deactivation work, disabled account devices may still enqueue deactivation, default reason propagation, and transactional outbox creation from projected video metadata. |
 | Device scoping | Lifecycle endpoints reject cross-organization reads and writes without leaking foreign device access. |
 | Authorization boundaries | owner/admin/member role permissions are enforced across device CRUD, provisioning, deactivation, and member management paths. |
@@ -57,13 +59,15 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Activation and online projection | `TestProjectDeviceProvisioningAndOnlineRules` proves provisioning success does not set account-manager `status=online`, while `DeviceOnlineChanged` remains the only event that updates `status` and `last_seen_at`. |
 | Account readiness projection | `TestReadinessFromProjectionStates` verifies activation pending, activation failed, activation succeeded but offline, ready, deactivation pending, and deactivated aggregate states from explicit source facts. |
 | Failure projection | `TestProjectDeviceRejectsDisabledDevicesExceptDeactivateResults` and `TestRunOnceProcessesFailureAndProjectionEvents` verify provision/deactivation failures keep stable error metadata and terminal operation state, including disabled-device deactivation results. |
+| Registry-only readiness | `TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness` verifies enabled and disabled registry-only devices return `200 OK`, `operation: null`, account-side readiness, `product_state=registered`, and preserve `404 Not Found` for truly missing devices. |
 | Broker adapters | `TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds`, `TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds`, `TestLogPublisherWritesEnvelopeJSON`, `TestLogConsumerReadsEnvelopeJSON`, `TestAzureEventHubsPublisherPublishesJSONRecord`, `TestAzureEventHubsConsumerReadsAcrossPartitions`, `TestAzureEventHubsConsumerAcknowledgesAndResumesFromCheckpoint`, and `TestOpenAzurePartitionsUsesStoredCheckpointWhenPresent` cover the deterministic local default adapter plus Azure Event Hubs publish/consume and durable checkpoint resume behavior without requiring live Azure. |
 | Database invariants | Idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, automatic `updated_at` triggers. |
-| OpenAPI contract | OpenAPI schema validation plus representative provisioning, provisioning-state, and deactivation response validation against `openapi.yaml`. |
+| OpenAPI contract | `TestIntegrationResponsesMatchOpenAPIContract` plus OpenAPI schema validation cover representative Claim Token resolve, registry-only provisioning-state with nullable `operation`, provisioned provisioning-state, provisioning, and deactivation responses against `openapi.yaml`. |
 | Configuration and maintenance | `.env` loading, TTL parsing/fallbacks, worker-specific broker config defaults, required JWT secrets, and refresh-token cleanup behavior. |
 
 ## Executed Test Cases
 
+- `rtk_account_manager/internal/api`: `TestAllowSignupEnforcesCaptchaDisposableAndRateLimit`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsBlankTokens/reset_password_blank_token`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsBlankTokens/verify_email_blank_token`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsBlankTokens`
@@ -75,6 +79,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestAuthTokenDeliveryHook`
 - `rtk_account_manager/internal/api`: `TestBindStrictRejectsUnknownFields`
 - `rtk_account_manager/internal/api`: `TestHealthRoute`
+- `rtk_account_manager/internal/api`: `TestIntegrationAdminMetricsReportsEmptySnapshot`
+- `rtk_account_manager/internal/api`: `TestIntegrationClaimResolveEndpoint`
 - `rtk_account_manager/internal/api`: `TestIntegrationCleanupRefreshTokensRemovesExpiredAndRevokedRows`
 - `rtk_account_manager/internal/api`: `TestIntegrationCurrentUserCanChangePassword`
 - `rtk_account_manager/internal/api`: `TestIntegrationCurrentUserCanDisableSelfWithOwnerSafety`
@@ -91,13 +97,19 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanUpdateAndRemoveMember`
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanUpdateOrganization`
 - `rtk_account_manager/internal/api`: `TestIntegrationProvisioningEndpoints`
+- `rtk_account_manager/internal/api`: `TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness`
+- `rtk_account_manager/internal/api`: `TestIntegrationQuotaRaiseValidationAndDefaultApproval`
 - `rtk_account_manager/internal/api`: `TestIntegrationRegisterLoginRefreshAndLogout`
 - `rtk_account_manager/internal/api`: `TestIntegrationRejectsBlankNames`
 - `rtk_account_manager/internal/api`: `TestIntegrationResponsesMatchOpenAPIContract`
 - `rtk_account_manager/internal/api`: `TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness`
+- `rtk_account_manager/internal/api`: `TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationStoreRefreshTokenHelpers`
 - `rtk_account_manager/internal/api`: `TestIntegrationValidationAndNotFoundErrors`
+- `rtk_account_manager/internal/api`: `TestIsDisposableSignupEmail`
+- `rtk_account_manager/internal/api`: `TestLoadSignupPolicyHonorsEnvironmentOverrides`
 - `rtk_account_manager/internal/api`: `TestLogAuthTokenSinkWritesDelivery`
+- `rtk_account_manager/internal/api`: `TestLogQuotaRaiseNotificationSinkWritesDelivery`
 - `rtk_account_manager/internal/api`: `TestMatchExistingDeactivateOperation`
 - `rtk_account_manager/internal/api`: `TestMatchExistingProvisionOperation`
 - `rtk_account_manager/internal/api`: `TestNewAuthTokenAndUnsupportedPurpose`
@@ -121,6 +133,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsInvalidToken`
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsMissingToken`
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsRefreshTokenAsBearer`
+- `rtk_account_manager/internal/api`: `TestSMTPQuotaRaiseNotificationSinkWritesDelivery`
 - `rtk_account_manager/internal/api`: `TestTrimPtrNormalizesOptionalStrings`
 - `rtk_account_manager/internal/api`: `TestValidationHelpersWriteErrors`
 - `rtk_account_manager/internal/auth`: `TestExpiredAndWrongSecretTokensFailParsing`
@@ -248,8 +261,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessageDeduplicates`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessagePreservesDeadLetterPayloadSnapshot`
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
+- `rtk_account_manager/internal/store`: `TestEvaluationQuotaUsageUtilizationHandlesZeroAndNonZeroQuotas`
 - `rtk_account_manager/internal/store`: `TestGetOutboxMessageDetailIncludesOperation`
 - `rtk_account_manager/internal/store`: `TestJSONHelpers`
+- `rtk_account_manager/internal/store`: `TestListAuditEventsReturnsRecordedLifecycleEvents`
 - `rtk_account_manager/internal/store`: `TestListInboxMessagesByStatusAndShowDetail`
 - `rtk_account_manager/internal/store`: `TestListOutboxMessagesByStatusFiltersLifecycleRows`
 - `rtk_account_manager/internal/store`: `TestMergeDeviceMetadataPreservesUnrelatedFields`
@@ -266,6 +281,13 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestRequeueInboxMessageReopensDeadLetteredRow`
 - `rtk_account_manager/internal/store`: `TestRequeueOutboxMessageRejectsCompletedLifecycleOperation`
 - `rtk_account_manager/internal/store`: `TestRequeueOutboxMessageResetsRetryState`
+- `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenCreatesDeviceAndClaim`
+- `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenMatchesExistingDevice`
+- `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenRejectsAlreadyClaimedToken`
+- `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenRejectsCrossOrganizationToken`
+- `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenRejectsExpiredToken`
+- `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenRejectsInvalidToken`
+- `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenRejectsUnsupportedCategory`
 - `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationRejectsMissingProjectedMetadata`
 - `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationUsesProjectedMetadata`
 - `rtk_account_manager/internal/store`: `TestStartDeviceLifecycleOperationPersistsPendingProvisionMetadata`
