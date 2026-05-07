@@ -8,12 +8,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
 	"github.com/gin-gonic/gin"
+
+	"rtk_account_manager/internal/auth"
+	"rtk_account_manager/internal/model"
+	"rtk_account_manager/internal/store"
 )
 
 func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
@@ -71,6 +76,24 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 
 	tagsRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/tags", nil, registered.Tokens.AccessToken)
 	contract.validate(t, http.MethodGet, "/v1/orgs/"+registered.Organization.ID+"/devices/"+device.Device.ID+"/tags", tagsRes)
+
+	registeredOrgID := registered.Organization.ID
+	if _, err := store.New(env.db).CreateDeviceClaimToken(context.Background(), store.DeviceClaimTokenCreateInput{
+		OrganizationID:  &registeredOrgID,
+		TokenHash:       auth.HashToken("contract-claim-token"),
+		Category:        model.DeviceCategoryIPCamera,
+		VideoCloudDevid: "contract-claim-video-1",
+		ActivityID:      "contract-claim-activity-1",
+		ClipPublicKey:   "contract-claim-clip-key-1",
+		ExpiresAt:       time.Now().UTC().Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	claimResolveRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": "contract-claim-token",
+		"device_name": "Contract Claimed Camera",
+	}, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/claim/resolve", claimResolveRes)
 
 	verifyToken := latestAuthToken(t, env.tokenSink, "contract-signup@example.com", "email_verification")
 	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{

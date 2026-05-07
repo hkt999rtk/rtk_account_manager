@@ -2005,6 +2005,137 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 	}
 }
 
+func TestIntegrationClaimResolveEndpoint(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+	claims := store.New(env.db)
+
+	owner := registerUser(t, env.router, "claim-owner@example.com", "Claim Owner Org")
+	admin := registerUser(t, env.router, "claim-admin@example.com", "Claim Admin Org")
+	member := registerUser(t, env.router, "claim-member@example.com", "Claim Member Org")
+	otherOwner := registerUser(t, env.router, "claim-other@example.com", "Claim Other Org")
+
+	for _, membership := range []struct {
+		email string
+		role  string
+	}{
+		{email: "claim-admin@example.com", role: "admin"},
+		{email: "claim-member@example.com", role: "member"},
+	} {
+		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
+			"email": membership.email,
+			"role":  membership.role,
+		}, owner.Tokens.AccessToken)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("expected add member %s 201, got %d: %s", membership.email, res.Code, res.Body.String())
+		}
+	}
+
+	seedClaimToken := func(rawToken, videoDevid string, expiresAt time.Time, orgID *string, category model.DeviceCategory) {
+		t.Helper()
+		if _, err := claims.CreateDeviceClaimToken(ctx, store.DeviceClaimTokenCreateInput{
+			OrganizationID:  orgID,
+			TokenHash:       auth.HashToken(rawToken),
+			Category:        category,
+			VideoCloudDevid: videoDevid,
+			ActivityID:      "activity-" + videoDevid,
+			ClipPublicKey:   "clip-key-" + videoDevid,
+			ExpiresAt:       expiresAt,
+			Now:             time.Now().UTC(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ownerOrgID := owner.Organization.ID
+	seedClaimToken("claim-token-owner", "claim-video-owner", time.Now().Add(time.Hour), &ownerOrgID, model.DeviceCategoryIPCamera)
+	claimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": "claim-token-owner",
+		"device_name": "Front Door Camera",
+	}, owner.Tokens.AccessToken)
+	if claimRes.Code != http.StatusCreated {
+		t.Fatalf("expected claim resolve 201, got %d: %s", claimRes.Code, claimRes.Body.String())
+	}
+	claimBody := decodeBody[claimResolveBody](t, claimRes)
+	if claimBody.ClaimID == "" || claimBody.Device.ID == "" {
+		t.Fatalf("expected claim id and device id, got %+v", claimBody)
+	}
+	if claimBody.Device.Name != "Front Door Camera" {
+		t.Fatalf("expected resolved device name, got %+v", claimBody.Device)
+	}
+	if claimBody.ProvisionInput.VideoCloudDevid != "claim-video-owner" ||
+		claimBody.ProvisionInput.ActivityID != "activity-claim-video-owner" ||
+		claimBody.ProvisionInput.ClipPublicKey != "clip-key-claim-video-owner" {
+		t.Fatalf("unexpected provision input: %+v", claimBody.ProvisionInput)
+	}
+
+	var operationCount int
+	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM device_operations WHERE device_id = $1`, claimBody.Device.ID).Scan(&operationCount); err != nil {
+		t.Fatal(err)
+	}
+	if operationCount != 0 {
+		t.Fatalf("claim resolve must not create provisioning operations, got %d", operationCount)
+	}
+	var outboxCount int
+	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM device_message_outbox WHERE partition_key = $1`, claimBody.Device.ID).Scan(&outboxCount); err != nil {
+		t.Fatal(err)
+	}
+	if outboxCount != 0 {
+		t.Fatalf("claim resolve must not publish outbox messages, got %d", outboxCount)
+	}
+
+	seedClaimToken("claim-token-admin", "claim-video-admin", time.Now().Add(time.Hour), &ownerOrgID, model.DeviceCategoryIPCamera)
+	adminClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": "claim-token-admin",
+		"device_name": "Admin Camera",
+	}, admin.Tokens.AccessToken)
+	if adminClaimRes.Code != http.StatusCreated {
+		t.Fatalf("expected admin claim resolve 201, got %d: %s", adminClaimRes.Code, adminClaimRes.Body.String())
+	}
+
+	seedClaimToken("claim-token-member", "claim-video-member", time.Now().Add(time.Hour), &ownerOrgID, model.DeviceCategoryIPCamera)
+	memberClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": "claim-token-member",
+		"device_name": "Member Camera",
+	}, member.Tokens.AccessToken)
+	if memberClaimRes.Code != http.StatusForbidden {
+		t.Fatalf("expected member claim resolve 403, got %d: %s", memberClaimRes.Code, memberClaimRes.Body.String())
+	}
+
+	invalidClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": "missing-token",
+		"device_name": "Missing Camera",
+	}, owner.Tokens.AccessToken)
+	assertErrorCode(t, invalidClaimRes, http.StatusNotFound, "invalid_claim_token")
+
+	seedClaimToken("claim-token-expired", "claim-video-expired", time.Now().Add(-time.Hour), &ownerOrgID, model.DeviceCategoryIPCamera)
+	expiredClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": "claim-token-expired",
+		"device_name": "Expired Camera",
+	}, owner.Tokens.AccessToken)
+	assertErrorCode(t, expiredClaimRes, http.StatusBadRequest, "expired_claim_token")
+
+	alreadyClaimedRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": "claim-token-owner",
+		"device_name": "Front Door Again",
+	}, owner.Tokens.AccessToken)
+	assertErrorCode(t, alreadyClaimedRes, http.StatusConflict, "already_claimed")
+
+	seedClaimToken("claim-token-cross-org", "claim-video-cross-org", time.Now().Add(time.Hour), &ownerOrgID, model.DeviceCategoryIPCamera)
+	crossOrgClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+otherOwner.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": "claim-token-cross-org",
+		"device_name": "Cross Org Camera",
+	}, otherOwner.Tokens.AccessToken)
+	assertErrorCode(t, crossOrgClaimRes, http.StatusForbidden, "forbidden")
+
+	seedClaimToken("claim-token-unsupported", "claim-video-unsupported", time.Now().Add(time.Hour), &ownerOrgID, model.DeviceCategoryMQTT)
+	unsupportedClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": "claim-token-unsupported",
+		"device_name": "MQTT Device",
+	}, owner.Tokens.AccessToken)
+	assertErrorCode(t, unsupportedClaimRes, http.StatusBadRequest, "unsupported_device_category")
+}
+
 func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 	env := newIntegrationEnv(t)
 
@@ -2246,6 +2377,19 @@ type deviceBody struct {
 	} `json:"device"`
 }
 
+type claimResolveBody struct {
+	ClaimID string `json:"claim_id"`
+	Device  struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"device"`
+	ProvisionInput struct {
+		VideoCloudDevid string `json:"video_cloud_devid"`
+		ActivityID      string `json:"activity_id"`
+		ClipPublicKey   string `json:"clip_public_key"`
+	} `json:"provision_input"`
+}
+
 type devicesBody struct {
 	Devices []struct {
 		ID string `json:"id"`
@@ -2425,6 +2569,24 @@ func decodeBody[T any](t *testing.T, res *httptest.ResponseRecorder) T {
 		t.Fatalf("decode response: %v: %s", err, res.Body.String())
 	}
 	return out
+}
+
+func assertErrorCode(t *testing.T, res *httptest.ResponseRecorder, status int, code string) {
+	t.Helper()
+	if res.Code != status {
+		t.Fatalf("expected status %d, got %d: %s", status, res.Code, res.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error response: %v: %s", err, res.Body.String())
+	}
+	if body.Error.Code != code {
+		t.Fatalf("expected error code %q, got %q: %s", code, body.Error.Code, res.Body.String())
+	}
 }
 
 func validateAccountCommandEnvelope(t *testing.T, message model.DeviceMessageOutbox) channel.Payload {

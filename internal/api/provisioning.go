@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/channel"
 	"rtk_account_manager/internal/model"
 	"rtk_account_manager/internal/store"
@@ -38,8 +39,19 @@ type deactivateRequest struct {
 	OperationID string `json:"operation_id"`
 }
 
+type claimResolveRequest struct {
+	ClaimToken string `json:"claim_token"`
+	DeviceName string `json:"device_name"`
+}
+
 type operationBody struct {
 	Operation operationResponse `json:"operation"`
+}
+
+type claimResolveResponse struct {
+	ClaimID        string                     `json:"claim_id"`
+	Device         model.Device               `json:"device"`
+	ProvisionInput store.DeviceProvisionInput `json:"provision_input"`
 }
 
 type provisioningBody struct {
@@ -162,6 +174,38 @@ func (s *Server) provisionDevice(c *gin.Context) {
 		status = http.StatusOK
 	}
 	c.JSON(status, operationBody{Operation: operationFromResult(result.Operation, result.Message)})
+}
+
+func (s *Server) resolveDeviceClaim(c *gin.Context) {
+	var req claimResolveRequest
+	if !bindStrict(c, &req) {
+		return
+	}
+
+	claimToken := strings.TrimSpace(req.ClaimToken)
+	deviceName := strings.TrimSpace(req.DeviceName)
+	if !requireNonBlank(c, "claim_token", claimToken) ||
+		!requireNonBlank(c, "device_name", deviceName) {
+		return
+	}
+
+	result, err := s.store.ResolveDeviceClaimToken(c.Request.Context(), store.DeviceClaimResolveInput{
+		TokenHash:      auth.HashToken(claimToken),
+		OrganizationID: c.Param("orgId"),
+		RequestedBy:    currentUserID(c),
+		DeviceName:     deviceName,
+		Now:            time.Now().UTC(),
+	})
+	if err != nil {
+		writeClaimResolveError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, claimResolveResponse{
+		ClaimID:        result.Claim.ID,
+		Device:         result.Device,
+		ProvisionInput: result.ProvisionInput,
+	})
 }
 
 func rejectUnsupportedClaimMaterial(c *gin.Context, req provisionRequest) bool {
