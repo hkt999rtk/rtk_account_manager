@@ -66,7 +66,24 @@ Backend account and device manager for organization-scoped users and registry-on
    The report is written to `docs/TEST_REPORT.md`. Report artifacts are written under `reports/`.
    This command also requires the Postgres service from `make db-up`.
 
-10. Stop local services:
+10. Generate a private-cloud readiness evidence artifact from an already running API:
+
+   ```sh
+   READINESS_SMOKE_EMAIL='owner@example.com' \
+   READINESS_SMOKE_PASSWORD='password123' \
+   READINESS_SMOKE_ORG_ID='<existing-org-id>' \
+   READINESS_SMOKE_DEVICE_ID='<existing-device-id>' \
+   go run ./cmd/readiness-smoke -output reports/readiness-smoke.json
+   ```
+
+   The readiness smoke is read-only. It records service version input, health,
+   migration status, login, organization/device reads, and provisioning/readiness
+   evidence when the referenced resources already exist. Missing optional SMTP
+   or cross-service channel settings are recorded as explicit `SKIP` checks.
+   Use `go run ./cmd/readiness-smoke -dry-run` to validate configuration without
+   network or database calls.
+
+11. Stop local services:
 
    ```sh
    make db-down
