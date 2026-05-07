@@ -234,6 +234,7 @@ func (s *Server) Router() *gin.Engine {
 
 	protected.POST("/orgs/:orgId/devices", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.createDevice)
 	protected.GET("/orgs/:orgId/devices", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.listDevices)
+	protected.POST("/orgs/:orgId/devices/claim/resolve", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.resolveDeviceClaim)
 	protected.GET("/orgs/:orgId/devices/:deviceId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.getDevice)
 	protected.GET("/orgs/:orgId/devices/:deviceId/tags", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.listDeviceTags)
 	protected.PUT("/orgs/:orgId/devices/:deviceId/tags/:tag", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.addDeviceTag)
@@ -1147,6 +1148,27 @@ func writeStoreError(c *gin.Context, err error) {
 		writeError(c, http.StatusConflict, "conflict", "Resource already exists")
 	default:
 		writeError(c, http.StatusInternalServerError, "internal_error", "Internal server error")
+	}
+}
+
+func writeClaimResolveError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeError(c, http.StatusNotFound, "invalid_claim_token", "Invalid claim token")
+	case errors.Is(err, store.ErrClaimExpired):
+		writeError(c, http.StatusBadRequest, "expired_claim_token", "Claim token has expired")
+	case errors.Is(err, store.ErrClaimAlreadyClaimed):
+		writeError(c, http.StatusConflict, "already_claimed", "Claim token has already been claimed")
+	case errors.Is(err, store.ErrClaimCrossOrganization):
+		writeError(c, http.StatusForbidden, "forbidden", "Claim token does not belong to this organization")
+	case errors.Is(err, store.ErrClaimUnsupportedCategory):
+		writeError(c, http.StatusBadRequest, "unsupported_device_category", "Claim token device category is not supported")
+	case errors.Is(err, store.ErrEvaluationQuotaExceeded):
+		writeError(c, http.StatusConflict, "EVALUATION_QUOTA_EXCEEDED", "Evaluation device quota exceeded")
+	case strings.Contains(err.Error(), "duplicate key"):
+		writeError(c, http.StatusConflict, "conflict", "Resource already exists")
+	default:
+		writeError(c, http.StatusServiceUnavailable, "service_unavailable", "Claim resolve is temporarily unavailable")
 	}
 }
 
