@@ -9,9 +9,11 @@ This plan is derived from:
 - `contracts/PROVISION.md`
 - `contracts/CROSS_SERVICE_CHANNEL.md`
 - `contracts/CONTRACT_OVERVIEW.md`
+- `contracts/PRODUCT_ONBOARDING.md`
+- `contracts/PRODUCT_READINESS.md`
 - `docs/SPEC.md`
 
-As of April 30, 2026, `origin/main` already includes the merged persistence, API, worker, broker, test-report, runbook, pending-metadata, lifecycle-admin, delete-policy, and readiness-contract slices for this milestone. The remaining follow-up around the video-side lifecycle path is owner-repo worker hardening in `hkt999rtk/rtk_video_cloud#128`, `hkt999rtk/rtk_video_cloud#129`, `hkt999rtk/rtk_video_cloud#131`, and draft PR `hkt999rtk/rtk_video_cloud#146`, not additional account-manager implementation or documentation alignment.
+As of May 7, 2026, `origin/main` already includes the merged persistence, API, worker, broker, test-report, runbook, pending-metadata, lifecycle-admin, delete-policy, readiness-contract, and private-cloud readiness slices for the original v2 lifecycle milestone. The video-side lifecycle hardening previously tracked in `hkt999rtk/rtk_video_cloud#128`, `hkt999rtk/rtk_video_cloud#129`, `hkt999rtk/rtk_video_cloud#131`, and PR `hkt999rtk/rtk_video_cloud#146` is closed or merged. The current account-manager follow-up scope is Claim Token resolution, registry-only readiness behavior, and the corresponding test-report update.
 
 ## Current Implementation Snapshot
 
@@ -23,10 +25,13 @@ The current account manager now implements:
 - Metadata merge helpers for `video_cloud_*` fields and online/offline projection.
 - Local `log` broker support plus Azure Event Hubs adapter wiring.
 - Maintained v2 test reporting and a local worker runbook.
+- Lifecycle admin commands for listing, inspecting, and requeueing eligible inbox/outbox rows.
 
 Residual contract follow-up gaps for this milestone snapshot:
 
-- Track the remaining `rtk_video_cloud` worker acceptance hardening for invalid-payload failure correlation, retryable deactivation redelivery, and durable `operation_id` / dead-letter behavior in `hkt999rtk/rtk_video_cloud#128`, `hkt999rtk/rtk_video_cloud#129`, `hkt999rtk/rtk_video_cloud#131`, and draft PR `hkt999rtk/rtk_video_cloud#146`.
+- Implement account-manager Claim Token persistence and `POST /v1/orgs/:orgId/devices/claim/resolve`.
+- Let `GET /provisioning` return registry-only readiness for existing devices before a provisioning operation exists.
+- Extend the maintained test report for Claim Token and registry-only readiness correctness.
 - Keep this repo's contract docs explicit that `DELETE /devices/:deviceId` remains registry-only while product teardown still requires `POST /deactivate`, unless product policy changes later.
 
 ## Milestone And Issue Map
@@ -53,11 +58,10 @@ These issues are follow-ups to the merged account-manager v2 implementation. The
 
 | Issue | Priority | Suggested labels | Repo ownership | Deliverable |
 | --- | --- | --- | --- | --- |
-| `[Integration] Implement video-side account/video lifecycle worker` | P1 | `integration`, `worker`, `v2` | `rtk_video_cloud` `cmd/crossservice` runtime | Standalone cross-service worker consumes `DeviceProvisionRequested` / `DeviceDeactivateRequested`, calls Realtek video server `POST /activate_camera` / `POST /deactivate_camera`, and publishes success/failure events back to account manager. Remaining acceptance hardening lives in `hkt999rtk/rtk_video_cloud#128`, `hkt999rtk/rtk_video_cloud#129`, `hkt999rtk/rtk_video_cloud#131`, and PR `hkt999rtk/rtk_video_cloud#146`. |
-| `[API] Persist pending video_cloud_devid mapping on provisioning request` | P2 | `api`, `backend`, `v2` | `rtk_account_manager` | Provisioning request records the requested mapping in account-manager metadata before the video-side result arrives, without treating activation as complete. |
-| `[Ops] Add lifecycle dead-letter and retry management commands` | P2 | `ops`, `worker`, `backend`, `v2` | `rtk_account_manager` | Admin CLI or maintenance commands list failed lifecycle messages, inspect payload/error context, and safely requeue eligible rows. |
-| `[Docs] Finalize delete versus product deactivation policy` | P2 | `docs`, `api`, `v2` | `rtk_account_manager` | Document the final policy that registry delete stays soft-delete only while explicit `POST /deactivate` owns product teardown. |
-| `[Integration] Define product-level provisioning readiness contract` | P3 | `integration`, `docs`, `v2` | Integration service or cross-repo contracts | Define the aggregate readiness signal spanning account record, video activation, subject-bound tokens, device info/config, and transport online state. |
+| `#87 [API/DB] Add Claim Token resolve persistence and policy model` | P1 | `backend`, `database`, `api`, `v2` | `rtk_account_manager` | Add hashed Claim Token persistence, claim/bind policy state, registry-device create/match behavior, and provisioning input projection. |
+| `#88 [API] Implement POST /v1/orgs/:orgId/devices/claim/resolve` | P1 | `api`, `backend`, `v2` | `rtk_account_manager` | Implement the app-facing Claim Token resolve endpoint defined by `contracts/PROVISION.md` and `contracts/PRODUCT_ONBOARDING.md`. |
+| `#89 [API] Return registry-only readiness from GET /provisioning` | P2 | `api`, `backend`, `v2` | `rtk_account_manager` | Return account-side readiness for existing registry devices that have no provisioning operation yet. |
+| `#90 [Testing] Extend report for Claim Token and readiness gaps` | P2 | `testing`, `v2` | `rtk_account_manager` | Extend `make test-report`, `docs/TESTING.md`, and `docs/TEST_REPORT.md` with Claim Token and registry-only readiness correctness evidence. |
 
 Status values:
 
@@ -94,7 +98,7 @@ Implementation rules:
 - The inbox worker consumes events, deduplicates them, and projects results into account-manager state.
 - The video-side integration worker is a separate runtime outside this repository, currently implemented in `rtk_video_cloud` `cmd/crossservice`.
 - Broker-specific code must sit behind an adapter.
-- The first local implementation may use a log/noop/file adapter before Azure Event Hubs is integrated.
+- The local implementation uses the `log` adapter; production-like lifecycle deployments may use the Azure Event Hubs adapter.
 
 ## Phase 1: Specification And Contract Alignment
 
@@ -345,8 +349,7 @@ type Producer interface {
 Initial adapters:
 
 - `log` adapter for local development.
-- `file` adapter for deterministic tests.
-- Azure Event Hubs adapter later.
+- Azure Event Hubs adapter for production-like broker integration.
 
 ## Phase 7: Inbox Worker And Account-Side Projection
 
@@ -399,7 +402,7 @@ Suggested variables:
 
 | Variable | Description |
 | --- | --- |
-| `CROSS_SERVICE_BROKER` | `log`, `file`, `azure_eventhubs`, or equivalent. |
+| `CROSS_SERVICE_BROKER` | `log` or `azure_eventhubs`. |
 | `ACCOUNT_VIDEO_COMMANDS_STREAM` | Logical command stream, default `account.video.commands`. |
 | `VIDEO_ACCOUNT_EVENTS_STREAM` | Logical event stream, default `video.account.events`. |
 | `CROSS_SERVICE_CONSUMER_GROUP` | Consumer group for account-side event projection. |
@@ -507,7 +510,7 @@ Recommended implementation sequence:
 5. Add local/log broker adapter.
 6. Add outbox worker.
 7. Add inbox projection service with test-driven projections.
-8. Add inbox worker with local/file adapter tests.
+8. Add inbox worker with local/log adapter tests.
 9. Update OpenAPI and docs.
 10. Add Azure Event Hubs adapter.
 11. Add operational dashboards/logging around retry and dead-letter counts.
@@ -526,5 +529,5 @@ V2 provisioning/event-channel support is acceptable when:
 - Activation success does not imply account-manager `online`.
 - Online/offline projection updates account-manager status only from `DeviceOnlineChanged`.
 - Retry and dead-letter state are inspectable in the database.
-- Local development can run without Azure using a local broker adapter.
+- Local development can run without Azure using the `log` broker adapter.
 - Automated tests cover the behavior matrix and report correctness evidence.
