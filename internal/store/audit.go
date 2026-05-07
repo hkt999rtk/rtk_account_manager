@@ -18,6 +18,13 @@ type AuditEventInput struct {
 	Payload        map[string]any
 }
 
+type AuditEventListFilter struct {
+	EventType   string
+	SubjectType string
+	Limit       int
+	Offset      int
+}
+
 func createAuditEventTx(ctx context.Context, tx pgx.Tx, in AuditEventInput) error {
 	payload := []byte(`{}`)
 	if len(in.Payload) > 0 {
@@ -41,7 +48,16 @@ func createAuditEventTx(ctx context.Context, tx pgx.Tx, in AuditEventInput) erro
 	return err
 }
 
-func (s *Store) ListAuditEvents(ctx context.Context, limit, offset int) ([]model.AuditEvent, error) {
+func (s *Store) ListAuditEvents(ctx context.Context, in AuditEventListFilter) (AuditEventPage, error) {
+	var total int
+	if err := s.db.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM audit_events
+		WHERE ($1 = '' OR event_type = $1)
+			AND ($2 = '' OR subject_type = $2)
+	`, in.EventType, in.SubjectType).Scan(&total); err != nil {
+		return AuditEventPage{}, err
+	}
 	rows, err := s.db.Query(ctx, `
 		SELECT
 			id::text,
@@ -54,11 +70,13 @@ func (s *Store) ListAuditEvents(ctx context.Context, limit, offset int) ([]model
 			created_at,
 			updated_at
 		FROM audit_events
+		WHERE ($1 = '' OR event_type = $1)
+			AND ($2 = '' OR subject_type = $2)
 		ORDER BY created_at ASC
-		LIMIT $1 OFFSET $2
-	`, limit, offset)
+		LIMIT $3 OFFSET $4
+	`, in.EventType, in.SubjectType, in.Limit, in.Offset)
 	if err != nil {
-		return nil, err
+		return AuditEventPage{}, err
 	}
 	defer rows.Close()
 
@@ -77,15 +95,15 @@ func (s *Store) ListAuditEvents(ctx context.Context, limit, offset int) ([]model
 			&event.CreatedAt,
 			&event.UpdatedAt,
 		); err != nil {
-			return nil, err
+			return AuditEventPage{}, err
 		}
 		if err := json.Unmarshal(rawPayload, &event.Payload); err != nil {
-			return nil, err
+			return AuditEventPage{}, err
 		}
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return AuditEventPage{}, err
 	}
-	return events, nil
+	return AuditEventPage{Events: events, Page: Page{Limit: in.Limit, Offset: in.Offset, Total: total}}, nil
 }

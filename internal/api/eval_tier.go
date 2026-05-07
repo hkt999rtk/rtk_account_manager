@@ -38,6 +38,16 @@ type quotaRaiseRequestResponse struct {
 	QuotaRaiseRequest model.QuotaRaiseRequest `json:"quota_raise_request"`
 }
 
+type quotaRaiseRequestsResponse struct {
+	QuotaRaiseRequests []model.QuotaRaiseRequest `json:"quota_raise_requests"`
+	Pagination         store.Page                `json:"pagination"`
+}
+
+type auditEventsResponse struct {
+	AuditEvents []model.AuditEvent `json:"audit_events"`
+	Pagination  store.Page         `json:"pagination"`
+}
+
 type quotaRaiseDecisionRequest struct {
 	ApprovedQuota  *int    `json:"approved_quota"`
 	DecisionReason *string `json:"decision_reason"`
@@ -197,6 +207,61 @@ func (s *Server) approveQuotaRaiseRequest(c *gin.Context) {
 
 func (s *Server) declineQuotaRaiseRequest(c *gin.Context) {
 	s.decideQuotaRaiseRequest(c, false)
+}
+
+func (s *Server) listAdminQuotaRaiseRequests(c *gin.Context) {
+	limit, offset := pagination(c)
+	status, ok := parseQuotaRaiseStatusFilter(c)
+	if !ok {
+		return
+	}
+	page, err := s.store.ListQuotaRaiseRequests(c.Request.Context(), store.QuotaRaiseRequestListFilter{
+		Status: status,
+		Limit:  limit,
+		Offset: offset,
+	})
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, quotaRaiseRequestsResponse{QuotaRaiseRequests: page.Requests, Pagination: page.Page})
+}
+
+func (s *Server) getAdminQuotaRaiseRequest(c *gin.Context) {
+	request, err := s.store.GetQuotaRaiseRequest(c.Request.Context(), c.Param("requestId"))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, quotaRaiseRequestResponse{QuotaRaiseRequest: request})
+}
+
+func (s *Server) listAdminAuditEvents(c *gin.Context) {
+	limit, offset := pagination(c)
+	page, err := s.store.ListAuditEvents(c.Request.Context(), store.AuditEventListFilter{
+		EventType:   strings.TrimSpace(c.Query("event_type")),
+		SubjectType: strings.TrimSpace(c.Query("subject_type")),
+		Limit:       limit,
+		Offset:      offset,
+	})
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, auditEventsResponse{AuditEvents: page.Events, Pagination: page.Page})
+}
+
+func parseQuotaRaiseStatusFilter(c *gin.Context) (model.QuotaRaiseRequestStatus, bool) {
+	status := model.QuotaRaiseRequestStatus(strings.TrimSpace(c.Query("status")))
+	switch status {
+	case "":
+		return "", true
+	case model.QuotaRaiseRequestStatusPending, model.QuotaRaiseRequestStatusApproved, model.QuotaRaiseRequestStatusDeclined:
+		return status, true
+	default:
+		writeError(c, http.StatusBadRequest, "invalid_request", "status must be pending, approved, or declined")
+		return "", false
+	}
 }
 
 func (s *Server) decideQuotaRaiseRequest(c *gin.Context, approved bool) {

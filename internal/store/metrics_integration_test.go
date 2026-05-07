@@ -79,10 +79,11 @@ func TestListAuditEventsReturnsRecordedLifecycleEvents(t *testing.T) {
 		t.Fatalf("expected declined request, got %+v", decision)
 	}
 
-	events, err := env.store.ListAuditEvents(ctx, 10, 0)
+	eventPage, err := env.store.ListAuditEvents(ctx, AuditEventListFilter{Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
+	events := eventPage.Events
 	if len(events) != 3 {
 		t.Fatalf("expected 3 audit events, got %d: %+v", len(events), events)
 	}
