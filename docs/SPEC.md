@@ -628,8 +628,8 @@ owned by that organization; submitted video lifecycle material is stored as
 provisioning request payload and projected video metadata, not as a replacement
 for account-manager ownership.
 
-The shared contracts now define the first app-facing Claim Token resolution
-surface:
+The shared contracts define the first implemented app-facing Claim Token
+resolution surface:
 
 ```http
 POST /v1/orgs/:orgId/devices/claim/resolve
@@ -640,7 +640,7 @@ makes the account-manager-owned claim/bind policy decision, creates or matches t
 organization registry device, and returns `claim_id`, `device`, and
 `provision_input` containing `video_cloud_devid`, `activity_id`, and
 `clip_public_key`. Claim resolution remains separate from cloud provisioning:
-resolving a Claim Token must not create a provisioning operation, publish an
+resolving a Claim Token does not create a provisioning operation, publish an
 outbox message, or call Realtek video server directly.
 
 Raw claim-material endpoint decision:
@@ -1034,6 +1034,14 @@ Current verified behavior:
 
 - Claim Token persistence and `POST /v1/orgs/:orgId/devices/claim/resolve` are implemented and covered by `openapi.yaml`, `docs/TESTING.md`, and `docs/TEST_REPORT.md`.
 - `GET /provisioning` returns registry-only readiness for an existing device with no provisioning operation.
+- These behaviors were merged through PR #92, PR #93, and PR #94.
+- The maintained test report includes Claim Token and registry-only readiness correctness evidence, verified by PR #95.
+
+Remaining post-v2 follow-up items:
+
+- Add a platform-admin Claim Token issuance/import/revoke workflow so tokens do not need to be seeded through store/test paths.
+- Define and implement transfer, reclaim, and factory-reset policy for already-claimed devices.
+- Add product-readiness failure attribution fields to failed provisioning and deactivation readiness responses.
 - Retry and dead-letter rows are inspectable in Postgres, and `cmd/lifecycle-admin` exposes list, inspect, and safe requeue workflows for operators.
 - Account registry soft-delete and product-level video deactivation remain separate. Product teardown requires explicit `POST /deactivate`; `DELETE /devices/:deviceId` only disables the account-side registry record.
 - Account manager exposes an account-side readiness projection on `GET /provisioning`, but it still does not own a final cross-service "product ready" boolean. Any future unified readiness surface must compose account record, video activation, subject-bound token issuance, device info/config, and transport ownership across service boundaries.
