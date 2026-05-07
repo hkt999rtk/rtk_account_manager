@@ -1832,6 +1832,29 @@ components:
               type: object
               nullable: true
               additionalProperties: true
+        failure:
+          $ref: "#/components/schemas/DeviceReadinessFailure"
+    DeviceReadinessFailure:
+      type: object
+      required: [failed_layer, source_state, retryable, error_code, error_message]
+      properties:
+        failed_layer:
+          type: string
+          enum: [cloud_activation, deactivation]
+        source_state:
+          type: string
+          description: Operation status or local source fact that produced the failure.
+        retryable:
+          type: boolean
+        error_code:
+          type: string
+        error_message:
+          type: string
+        operation_id:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
     User:
       type: object
       required: [id, email, email_verified, signup_pending_verification, created_at, updated_at]

@@ -1938,6 +1938,37 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 		*memberState.Readiness.Sources.VideoCloudActivationStatus != string(model.VideoCloudActivationStatusPending) {
 		t.Fatalf("expected readiness sources to identify pending lifecycle facts, got %+v", memberState.Readiness.Sources)
 	}
+	if memberState.Readiness.Failure != nil {
+		t.Fatalf("pending provisioning must not return failure attribution, got %+v", memberState.Readiness.Failure)
+	}
+
+	if _, err := env.db.Exec(context.Background(), `
+		UPDATE device_operations
+		SET status = 'failed',
+			error_code = 'video_activation_timeout',
+			error_message = 'Video activation timed out',
+			retryable = true,
+			completed_at = now(),
+			updated_at = now()
+		WHERE operation_id = 'provision-op-1'
+	`); err != nil {
+		t.Fatal(err)
+	}
+	failedStateRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provisioning", nil, member.Tokens.AccessToken)
+	if failedStateRes.Code != http.StatusOK {
+		t.Fatalf("expected failed provisioning state 200, got %d: %s", failedStateRes.Code, failedStateRes.Body.String())
+	}
+	failedState := decodeBody[provisioningBody](t, failedStateRes)
+	if failedState.Readiness.State != model.DeviceReadinessStateActivationFailed ||
+		failedState.Readiness.Failure == nil ||
+		failedState.Readiness.Failure.FailedLayer != "cloud_activation" ||
+		failedState.Readiness.Failure.SourceState != string(model.DeviceOperationStatusFailed) ||
+		!failedState.Readiness.Failure.Retryable ||
+		failedState.Readiness.Failure.ErrorCode != "video_activation_timeout" ||
+		failedState.Readiness.Failure.OperationID == nil ||
+		*failedState.Readiness.Failure.OperationID != "provision-op-1" {
+		t.Fatalf("expected cloud activation failure attribution, got %+v", failedState.Readiness)
+	}
 
 	pendingDevice, err := store.New(env.db).GetDevice(context.Background(), owner.Organization.ID, device.Device.ID)
 	if err != nil {
@@ -2402,6 +2433,34 @@ func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 	}
 	if deactivated.Operation.RequestedBy == nil || *deactivated.Operation.RequestedBy != admin.User.ID {
 		t.Fatalf("expected admin requester in operation, got %+v", deactivated.Operation)
+	}
+
+	if _, err := env.db.Exec(context.Background(), `
+		UPDATE device_operations
+		SET status = 'dead_lettered',
+			error_code = 'deactivate_dead_lettered',
+			error_message = 'Deactivate command exhausted retries',
+			retryable = false,
+			completed_at = now(),
+			updated_at = now()
+		WHERE operation_id = 'deactivate-op-1'
+	`); err != nil {
+		t.Fatal(err)
+	}
+	deactivateFailedStateRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provisioning", nil, admin.Tokens.AccessToken)
+	if deactivateFailedStateRes.Code != http.StatusOK {
+		t.Fatalf("expected failed deactivation state 200, got %d: %s", deactivateFailedStateRes.Code, deactivateFailedStateRes.Body.String())
+	}
+	deactivateFailedState := decodeBody[provisioningBody](t, deactivateFailedStateRes)
+	if deactivateFailedState.Readiness.State != model.DeviceReadinessStateDeactivationFailed ||
+		deactivateFailedState.Readiness.Failure == nil ||
+		deactivateFailedState.Readiness.Failure.FailedLayer != "deactivation" ||
+		deactivateFailedState.Readiness.Failure.SourceState != string(model.DeviceOperationStatusDeadLettered) ||
+		deactivateFailedState.Readiness.Failure.Retryable ||
+		deactivateFailedState.Readiness.Failure.ErrorCode != "deactivate_dead_lettered" ||
+		deactivateFailedState.Readiness.Failure.OperationID == nil ||
+		*deactivateFailedState.Readiness.Failure.OperationID != "deactivate-op-1" {
+		t.Fatalf("expected deactivation failure attribution, got %+v", deactivateFailedState.Readiness)
 	}
 
 	reusedDeactivateRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/deactivate", map[string]any{
