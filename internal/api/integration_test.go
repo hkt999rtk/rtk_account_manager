@@ -2175,34 +2175,48 @@ func TestIntegrationClaimResolveEndpoint(t *testing.T) {
 		"claim_token": "missing-token",
 		"device_name": "Missing Camera",
 	}, owner.Tokens.AccessToken)
-	assertErrorCode(t, invalidClaimRes, http.StatusNotFound, "invalid_claim_token")
+	assertErrorDetails(t, invalidClaimRes, http.StatusNotFound, "invalid_claim_token", false, "scan_or_enter_a_valid_claim_token")
 
 	seedClaimToken("claim-token-expired", "claim-video-expired", time.Now().Add(-time.Hour), &ownerOrgID, model.DeviceCategoryIPCamera)
 	expiredClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
 		"claim_token": "claim-token-expired",
 		"device_name": "Expired Camera",
 	}, owner.Tokens.AccessToken)
-	assertErrorCode(t, expiredClaimRes, http.StatusBadRequest, "expired_claim_token")
+	assertErrorDetails(t, expiredClaimRes, http.StatusBadRequest, "expired_claim_token", false, "request_new_claim_token")
 
 	alreadyClaimedRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
 		"claim_token": "claim-token-owner",
 		"device_name": "Front Door Again",
 	}, owner.Tokens.AccessToken)
-	assertErrorCode(t, alreadyClaimedRes, http.StatusConflict, "already_claimed")
+	assertErrorDetails(t, alreadyClaimedRes, http.StatusConflict, "already_claimed", false, "use_existing_device_or_contact_support")
 
 	seedClaimToken("claim-token-cross-org", "claim-video-cross-org", time.Now().Add(time.Hour), &ownerOrgID, model.DeviceCategoryIPCamera)
 	crossOrgClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+otherOwner.Organization.ID+"/devices/claim/resolve", map[string]any{
 		"claim_token": "claim-token-cross-org",
 		"device_name": "Cross Org Camera",
 	}, otherOwner.Tokens.AccessToken)
-	assertErrorCode(t, crossOrgClaimRes, http.StatusForbidden, "forbidden")
+	assertErrorDetails(t, crossOrgClaimRes, http.StatusForbidden, "forbidden", false, "switch_organization_or_contact_support")
 
 	seedClaimToken("claim-token-unsupported", "claim-video-unsupported", time.Now().Add(time.Hour), &ownerOrgID, model.DeviceCategoryMQTT)
 	unsupportedClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
 		"claim_token": "claim-token-unsupported",
 		"device_name": "MQTT Device",
 	}, owner.Tokens.AccessToken)
-	assertErrorCode(t, unsupportedClaimRes, http.StatusBadRequest, "unsupported_device_category")
+	assertErrorDetails(t, unsupportedClaimRes, http.StatusBadRequest, "unsupported_device_category", false, "use_supported_device_category")
+
+	if _, err := env.db.Exec(ctx, `
+		UPDATE organizations
+		SET tier = 'evaluation', evaluation_device_quota = 1
+		WHERE id = $1
+	`, owner.Organization.ID); err != nil {
+		t.Fatal(err)
+	}
+	seedClaimToken("claim-token-quota", "claim-video-quota", time.Now().Add(time.Hour), &ownerOrgID, model.DeviceCategoryIPCamera)
+	quotaClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": "claim-token-quota",
+		"device_name": "Quota Camera",
+	}, owner.Tokens.AccessToken)
+	assertErrorDetails(t, quotaClaimRes, http.StatusConflict, "EVALUATION_QUOTA_EXCEEDED", false, "request_quota_raise_or_contact_admin")
 }
 
 func TestIntegrationAdminDeviceClaimTokenWorkflow(t *testing.T) {
@@ -2793,6 +2807,32 @@ func assertErrorCode(t *testing.T, res *httptest.ResponseRecorder, status int, c
 	}
 	if body.Error.Code != code {
 		t.Fatalf("expected error code %q, got %q: %s", code, body.Error.Code, res.Body.String())
+	}
+}
+
+func assertErrorDetails(t *testing.T, res *httptest.ResponseRecorder, status int, code string, retryable bool, resolutionAction string) {
+	t.Helper()
+	if res.Code != status {
+		t.Fatalf("expected status %d, got %d: %s", status, res.Code, res.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code             string `json:"code"`
+			Retryable        bool   `json:"retryable"`
+			ResolutionAction string `json:"resolution_action"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error response: %v: %s", err, res.Body.String())
+	}
+	if body.Error.Code != code {
+		t.Fatalf("expected error code %q, got %q: %s", code, body.Error.Code, res.Body.String())
+	}
+	if body.Error.Retryable != retryable {
+		t.Fatalf("expected retryable %v, got %v: %s", retryable, body.Error.Retryable, res.Body.String())
+	}
+	if body.Error.ResolutionAction != resolutionAction {
+		t.Fatalf("expected resolution_action %q, got %q: %s", resolutionAction, body.Error.ResolutionAction, res.Body.String())
 	}
 }
 

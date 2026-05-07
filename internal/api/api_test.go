@@ -61,6 +61,66 @@ func TestHealthRoute(t *testing.T) {
 	}
 }
 
+func TestWriteClaimResolveErrorIncludesRetryability(t *testing.T) {
+	tests := []struct {
+		name             string
+		err              error
+		status           int
+		code             string
+		retryable        bool
+		resolutionAction string
+	}{
+		{
+			name:             "invalid token",
+			err:              store.ErrNotFound,
+			status:           http.StatusNotFound,
+			code:             "invalid_claim_token",
+			retryable:        false,
+			resolutionAction: "scan_or_enter_a_valid_claim_token",
+		},
+		{
+			name:             "quota exceeded",
+			err:              store.ErrEvaluationQuotaExceeded,
+			status:           http.StatusConflict,
+			code:             "EVALUATION_QUOTA_EXCEEDED",
+			retryable:        false,
+			resolutionAction: "request_quota_raise_or_contact_admin",
+		},
+		{
+			name:             "service unavailable",
+			err:              errors.New("temporary backend failure"),
+			status:           http.StatusServiceUnavailable,
+			code:             "service_unavailable",
+			retryable:        true,
+			resolutionAction: "retry_later",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			res := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(res)
+			writeClaimResolveError(c, tt.err)
+			if res.Code != tt.status {
+				t.Fatalf("expected status %d, got %d: %s", tt.status, res.Code, res.Body.String())
+			}
+			var body struct {
+				Error struct {
+					Code             string `json:"code"`
+					Retryable        bool   `json:"retryable"`
+					ResolutionAction string `json:"resolution_action"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode response: %v: %s", err, res.Body.String())
+			}
+			if body.Error.Code != tt.code || body.Error.Retryable != tt.retryable || body.Error.ResolutionAction != tt.resolutionAction {
+				t.Fatalf("unexpected error body: %+v", body.Error)
+			}
+		})
+	}
+}
+
 func TestAuthTokenDeliveryHook(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())

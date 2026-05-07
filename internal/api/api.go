@@ -1158,24 +1158,28 @@ func writeStoreError(c *gin.Context, err error) {
 func writeClaimResolveError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		writeError(c, http.StatusNotFound, "invalid_claim_token", "Invalid claim token")
+		writeClaimError(c, http.StatusNotFound, "invalid_claim_token", "Invalid claim token", false, "scan_or_enter_a_valid_claim_token")
 	case errors.Is(err, store.ErrClaimExpired):
-		writeError(c, http.StatusBadRequest, "expired_claim_token", "Claim token has expired")
+		writeClaimError(c, http.StatusBadRequest, "expired_claim_token", "Claim token has expired", false, "request_new_claim_token")
 	case errors.Is(err, store.ErrClaimAlreadyClaimed):
-		writeError(c, http.StatusConflict, "already_claimed", "Claim token has already been claimed")
+		writeClaimError(c, http.StatusConflict, "already_claimed", "Claim token has already been claimed", false, "use_existing_device_or_contact_support")
 	case errors.Is(err, store.ErrClaimRevoked):
-		writeError(c, http.StatusNotFound, "invalid_claim_token", "Invalid claim token")
+		writeClaimError(c, http.StatusNotFound, "invalid_claim_token", "Invalid claim token", false, "scan_or_enter_a_valid_claim_token")
 	case errors.Is(err, store.ErrClaimCrossOrganization):
-		writeError(c, http.StatusForbidden, "forbidden", "Claim token does not belong to this organization")
+		writeClaimError(c, http.StatusForbidden, "forbidden", "Claim token does not belong to this organization", false, "switch_organization_or_contact_support")
 	case errors.Is(err, store.ErrClaimUnsupportedCategory):
-		writeError(c, http.StatusBadRequest, "unsupported_device_category", "Claim token device category is not supported")
+		writeClaimError(c, http.StatusBadRequest, "unsupported_device_category", "Claim token device category is not supported", false, "use_supported_device_category")
 	case errors.Is(err, store.ErrEvaluationQuotaExceeded):
-		writeError(c, http.StatusConflict, "EVALUATION_QUOTA_EXCEEDED", "Evaluation device quota exceeded")
+		writeClaimError(c, http.StatusConflict, "EVALUATION_QUOTA_EXCEEDED", "Evaluation device quota exceeded", false, "request_quota_raise_or_contact_admin")
 	case strings.Contains(err.Error(), "duplicate key"):
-		writeError(c, http.StatusConflict, "conflict", "Resource already exists")
+		writeClaimError(c, http.StatusConflict, "conflict", "Resource already exists", false, "retry_with_current_claim_state")
 	default:
-		writeError(c, http.StatusServiceUnavailable, "service_unavailable", "Claim resolve is temporarily unavailable")
+		writeClaimError(c, http.StatusServiceUnavailable, "service_unavailable", "Claim resolve is temporarily unavailable", true, "retry_later")
 	}
+}
+
+func writeClaimError(c *gin.Context, status int, code, message string, retryable bool, resolutionAction string) {
+	writeErrorWithFields(c, status, code, message, &retryable, &resolutionAction)
 }
 
 func writeAuthTokenStoreError(c *gin.Context, err error, message string) {
@@ -1187,5 +1191,16 @@ func writeAuthTokenStoreError(c *gin.Context, err error, message string) {
 }
 
 func writeError(c *gin.Context, status int, code, message string) {
-	c.JSON(status, gin.H{"error": gin.H{"code": code, "message": message}})
+	writeErrorWithFields(c, status, code, message, nil, nil)
+}
+
+func writeErrorWithFields(c *gin.Context, status int, code, message string, retryable *bool, resolutionAction *string) {
+	errBody := gin.H{"code": code, "message": message}
+	if retryable != nil {
+		errBody["retryable"] = *retryable
+	}
+	if resolutionAction != nil && strings.TrimSpace(*resolutionAction) != "" {
+		errBody["resolution_action"] = strings.TrimSpace(*resolutionAction)
+	}
+	c.JSON(status, gin.H{"error": errBody})
 }
