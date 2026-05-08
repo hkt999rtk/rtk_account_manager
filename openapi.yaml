@@ -1131,11 +1131,15 @@ paths:
       summary: Create or reuse a provisioning operation.
       description: >
         Starts account-side claim/bind provisioning for an existing enabled
-        organization-owned registry device. The current API accepts normalized
-        Realtek video claim material only; raw QR, serial-number,
-        activation-code, transfer, and factory-reset reclaim flows are out of
-        scope. Registry ownership remains scoped to the addressed organization
-        and account-manager device id.
+        organization-owned registry device. Account-manager device categories
+        are registry taxonomy values, not Realtek video credential scopes; any
+        category may use this flow when it has a valid `video_cloud_devid`
+        mapping and lifecycle input. The current API accepts normalized Realtek
+        video lifecycle material only; raw QR, serial-number, activation-code,
+        transfer, and factory-reset reclaim flows are out of scope. Registry
+        ownership remains scoped to the addressed organization and
+        account-manager device id. Account manager does not issue video-cloud
+        device tokens or certificates.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/DeviceId"
@@ -1519,14 +1523,16 @@ components:
         accept standalone `claim_material`, SDK-normalized `qr_payload`,
         serial number, activation code, MAC address, or factory identity fields;
         those claim/bind flows require a future dedicated endpoint or owner
-        service.
+        service. `video_cloud_devid` is the video-cloud device identity used for
+        downstream subject-bound credential and transport flows; the
+        account-manager registry category is not a credential scope.
       required: [video_cloud_devid, activity_id, clip_public_key]
       additionalProperties: false
       properties:
         video_cloud_devid:
           type: string
           minLength: 1
-          description: Normalized Realtek video device identity to bind to the account-manager registry device.
+          description: Normalized Realtek video device identity to bind to the account-manager registry device. Video-side credentials are scoped to this identity, not to the registry category.
         activity_id:
           type: string
           minLength: 1

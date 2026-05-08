@@ -664,13 +664,30 @@ Raw claim-material endpoint decision:
   account-manager registry device or create an explicit pending claim record
   before the caller may start cloud provisioning.
 
-Accepted claim material in the current API:
+Device categories and video credential scope:
 
-| Device category | Current account-manager claim material | Notes |
+Account-manager device categories (`ip_camera`, `mqtt_device`, and `generic`)
+are product registry categories. They are not Realtek video server credential
+scope names and they must not be used to infer which video-cloud token family is
+issued. Any registry device category may participate in the account/video
+lifecycle flow when the device has, or claim resolution returns, a valid
+`video_cloud_devid` mapping plus the required video lifecycle input.
+
+Account manager does not issue Realtek video server device tokens,
+device-bound `camera` tokens, app/subscriber scoped tokens, or device
+certificates. It persists the account registry record, creates/reuses lifecycle
+operations, publishes/projections lifecycle messages, and stores the projected
+`video_cloud_*` metadata. Realtek video server or the video-side integration
+layer remains responsible for issuing subject-bound credentials and accepting
+websocket/MQTT owner transport.
+
+Accepted lifecycle input in the current API:
+
+| Registry category | Current account-manager lifecycle input | Notes |
 | --- | --- | --- |
-| `ip_camera` | `video_cloud_devid`, `activity_id`, `clip_public_key` | Supported by `POST .../provision` for the account/video lifecycle flow. `video_cloud_devid` maps the account registry device to the Realtek video identity; `activity_id` and `clip_public_key` are passed to the video-side lifecycle worker. |
-| `mqtt_device` | None beyond an existing registry device id | Category-specific MQTT claim material, broker credentials, and factory identity are out of scope for the current account-manager API. |
-| `generic` | None beyond an existing registry device id | Serial-number, QR-code, activation-code, MAC-address, and future factory-identity claim flows are out of scope for the current account-manager API unless a later endpoint explicitly accepts them. |
+| `ip_camera` | `video_cloud_devid`, `activity_id`, `clip_public_key` | Supported by `POST .../provision` when mapped to a Realtek video identity. The eventual video-side credentials are device-bound to `video_cloud_devid`, not to the account-manager category string. |
+| `mqtt_device` | `video_cloud_devid`, `activity_id`, `clip_public_key` when the device maps to Realtek video cloud | The category may describe the product registry entry or preferred transport, but MQTT broker credentials and factory identity parsing remain outside this account-manager API. Video-cloud subject-bound tokens are still issued by the video side. |
+| `generic` | `video_cloud_devid`, `activity_id`, `clip_public_key` when the device maps to Realtek video cloud | Generic registry entries can still be bound to a video-cloud device identity. Serial-number, QR-code, activation-code, MAC-address, and future factory-identity claim flows remain out of scope unless a later endpoint explicitly accepts them. |
 
 Ownership consequences:
 
@@ -843,9 +860,9 @@ Current readiness inputs:
 | Account registry record exists and is enabled | `rtk_account_manager` device APIs | The organization-scoped device record exists and is not soft-disabled. |
 | Provisioning operation accepted | `POST /provision`, `GET /provisioning` | Account side persisted the lifecycle operation and outbox command. |
 | Video activation result projected | `GET /provisioning`, device `video_cloud_*` metadata | Realtek video activation succeeded or failed for the mapped device identity. |
-| Subject-bound token issuance completed | Video-side or integration-service auth surface | The device or app has the credentials required for product use. |
+| Subject-bound token issuance completed | Video-side or integration-service auth surface | The device or app has the video-cloud scoped credentials required for product use. These credentials are bound to the video-cloud subject such as `video_cloud_devid`; account-manager category names do not define credential scope. |
 | Video-side bootstrap prerequisites completed when required | Video-side APIs | Device info/config setup or equivalent downstream bootstrap state is available. |
-| Owner transport connected | Account-manager device `status`, projected from `DeviceOnlineChanged` | The device has actually come online through its supported owner transport. |
+| Owner transport connected | Account-manager device `status`, projected from `DeviceOnlineChanged` | The mapped device has come online through a supported owner transport, currently websocket or MQTT in the video transport contract. |
 
 Account-side readiness projection rules:
 
@@ -861,7 +878,8 @@ Account-side readiness projection rules:
   latest provisioning operation status, projected video activation status,
   latest deactivation operation status, and projected video last-error data.
 - Compose the final readiness view from this account-manager projection plus
-  the required video-side credential and bootstrap signals.
+  the required video-side credential, bootstrap, and websocket/MQTT owner
+  transport signals.
 
 `readiness.product_state` maps account-side facts into the cross-service
 vocabulary as follows:
@@ -898,7 +916,8 @@ Failure handling rules:
 - If activation fails, surface the provisioning operation error fields and
   projected `video_cloud_last_error`; do not silently collapse back to
   `activation_pending`.
-- If token issuance or other video-side bootstrap fails after activation,
+- If video-cloud scoped token issuance, device certificate issuance/renewal,
+  or other video-side bootstrap fails after activation,
   surface that outside the account-manager readiness projection rather than
   rewriting the account-manager provisioning result.
 - If the device never projects `online`, keep the readiness view in
