@@ -1,9 +1,10 @@
 REPORT_DIR ?= reports
+VERSION ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo dev)
 UNIT_TEST_PACKAGES := ./internal/api ./internal/auth ./internal/broker ./internal/channel ./internal/config ./internal/database ./internal/openapi ./internal/readiness ./internal/store ./internal/worker/inbox ./internal/worker/outbox
 RACE_TEST_PACKAGES := ./internal/channel ./internal/broker ./internal/worker/... ./internal/auth ./internal/config ./internal/readiness
 FUZZ_SMOKE_TIME ?= 2s
 
-.PHONY: tidy test integration-test test-report test-race test-repeat fuzz-smoke readiness-smoke run run-outbox-worker run-inbox-worker db-up db-down migrate cleanup-tokens
+.PHONY: tidy test integration-test test-report test-race test-repeat fuzz-smoke build release check-release readiness-smoke run run-outbox-worker run-inbox-worker db-up db-down migrate cleanup-tokens
 
 tidy:
 	go mod tidy
@@ -29,6 +30,37 @@ fuzz-smoke:
 	@mkdir -p $(REPORT_DIR)
 	TEST_DATABASE_URL= go test ./internal/channel -run=^$$ -fuzz=FuzzEnvelopeStrictJSONAndValidation -fuzztime=$(FUZZ_SMOKE_TIME) | tee $(REPORT_DIR)/fuzz-smoke-channel.txt
 	TEST_DATABASE_URL= go test ./internal/api -run=^$$ -fuzz=FuzzBindStrictRequestShape -fuzztime=$(FUZZ_SMOKE_TIME) | tee $(REPORT_DIR)/fuzz-smoke-api.txt
+
+build:
+	@mkdir -p dist
+	go build -trimpath -o dist/rtk-account-manager ./cmd/server
+	go build -trimpath -o dist/rtk-account-manager-migrate ./cmd/migrate
+	go build -trimpath -o dist/rtk-account-manager-outbox-worker ./cmd/outbox-worker
+	go build -trimpath -o dist/rtk-account-manager-inbox-worker ./cmd/inbox-worker
+	go build -trimpath -o dist/rtk-account-manager-cleanup-tokens ./cmd/cleanup-tokens
+
+release:
+	@rm -rf "dist/rtk_account_manager-$(VERSION)" "dist/rtk_account_manager-$(VERSION).tar.gz"
+	@mkdir -p "dist/rtk_account_manager-$(VERSION)/bin" "dist/rtk_account_manager-$(VERSION)/deploy"
+	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager" ./cmd/server
+	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-migrate" ./cmd/migrate
+	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-outbox-worker" ./cmd/outbox-worker
+	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-inbox-worker" ./cmd/inbox-worker
+	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-cleanup-tokens" ./cmd/cleanup-tokens
+	cp -R migrations "dist/rtk_account_manager-$(VERSION)/migrations"
+	cp -R deploy/systemd "dist/rtk_account_manager-$(VERSION)/deploy/systemd"
+	cp deploy/account-manager.env.example "dist/rtk_account_manager-$(VERSION)/deploy/account-manager.env.example"
+	cp deploy/install.sh deploy/verify.sh "dist/rtk_account_manager-$(VERSION)/deploy/"
+	{ \
+		echo "version=$(VERSION)"; \
+		echo "git_sha=$$(git rev-parse HEAD 2>/dev/null || echo unknown)"; \
+		echo "built_at=$$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
+		echo "module=$$(go list -m)"; \
+	} > "dist/rtk_account_manager-$(VERSION)/release-manifest.txt"
+	./deploy/check-release.sh "dist/rtk_account_manager-$(VERSION)"
+	tar -C dist -czf "dist/rtk_account_manager-$(VERSION).tar.gz" "rtk_account_manager-$(VERSION)"
+
+check-release: release
 
 readiness-smoke:
 	go run ./cmd/readiness-smoke
