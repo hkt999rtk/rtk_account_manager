@@ -1,0 +1,78 @@
+name: Release Bundle
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version. Defaults to the git ref name or short SHA."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Select version
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            version="$INPUT_VERSION"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="${GITHUB_SHA::12}"
+          fi
+          case "$version" in
+            *[!A-Za-z0-9._-]* | "" | .* | *..*)
+              echo "invalid version: use only letters, digits, dot, underscore, and dash" >&2
+              exit 1
+              ;;
+          esac
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build release bundle
+        run: VERSION="${{ steps.version.outputs.version }}" make release
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: rtk_account_manager-${{ steps.version.outputs.version }}
+          path: |
+            dist/rtk_account_manager-${{ steps.version.outputs.version }}
+            dist/rtk_account_manager-${{ steps.version.outputs.version }}.tar.gz
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" \
+              "dist/rtk_account_manager-${{ steps.version.outputs.version }}.tar.gz" \
+              --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              "dist/rtk_account_manager-${{ steps.version.outputs.version }}.tar.gz" \
+              --generate-notes \
+              --title "$GITHUB_REF_NAME"
+          fi

@@ -24,12 +24,17 @@ Source inputs:
 Use this profile for demos, engineering validation, and private-cloud
 workshops. It optimizes for fast setup over high availability.
 
+The current staging recommendation is to deploy account manager on
+`video-cloud-cd.local`, the same private-cloud host used by `rtk_video_cloud`.
+This keeps account/video provisioning and readiness checks in one environment
+while preserving service and database isolation.
+
 Recommended placement:
 
 | Component | Evaluation placement |
 | --- | --- |
-| Account Manager API | One `systemd` service or one container on the same host as Postgres. |
-| Postgres | Local Postgres instance or Docker Compose Postgres. |
+| Account Manager API | `systemd` service on `video-cloud-cd.local`, bound to `127.0.0.1:18081`. |
+| Postgres | Shared local PostgreSQL cluster, separate `rtk_account_manager` database and role. |
 | Outbox worker | Optional separate process when provisioning lifecycle commands are enabled. |
 | Inbox worker | Optional separate process when video-side events are consumed locally. |
 | Cleanup tokens | `systemd` timer or scheduled job. |
@@ -101,6 +106,100 @@ For native installs, place binaries under `/opt/rtk-account-manager/bin/` and
 copy the environment file to `/etc/rtk-account-manager/account-manager.env`.
 The environment file must be readable only by the service user and root.
 
+Build an immutable release bundle with:
+
+```sh
+VERSION=v0.1.0 make release
+```
+
+This writes `dist/rtk_account_manager-$VERSION.tar.gz`. GitHub Actions
+publishes the same tarball through `.github/workflows/release.yml`.
+
+## Staging CD On `video-cloud-cd.local`
+
+Use `video-cloud-cd.local` as the staging deploy target for account manager.
+Do not use it for heavy CI. The deployment runner should only run manual deploy
+jobs and short smoke checks.
+
+Runner requirements:
+
+| Setting | Value |
+| --- | --- |
+| Repository | `hkt999rtk/rtk_account_manager` |
+| Runner label | `account-manager-cd` |
+| Host | `video-cloud-cd.local` |
+| Sudo | Passwordless sudo for installing under `/opt`, `/etc`, `/var/lib`, and restarting account-manager units. |
+
+Staging placement:
+
+| Resource | Value |
+| --- | --- |
+| Install prefix | `/opt/rtk-account-manager` |
+| Config dir | `/etc/rtk-account-manager` |
+| State dir | `/var/lib/rtk-account-manager` |
+| Service user/group | `rtk-account-manager` |
+| API port | `18081` |
+| Database | `rtk_account_manager` |
+| Database role | `rtk_account_manager` |
+
+Create the database and role outside the deploy workflow:
+
+```sql
+CREATE ROLE rtk_account_manager LOGIN PASSWORD '<operator-owned-secret>';
+CREATE DATABASE rtk_account_manager OWNER rtk_account_manager;
+```
+
+The runtime DSN must point at the account-manager database, never the
+`video_cloud` database:
+
+```sh
+DATABASE_URL='postgres://rtk_account_manager:<secret>@127.0.0.1:5432/rtk_account_manager?sslmode=disable'
+PORT=18081
+```
+
+The deploy workflow is `.github/workflows/deploy-local.yml`. It is manual
+(`workflow_dispatch`) and deploys an existing GitHub Release version. Configure
+the staging environment with:
+
+| GitHub setting | Purpose |
+| --- | --- |
+| `ACCOUNT_MANAGER_RUNTIME_ENV` secret | Full `/etc/rtk-account-manager/account-manager.env` content. |
+| `ACCOUNT_MANAGER_DEPLOY_PREFIX` variable | Optional override; defaults to `/opt/rtk-account-manager`. |
+| `ACCOUNT_MANAGER_DEPLOY_ETC_DIR` variable | Optional override; defaults to `/etc/rtk-account-manager`. |
+| `ACCOUNT_MANAGER_DEPLOY_STATE_DIR` variable | Optional override; defaults to `/var/lib/rtk-account-manager`. |
+
+Before running a deployment that can apply migrations, confirm a fresh database
+backup and create the deploy gate marker:
+
+```sh
+sudo install -d -o rtk-account-manager -g rtk-account-manager /var/lib/rtk-account-manager
+printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | \
+  sudo tee /var/lib/rtk-account-manager/last-db-backup-ok >/dev/null
+```
+
+Deploy sequence:
+
+1. Download the release tarball.
+2. Validate the release bundle with `deploy/check-release.sh`.
+3. Install binaries, migrations, systemd units, and env examples with
+   `deploy/install.sh`.
+4. Preserve or install `/etc/rtk-account-manager/account-manager.env`.
+5. Require the backup marker before migrations.
+6. Run `rtk-account-manager-migrate.service`.
+7. Restart selected runtime units.
+8. Run `/opt/rtk-account-manager/verify.sh`.
+9. Upload deployment evidence with service status and redacted env keys.
+
+Default restart units are:
+
+```text
+rtk-account-manager.service rtk-account-manager-cleanup-tokens.timer
+```
+
+Enable `rtk-account-manager-outbox-worker.service` and
+`rtk-account-manager-inbox-worker.service` in `restart_units` only when the
+cross-service lifecycle channel is deliberately enabled for the environment.
+
 ## Environment Variables
 
 Use `deploy/account-manager.env.example` as the operator-facing key inventory.
@@ -118,7 +217,7 @@ It intentionally contains placeholders only.
 
 | Variable | Purpose | Default / notes |
 | --- | --- | --- |
-| `PORT` | API bind port. | `8080` |
+| `PORT` | API bind port. | `8080` by code default; staging deploy uses `18081` to avoid `rtk_video_cloud` on `18080`. |
 | `ACCESS_TOKEN_TTL` | Access token lifetime. | `15m` |
 | `REFRESH_TOKEN_TTL` | Refresh token lifetime. | `720h` |
 | `AUTH_TOKEN_DELIVERY` | Verification/reset token delivery adapter. | `log` is currently supported by the server entrypoint. |
@@ -236,7 +335,7 @@ sudo systemctl enable --now rtk-account-manager-cleanup-tokens.timer
 Health check:
 
 ```sh
-curl -fsS http://127.0.0.1:8080/v1/health
+curl -fsS http://127.0.0.1:18081/v1/health
 ```
 
 Expected response:

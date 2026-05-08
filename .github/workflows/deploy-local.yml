@@ -1,0 +1,240 @@
+name: Deploy Local Staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Existing GitHub Release version to deploy, for example v1.2.3."
+        required: true
+        type: string
+      restart_units:
+        description: "Space-separated systemd units to restart after migration."
+        required: false
+        default: "rtk-account-manager.service rtk-account-manager-cleanup-tokens.timer"
+        type: string
+      run_verify:
+        description: "Run installed verify.sh after restart."
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: account-manager-deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy release on video-cloud-cd.local
+    runs-on: [self-hosted, Linux, X64, account-manager-cd]
+    environment: staging
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Select version
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          version="$INPUT_VERSION"
+          case "$version" in
+            *[!A-Za-z0-9._-]* | "" | .* | *..*)
+              echo "invalid version: use only letters, digits, dot, underscore, and dash" >&2
+              exit 1
+              ;;
+          esac
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Download release bundle
+        uses: actions/github-script@v7
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        with:
+          script: |
+            const fs = require("fs");
+            const path = require("path");
+
+            const version = process.env.VERSION;
+            const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
+            const assetName = `rtk_account_manager-${version}.tar.gz`;
+
+            const release = await github.rest.repos.getReleaseByTag({ owner, repo, tag: version });
+            const asset = release.data.assets.find((item) => item.name === assetName);
+            if (!asset) {
+              core.setFailed(`release asset not found: ${assetName}`);
+              return;
+            }
+            const response = await github.request("GET /repos/{owner}/{repo}/releases/assets/{asset_id}", {
+              owner,
+              repo,
+              asset_id: asset.id,
+              headers: { Accept: "application/octet-stream" },
+            });
+            fs.rmSync("dist", { recursive: true, force: true });
+            fs.mkdirSync("dist", { recursive: true });
+            fs.writeFileSync(path.join("dist", assetName), Buffer.from(response.data));
+
+      - name: Extract release bundle
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          test -f "dist/rtk_account_manager-$VERSION.tar.gz"
+          tar -C dist -xzf "dist/rtk_account_manager-$VERSION.tar.gz"
+
+      - name: Verify release bundle
+        run: ./deploy/check-release.sh "dist/rtk_account_manager-${{ steps.version.outputs.version }}"
+
+      - name: Validate deployment inputs
+        shell: bash
+        env:
+          ACCOUNT_MANAGER_DEPLOY_PREFIX: ${{ vars.ACCOUNT_MANAGER_DEPLOY_PREFIX }}
+          ACCOUNT_MANAGER_DEPLOY_ETC_DIR: ${{ vars.ACCOUNT_MANAGER_DEPLOY_ETC_DIR }}
+          ACCOUNT_MANAGER_DEPLOY_SYSTEMD_DIR: ${{ vars.ACCOUNT_MANAGER_DEPLOY_SYSTEMD_DIR }}
+          ACCOUNT_MANAGER_DEPLOY_STATE_DIR: ${{ vars.ACCOUNT_MANAGER_DEPLOY_STATE_DIR }}
+          RESTART_UNITS: ${{ inputs.restart_units }}
+        run: |
+          valid_path='^/[A-Za-z0-9._/-]+$'
+          valid_units='^[A-Za-z0-9_.@ -]+$'
+          test -n "$RESTART_UNITS"
+          [[ "$RESTART_UNITS" =~ $valid_units ]]
+          [[ "${ACCOUNT_MANAGER_DEPLOY_PREFIX:-/opt/rtk-account-manager}" =~ $valid_path ]]
+          [[ "${ACCOUNT_MANAGER_DEPLOY_ETC_DIR:-/etc/rtk-account-manager}" =~ $valid_path ]]
+          [[ "${ACCOUNT_MANAGER_DEPLOY_SYSTEMD_DIR:-/etc/systemd/system}" =~ $valid_path ]]
+          [[ "${ACCOUNT_MANAGER_DEPLOY_STATE_DIR:-/var/lib/rtk-account-manager}" =~ $valid_path ]]
+
+      - name: Check passwordless sudo
+        shell: bash
+        run: |
+          if ! sudo -n true 2>/dev/null; then
+            cat >&2 <<'MSG'
+          self-hosted staging deploy requires non-interactive sudo.
+
+          Configure passwordless sudo for the account-manager-cd runner user on
+          video-cloud-cd.local. Do not put sudo passwords in GitHub secrets.
+          MSG
+            exit 1
+          fi
+
+      - name: Install locally
+        shell: bash
+        env:
+          ACCOUNT_MANAGER_DEPLOY_PREFIX: ${{ vars.ACCOUNT_MANAGER_DEPLOY_PREFIX }}
+          ACCOUNT_MANAGER_DEPLOY_ETC_DIR: ${{ vars.ACCOUNT_MANAGER_DEPLOY_ETC_DIR }}
+          ACCOUNT_MANAGER_DEPLOY_SYSTEMD_DIR: ${{ vars.ACCOUNT_MANAGER_DEPLOY_SYSTEMD_DIR }}
+          ACCOUNT_MANAGER_DEPLOY_STATE_DIR: ${{ vars.ACCOUNT_MANAGER_DEPLOY_STATE_DIR }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          release_dir="dist/rtk_account_manager-$VERSION"
+          sudo -n \
+            PREFIX="${ACCOUNT_MANAGER_DEPLOY_PREFIX:-/opt/rtk-account-manager}" \
+            ETC_DIR="${ACCOUNT_MANAGER_DEPLOY_ETC_DIR:-/etc/rtk-account-manager}" \
+            SYSTEMD_DIR="${ACCOUNT_MANAGER_DEPLOY_SYSTEMD_DIR:-/etc/systemd/system}" \
+            STATE_DIR="${ACCOUNT_MANAGER_DEPLOY_STATE_DIR:-/var/lib/rtk-account-manager}" \
+            "$release_dir/deploy/install.sh"
+          sudo -n systemctl daemon-reload
+
+      - name: Configure runtime environment
+        shell: bash
+        env:
+          ACCOUNT_MANAGER_DEPLOY_ETC_DIR: ${{ vars.ACCOUNT_MANAGER_DEPLOY_ETC_DIR }}
+          ACCOUNT_MANAGER_RUNTIME_ENV: ${{ secrets.ACCOUNT_MANAGER_RUNTIME_ENV }}
+        run: |
+          etc_dir="${ACCOUNT_MANAGER_DEPLOY_ETC_DIR:-/etc/rtk-account-manager}"
+          env_file="$etc_dir/account-manager.env"
+          if [ -n "$ACCOUNT_MANAGER_RUNTIME_ENV" ]; then
+            tmp_file=$(mktemp)
+            trap 'rm -f "$tmp_file"' EXIT
+            chmod 0600 "$tmp_file"
+            printf '%s\n' "$ACCOUNT_MANAGER_RUNTIME_ENV" > "$tmp_file"
+            sudo -n install -m 0600 -o root -g root "$tmp_file" "$env_file"
+          elif ! sudo -n test -f "$env_file"; then
+            echo "missing $env_file and ACCOUNT_MANAGER_RUNTIME_ENV is not configured" >&2
+            exit 1
+          fi
+
+      - name: Check database backup marker
+        shell: bash
+        env:
+          ACCOUNT_MANAGER_DEPLOY_STATE_DIR: ${{ vars.ACCOUNT_MANAGER_DEPLOY_STATE_DIR }}
+        run: |
+          marker="${ACCOUNT_MANAGER_DEPLOY_STATE_DIR:-/var/lib/rtk-account-manager}/last-db-backup-ok"
+          if ! sudo -n test -s "$marker"; then
+            cat >&2 <<MSG
+          missing database backup marker: $marker
+
+          Create this marker after confirming an account-manager database backup
+          exists. This keeps migration as a deliberate deployment gate.
+          MSG
+            exit 1
+          fi
+
+      - name: Run migrations
+        shell: bash
+        run: |
+          sudo -n systemctl start rtk-account-manager-migrate.service
+          sudo -n systemctl is-active --quiet rtk-account-manager-migrate.service || true
+          sudo -n systemctl show rtk-account-manager-migrate.service \
+            --property=Result --property=ExecMainStatus --property=ExecMainCode
+          result=$(sudo -n systemctl show rtk-account-manager-migrate.service --property=Result --value)
+          status=$(sudo -n systemctl show rtk-account-manager-migrate.service --property=ExecMainStatus --value)
+          if [ "$result" != "success" ] || [ "$status" != "0" ]; then
+            sudo -n journalctl -u rtk-account-manager-migrate.service -n 120 --no-pager
+            exit 1
+          fi
+
+      - name: Restart and verify locally
+        shell: bash
+        env:
+          ACCOUNT_MANAGER_DEPLOY_PREFIX: ${{ vars.ACCOUNT_MANAGER_DEPLOY_PREFIX }}
+          VERSION: ${{ steps.version.outputs.version }}
+          RESTART_UNITS: ${{ inputs.restart_units }}
+          RUN_VERIFY: ${{ inputs.run_verify }}
+        run: |
+          prefix="${ACCOUNT_MANAGER_DEPLOY_PREFIX:-/opt/rtk-account-manager}"
+          previous_version=$(sudo -n sh -c "cat \"$prefix/current-version\" 2>/dev/null || true")
+          for unit in $RESTART_UNITS; do
+            sudo -n systemctl enable "$unit"
+            sudo -n systemctl restart "$unit"
+          done
+          if [ "$RUN_VERIFY" = "true" ]; then
+            sudo -n "$prefix/verify.sh"
+          fi
+          if [ -n "$previous_version" ]; then
+            printf '%s\n' "$previous_version" | sudo -n tee "$prefix/previous-version" >/dev/null
+          fi
+          printf '%s\n' "$VERSION" | sudo -n tee "$prefix/current-version" >/dev/null
+
+      - name: Collect deployment evidence
+        if: always()
+        shell: bash
+        env:
+          ACCOUNT_MANAGER_DEPLOY_ETC_DIR: ${{ vars.ACCOUNT_MANAGER_DEPLOY_ETC_DIR }}
+          VERSION: ${{ steps.version.outputs.version }}
+          RESTART_UNITS: ${{ inputs.restart_units }}
+        run: |
+          etc_dir="${ACCOUNT_MANAGER_DEPLOY_ETC_DIR:-/etc/rtk-account-manager}"
+          rm -rf deployment-evidence
+          mkdir -p deployment-evidence
+          {
+            echo "version=$VERSION"
+            echo "restart_units=$RESTART_UNITS"
+            echo "collected_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > deployment-evidence/summary.txt
+          sudo -n systemctl status rtk-account-manager.service --no-pager > deployment-evidence/api-status.txt 2>&1 || true
+          sudo -n systemctl status rtk-account-manager-cleanup-tokens.timer --no-pager > deployment-evidence/cleanup-timer-status.txt 2>&1 || true
+          sudo -n systemctl status rtk-account-manager-migrate.service --no-pager > deployment-evidence/migrate-status.txt 2>&1 || true
+          sudo -n sh -c "grep -E '^[A-Za-z_][A-Za-z0-9_]*=' \"$etc_dir/account-manager.env\" | sed -E 's/=.*/=<redacted>/'" \
+            > deployment-evidence/redacted-env-keys.txt 2>&1 || true
+
+      - name: Upload deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: account-manager-deployment-evidence-${{ steps.version.outputs.version }}
+          path: deployment-evidence/*
+          if-no-files-found: warn
