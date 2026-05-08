@@ -1135,7 +1135,10 @@ paths:
         Realtek video claim material only; raw QR, serial-number,
         activation-code, transfer, and factory-reset reclaim flows are out of
         scope. Registry ownership remains scoped to the addressed organization
-        and account-manager device id.
+        and account-manager device id. Device categories are registry
+        categories, not video-cloud credential scopes; any category mapped to
+        `video_cloud_devid` uses video-cloud device-bound credentials outside
+        account manager.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/DeviceId"
@@ -1519,7 +1522,8 @@ components:
         accept standalone `claim_material`, SDK-normalized `qr_payload`,
         serial number, activation code, MAC address, or factory identity fields;
         those claim/bind flows require a future dedicated endpoint or owner
-        service.
+        service. Account manager stores lifecycle input and projections only; it
+        does not issue or renew video-cloud device tokens or certificates.
       required: [video_cloud_devid, activity_id, clip_public_key]
       additionalProperties: false
       properties:
@@ -2283,6 +2287,7 @@ components:
       enum: [owner, admin, member]
     DeviceCategory:
       type: string
+      description: Product registry category, not a video-cloud credential scope.
       enum: [ip_camera, mqtt_device, generic]
     DeviceStatus:
       type: string

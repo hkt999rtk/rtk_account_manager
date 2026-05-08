@@ -289,6 +289,13 @@ Rules:
 - Device must exist in the organization.
 - Disabled devices cannot be provisioned.
 - Accepting provisioning immediately exposes pending `video_cloud_devid`, `video_cloud_activity_id`, `video_cloud_clip_public_key`, and `video_cloud_activation_status=pending` in projected device metadata.
+- Account-manager device categories such as `ip_camera`, `mqtt_device`, and
+  `generic` are product registry categories, not video-cloud credential scope
+  names.
+- Any category that maps to `video_cloud_devid` follows the shared video-cloud
+  device-bound credential contract. Account manager initiates lifecycle
+  operations and projects metadata; it does not issue or renew video-cloud
+  device tokens or certificates.
 - Duplicate `operation_id` with the same payload returns the existing operation.
 - Duplicate `operation_id` with a conflicting payload returns `409 Conflict`.
 - The API must not directly call Realtek video server.
@@ -443,8 +450,8 @@ Contract rules:
   projected `video_cloud_*` metadata, and projected account-side
   `online|offline` status.
 - Realtek video server or the video-side integration layer owns token issuance,
-  video-side bootstrap prerequisites, and transport/session readiness inputs
-  that do not live in account-manager state.
+  video-side bootstrap prerequisites, device-bound credentials, and
+  transport/session readiness inputs that do not live in account-manager state.
 - `GET /provisioning` is the account-side lifecycle and readiness projection
   surface; it is not a unified product-readiness endpoint.
 - Its `readiness.sources` object identifies the local source facts behind the
@@ -477,8 +484,8 @@ Failure handling:
 
 - Activation failure must stay visible through operation error fields and
   projected metadata.
-- Missing token/bootstrap prerequisites after activation must surface as
-  post-activation readiness gaps, not as fake activation success.
+- Missing device-bound token/bootstrap prerequisites after activation must
+  surface as post-activation readiness gaps, not as fake activation success.
 - `status=online` alone does not prove full provisioning readiness.
 
 ## Phase 10: Testing And Reporting
