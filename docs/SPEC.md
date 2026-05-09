@@ -6,6 +6,12 @@ Build a backend account and device manager similar in spirit to Amazon IoT Devic
 
 The v1 service is a REST API backend only. It stores account and device state in Postgres and provides authentication, organization membership, role-based authorization, and registry-only device management.
 
+This service is not a Web UI or dashboard. Enterprise dashboard UX, BFF routes,
+console-local sessions, preferences, and non-authoritative display caches belong
+to `rtk_cloud_admin`. This service remains the authoritative backend control
+plane for identity, tenant context, authorization, entitlement, device registry,
+and provisioning intent.
+
 Provisioning and account/video event-channel integration are the v2 surface implemented by this repository. [PROVISIONING_AND_EVENT_CHANNEL_PLAN.md](PROVISIONING_AND_EVENT_CHANNEL_PLAN.md) tracks rollout history and verification status, and this spec must stay aligned with the shared contracts in `contracts/PROVISION.md` and `contracts/CROSS_SERVICE_CHANNEL.md`.
 
 ## 2. V1 Scope
