@@ -1,0 +1,95 @@
+name: Import Report Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_run_id:
+        description: "Workflow run ID that produced the report candidate artifact."
+        required: true
+        type: string
+      artifact_name:
+        description: "Artifact name to import, for example test-report-candidate."
+        required: true
+        type: string
+      target_report:
+        description: "Canonical report file to replace."
+        required: true
+        type: choice
+        options:
+          - docs/TEST_REPORT.md
+          - docs/RELEASE_TEST_REPORT.md
+          - docs/READINESS_TEST_REPORT.md
+      pr_branch:
+        description: "Pull request branch to update."
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  import:
+    name: Import selected report candidate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate branch input
+        shell: bash
+        env:
+          PR_BRANCH: ${{ inputs.pr_branch }}
+        run: |
+          case "$PR_BRANCH" in
+            "" | -* | *..* | */. | ./* | *" "* | *"~"* | *"^"* | *":"* | *"?"* | *"["* | *"\\"* )
+              echo "invalid branch name: $PR_BRANCH" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Check out pull request branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.pr_branch }}
+          fetch-depth: 0
+
+      - name: Download selected artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        run: |
+          rm -rf .artifacts/imported
+          mkdir -p .artifacts/imported
+          gh run download "$ARTIFACT_RUN_ID" \
+            --name "$ARTIFACT_NAME" \
+            --dir .artifacts/imported
+
+      - name: Import report candidate
+        shell: bash
+        env:
+          TARGET_REPORT: ${{ inputs.target_report }}
+          IMPORT_DIR: .artifacts/imported
+        run: ./scripts/import-report-candidate.sh
+
+      - name: Commit selected report
+        shell: bash
+        env:
+          TARGET_REPORT: ${{ inputs.target_report }}
+          PR_BRANCH: ${{ inputs.pr_branch }}
+        run: |
+          changed="$(git diff --name-only)"
+          if [ -z "$changed" ]; then
+            echo "no report changes to commit"
+            exit 0
+          fi
+          if [ "$changed" != "$TARGET_REPORT" ]; then
+            echo "import changed unexpected files:" >&2
+            printf '%s\n' "$changed" >&2
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$TARGET_REPORT"
+          git commit -m "docs: import $(basename "$TARGET_REPORT") candidate"
+          git push origin "HEAD:$PR_BRANCH"

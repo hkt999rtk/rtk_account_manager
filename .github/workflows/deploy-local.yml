@@ -192,10 +192,12 @@ jobs:
         shell: bash
         env:
           ACCOUNT_MANAGER_DEPLOY_ETC_DIR: ${{ vars.ACCOUNT_MANAGER_DEPLOY_ETC_DIR }}
+          ACCOUNT_MANAGER_DEPLOY_STATE_DIR: ${{ vars.ACCOUNT_MANAGER_DEPLOY_STATE_DIR }}
           VERSION: ${{ steps.version.outputs.version }}
           RESTART_UNITS: ${{ inputs.restart_units }}
         run: |
           etc_dir="${ACCOUNT_MANAGER_DEPLOY_ETC_DIR:-/etc/rtk-account-manager}"
+          state_dir="${ACCOUNT_MANAGER_DEPLOY_STATE_DIR:-/var/lib/rtk-account-manager}"
           rm -rf deployment-evidence
           mkdir -p deployment-evidence
           {
@@ -203,16 +205,44 @@ jobs:
             echo "restart_units=$RESTART_UNITS"
             echo "collected_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > deployment-evidence/summary.txt
+          marker="$state_dir/last-db-backup-ok"
+          if sudo -n test -s "$marker"; then
+            echo "present" > deployment-evidence/backup-marker-status.txt
+          else
+            echo "missing" > deployment-evidence/backup-marker-status.txt
+          fi
           sudo -n systemctl status rtk-account-manager.service --no-pager > deployment-evidence/api-status.txt 2>&1 || true
           sudo -n systemctl status rtk-account-manager-cleanup-tokens.timer --no-pager > deployment-evidence/cleanup-timer-status.txt 2>&1 || true
           sudo -n systemctl status rtk-account-manager-migrate.service --no-pager > deployment-evidence/migrate-status.txt 2>&1 || true
           sudo -n sh -c "grep -E '^[A-Za-z_][A-Za-z0-9_]*=' \"$etc_dir/account-manager.env\" | sed -E 's/=.*/=<redacted>/'" \
             > deployment-evidence/redacted-env-keys.txt 2>&1 || true
 
+      - name: Generate readiness test report candidate
+        if: always()
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          VERIFY_RESULT: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          OUTPUT=.artifacts/report-candidates/docs/READINESS_TEST_REPORT.md \
+            EVIDENCE_DIR=deployment-evidence \
+            ./scripts/generate-readiness-report-candidate.sh
+
       - name: Upload deployment evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: account-manager-deployment-evidence-${{ steps.version.outputs.version }}
-          path: deployment-evidence/*
+          path: |
+            deployment-evidence/*
+            .artifacts/report-candidates/docs/READINESS_TEST_REPORT.md
           if-no-files-found: warn
+
+      - name: Upload readiness test report candidate
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: readiness-test-report-candidate-${{ steps.version.outputs.version }}
+          path: .artifacts/report-candidates/docs/READINESS_TEST_REPORT.md
+          if-no-files-found: error
