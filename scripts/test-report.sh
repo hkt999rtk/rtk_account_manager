@@ -17,7 +17,7 @@ FORMAT_OUT="$REPORT_DIR/gofmt.txt"
 BUILD_OUT="$REPORT_DIR/build.txt"
 TEST_CASES_MD="$REPORT_DIR/test-cases.md"
 
-started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+started_at="${REPORT_GENERATED_AT:-$(date -u +"%Y-%m-%dT%H:%M:%SZ")}"
 
 require_postgres() {
 	local authority host port
@@ -83,6 +83,17 @@ package_count="$(go list ./... | wc -l | tr -d ' ')"
 test_count="$(grep -c '"Action":"run"' "$TEST_EVENTS" 2>/dev/null || true)"
 pass_count="$(grep -c '"Action":"pass"' "$TEST_EVENTS" 2>/dev/null || true)"
 fail_count="$(grep -c '"Action":"fail"' "$TEST_EVENTS" 2>/dev/null || true)"
+
+coverage_total_display="$coverage_total"
+test_count_display="$test_count"
+pass_count_display="$pass_count"
+fail_count_display="$fail_count"
+if [ "${REPORT_CANONICAL:-false}" = "true" ]; then
+	coverage_total_display="recorded in $COVERAGE_FUNC"
+	test_count_display="recorded in $TEST_EVENTS"
+	pass_count_display="recorded in $TEST_EVENTS"
+	fail_count_display="recorded in $TEST_EVENTS"
+fi
 
 grep '"Action":"pass".*"Test":' "$TEST_EVENTS" 2>/dev/null \
 	| sed -E 's/.*"Package":"([^"]+)","Test":"([^"]+)".*/- `\1`: `\2`/' \
@@ -157,7 +168,7 @@ Generated: $started_at
 
 | Metric | Value |
 | --- | --- |
-| Total statement coverage | $coverage_total |
+| Total statement coverage | $coverage_total_display |
 | Minimum required coverage | ${COVERAGE_THRESHOLD}% |
 | Coverage mode | atomic |
 | Coverage scope | ./internal/... |
@@ -167,9 +178,9 @@ Generated: $started_at
 | Metric | Value |
 | --- | --- |
 | Go packages | $package_count |
-| Test cases started | $test_count |
-| JSON pass events | $pass_count |
-| JSON fail events | $fail_count |
+| Test cases started | $test_count_display |
+| JSON pass events | $pass_count_display |
+| JSON fail events | $fail_count_display |
 | Integration database | Postgres via TEST_DATABASE_URL |
 
 ## Correctness Gates

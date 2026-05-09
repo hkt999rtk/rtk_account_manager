@@ -52,6 +52,19 @@ jobs:
       - name: Build release bundle
         run: VERSION="${{ steps.version.outputs.version }}" make release
 
+      - name: Generate release test report candidate
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          RELEASE_ASSET: dist/rtk_account_manager-${{ steps.version.outputs.version }}.tar.gz
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          contracts_commit="$(git ls-tree HEAD contracts 2>/dev/null | awk '{print $3}' || true)"
+          OUTPUT=.artifacts/report-candidates/docs/RELEASE_TEST_REPORT.md \
+            CONTRACTS_COMMIT="$contracts_commit" \
+            ./scripts/generate-release-report-candidate.sh
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
         with:
@@ -59,6 +72,13 @@ jobs:
           path: |
             dist/rtk_account_manager-${{ steps.version.outputs.version }}
             dist/rtk_account_manager-${{ steps.version.outputs.version }}.tar.gz
+          if-no-files-found: error
+
+      - name: Upload release test report candidate
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-test-report-candidate-${{ steps.version.outputs.version }}
+          path: .artifacts/report-candidates/docs/RELEASE_TEST_REPORT.md
           if-no-files-found: error
 
       - name: Publish GitHub release

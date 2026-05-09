@@ -4,6 +4,7 @@ bin/
 dist/
 tmp/
 reports/
+.artifacts/
 coverage.out
 .DS_Store
 .idea/

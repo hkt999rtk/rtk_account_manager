@@ -4,7 +4,7 @@ UNIT_TEST_PACKAGES := ./internal/api ./internal/auth ./internal/broker ./interna
 RACE_TEST_PACKAGES := ./internal/channel ./internal/broker ./internal/worker/... ./internal/auth ./internal/config ./internal/readiness
 FUZZ_SMOKE_TIME ?= 2s
 
-.PHONY: tidy test integration-test test-report test-race test-repeat fuzz-smoke build release check-release readiness-smoke run run-outbox-worker run-inbox-worker db-up db-down migrate cleanup-tokens
+.PHONY: tidy test integration-test test-report check-report-candidates test-race test-repeat fuzz-smoke build release check-release readiness-smoke run run-outbox-worker run-inbox-worker db-up db-down migrate cleanup-tokens
 
 tidy:
 	go mod tidy
@@ -17,6 +17,9 @@ integration-test:
 
 test-report:
 	./scripts/test-report.sh
+
+check-report-candidates:
+	./scripts/report-candidate-tests.sh
 
 test-race:
 	@mkdir -p $(REPORT_DIR)
