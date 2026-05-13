@@ -475,6 +475,33 @@ Contract rules:
   websocket/MQTT owner transport, until a future dedicated cross-service
   readiness API is explicitly designed and implemented.
 
+Composition boundary:
+
+| Fact | Owner | Current account-manager behavior | Future composition requirement |
+| --- | --- | --- | --- |
+| Registry and org membership | `rtk_account_manager` | Exposed through org/device APIs and `/provisioning`. | Required source for any product-readiness document. |
+| Claim/bind result | `rtk_account_manager` | Exposed through Claim Token resolve and device metadata. | Required when readiness includes app onboarding state. |
+| Provision/deactivate operation | `rtk_account_manager` | Exposed through `/provisioning` with failure attribution. | Required source with operation id, retryability, and timestamps. |
+| Video activation projection | `rtk_account_manager` projection of `rtk_video_cloud` events | Exposed as projected `video_cloud_*` metadata. | Must identify video cloud as the source owner. |
+| Subject-bound token issuance | Video cloud or integration auth service | Not owned by account manager. | Must be supplied by the owning service or reported as `unknown`. |
+| Device info/config bootstrap | Product bootstrap or video cloud service | Not owned by account manager. | Must be supplied by the owning service or reported as `unknown`. |
+| Owner transport/session | Video transport service, projected into account status | Account manager exposes projected `online|offline`. | Final readiness must distinguish projected account status from transport-owner diagnostics. |
+
+Future endpoint options:
+
+- Extend `GET /v1/orgs/:orgId/devices/:deviceId/provisioning` only with
+  optional additive source summaries if existing clients remain compatible.
+- Add `GET /v1/orgs/:orgId/devices/:deviceId/readiness` if account manager is
+  chosen as the backend aggregator for cross-service readiness.
+- Keep final composition outside this repo, for example in `rtk_cloud_admin` or
+  an integration BFF, if dashboard/product UX owns the final product-ready
+  decision.
+
+Any future implementation must preserve org-scoped read authorization,
+cross-organization non-disclosure, redaction of token/secret material, OpenAPI
+contract validation, and a test-report correctness gate that is separate from
+the existing account-side readiness gate.
+
 Account-side readiness states:
 
 - `activation_pending`
