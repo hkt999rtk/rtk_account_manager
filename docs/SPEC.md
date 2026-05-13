@@ -870,6 +870,88 @@ Current readiness inputs:
 | Video-side bootstrap prerequisites completed when required | Video-side APIs | Device info/config setup or equivalent downstream bootstrap state is available. |
 | Owner transport connected | Account-manager device `status`, projected from `DeviceOnlineChanged` | The mapped device has come online through a supported owner transport, currently websocket or MQTT in the video transport contract. |
 
+Unified product-readiness source ownership:
+
+| Source fact | Owning service | Account-manager responsibility |
+| --- | --- | --- |
+| Organization membership and role authorization | `rtk_account_manager` | Authorize org-scoped readiness reads for `owner`, `admin`, and `member`. |
+| Registry existence, disabled state, category, serial, groups, and tags | `rtk_account_manager` | Return current account registry facts and preserve account-side soft-delete semantics. |
+| Claim Token resolution and account/device binding | `rtk_account_manager` | Return claim/bind result facts and reject already-claimed transfer/reclaim without explicit platform-admin workflow. |
+| Provision/deactivate operation state | `rtk_account_manager` | Return operation status, idempotency id, failure attribution, retryability, and timestamps from durable operation rows. |
+| Projected video activation/deactivation metadata | `rtk_account_manager` from `video.account.events` | Return last projected `video_cloud_*` metadata and last video-side error facts; do not invent video-side state that has not been projected. |
+| Subject-bound video token issuance | Video cloud or integration auth service | Account manager may reference externally supplied status in a future composition response, but it must not mint or validate video scoped credentials in this repo. |
+| Device info/config/bootstrap prerequisites | Video cloud or product bootstrap service | Account manager may carry projected summary facts only after a contract defines the event/API source. |
+| Owner transport/session readiness | Video transport service, currently projected into account device `status` from `DeviceOnlineChanged` | Account manager exposes the projected online/offline account fact, but the final transport/session owner remains the video transport contract. |
+| Final product-ready decision | Integrating service, BFF, or future cross-service readiness endpoint | Account manager must either return `unknown` for non-owned facts or require explicit upstream inputs; it must not collapse missing external facts into success. |
+
+Unified readiness composition options:
+
+| Option | Shape | When to choose |
+| --- | --- | --- |
+| Extend existing `/provisioning` response | Add optional externally supplied source summaries while preserving existing `readiness.state`, `readiness.product_state`, `operation`, and `video_metadata` fields. | Only if existing clients can ignore new fields and account-manager remains the primary read surface. |
+| Add `GET /v1/orgs/:orgId/devices/:deviceId/readiness` | Return a composed readiness document with account, video, token, bootstrap, and transport source blocks. | Preferred if account manager becomes the backend aggregator for device readiness. |
+| Leave composition to `rtk_cloud_admin` or another integration service | Keep account manager as the account-side facts API and let a BFF compose final product status. | Preferred if WebUI/dashboard or cross-service orchestration owns product-level UX. |
+
+If a future account-manager readiness endpoint is implemented, the minimum
+response shape should be explicit about unknown and externally owned facts:
+
+```json
+{
+  "device_id": "device-uuid",
+  "organization_id": "org-uuid",
+  "product_ready": false,
+  "state": "activation_pending",
+  "sources": {
+    "account": {
+      "owned_by": "rtk_account_manager",
+      "state": "registered",
+      "updated_at": "2026-05-13T00:00:00Z"
+    },
+    "video_activation": {
+      "owned_by": "rtk_video_cloud",
+      "state": "unknown"
+    },
+    "token": {
+      "owned_by": "rtk_video_cloud",
+      "state": "unknown"
+    },
+    "bootstrap": {
+      "owned_by": "product_bootstrap",
+      "state": "unknown"
+    },
+    "transport": {
+      "owned_by": "video_transport",
+      "state": "offline"
+    }
+  },
+  "failure": null
+}
+```
+
+Unified readiness authorization rules:
+
+- `owner`, `admin`, and `member` may read readiness for devices in their
+  organization.
+- Platform-admin may read cross-organization readiness only through an explicit
+  admin endpoint or support workflow, not by bypassing org-scoped handlers.
+- Cross-organization access must return `404 Not Found` or equivalent
+  non-disclosing behavior.
+- A composed readiness endpoint must not expose raw tokens, secrets, DSNs,
+  credential material, or unredacted video service diagnostics.
+
+Unified readiness failure semantics:
+
+- Use source-specific failure attribution. Do not overwrite account-manager
+  provisioning or deactivation results with token/bootstrap/transport failures.
+- A source may be `unknown`, `pending`, `ready`, `failed`, or `not_applicable`.
+- `product_ready=true` requires every required source to be `ready` or
+  explicitly `not_applicable`.
+- If any required source is `failed`, the response must include the owning
+  service, source state, machine-readable error code when available,
+  retryability, and occurrence time.
+- If any required source is `unknown`, the final product state must not be
+  reported as ready.
+
 Account-side readiness projection rules:
 
 - Treat `GET /v1/orgs/:orgId/devices/:deviceId/provisioning` as the
@@ -931,6 +1013,17 @@ Failure handling rules:
   claiming full success.
 - A future unified readiness endpoint that includes token/bootstrap signals
   would require a separate API/OpenAPI/test change set.
+
+Testing expectations for future unified readiness implementation:
+
+- Account-only tests must continue to prove `/provisioning` compatibility.
+- Contract tests must validate any new readiness endpoint against OpenAPI.
+- Integration tests must cover missing, unknown, pending, ready, failed, and
+  not-applicable source combinations.
+- Authorization tests must cover owner/admin/member, platform-admin support
+  reads if implemented, disabled users, and cross-organization non-disclosure.
+- Test-report correctness gates must distinguish account-side readiness from
+  unified product readiness.
 
 ## 8. API Conventions
 
