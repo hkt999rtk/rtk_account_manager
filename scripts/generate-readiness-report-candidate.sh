@@ -34,6 +34,22 @@ if [ -f "$EVIDENCE_DIR/backup-marker-status.txt" ]; then
 	backup_marker_status="$(tr '\n' ' ' <"$EVIDENCE_DIR/backup-marker-status.txt" | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
 fi
 
+read_evidence_value() {
+	local file=$1
+	local key=$2
+	if [ -f "$file" ]; then
+		awk -F= -v key="$key" '$1 == key { print substr($0, length(key) + 2); exit }' "$file"
+	fi
+}
+
+production_evidence="$EVIDENCE_DIR/production-evidence.txt"
+restore_drill_reference="$(read_evidence_value "$production_evidence" restore_drill_reference)"
+smtp_mode="$(read_evidence_value "$production_evidence" smtp_mode)"
+broker_mode="$(read_evidence_value "$production_evidence" broker_mode)"
+restore_drill_reference="${restore_drill_reference:-unknown}"
+smtp_mode="${smtp_mode:-unknown}"
+broker_mode="${broker_mode:-unknown}"
+
 api_status="$(extract_active_line "$EVIDENCE_DIR/api-status.txt")"
 cleanup_status="$(extract_active_line "$EVIDENCE_DIR/cleanup-timer-status.txt")"
 migrate_status="$(extract_active_line "$EVIDENCE_DIR/migrate-status.txt")"
@@ -54,6 +70,9 @@ Generated: $GENERATED_AT
 | Deployed version | \`$VERSION\` |
 | Verify result | \`$VERIFY_RESULT\` |
 | Backup marker status | \`$backup_marker_status\` |
+| Restore drill reference | \`$restore_drill_reference\` |
+| SMTP mode | \`$smtp_mode\` |
+| Cross-service broker mode | \`$broker_mode\` |
 | Workflow run | $RUN_URL |
 
 ## Service Status Summary
@@ -63,6 +82,31 @@ Generated: $GENERATED_AT
 | rtk-account-manager.service | \`$api_status\` |
 | rtk-account-manager-cleanup-tokens.timer | \`$cleanup_status\` |
 | rtk-account-manager-migrate.service | \`$migrate_status\` |
+
+## Smoke Summary
+
+EOF
+
+if [ -s "$EVIDENCE_DIR/smoke-results.txt" ]; then
+	awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/ { printf "| `%s` | `%s` |\n", $1, substr($0, length($1) + 2) }' "$EVIDENCE_DIR/smoke-results.txt" \
+		| {
+			echo "| Check | Result |"
+			echo "| --- | --- |"
+			cat
+		} >>"$OUTPUT"
+else
+	cat >>"$OUTPUT" <<'EOF'
+| Check | Result |
+| --- | --- |
+| `health` | `unknown` |
+| `login` | `SKIP:not-collected` |
+| `organization_read` | `SKIP:not-collected` |
+| `device_read` | `SKIP:not-collected` |
+| `provisioning_readiness` | `SKIP:not-collected` |
+EOF
+fi
+
+cat >>"$OUTPUT" <<'EOF'
 
 ## Redacted Environment Keys
 

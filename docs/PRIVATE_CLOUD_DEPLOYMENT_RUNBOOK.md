@@ -167,6 +167,28 @@ the staging environment with:
 | `ACCOUNT_MANAGER_DEPLOY_PREFIX` variable | Optional override; defaults to `/opt/rtk-account-manager`. |
 | `ACCOUNT_MANAGER_DEPLOY_ETC_DIR` variable | Optional override; defaults to `/etc/rtk-account-manager`. |
 | `ACCOUNT_MANAGER_DEPLOY_STATE_DIR` variable | Optional override; defaults to `/var/lib/rtk-account-manager`. |
+| `ACCOUNT_MANAGER_SMOKE_BASE_URL` variable | Optional smoke base URL; defaults to `http://127.0.0.1:18081`. |
+| `ACCOUNT_MANAGER_SMOKE_EMAIL` secret | Existing smoke user email for optional readiness smoke. |
+| `ACCOUNT_MANAGER_SMOKE_PASSWORD` secret | Existing smoke user password for optional readiness smoke. |
+| `ACCOUNT_MANAGER_SMOKE_ORG_ID` secret | Existing organization ID readable by the smoke user. |
+| `ACCOUNT_MANAGER_SMOKE_DEVICE_ID` secret | Existing device ID readable by the smoke user. |
+
+Manual deploy inputs:
+
+| Input | Purpose |
+| --- | --- |
+| `version` | Existing GitHub Release tag to deploy. |
+| `restart_units` | Space-separated account-manager units to restart after migration. |
+| `verify` | Run package verification after restart. |
+| `run_readiness_smoke` | Run login, organization read, device read, and provisioning/readiness smoke when smoke secrets are configured. |
+| `restore_drill_reference` | Operator reference for the latest restore drill, or `SKIP:<reason>`. |
+| `smtp_mode` | `configured`, `log-only`, or `SKIP`. |
+| `broker_mode` | `enabled`, `disabled`, or `SKIP`. |
+
+`SKIP:<reason>` values are acceptable only when the omission is deliberate and
+reviewable, for example `SKIP:evaluation-no-broker` or
+`SKIP:restore-drill-not-required-for-demo`. Do not use `SKIP` to hide a failed
+backup, failed smoke check, or missing production-like dependency.
 
 Before running a deployment that can apply migrations, confirm a fresh database
 backup and create the deploy gate marker:
@@ -188,7 +210,15 @@ Deploy sequence:
 6. Run `rtk-account-manager-migrate.service`.
 7. Restart selected runtime units.
 8. Run `/opt/rtk-account-manager/verify.sh`.
-9. Upload deployment evidence with service status and redacted env keys.
+9. Collect deployment evidence:
+   - backup marker freshness from `/var/lib/rtk-account-manager/last-db-backup-ok`
+   - restore-drill reference from the manual deploy input
+   - `/v1/health` smoke result
+   - optional login, organization, device, and provisioning/readiness smoke result
+   - SMTP mode and cross-service broker mode
+   - concise systemd status summaries
+   - redacted runtime env-key inventory
+10. Upload concise readiness evidence plus raw diagnostics artifacts.
 
 Default restart units are:
 
@@ -346,6 +376,17 @@ Expected response:
 
 ## Smoke Checks
 
+The deploy workflow always records `/v1/health`. Set
+`run_readiness_smoke=true` and configure the smoke secrets to also record
+login, organization read, device read, and provisioning/readiness checks.
+
+If `run_readiness_smoke=false`, the readiness report records those checks as
+`SKIP:disabled`. If any smoke secret is missing, it records
+`SKIP:missing-smoke-secret`. If `jq` is unavailable on the deploy runner, the
+workflow records `SKIP:jq-missing` for token-dependent checks. These explicit
+SKIP values are intended to make evidence gaps visible without committing raw
+responses, JWTs, passwords, or customer payloads.
+
 Use an existing smoke user and existing organization/device in production-like
 deployments. Do not create customer data solely for smoke checks unless that is
 part of an evaluation environment.
@@ -490,7 +531,7 @@ Attach redacted evidence to deployment sign-off:
 - auth/login smoke result
 - organization/device read smoke result
 - provisioning/readiness smoke result or explicit `SKIP`
-- SMTP mode: configured or log-only `SKIP`
+- SMTP mode: `configured`, `log-only`, or `SKIP`
 - cross-service channel mode: enabled, disabled, or `SKIP`
 - backup timestamp and restore-drill reference
 - worker service status when lifecycle channel is enabled

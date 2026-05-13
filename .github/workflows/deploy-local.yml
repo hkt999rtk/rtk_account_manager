@@ -17,6 +17,34 @@ on:
         required: true
         default: true
         type: boolean
+      run_readiness_smoke:
+        description: "Run login/org/device/provisioning smoke when smoke secrets are configured."
+        required: true
+        default: false
+        type: boolean
+      restore_drill_reference:
+        description: "Restore-drill evidence reference, or SKIP:<reason>."
+        required: false
+        default: "SKIP:not-provided"
+        type: string
+      smtp_mode:
+        description: "SMTP evidence mode."
+        required: true
+        default: "SKIP"
+        type: choice
+        options:
+          - configured
+          - log-only
+          - SKIP
+      broker_mode:
+        description: "Cross-service broker evidence mode."
+        required: true
+        default: "SKIP"
+        type: choice
+        options:
+          - enabled
+          - disabled
+          - SKIP
 
 permissions:
   contents: read
@@ -75,11 +103,15 @@ jobs:
           ACCOUNT_MANAGER_DEPLOY_SYSTEMD_DIR: ${{ vars.ACCOUNT_MANAGER_DEPLOY_SYSTEMD_DIR }}
           ACCOUNT_MANAGER_DEPLOY_STATE_DIR: ${{ vars.ACCOUNT_MANAGER_DEPLOY_STATE_DIR }}
           RESTART_UNITS: ${{ inputs.restart_units }}
+          RESTORE_DRILL_REFERENCE: ${{ inputs.restore_drill_reference }}
         run: |
           valid_path='^/[A-Za-z0-9._/-]+$'
           valid_units='^[A-Za-z0-9_.@ -]+$'
+          valid_evidence='^[A-Za-z0-9._:/@# -]+$'
           test -n "$RESTART_UNITS"
+          test -n "$RESTORE_DRILL_REFERENCE"
           [[ "$RESTART_UNITS" =~ $valid_units ]]
+          [[ "$RESTORE_DRILL_REFERENCE" =~ $valid_evidence ]]
           [[ "${ACCOUNT_MANAGER_DEPLOY_PREFIX:-/opt/rtk-account-manager}" =~ $valid_path ]]
           [[ "${ACCOUNT_MANAGER_DEPLOY_ETC_DIR:-/etc/rtk-account-manager}" =~ $valid_path ]]
           [[ "${ACCOUNT_MANAGER_DEPLOY_SYSTEMD_DIR:-/etc/systemd/system}" =~ $valid_path ]]
@@ -193,11 +225,21 @@ jobs:
         env:
           ACCOUNT_MANAGER_DEPLOY_ETC_DIR: ${{ vars.ACCOUNT_MANAGER_DEPLOY_ETC_DIR }}
           ACCOUNT_MANAGER_DEPLOY_STATE_DIR: ${{ vars.ACCOUNT_MANAGER_DEPLOY_STATE_DIR }}
+          ACCOUNT_MANAGER_SMOKE_BASE_URL: ${{ vars.ACCOUNT_MANAGER_SMOKE_BASE_URL }}
+          ACCOUNT_MANAGER_SMOKE_EMAIL: ${{ secrets.ACCOUNT_MANAGER_SMOKE_EMAIL }}
+          ACCOUNT_MANAGER_SMOKE_PASSWORD: ${{ secrets.ACCOUNT_MANAGER_SMOKE_PASSWORD }}
+          ACCOUNT_MANAGER_SMOKE_ORG_ID: ${{ secrets.ACCOUNT_MANAGER_SMOKE_ORG_ID }}
+          ACCOUNT_MANAGER_SMOKE_DEVICE_ID: ${{ secrets.ACCOUNT_MANAGER_SMOKE_DEVICE_ID }}
           VERSION: ${{ steps.version.outputs.version }}
           RESTART_UNITS: ${{ inputs.restart_units }}
+          RESTORE_DRILL_REFERENCE: ${{ inputs.restore_drill_reference }}
+          SMTP_MODE: ${{ inputs.smtp_mode }}
+          BROKER_MODE: ${{ inputs.broker_mode }}
+          RUN_READINESS_SMOKE: ${{ inputs.run_readiness_smoke }}
         run: |
           etc_dir="${ACCOUNT_MANAGER_DEPLOY_ETC_DIR:-/etc/rtk-account-manager}"
           state_dir="${ACCOUNT_MANAGER_DEPLOY_STATE_DIR:-/var/lib/rtk-account-manager}"
+          base_url="${ACCOUNT_MANAGER_SMOKE_BASE_URL:-http://127.0.0.1:18081}"
           rm -rf deployment-evidence
           mkdir -p deployment-evidence
           {
@@ -205,11 +247,81 @@ jobs:
             echo "restart_units=$RESTART_UNITS"
             echo "collected_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > deployment-evidence/summary.txt
+          {
+            echo "restore_drill_reference=$RESTORE_DRILL_REFERENCE"
+            echo "smtp_mode=$SMTP_MODE"
+            echo "broker_mode=$BROKER_MODE"
+          } > deployment-evidence/production-evidence.txt
           marker="$state_dir/last-db-backup-ok"
           if sudo -n test -s "$marker"; then
-            echo "present" > deployment-evidence/backup-marker-status.txt
+            marker_text=$(sudo -n cat "$marker" 2>/dev/null | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')
+            echo "present ${marker_text:-timestamp-unavailable}" > deployment-evidence/backup-marker-status.txt
           else
             echo "missing" > deployment-evidence/backup-marker-status.txt
+          fi
+          if curl -fsS "$base_url/v1/health" >/dev/null 2>&1; then
+            echo "health=PASS" > deployment-evidence/smoke-results.txt
+          else
+            echo "health=FAIL" > deployment-evidence/smoke-results.txt
+          fi
+          if [ "$RUN_READINESS_SMOKE" != "true" ]; then
+            {
+              echo "login=SKIP:disabled"
+              echo "organization_read=SKIP:disabled"
+              echo "device_read=SKIP:disabled"
+              echo "provisioning_readiness=SKIP:disabled"
+            } >> deployment-evidence/smoke-results.txt
+          elif [ -z "$ACCOUNT_MANAGER_SMOKE_EMAIL" ] || [ -z "$ACCOUNT_MANAGER_SMOKE_PASSWORD" ] || [ -z "$ACCOUNT_MANAGER_SMOKE_ORG_ID" ] || [ -z "$ACCOUNT_MANAGER_SMOKE_DEVICE_ID" ]; then
+            {
+              echo "login=SKIP:missing-smoke-secret"
+              echo "organization_read=SKIP:missing-smoke-secret"
+              echo "device_read=SKIP:missing-smoke-secret"
+              echo "provisioning_readiness=SKIP:missing-smoke-secret"
+            } >> deployment-evidence/smoke-results.txt
+          else
+            login_file=$(mktemp)
+            trap 'rm -f "$login_file"' EXIT
+            if curl -fsS -X POST "$base_url/v1/auth/login" \
+              -H 'Content-Type: application/json' \
+              -d "{\"email\":\"$ACCOUNT_MANAGER_SMOKE_EMAIL\",\"password\":\"$ACCOUNT_MANAGER_SMOKE_PASSWORD\"}" \
+              > "$login_file"; then
+              echo "login=PASS" >> deployment-evidence/smoke-results.txt
+              if command -v jq >/dev/null 2>&1; then
+                access_token=$(jq -r '.tokens.access_token // empty' "$login_file")
+              else
+                echo "json_parser=SKIP:jq-missing" >> deployment-evidence/smoke-results.txt
+                access_token=""
+              fi
+            else
+              echo "login=FAIL" >> deployment-evidence/smoke-results.txt
+              access_token=""
+            fi
+            if [ -z "$access_token" ]; then
+              if command -v jq >/dev/null 2>&1; then
+                skip_reason="no-access-token"
+              else
+                skip_reason="jq-missing"
+              fi
+              echo "organization_read=SKIP:$skip_reason" >> deployment-evidence/smoke-results.txt
+              echo "device_read=SKIP:$skip_reason" >> deployment-evidence/smoke-results.txt
+              echo "provisioning_readiness=SKIP:$skip_reason" >> deployment-evidence/smoke-results.txt
+            else
+              if curl -fsS "$base_url/v1/orgs/$ACCOUNT_MANAGER_SMOKE_ORG_ID" -H "Authorization: Bearer $access_token" >/dev/null 2>&1; then
+                echo "organization_read=PASS" >> deployment-evidence/smoke-results.txt
+              else
+                echo "organization_read=FAIL" >> deployment-evidence/smoke-results.txt
+              fi
+              if curl -fsS "$base_url/v1/orgs/$ACCOUNT_MANAGER_SMOKE_ORG_ID/devices/$ACCOUNT_MANAGER_SMOKE_DEVICE_ID" -H "Authorization: Bearer $access_token" >/dev/null 2>&1; then
+                echo "device_read=PASS" >> deployment-evidence/smoke-results.txt
+              else
+                echo "device_read=FAIL" >> deployment-evidence/smoke-results.txt
+              fi
+              if curl -fsS "$base_url/v1/orgs/$ACCOUNT_MANAGER_SMOKE_ORG_ID/devices/$ACCOUNT_MANAGER_SMOKE_DEVICE_ID/provisioning" -H "Authorization: Bearer $access_token" >/dev/null 2>&1; then
+                echo "provisioning_readiness=PASS" >> deployment-evidence/smoke-results.txt
+              else
+                echo "provisioning_readiness=SKIP:not-readable-or-not-selected" >> deployment-evidence/smoke-results.txt
+              fi
+            fi
           fi
           sudo -n systemctl status rtk-account-manager.service --no-pager > deployment-evidence/api-status.txt 2>&1 || true
           sudo -n systemctl status rtk-account-manager-cleanup-tokens.timer --no-pager > deployment-evidence/cleanup-timer-status.txt 2>&1 || true
