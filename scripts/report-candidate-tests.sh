@@ -89,7 +89,19 @@ cat >"$evidence/summary.txt" <<'EOF'
 version=vready
 EOF
 cat >"$evidence/backup-marker-status.txt" <<'EOF'
-present
+present 2026-05-13T00:00:00Z
+EOF
+cat >"$evidence/production-evidence.txt" <<'EOF'
+restore_drill_reference=runbook-restore-2026-05-13
+smtp_mode=log-only
+broker_mode=disabled
+EOF
+cat >"$evidence/smoke-results.txt" <<'EOF'
+health=PASS
+login=PASS
+organization_read=PASS
+device_read=PASS
+provisioning_readiness=SKIP:not-readable-or-not-selected
 EOF
 cat >"$evidence/api-status.txt" <<'EOF'
      Active: active (running) since today
@@ -114,6 +126,13 @@ OUTPUT="$readiness_output" \
 assert_contains "$readiness_output" "# Readiness Test Report"
 assert_contains "$readiness_output" "| Deployed version | \`vready\` |"
 assert_contains "$readiness_output" "| Verify result | \`success\` |"
+assert_contains "$readiness_output" "| Backup marker status | \`present 2026-05-13T00:00:00Z\` |"
+assert_contains "$readiness_output" "| Restore drill reference | \`runbook-restore-2026-05-13\` |"
+assert_contains "$readiness_output" "| SMTP mode | \`log-only\` |"
+assert_contains "$readiness_output" "| Cross-service broker mode | \`disabled\` |"
+assert_contains "$readiness_output" "| \`health\` | \`PASS\` |"
+assert_contains "$readiness_output" "| \`login\` | \`PASS\` |"
+assert_contains "$readiness_output" "| \`provisioning_readiness\` | \`SKIP:not-readable-or-not-selected\` |"
 assert_contains "$readiness_output" "- \`JWT_ACCESS_SECRET=<redacted>\`"
 
 import_root="$tmp_dir/imported/artifact/docs"
