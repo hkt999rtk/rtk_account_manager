@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"rtk_account_manager/internal/model"
 )
@@ -122,4 +123,140 @@ func TestEvaluationQuotaUsageUtilizationHandlesZeroAndNonZeroQuotas(t *testing.T
 	if usage.Utilization() != 0.25 {
 		t.Fatalf("expected utilization 0.25, got %f", usage.Utilization())
 	}
+}
+
+func TestLifecycleMetricsAggregatesQueueAndOperationHealth(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	orgID, userID, deviceID := createDeviceFixtureForEmail(t, env, "lifecycle-metrics@example.com")
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	pendingOp, _, err := env.store.CreateOrGetDeviceOperation(ctx, DeviceOperationCreateInput{
+		OperationID:    "metrics-op-pending",
+		CorrelationID:  "metrics-corr-pending",
+		OrganizationID: orgID,
+		DeviceID:       deviceID,
+		OperationType:  model.DeviceOperationTypeProvision,
+		Status:         model.DeviceOperationStatusPending,
+		RequestedBy:    &userID,
+		RequestPayload: map[string]any{"video_cloud_devid": "video-metrics-1"},
+		ResultPayload:  map[string]any{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failedOp, _, err := env.store.CreateOrGetDeviceOperation(ctx, DeviceOperationCreateInput{
+		OperationID:    "metrics-op-failed",
+		CorrelationID:  "metrics-corr-failed",
+		OrganizationID: orgID,
+		DeviceID:       deviceID,
+		OperationType:  model.DeviceOperationTypeDeactivate,
+		Status:         model.DeviceOperationStatusFailed,
+		RequestedBy:    &userID,
+		RequestPayload: map[string]any{"video_cloud_devid": "video-metrics-1"},
+		ResultPayload:  map[string]any{"error": "deactivate failed"},
+		ErrorCode:      stringPtr("deactivate_failed"),
+		ErrorMessage:   stringPtr("video service rejected deactivate"),
+		Retryable:      boolPtr(false),
+		CompletedAt:    timePtr(now),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := env.store.CreateOutboxMessage(ctx, DeviceMessageOutboxCreateInput{
+		MessageID:     "metrics-outbox-pending",
+		OperationID:   pendingOp.OperationID,
+		CorrelationID: pendingOp.CorrelationID,
+		Stream:        "account.video.commands",
+		MessageType:   "DeviceProvisionRequested",
+		SchemaVersion: "1.0",
+		PartitionKey:  deviceID,
+		Payload:       map[string]any{"operation_id": pendingOp.OperationID},
+		Status:        model.DeviceMessageOutboxStatusPending,
+		AvailableAt:   now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.CreateOutboxMessage(ctx, DeviceMessageOutboxCreateInput{
+		MessageID:     "metrics-outbox-dead",
+		OperationID:   failedOp.OperationID,
+		CorrelationID: failedOp.CorrelationID,
+		Stream:        "account.video.commands",
+		MessageType:   "DeviceDeactivateRequested",
+		SchemaVersion: "1.0",
+		PartitionKey:  deviceID,
+		Payload:       map[string]any{"operation_id": failedOp.OperationID},
+		Status:        model.DeviceMessageOutboxStatusDeadLettered,
+		AttemptCount:  3,
+		LastError:     stringPtr("publish_failed"),
+		AvailableAt:   now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := env.store.CreateOrGetInboxMessage(ctx, DeviceMessageInboxCreateInput{
+		MessageID:     "metrics-inbox-dead",
+		OperationID:   failedOp.OperationID,
+		CorrelationID: failedOp.CorrelationID,
+		Stream:        "video.account.events",
+		MessageType:   "DeviceDeactivateFailed",
+		SchemaVersion: "1.0",
+		PartitionKey:  deviceID,
+		Payload:       map[string]any{"operation_id": failedOp.OperationID},
+		Status:        model.DeviceMessageInboxStatusDeadLettered,
+		AttemptCount:  3,
+		LastError:     stringPtr("projection_failed"),
+		ReceivedAt:    now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	metrics, err := env.store.GetLifecycleMetrics(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.Outbox.ByStatus[string(model.DeviceMessageOutboxStatusPending)] != 1 ||
+		metrics.Outbox.ByStatus[string(model.DeviceMessageOutboxStatusDeadLettered)] != 1 {
+		t.Fatalf("unexpected outbox status counts: %+v", metrics.Outbox.ByStatus)
+	}
+	if len(metrics.Outbox.DeadLetteredByError) != 1 ||
+		metrics.Outbox.DeadLetteredByError[0].MessageType != "DeviceDeactivateRequested" ||
+		metrics.Outbox.DeadLetteredByError[0].ErrorCode != "publish_failed" ||
+		metrics.Outbox.DeadLetteredByError[0].Count != 1 {
+		t.Fatalf("unexpected outbox dead-letter counts: %+v", metrics.Outbox.DeadLetteredByError)
+	}
+	if metrics.Inbox.ByStatus[string(model.DeviceMessageInboxStatusDeadLettered)] != 1 {
+		t.Fatalf("unexpected inbox status counts: %+v", metrics.Inbox.ByStatus)
+	}
+	if len(metrics.Inbox.DeadLetteredByError) != 1 ||
+		metrics.Inbox.DeadLetteredByError[0].MessageType != "DeviceDeactivateFailed" ||
+		metrics.Inbox.DeadLetteredByError[0].ErrorCode != "projection_failed" {
+		t.Fatalf("unexpected inbox dead-letter counts: %+v", metrics.Inbox.DeadLetteredByError)
+	}
+	if metrics.Operations.ByStatus[string(model.DeviceOperationStatusPending)] != 1 ||
+		metrics.Operations.ByStatus[string(model.DeviceOperationStatusFailed)] != 1 {
+		t.Fatalf("unexpected operation status counts: %+v", metrics.Operations.ByStatus)
+	}
+	if !hasOperationTypeStatus(metrics.Operations.ByTypeAndStatus, string(model.DeviceOperationTypeDeactivate), string(model.DeviceOperationStatusFailed), 1) {
+		t.Fatalf("expected failed deactivate type/status count, got %+v", metrics.Operations.ByTypeAndStatus)
+	}
+	if metrics.Operations.OldestActiveAgeSeconds < 0 {
+		t.Fatalf("expected non-negative active age, got %d", metrics.Operations.OldestActiveAgeSeconds)
+	}
+	if metrics.Operations.LastTerminalCompletedAt == nil || !metrics.Operations.LastTerminalCompletedAt.Equal(now) {
+		t.Fatalf("expected terminal completion timestamp %s, got %+v", now, metrics.Operations.LastTerminalCompletedAt)
+	}
+}
+
+func hasOperationTypeStatus(counts []LifecycleOperationStatusCount, operationType, status string, count int64) bool {
+	for _, got := range counts {
+		if got.OperationType == operationType && got.Status == status && got.Count == count {
+			return true
+		}
+	}
+	return false
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }

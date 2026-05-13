@@ -443,10 +443,10 @@ paths:
     get:
       security:
         - bearerAuth: []
-      summary: Get evaluation-tier signup and quota metrics.
+      summary: Get evaluation-tier, quota, and lifecycle metrics.
       responses:
         "200":
-          description: Evaluation-tier metrics snapshot.
+          description: Platform-admin metrics snapshot.
           content:
             application/json:
               schema:
@@ -1749,7 +1749,7 @@ components:
           $ref: "#/components/schemas/Organization"
     EvalTierMetricsResponse:
       type: object
-      required: [signups, quota_raise_requests, evaluation_quota_usage]
+      required: [signups, quota_raise_requests, evaluation_quota_usage, lifecycle]
       properties:
         signups:
           type: object
@@ -1791,6 +1791,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/EvaluationQuotaUsage"
+        lifecycle:
+          $ref: "#/components/schemas/LifecycleMetrics"
     EvaluationQuotaUsage:
       type: object
       required: [organization_id, organization_name, active_devices, evaluation_device_quota, utilization]
@@ -1812,6 +1814,81 @@ components:
         utilization:
           type: number
           format: double
+          minimum: 0
+    LifecycleMetrics:
+      type: object
+      required: [outbox, inbox, operations]
+      properties:
+        outbox:
+          $ref: "#/components/schemas/LifecycleMessageMetrics"
+        inbox:
+          $ref: "#/components/schemas/LifecycleMessageMetrics"
+        operations:
+          $ref: "#/components/schemas/LifecycleOperationMetrics"
+    LifecycleMessageMetrics:
+      type: object
+      required: [by_status, dead_lettered_by_error]
+      properties:
+        by_status:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+            minimum: 0
+        dead_lettered_by_error:
+          type: array
+          items:
+            $ref: "#/components/schemas/LifecycleMessageErrorCount"
+        last_completed_at:
+          type: string
+          format: date-time
+          nullable: true
+    LifecycleMessageErrorCount:
+      type: object
+      required: [message_type, error_code, count]
+      properties:
+        message_type:
+          type: string
+        error_code:
+          type: string
+        count:
+          type: integer
+          format: int64
+          minimum: 0
+    LifecycleOperationMetrics:
+      type: object
+      required: [by_status, by_type_and_status, oldest_active_age_seconds]
+      properties:
+        by_status:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+            minimum: 0
+        by_type_and_status:
+          type: array
+          items:
+            $ref: "#/components/schemas/LifecycleOperationStatusCount"
+        oldest_active_age_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+        last_terminal_completed_at:
+          type: string
+          format: date-time
+          nullable: true
+    LifecycleOperationStatusCount:
+      type: object
+      required: [operation_type, status, count]
+      properties:
+        operation_type:
+          type: string
+          enum: [provision, deactivate]
+        status:
+          type: string
+        count:
+          type: integer
+          format: int64
           minimum: 0
     MembersResponse:
       type: object

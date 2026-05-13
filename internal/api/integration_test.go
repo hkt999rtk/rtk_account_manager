@@ -641,6 +641,122 @@ func TestIntegrationAdminMetricsReportsEmptySnapshot(t *testing.T) {
 	if len(metricsBody.EvaluationQuotaUsage) != 0 {
 		t.Fatalf("expected no evaluation quota usage rows, got %+v", metricsBody.EvaluationQuotaUsage)
 	}
+	if metricsBody.Lifecycle.Outbox.ByStatus == nil || metricsBody.Lifecycle.Inbox.ByStatus == nil || metricsBody.Lifecycle.Operations.ByStatus == nil {
+		t.Fatalf("expected lifecycle maps in empty metrics response, got %+v", metricsBody.Lifecycle)
+	}
+}
+
+func TestIntegrationAdminMetricsIncludesLifecycleVisibility(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+	admin := registerUser(t, env.router, "lifecycle-metrics-admin@example.com", "Lifecycle Metrics Admin Org")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	nonAdmin := registerUser(t, env.router, "lifecycle-metrics-user@example.com", "Lifecycle Metrics User Org")
+
+	deviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+admin.Organization.ID+"/devices", devicePayload("metrics-device", "METRICS-DEVICE-1"), admin.Tokens.AccessToken)
+	if deviceRes.Code != http.StatusCreated {
+		t.Fatalf("expected device create 201, got %d: %s", deviceRes.Code, deviceRes.Body.String())
+	}
+	device := decodeBody[deviceBody](t, deviceRes)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	retryable := false
+	s := store.New(env.db)
+	pendingOperationID := "api-metrics-op-pending-" + device.Device.ID
+	pendingCorrelationID := "api-metrics-corr-pending-" + device.Device.ID
+	deadOperationID := "api-metrics-op-dead-" + device.Device.ID
+	deadCorrelationID := "api-metrics-corr-dead-" + device.Device.ID
+	if _, _, err := s.CreateOrGetDeviceOperation(ctx, store.DeviceOperationCreateInput{
+		OperationID:    pendingOperationID,
+		CorrelationID:  pendingCorrelationID,
+		OrganizationID: admin.Organization.ID,
+		DeviceID:       device.Device.ID,
+		OperationType:  model.DeviceOperationTypeProvision,
+		Status:         model.DeviceOperationStatusPending,
+		RequestedBy:    &admin.User.ID,
+		RequestPayload: map[string]any{"video_cloud_devid": "api-video-metrics-1"},
+		ResultPayload:  map[string]any{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.CreateOrGetDeviceOperation(ctx, store.DeviceOperationCreateInput{
+		OperationID:    deadOperationID,
+		CorrelationID:  deadCorrelationID,
+		OrganizationID: admin.Organization.ID,
+		DeviceID:       device.Device.ID,
+		OperationType:  model.DeviceOperationTypeDeactivate,
+		Status:         model.DeviceOperationStatusDeadLettered,
+		RequestedBy:    &admin.User.ID,
+		RequestPayload: map[string]any{"video_cloud_devid": "api-video-metrics-1"},
+		ResultPayload:  map[string]any{},
+		ErrorCode:      stringPtr("deactivate_dead_lettered"),
+		ErrorMessage:   stringPtr("deactivate publish failed"),
+		Retryable:      &retryable,
+		CompletedAt:    &now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateOutboxMessage(ctx, store.DeviceMessageOutboxCreateInput{
+		MessageID:     "api-metrics-outbox-dead-" + device.Device.ID,
+		OperationID:   deadOperationID,
+		CorrelationID: deadCorrelationID,
+		Stream:        "account.video.commands",
+		MessageType:   "DeviceDeactivateRequested",
+		SchemaVersion: "1.0",
+		PartitionKey:  device.Device.ID,
+		Payload:       map[string]any{"operation_id": deadOperationID},
+		Status:        model.DeviceMessageOutboxStatusDeadLettered,
+		AttemptCount:  3,
+		LastError:     stringPtr("publish_failed"),
+		AvailableAt:   now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.CreateOrGetInboxMessage(ctx, store.DeviceMessageInboxCreateInput{
+		MessageID:     "api-metrics-inbox-dead-" + device.Device.ID,
+		OperationID:   deadOperationID,
+		CorrelationID: deadCorrelationID,
+		Stream:        "video.account.events",
+		MessageType:   "DeviceDeactivateFailed",
+		SchemaVersion: "1.0",
+		PartitionKey:  device.Device.ID,
+		Payload:       map[string]any{"operation_id": deadOperationID},
+		Status:        model.DeviceMessageInboxStatusDeadLettered,
+		AttemptCount:  3,
+		LastError:     stringPtr("projection_failed"),
+		ReceivedAt:    now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	nonAdminMetricsRes := performJSON(env.router, http.MethodGet, "/v1/admin/metrics", nil, nonAdmin.Tokens.AccessToken)
+	if nonAdminMetricsRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-platform-admin metrics 403, got %d", nonAdminMetricsRes.Code)
+	}
+	metricsRes := performJSON(env.router, http.MethodGet, "/v1/admin/metrics", nil, admin.Tokens.AccessToken)
+	if metricsRes.Code != http.StatusOK {
+		t.Fatalf("expected admin metrics 200, got %d: %s", metricsRes.Code, metricsRes.Body.String())
+	}
+	metricsBody := decodeBody[evalTierMetricsBody](t, metricsRes)
+	if metricsBody.Lifecycle.Outbox.ByStatus[string(model.DeviceMessageOutboxStatusDeadLettered)] != 1 {
+		t.Fatalf("expected outbox dead-letter count, got %+v", metricsBody.Lifecycle.Outbox)
+	}
+	if len(metricsBody.Lifecycle.Outbox.DeadLetteredByError) != 1 ||
+		metricsBody.Lifecycle.Outbox.DeadLetteredByError[0].MessageType != "DeviceDeactivateRequested" ||
+		metricsBody.Lifecycle.Outbox.DeadLetteredByError[0].ErrorCode != "publish_failed" {
+		t.Fatalf("unexpected outbox dead-letter breakdown: %+v", metricsBody.Lifecycle.Outbox.DeadLetteredByError)
+	}
+	if metricsBody.Lifecycle.Inbox.ByStatus[string(model.DeviceMessageInboxStatusDeadLettered)] != 1 {
+		t.Fatalf("expected inbox dead-letter count, got %+v", metricsBody.Lifecycle.Inbox)
+	}
+	if metricsBody.Lifecycle.Operations.ByStatus[string(model.DeviceOperationStatusPending)] != 1 ||
+		metricsBody.Lifecycle.Operations.ByStatus[string(model.DeviceOperationStatusDeadLettered)] != 1 {
+		t.Fatalf("expected operation status counts, got %+v", metricsBody.Lifecycle.Operations.ByStatus)
+	}
+	if !hasLifecycleTypeStatus(metricsBody.Lifecycle.Operations.ByTypeAndStatus, string(model.DeviceOperationTypeDeactivate), string(model.DeviceOperationStatusDeadLettered), 1) {
+		t.Fatalf("expected dead-lettered deactivate type/status count, got %+v", metricsBody.Lifecycle.Operations.ByTypeAndStatus)
+	}
 }
 
 func TestIntegrationQuotaRaiseValidationAndDefaultApproval(t *testing.T) {
@@ -2926,6 +3042,49 @@ type evalTierMetricsBody struct {
 		EvaluationDeviceQuota int     `json:"evaluation_device_quota"`
 		Utilization           float64 `json:"utilization"`
 	} `json:"evaluation_quota_usage"`
+	Lifecycle lifecycleMetricsBody `json:"lifecycle"`
+}
+
+type lifecycleMetricsBody struct {
+	Outbox struct {
+		ByStatus            map[string]int64 `json:"by_status"`
+		DeadLetteredByError []struct {
+			MessageType string `json:"message_type"`
+			ErrorCode   string `json:"error_code"`
+			Count       int64  `json:"count"`
+		} `json:"dead_lettered_by_error"`
+		LastCompletedAt *time.Time `json:"last_completed_at"`
+	} `json:"outbox"`
+	Inbox struct {
+		ByStatus            map[string]int64 `json:"by_status"`
+		DeadLetteredByError []struct {
+			MessageType string `json:"message_type"`
+			ErrorCode   string `json:"error_code"`
+			Count       int64  `json:"count"`
+		} `json:"dead_lettered_by_error"`
+		LastCompletedAt *time.Time `json:"last_completed_at"`
+	} `json:"inbox"`
+	Operations struct {
+		ByStatus                map[string]int64                    `json:"by_status"`
+		ByTypeAndStatus         []lifecycleOperationStatusCountBody `json:"by_type_and_status"`
+		OldestActiveAgeSeconds  int64                               `json:"oldest_active_age_seconds"`
+		LastTerminalCompletedAt *time.Time                          `json:"last_terminal_completed_at"`
+	} `json:"operations"`
+}
+
+type lifecycleOperationStatusCountBody struct {
+	OperationType string `json:"operation_type"`
+	Status        string `json:"status"`
+	Count         int64  `json:"count"`
+}
+
+func hasLifecycleTypeStatus(counts []lifecycleOperationStatusCountBody, operationType, status string, count int64) bool {
+	for _, got := range counts {
+		if got.OperationType == operationType && got.Status == status && got.Count == count {
+			return true
+		}
+	}
+	return false
 }
 
 type membersBody struct {
