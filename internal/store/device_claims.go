@@ -51,6 +51,30 @@ type DeviceClaimResolveResult struct {
 	ProvisionInput DeviceProvisionInput `json:"provision_input"`
 }
 
+type DeviceClaimTransferInput struct {
+	ClaimID              string
+	TargetOrganizationID string
+	ActorUserID          string
+	Reason               string
+	Evidence             map[string]any
+	Now                  time.Time
+}
+
+type DeviceClaimReclaimInput struct {
+	TokenID              string
+	TargetOrganizationID string
+	ActorUserID          string
+	Reason               string
+	Evidence             map[string]any
+	Now                  time.Time
+}
+
+type DeviceClaimOverrideResult struct {
+	Claim  model.DeviceClaim      `json:"claim"`
+	Token  model.DeviceClaimToken `json:"device_claim_token"`
+	Device model.Device           `json:"device"`
+}
+
 func (s *Store) CreateDeviceClaimToken(ctx context.Context, in DeviceClaimTokenCreateInput) (model.DeviceClaimToken, error) {
 	metadata, err := json.Marshal(defaultMetadata(in.Metadata))
 	if err != nil {
@@ -249,6 +273,38 @@ func (s *Store) ResolveDeviceClaimToken(ctx context.Context, in DeviceClaimResol
 	}, nil
 }
 
+func (s *Store) TransferDeviceClaim(ctx context.Context, in DeviceClaimTransferInput) (DeviceClaimOverrideResult, error) {
+	if err := validateClaimOverrideInput(in.TargetOrganizationID, in.ActorUserID, in.Reason, in.Evidence); err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
+	return s.overrideDeviceClaim(ctx, claimOverrideInput{
+		ClaimID:              in.ClaimID,
+		TargetOrganizationID: in.TargetOrganizationID,
+		ActorUserID:          in.ActorUserID,
+		Reason:               strings.TrimSpace(in.Reason),
+		Evidence:             in.Evidence,
+		Status:               "transferred",
+		EventType:            "device_claim_transferred",
+		Now:                  in.Now,
+	})
+}
+
+func (s *Store) ReclaimDeviceClaimToken(ctx context.Context, in DeviceClaimReclaimInput) (DeviceClaimOverrideResult, error) {
+	if err := validateClaimOverrideInput(in.TargetOrganizationID, in.ActorUserID, in.Reason, in.Evidence); err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
+	return s.overrideDeviceClaim(ctx, claimOverrideInput{
+		TokenID:              in.TokenID,
+		TargetOrganizationID: in.TargetOrganizationID,
+		ActorUserID:          in.ActorUserID,
+		Reason:               strings.TrimSpace(in.Reason),
+		Evidence:             in.Evidence,
+		Status:               "reclaimed",
+		EventType:            "device_claim_reclaimed",
+		Now:                  in.Now,
+	})
+}
+
 func lockOrganizationAndCheckQuota(ctx context.Context, tx pgx.Tx, orgID string) error {
 	var tier model.OrganizationTier
 	var quota int
@@ -279,6 +335,202 @@ func lockOrganizationAndCheckQuota(ctx context.Context, tx pgx.Tx, orgID string)
 		return ErrEvaluationQuotaExceeded
 	}
 	return nil
+}
+
+type claimOverrideInput struct {
+	ClaimID              string
+	TokenID              string
+	TargetOrganizationID string
+	ActorUserID          string
+	Reason               string
+	Evidence             map[string]any
+	Status               string
+	EventType            string
+	Now                  time.Time
+}
+
+func validateClaimOverrideInput(targetOrgID, actorUserID, reason string, evidence map[string]any) error {
+	if strings.TrimSpace(targetOrgID) == "" || strings.TrimSpace(actorUserID) == "" {
+		return ErrNotFound
+	}
+	if strings.TrimSpace(reason) == "" || len(evidence) == 0 {
+		return ErrClaimEvidenceRequired
+	}
+	return nil
+}
+
+func (s *Store) overrideDeviceClaim(ctx context.Context, in claimOverrideInput) (DeviceClaimOverrideResult, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	now := in.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+
+	if err := lockOrganization(ctx, tx, in.TargetOrganizationID); err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
+
+	claim, err := getClaimForOverrideTx(ctx, tx, in.ClaimID, in.TokenID)
+	if err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
+	if claim.Status != "resolved" {
+		return DeviceClaimOverrideResult{}, ErrClaimInvalidState
+	}
+
+	token, err := getClaimTokenForUpdateTx(ctx, tx, claim.TokenID)
+	if err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
+	if token.ClaimedAt == nil {
+		return DeviceClaimOverrideResult{}, ErrClaimInvalidState
+	}
+	if token.RevokedAt != nil {
+		return DeviceClaimOverrideResult{}, ErrClaimRevoked
+	}
+
+	device, err := getDeviceByIDForUpdateTx(ctx, tx, claim.DeviceID)
+	if err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
+
+	updatedDevice, err := scanDevice(tx.QueryRow(ctx, `
+		UPDATE devices
+		SET organization_id = $2, updated_at = $3
+		WHERE id = $1
+		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
+	`, claim.DeviceID, in.TargetOrganizationID, now))
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key") {
+			return DeviceClaimOverrideResult{}, ErrConflict
+		}
+		return DeviceClaimOverrideResult{}, err
+	}
+
+	updatedToken, err := scanDeviceClaimToken(tx.QueryRow(ctx, `
+		UPDATE device_claim_tokens
+		SET organization_id = $2, updated_at = $3
+		WHERE id = $1
+		RETURNING id::text, organization_id::text, created_by::text, category, video_cloud_devid, activity_id, clip_public_key, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
+	`, claim.TokenID, in.TargetOrganizationID, now))
+	if err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
+
+	evidence, err := json.Marshal(defaultMetadata(in.Evidence))
+	if err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
+	updatedClaim, err := scanDeviceClaim(tx.QueryRow(ctx, `
+		UPDATE device_claims
+		SET organization_id = $2,
+			device_id = $3,
+			claimed_by = $4,
+			status = $5,
+			overridden_by = $4,
+			override_reason = $6,
+			override_evidence = $7,
+			overridden_at = $8,
+			updated_at = $8
+		WHERE id = $1
+		RETURNING id::text, claim_token_id::text, organization_id::text, device_id::text, claimed_by::text, status, provision_input, created_at, updated_at
+	`, claim.ID, in.TargetOrganizationID, updatedDevice.ID, in.ActorUserID, in.Status, in.Reason, evidence, now))
+	if err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
+
+	payload := map[string]any{
+		"claim_id":               claim.ID,
+		"claim_token_id":         claim.TokenID,
+		"device_id":              claim.DeviceID,
+		"source_organization_id": claim.OrganizationID,
+		"target_organization_id": in.TargetOrganizationID,
+		"previous_device_status": device.Status,
+		"previous_claim_status":  claim.Status,
+		"resulting_claim_status": in.Status,
+		"reason":                 in.Reason,
+		"evidence":               defaultMetadata(in.Evidence),
+		"video_cloud_devid":      token.VideoCloudDevid,
+	}
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{
+		EventType:      in.EventType,
+		ActorUserID:    &in.ActorUserID,
+		OrganizationID: &in.TargetOrganizationID,
+		SubjectType:    "device_claim",
+		SubjectID:      claim.ID,
+		Payload:        payload,
+	}); err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
+	return DeviceClaimOverrideResult{Claim: updatedClaim, Token: updatedToken, Device: updatedDevice}, nil
+}
+
+func lockOrganization(ctx context.Context, tx pgx.Tx, orgID string) error {
+	var id string
+	err := tx.QueryRow(ctx, `SELECT id::text FROM organizations WHERE id = $1 FOR UPDATE`, orgID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
+}
+
+func getClaimForOverrideTx(ctx context.Context, tx pgx.Tx, claimID, tokenID string) (model.DeviceClaim, error) {
+	query := `
+		SELECT id::text, claim_token_id::text, organization_id::text, device_id::text, claimed_by::text, status, provision_input, created_at, updated_at
+		FROM device_claims
+		WHERE id = $1
+		FOR UPDATE
+	`
+	arg := claimID
+	if strings.TrimSpace(claimID) == "" {
+		query = `
+			SELECT id::text, claim_token_id::text, organization_id::text, device_id::text, claimed_by::text, status, provision_input, created_at, updated_at
+			FROM device_claims
+			WHERE claim_token_id = $1
+			FOR UPDATE
+		`
+		arg = tokenID
+	}
+	claim, err := scanDeviceClaim(tx.QueryRow(ctx, query, arg))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.DeviceClaim{}, ErrNotFound
+	}
+	return claim, err
+}
+
+func getClaimTokenForUpdateTx(ctx context.Context, tx pgx.Tx, tokenID string) (model.DeviceClaimToken, error) {
+	token, err := scanDeviceClaimToken(tx.QueryRow(ctx, `
+		SELECT id::text, organization_id::text, created_by::text, category, video_cloud_devid, activity_id, clip_public_key, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
+		FROM device_claim_tokens
+		WHERE id = $1
+		FOR UPDATE
+	`, tokenID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.DeviceClaimToken{}, ErrNotFound
+	}
+	return token, err
+}
+
+func getDeviceByIDForUpdateTx(ctx context.Context, tx pgx.Tx, deviceID string) (model.Device, error) {
+	device, err := scanDevice(tx.QueryRow(ctx, `
+		SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
+		FROM devices
+		WHERE id = $1
+		FOR UPDATE
+	`, deviceID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.Device{}, ErrNotFound
+	}
+	return device, err
 }
 
 func getClaimedDeviceByVideoDevidTx(ctx context.Context, tx pgx.Tx, orgID, videoCloudDevid string) (model.Device, error) {

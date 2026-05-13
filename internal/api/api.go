@@ -253,6 +253,8 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/admin/device-claim-tokens", s.requirePlatformAdmin(), s.listDeviceClaimTokens)
 	protected.GET("/admin/device-claim-tokens/:tokenId", s.requirePlatformAdmin(), s.getDeviceClaimToken)
 	protected.POST("/admin/device-claim-tokens/:tokenId/revoke", s.requirePlatformAdmin(), s.revokeDeviceClaimToken)
+	protected.POST("/admin/device-claim-tokens/:tokenId/reclaim", s.requirePlatformAdmin(), s.reclaimDeviceClaimToken)
+	protected.POST("/admin/device-claims/:claimId/transfer", s.requirePlatformAdmin(), s.transferDeviceClaim)
 	protected.GET("/admin/quota-raise-requests", s.requirePlatformAdmin(), s.listAdminQuotaRaiseRequests)
 	protected.GET("/admin/quota-raise-requests/:requestId", s.requirePlatformAdmin(), s.getAdminQuotaRaiseRequest)
 	protected.GET("/admin/audit-events", s.requirePlatformAdmin(), s.listAdminAuditEvents)
@@ -1172,6 +1174,10 @@ func writeClaimResolveError(c *gin.Context, err error) {
 		writeClaimError(c, http.StatusForbidden, "forbidden", "Claim token does not belong to this organization", false, "switch_organization_or_contact_support")
 	case errors.Is(err, store.ErrClaimUnsupportedCategory):
 		writeClaimError(c, http.StatusBadRequest, "unsupported_device_category", "Claim token device category is not supported", false, "use_supported_device_category")
+	case errors.Is(err, store.ErrClaimInvalidState):
+		writeClaimError(c, http.StatusConflict, "invalid_claim_state", "Claim token state does not allow this operation", false, "contact_support")
+	case errors.Is(err, store.ErrClaimEvidenceRequired):
+		writeClaimError(c, http.StatusBadRequest, "operator_evidence_required", "Operator reason and evidence are required", false, "provide_operator_evidence")
 	case errors.Is(err, store.ErrEvaluationQuotaExceeded):
 		writeClaimError(c, http.StatusConflict, "EVALUATION_QUOTA_EXCEEDED", "Evaluation device quota exceeded", false, "request_quota_raise_or_contact_admin")
 	case strings.Contains(err.Error(), "duplicate key"):

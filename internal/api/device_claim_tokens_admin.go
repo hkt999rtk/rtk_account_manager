@@ -34,6 +34,18 @@ type deviceClaimTokensResponse struct {
 	Pagination        store.Page               `json:"pagination"`
 }
 
+type deviceClaimOverrideRequest struct {
+	TargetOrganizationID string         `json:"target_organization_id" binding:"required"`
+	Reason               string         `json:"reason" binding:"required"`
+	Evidence             map[string]any `json:"evidence" binding:"required"`
+}
+
+type deviceClaimOverrideResponse struct {
+	DeviceClaimToken model.DeviceClaimToken `json:"device_claim_token"`
+	DeviceClaim      model.DeviceClaim      `json:"device_claim"`
+	Device           model.Device           `json:"device"`
+}
+
 func (s *Server) createDeviceClaimToken(c *gin.Context) {
 	var req deviceClaimTokenAdminCreateRequest
 	if !bindStrict(c, &req) {
@@ -116,6 +128,61 @@ func (s *Server) revokeDeviceClaimToken(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, deviceClaimTokenResponse{DeviceClaimToken: token})
+}
+
+func (s *Server) transferDeviceClaim(c *gin.Context) {
+	var req deviceClaimOverrideRequest
+	if !bindClaimOverrideRequest(c, &req) {
+		return
+	}
+	result, err := s.store.TransferDeviceClaim(c.Request.Context(), store.DeviceClaimTransferInput{
+		ClaimID:              c.Param("claimId"),
+		TargetOrganizationID: strings.TrimSpace(req.TargetOrganizationID),
+		ActorUserID:          currentUserID(c),
+		Reason:               strings.TrimSpace(req.Reason),
+		Evidence:             req.Evidence,
+		Now:                  time.Now().UTC(),
+	})
+	if err != nil {
+		writeClaimResolveError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, deviceClaimOverrideResponse{DeviceClaimToken: result.Token, DeviceClaim: result.Claim, Device: result.Device})
+}
+
+func (s *Server) reclaimDeviceClaimToken(c *gin.Context) {
+	var req deviceClaimOverrideRequest
+	if !bindClaimOverrideRequest(c, &req) {
+		return
+	}
+	result, err := s.store.ReclaimDeviceClaimToken(c.Request.Context(), store.DeviceClaimReclaimInput{
+		TokenID:              c.Param("tokenId"),
+		TargetOrganizationID: strings.TrimSpace(req.TargetOrganizationID),
+		ActorUserID:          currentUserID(c),
+		Reason:               strings.TrimSpace(req.Reason),
+		Evidence:             req.Evidence,
+		Now:                  time.Now().UTC(),
+	})
+	if err != nil {
+		writeClaimResolveError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, deviceClaimOverrideResponse{DeviceClaimToken: result.Token, DeviceClaim: result.Claim, Device: result.Device})
+}
+
+func bindClaimOverrideRequest(c *gin.Context, req *deviceClaimOverrideRequest) bool {
+	if !bindStrict(c, req) {
+		return false
+	}
+	if !requireNonBlank(c, "target_organization_id", strings.TrimSpace(req.TargetOrganizationID)) ||
+		!requireNonBlank(c, "reason", strings.TrimSpace(req.Reason)) {
+		return false
+	}
+	if len(req.Evidence) == 0 {
+		writeError(c, http.StatusBadRequest, "operator_evidence_required", "evidence must not be empty")
+		return false
+	}
+	return true
 }
 
 func parseDeviceClaimTokenCategory(c *gin.Context, raw string) (model.DeviceCategory, bool) {

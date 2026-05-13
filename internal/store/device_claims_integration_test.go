@@ -398,3 +398,192 @@ func TestResolveDeviceClaimTokenRejectsUnsupportedCategory(t *testing.T) {
 		t.Fatalf("expected ErrClaimUnsupportedCategory, got %v", err)
 	}
 }
+
+func TestDeviceClaimTransferMovesOwnershipAndAudits(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	source, err := env.store.Register(ctx, RegisterInput{
+		Email:            "claim-transfer-source@example.com",
+		PasswordHash:     "hash",
+		OrganizationName: "Claim Transfer Source",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := env.store.Register(ctx, RegisterInput{
+		Email:            "claim-transfer-target@example.com",
+		PasswordHash:     "hash",
+		OrganizationName: "Claim Transfer Target",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	token, err := env.store.CreateDeviceClaimToken(ctx, DeviceClaimTokenCreateInput{
+		OrganizationID:  &source.Organization.ID,
+		TokenHash:       "hashed-transfer-token",
+		Category:        model.DeviceCategoryIPCamera,
+		VideoCloudDevid: "transfer-video-device",
+		ActivityID:      "transfer-activity",
+		ClipPublicKey:   "transfer-clip-key",
+		ExpiresAt:       now.Add(time.Hour),
+		Now:             now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := env.store.ResolveDeviceClaimToken(ctx, DeviceClaimResolveInput{
+		TokenHash:      "hashed-transfer-token",
+		OrganizationID: source.Organization.ID,
+		RequestedBy:    source.User.ID,
+		DeviceName:     "Transfer Camera",
+		Now:            now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	transferred, err := env.store.TransferDeviceClaim(ctx, DeviceClaimTransferInput{
+		ClaimID:              resolved.Claim.ID,
+		TargetOrganizationID: target.Organization.ID,
+		ActorUserID:          target.User.ID,
+		Reason:               "support verified ownership transfer",
+		Evidence:             map[string]any{"ticket": "SUP-131"},
+		Now:                  now.Add(2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transferred.Claim.OrganizationID != target.Organization.ID || transferred.Claim.Status != "transferred" {
+		t.Fatalf("expected transferred claim in target org, got %+v", transferred.Claim)
+	}
+	if transferred.Device.OrganizationID != target.Organization.ID {
+		t.Fatalf("expected transferred device in target org, got %+v", transferred.Device)
+	}
+	if transferred.Token.OrganizationID == nil || *transferred.Token.OrganizationID != target.Organization.ID || transferred.Token.ID != token.ID {
+		t.Fatalf("expected transferred token target org, got %+v", transferred.Token)
+	}
+
+	_, err = env.store.ResolveDeviceClaimToken(ctx, DeviceClaimResolveInput{
+		TokenHash:      "hashed-transfer-token",
+		OrganizationID: target.Organization.ID,
+		RequestedBy:    target.User.ID,
+		DeviceName:     "Transfer Camera Again",
+		Now:            now.Add(3 * time.Minute),
+	})
+	if !errors.Is(err, ErrClaimAlreadyClaimed) {
+		t.Fatalf("normal resolve must still reject transferred claim token, got %v", err)
+	}
+
+	events, err := env.store.ListAuditEvents(ctx, AuditEventListFilter{EventType: "device_claim_transferred", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if events.Page.Total != 1 || events.Events[0].SubjectID != resolved.Claim.ID {
+		t.Fatalf("expected transfer audit event, got %+v", events)
+	}
+	if events.Events[0].Payload["source_organization_id"] != source.Organization.ID ||
+		events.Events[0].Payload["target_organization_id"] != target.Organization.ID {
+		t.Fatalf("expected transfer audit ownership facts, got %+v", events.Events[0].Payload)
+	}
+}
+
+func TestDeviceClaimReclaimRequiresEvidenceAndRejectsInvalidTransitions(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	source, err := env.store.Register(ctx, RegisterInput{
+		Email:            "claim-reclaim-source@example.com",
+		PasswordHash:     "hash",
+		OrganizationName: "Claim Reclaim Source",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := env.store.Register(ctx, RegisterInput{
+		Email:            "claim-reclaim-target@example.com",
+		PasswordHash:     "hash",
+		OrganizationName: "Claim Reclaim Target",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	token, err := env.store.CreateDeviceClaimToken(ctx, DeviceClaimTokenCreateInput{
+		OrganizationID:  &source.Organization.ID,
+		TokenHash:       "hashed-reclaim-token",
+		Category:        model.DeviceCategoryIPCamera,
+		VideoCloudDevid: "reclaim-video-device",
+		ActivityID:      "reclaim-activity",
+		ClipPublicKey:   "reclaim-clip-key",
+		ExpiresAt:       now.Add(time.Hour),
+		Now:             now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.ReclaimDeviceClaimToken(ctx, DeviceClaimReclaimInput{
+		TokenID:              token.ID,
+		TargetOrganizationID: target.Organization.ID,
+		ActorUserID:          target.User.ID,
+		Reason:               "factory reset evidence",
+		Evidence:             map[string]any{"factory_reset": true},
+		Now:                  now.Add(time.Minute),
+	}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unclaimed token must not be reclaimed, got %v", err)
+	}
+	resolved, err := env.store.ResolveDeviceClaimToken(ctx, DeviceClaimResolveInput{
+		TokenHash:      "hashed-reclaim-token",
+		OrganizationID: source.Organization.ID,
+		RequestedBy:    source.User.ID,
+		DeviceName:     "Reclaim Camera",
+		Now:            now.Add(2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.ReclaimDeviceClaimToken(ctx, DeviceClaimReclaimInput{
+		TokenID:              token.ID,
+		TargetOrganizationID: target.Organization.ID,
+		ActorUserID:          target.User.ID,
+		Reason:               "factory reset evidence missing",
+		Now:                  now.Add(3 * time.Minute),
+	}); !errors.Is(err, ErrClaimEvidenceRequired) {
+		t.Fatalf("expected ErrClaimEvidenceRequired, got %v", err)
+	}
+
+	reclaimed, err := env.store.ReclaimDeviceClaimToken(ctx, DeviceClaimReclaimInput{
+		TokenID:              token.ID,
+		TargetOrganizationID: target.Organization.ID,
+		ActorUserID:          target.User.ID,
+		Reason:               "factory reset and support verified",
+		Evidence:             map[string]any{"factory_reset": true, "ticket": "SUP-132"},
+		Now:                  now.Add(4 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reclaimed.Claim.ID != resolved.Claim.ID || reclaimed.Claim.Status != "reclaimed" || reclaimed.Claim.OrganizationID != target.Organization.ID {
+		t.Fatalf("expected reclaimed claim in target org, got %+v", reclaimed.Claim)
+	}
+	if reclaimed.Device.OrganizationID != target.Organization.ID {
+		t.Fatalf("expected reclaimed device in target org, got %+v", reclaimed.Device)
+	}
+	if _, err := env.store.TransferDeviceClaim(ctx, DeviceClaimTransferInput{
+		ClaimID:              resolved.Claim.ID,
+		TargetOrganizationID: source.Organization.ID,
+		ActorUserID:          source.User.ID,
+		Reason:               "second transfer should fail",
+		Evidence:             map[string]any{"ticket": "SUP-133"},
+		Now:                  now.Add(5 * time.Minute),
+	}); !errors.Is(err, ErrClaimInvalidState) {
+		t.Fatalf("expected ErrClaimInvalidState after reclaim, got %v", err)
+	}
+
+	events, err := env.store.ListAuditEvents(ctx, AuditEventListFilter{EventType: "device_claim_reclaimed", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if events.Page.Total != 1 || events.Events[0].SubjectID != resolved.Claim.ID {
+		t.Fatalf("expected reclaim audit event, got %+v", events)
+	}
+}

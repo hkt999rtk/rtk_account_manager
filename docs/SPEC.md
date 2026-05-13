@@ -570,6 +570,12 @@ All endpoints are versioned under `/v1`.
 | `POST` | `/v1/admin/quota-raise-requests/:requestId/approve` | Yes | Platform admin | Approve a pending quota raise request and apply the approved evaluation quota. |
 | `POST` | `/v1/admin/quota-raise-requests/:requestId/decline` | Yes | Platform admin | Decline a pending quota raise request with an optional decision reason. |
 | `GET` | `/v1/admin/metrics` | Yes | Platform admin | Return evaluation signup, verification, quota request, and quota utilization metrics. |
+| `POST` | `/v1/admin/device-claim-tokens` | Yes | Platform admin | Create or import a hashed Claim Token. |
+| `GET` | `/v1/admin/device-claim-tokens` | Yes | Platform admin | List Claim Tokens without raw token values. |
+| `GET` | `/v1/admin/device-claim-tokens/:tokenId` | Yes | Platform admin | Get Claim Token metadata without raw token values. |
+| `POST` | `/v1/admin/device-claim-tokens/:tokenId/revoke` | Yes | Platform admin | Revoke an unused or already claimed Claim Token. |
+| `POST` | `/v1/admin/device-claim-tokens/:tokenId/reclaim` | Yes | Platform admin | Reclaim a claimed token/device after support or factory-reset evidence. |
+| `POST` | `/v1/admin/device-claims/:claimId/transfer` | Yes | Platform admin | Transfer a resolved claim/token/device to another organization after operator evidence. |
 
 ### Devices
 
@@ -654,7 +660,7 @@ Raw claim-material endpoint decision:
 - `rtk_account_manager` exposes the contract-defined
   `POST /v1/orgs/:orgId/devices/claim/resolve` endpoint as the first app-facing
   Claim Token flow. Broader transfer, reset, and already-claimed policy
-  extensions remain behind future endpoints.
+  extensions are restricted to platform-admin override endpoints.
 - The current `POST .../provision` endpoint only accepts the existing-device
   video lifecycle fields `video_cloud_devid`, `activity_id`, and
   `clip_public_key`, plus optional `operation_id`.
@@ -710,10 +716,11 @@ Ownership consequences:
 - Reusing an explicit `operation_id` with the same normalized request is
   idempotent and returns the existing operation. Reusing it with different claim
   material returns `409 Conflict`.
-- The current account-manager API does not implement transfer between
+- Normal organization-scoped APIs do not implement transfer between
   organizations, transfer between users, or account-side factory-reset reclaim.
   A factory reset or transfer intent does not clear account ownership by itself;
-  use an explicit future transfer/reclaim endpoint once one exists.
+  only platform-admin override endpoints may perform explicit transfer or
+  reclaim after operator evidence is recorded.
 - If the same video-side identity is already claimed or rejected by downstream
   product policy, account manager preserves the lifecycle operation and exposes
   the terminal failure fields projected from the video-side result instead of
@@ -740,22 +747,27 @@ Claim transfer, reclaim, and factory-reset policy:
   It proves product teardown was requested/completed; it does not authorize a
   new account owner.
 - Factory reset does not allow automatic reclaim in account manager. Reclaim
-  requires an explicit future account-manager operation with platform policy,
-  operator authorization, and audit evidence.
+  requires an explicit platform-admin account-manager operation with operator
+  authorization, reason, and audit evidence.
 - Operator override, transfer, or reclaim must require `platform_admin` unless
   a later product policy deliberately defines a narrower self-service path.
-- Every future transfer/reclaim/override operation must emit an audit event
+- Every transfer/reclaim/override operation must emit an audit event
   with actor user id, source organization, target organization when known,
   claim token id or device id, reason, and before/after ownership facts.
 
-Future endpoint proposal:
+Implemented platform-admin override endpoints:
 
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
 | `POST` | `/v1/admin/device-claims/:claimId/transfer` | Platform admin | Transfer an already-resolved claim to another organization after product-policy checks. |
 | `POST` | `/v1/admin/device-claim-tokens/:tokenId/reclaim` | Platform admin | Mark a claimed token/device eligible for a controlled reclaim flow after factory-reset or support verification. |
 
-Until those endpoints are implemented, the system must continue to reject:
+These override endpoints require `target_organization_id`, `reason`, and
+non-empty `evidence`. They update account-manager claim/token/device ownership
+and write an audit event. They do not reveal raw Claim Token values and do not
+publish lifecycle outbox commands.
+
+Normal claim resolve must continue to reject:
 
 - Same-organization repeated Claim Token resolve after `claimed_at` is set.
 - Cross-organization Claim Token resolve after `claimed_at` is set.
@@ -876,7 +888,7 @@ Unified product-readiness source ownership:
 | --- | --- | --- |
 | Organization membership and role authorization | `rtk_account_manager` | Authorize org-scoped readiness reads for `owner`, `admin`, and `member`. |
 | Registry existence, disabled state, category, serial, groups, and tags | `rtk_account_manager` | Return current account registry facts and preserve account-side soft-delete semantics. |
-| Claim Token resolution and account/device binding | `rtk_account_manager` | Return claim/bind result facts and reject already-claimed transfer/reclaim without explicit platform-admin workflow. |
+| Claim Token resolution and account/device binding | `rtk_account_manager` | Return claim/bind result facts, reject already-claimed normal resolve, and require explicit platform-admin workflow for transfer/reclaim. |
 | Provision/deactivate operation state | `rtk_account_manager` | Return operation status, idempotency id, failure attribution, retryability, and timestamps from durable operation rows. |
 | Projected video activation/deactivation metadata | `rtk_account_manager` from `video.account.events` | Return last projected `video_cloud_*` metadata and last video-side error facts; do not invent video-side state that has not been projected. |
 | Subject-bound video token issuance | Video cloud or integration auth service | Account manager may reference externally supplied status in a future composition response, but it must not mint or validate video scoped credentials in this repo. |

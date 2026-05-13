@@ -82,9 +82,10 @@ These issues were follow-ups to the merged account-manager v2 implementation. Th
 | `#97 [API/DB] Add platform-admin Claim Token issuance/import workflow` | verified | PR #104, `openapi.yaml`, `docs/TEST_REPORT.md` | Platform-admin token create/import/list/show/revoke workflow with hashed token storage and raw generated token one-time return. |
 | `#98 [API] Add retryability details to Claim Token resolve errors` | verified | PR #106, `openapi.yaml`, `docs/TEST_REPORT.md` | Claim resolve failures include machine-readable `retryable` and `resolution_action` hints. |
 | `#99 [API] Add product-readiness failure attribution to GET /provisioning` | verified | PR #107, `openapi.yaml`, `docs/TEST_REPORT.md` | Failed provisioning/deactivation readiness responses expose `readiness.failure` attribution. |
-| `#100 [Docs/Policy] Define claim transfer, reclaim, and factory-reset policy` | verified | PR #105, `docs/SPEC.md` | Claim transfer/reclaim/factory-reset behavior is defined as platform-admin future work. |
+| `#100 [Docs/Policy] Define claim transfer, reclaim, and factory-reset policy` | verified | PR #105, `docs/SPEC.md` | Claim transfer/reclaim/factory-reset policy baseline for platform-admin override work. |
 | `#101 [API/Admin] Add platform-admin quota request and audit visibility` | verified | PR #108, `openapi.yaml`, `docs/TEST_REPORT.md` | Platform-admin quota request list/show and audit-event list endpoints. |
 | `#102 [Testing] Extend report for post-v2 admin/readiness gaps` | verified | PR #109, `make test-report`, `docs/TESTING.md`, `docs/TEST_REPORT.md` | Maintained evidence for post-v2 admin/readiness behavior. |
+| `#131 [API/Admin] Add Claim Token transfer and reclaim workflows` | verified | PR #139, `openapi.yaml`, `docs/TEST_REPORT.md` | Platform-admin transfer/reclaim override endpoints with required reason/evidence and audit events. |
 
 Status values:
 

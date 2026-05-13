@@ -25,6 +25,8 @@ var (
 	ErrClaimRevoked             = errors.New("claim token revoked")
 	ErrClaimCrossOrganization   = errors.New("claim token belongs to another organization")
 	ErrClaimUnsupportedCategory = errors.New("claim token category is unsupported")
+	ErrClaimInvalidState        = errors.New("claim token state does not allow this operation")
+	ErrClaimEvidenceRequired    = errors.New("claim override requires operator evidence")
 )
 
 type Store struct {
