@@ -150,6 +150,7 @@ When implementing the v2 provisioning/event-channel milestone, the maintained re
 | Failure projection | Provision/deactivation failures record stable error metadata and operation failure state. |
 | Claim Token persistence | Claim Tokens are stored as hashes, resolve once, reject expired/already-claimed/cross-organization tokens, and only support categories accepted by the product policy. |
 | Claim Token admin workflow | Platform-admin generated/imported/revoked Claim Tokens never persist raw token values; generated raw tokens are returned once; revoked tokens cannot resolve. |
+| Claim Token transfer/reclaim | Platform-admin-only override endpoints require operator reason/evidence, preserve normal claim-resolve rejection, reject repeated override transitions, and emit audit events. |
 | Claim resolve API | `POST /v1/orgs/:orgId/devices/claim/resolve` returns provisioning input, enforces owner/admin authorization, rejects member access, emits machine-readable errors, and does not publish lifecycle outbox work. |
 | Claim resolve retryability | Claim resolve errors include stable `retryable` and `resolution_action` hints for invalid, expired, already-claimed, cross-organization, unsupported, quota, and service-unavailable failures. |
 | Registry-only readiness | `GET /provisioning` returns account-side readiness with nullable `operation` for enabled and disabled registry-only devices while preserving `404` for missing devices. |

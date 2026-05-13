@@ -573,6 +573,74 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/admin/device-claim-tokens/{tokenId}/reclaim:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Reclaim a claimed device Claim Token.
+      description: >
+        Platform-admin only. Reclaim is an explicit operator override for
+        support-verified factory reset or equivalent evidence. It does not
+        expose or require the raw Claim Token.
+      parameters:
+        - $ref: "#/components/parameters/TokenId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceClaimOverrideRequest"
+      responses:
+        "200":
+          description: Device Claim Token reclaimed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceClaimOverrideResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/admin/device-claims/{claimId}/transfer:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Transfer a resolved device claim.
+      description: >
+        Platform-admin only. Transfer moves account-manager claim, token, and
+        registry-device ownership to another organization after explicit
+        operator reason and evidence.
+      parameters:
+        - $ref: "#/components/parameters/ClaimId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceClaimOverrideRequest"
+      responses:
+        "200":
+          description: Device claim transferred.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceClaimOverrideResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/members:
     get:
       security:
@@ -1304,6 +1372,13 @@ components:
       schema:
         type: string
         format: uuid
+    ClaimId:
+      name: claimId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     GroupId:
       name: groupId
       in: path
@@ -1629,6 +1704,32 @@ components:
             $ref: "#/components/schemas/DeviceClaimToken"
         pagination:
           $ref: "#/components/schemas/Pagination"
+    DeviceClaimOverrideRequest:
+      type: object
+      required: [target_organization_id, reason, evidence]
+      additionalProperties: false
+      properties:
+        target_organization_id:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          minLength: 1
+        evidence:
+          type: object
+          minProperties: 1
+          additionalProperties: true
+          description: Operator-controlled support evidence, for example a ticket id or factory-reset verification flag.
+    DeviceClaimOverrideResponse:
+      type: object
+      required: [device_claim_token, device_claim, device]
+      properties:
+        device_claim_token:
+          $ref: "#/components/schemas/DeviceClaimToken"
+        device_claim:
+          $ref: "#/components/schemas/DeviceClaim"
+        device:
+          $ref: "#/components/schemas/Device"
     DeactivateDeviceRequest:
       type: object
       properties:
@@ -2297,6 +2398,37 @@ components:
         revoked_at:
           type: string
           format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    DeviceClaim:
+      type: object
+      required: [id, claim_token_id, organization_id, device_id, claimed_by, status, provision_input, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        claim_token_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          format: uuid
+        claimed_by:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [resolved, transferred, reclaimed]
+        provision_input:
+          type: object
+          additionalProperties: true
         created_at:
           type: string
           format: date-time

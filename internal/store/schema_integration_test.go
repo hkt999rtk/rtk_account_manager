@@ -25,7 +25,7 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 
 	requiredColumns := map[string][]string{
 		"device_claim_tokens":  {"token_hash", "organization_id", "created_by", "revoked_at", "metadata", "notes", "expires_at", "claimed_at"},
-		"device_claims":        {"claim_token_id", "organization_id", "device_id", "claimed_by", "status", "provision_input"},
+		"device_claims":        {"claim_token_id", "organization_id", "device_id", "claimed_by", "status", "provision_input", "overridden_by", "override_reason", "override_evidence", "overridden_at"},
 		"device_message_inbox": {"message_id", "operation_id", "stream", "message_type", "schema_version", "partition_key", "status", "payload", "attempt_count"},
 		"device_message_outbox": {"message_id", "operation_id", "stream", "message_type", "schema_version", "partition_key", "status", "payload",
 			"attempt_count", "available_at"},
@@ -80,6 +80,7 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"device_claim_tokens_org_idx",
 		"device_claims_device_idx",
 		"device_claims_org_created_idx",
+		"device_claims_override_idx",
 		"device_message_inbox_operation_idx",
 		"device_message_inbox_status_received_idx",
 		"device_message_outbox_operation_idx",

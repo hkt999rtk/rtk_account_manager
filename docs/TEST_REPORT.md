@@ -47,6 +47,7 @@ Generated: ci-candidate
 | Provisioning API | `TestIntegrationProvisioningEndpoints` | PASS |
 | Claim Token persistence | `TestResolveDeviceClaimTokenCreatesDeviceAndClaim` | PASS |
 | Claim Token admin workflow | `TestDeviceClaimTokenAdminLifecycle` | PASS |
+| Claim Token transfer and reclaim | `TestIntegrationAdminDeviceClaimOverrideWorkflow` | PASS |
 | Claim resolve API | `TestIntegrationClaimResolveEndpoint` | PASS |
 | Deactivation API | `TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata` | PASS |
 | Message validation | `TestValidateRejectsEnvelopeContractMismatches` | PASS |
@@ -79,6 +80,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Provisioning API | `TestIntegrationProvisioningEndpoints` verifies owner/admin initiation, member read-only access, raw claim-material rejection, transactional `device_operations` plus `device_message_outbox` writes, projected command payload shape, account-side readiness source facts, disabled-device rejection, and idempotent `operation_id` reuse. |
 | Claim Token persistence | `TestResolveDeviceClaimTokenCreatesDeviceAndClaim`, `TestResolveDeviceClaimTokenMatchesExistingDevice`, `TestResolveDeviceClaimTokenRejectsInvalidToken`, `TestResolveDeviceClaimTokenRejectsExpiredToken`, `TestResolveDeviceClaimTokenRejectsAlreadyClaimedToken`, `TestResolveDeviceClaimTokenRejectsCrossOrganizationToken`, and `TestResolveDeviceClaimTokenRejectsUnsupportedCategory` verify account-manager-owned Claim Token storage, raw-token non-persistence, hashed-token lookup, expiry, idempotent ownership matching, category policy, and organization boundaries. |
 | Claim Token admin workflow | `TestDeviceClaimTokenAdminLifecycle` and `TestIntegrationAdminDeviceClaimTokenWorkflow` verify platform-admin token creation/import/list/show/revoke, raw-token non-persistence, generated raw-token one-time return, platform-admin-only access, and revoked-token resolve rejection. |
+| Claim Token transfer and reclaim | `TestDeviceClaimTransferMovesOwnershipAndAudits`, `TestDeviceClaimReclaimRequiresEvidenceAndRejectsInvalidTransitions`, and `TestIntegrationAdminDeviceClaimOverrideWorkflow` verify platform-admin-only transfer/reclaim, operator evidence requirements, invalid state transitions, unchanged normal claim-resolve rejection, and audit event emission. |
 | Claim resolve API | `TestIntegrationClaimResolveEndpoint` verifies owner/admin claim resolution, member rejection, invalid/expired/already-claimed/cross-organization/unsupported-category/quota error codes, returned provisioning input, and that resolve does not create provisioning operations or outbox messages. |
 | Claim resolve retryability | `TestWriteClaimResolveErrorIncludesRetryability` and `TestIntegrationClaimResolveEndpoint` verify machine-readable `retryable` and `resolution_action` hints for non-retryable policy failures, quota failures, and retryable service-unavailable errors. |
 | Deactivation API | `TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata` verifies projected metadata is required for new deactivation work, disabled account devices may still enqueue deactivation, default reason propagation, and transactional outbox creation from projected video metadata. |
@@ -126,6 +128,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestAuthTokenDeliveryHook`
 - `rtk_account_manager/internal/api`: `TestBindStrictRejectsUnknownFields`
 - `rtk_account_manager/internal/api`: `TestHealthRoute`
+- `rtk_account_manager/internal/api`: `TestIntegrationAdminDeviceClaimOverrideWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminDeviceClaimTokenWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminMetricsIncludesLifecycleVisibility`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminMetricsReportsEmptySnapshot`
@@ -350,7 +353,9 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestCreateOrGetDeviceOperationRejectsMismatchedDeviceOrganization`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessageDeduplicates`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessagePreservesDeadLetterPayloadSnapshot`
+- `rtk_account_manager/internal/store`: `TestDeviceClaimReclaimRequiresEvidenceAndRejectsInvalidTransitions`
 - `rtk_account_manager/internal/store`: `TestDeviceClaimTokenAdminLifecycle`
+- `rtk_account_manager/internal/store`: `TestDeviceClaimTransferMovesOwnershipAndAudits`
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
 - `rtk_account_manager/internal/store`: `TestEvaluationQuotaUsageUtilizationHandlesZeroAndNonZeroQuotas`
 - `rtk_account_manager/internal/store`: `TestGetOutboxMessageDetailIncludesOperation`

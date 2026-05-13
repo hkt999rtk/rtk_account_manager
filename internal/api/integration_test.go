@@ -2624,6 +2624,119 @@ func TestIntegrationAdminDeviceClaimTokenWorkflow(t *testing.T) {
 	assertErrorCode(t, resolveRevokedRes, http.StatusNotFound, "invalid_claim_token")
 }
 
+func TestIntegrationAdminDeviceClaimOverrideWorkflow(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+
+	platformAdmin := registerUser(t, env.router, "claim-override-platform-admin@example.com", "Claim Override Admin Org")
+	source := registerUser(t, env.router, "claim-override-source@example.com", "Claim Override Source Org")
+	target := registerUser(t, env.router, "claim-override-target@example.com", "Claim Override Target Org")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, platformAdmin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	claims := store.New(env.db)
+	transferRaw := "claim-override-transfer-raw"
+	transferToken, err := claims.CreateDeviceClaimToken(ctx, store.DeviceClaimTokenCreateInput{
+		OrganizationID:  &source.Organization.ID,
+		TokenHash:       auth.HashToken(transferRaw),
+		Category:        model.DeviceCategoryIPCamera,
+		VideoCloudDevid: "claim-override-transfer-video",
+		ActivityID:      "claim-override-transfer-activity",
+		ClipPublicKey:   "claim-override-transfer-clip-key",
+		ExpiresAt:       time.Now().UTC().Add(time.Hour),
+		Now:             time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transferResolveRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+source.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": transferRaw,
+		"device_name": "Claim Transfer API Camera",
+	}, source.Tokens.AccessToken)
+	if transferResolveRes.Code != http.StatusCreated {
+		t.Fatalf("expected transfer seed resolve 201, got %d: %s", transferResolveRes.Code, transferResolveRes.Body.String())
+	}
+	transferClaim := decodeBody[claimResolveBody](t, transferResolveRes)
+
+	transferPayload := map[string]any{
+		"target_organization_id": target.Organization.ID,
+		"reason":                 "support verified transfer",
+		"evidence":               map[string]any{"ticket": "SUP-API-131"},
+	}
+	nonAdminTransferRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claims/"+transferClaim.ClaimID+"/transfer", transferPayload, source.Tokens.AccessToken)
+	if nonAdminTransferRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-admin transfer 403, got %d: %s", nonAdminTransferRes.Code, nonAdminTransferRes.Body.String())
+	}
+	missingEvidenceTransferRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claims/"+transferClaim.ClaimID+"/transfer", map[string]any{
+		"target_organization_id": target.Organization.ID,
+		"reason":                 "missing evidence",
+		"evidence":               map[string]any{},
+	}, platformAdmin.Tokens.AccessToken)
+	assertErrorCode(t, missingEvidenceTransferRes, http.StatusBadRequest, "operator_evidence_required")
+
+	transferRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claims/"+transferClaim.ClaimID+"/transfer", transferPayload, platformAdmin.Tokens.AccessToken)
+	if transferRes.Code != http.StatusOK {
+		t.Fatalf("expected transfer 200, got %d: %s", transferRes.Code, transferRes.Body.String())
+	}
+	transferred := decodeBody[deviceClaimOverrideAdminBody](t, transferRes)
+	if transferred.DeviceClaim.Status != "transferred" || transferred.DeviceClaim.OrganizationID != target.Organization.ID {
+		t.Fatalf("expected transferred claim in target org, got %+v", transferred)
+	}
+	if transferred.DeviceClaimToken.ID != transferToken.ID || transferred.DeviceClaimToken.OrganizationID == nil || *transferred.DeviceClaimToken.OrganizationID != target.Organization.ID {
+		t.Fatalf("expected transferred token in target org, got %+v", transferred.DeviceClaimToken)
+	}
+
+	transferResolveAgainRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+target.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": transferRaw,
+		"device_name": "Claim Transfer Again",
+	}, target.Tokens.AccessToken)
+	assertErrorCode(t, transferResolveAgainRes, http.StatusConflict, "already_claimed")
+
+	reclaimRaw := "claim-override-reclaim-raw"
+	reclaimToken, err := claims.CreateDeviceClaimToken(ctx, store.DeviceClaimTokenCreateInput{
+		OrganizationID:  &source.Organization.ID,
+		TokenHash:       auth.HashToken(reclaimRaw),
+		Category:        model.DeviceCategoryIPCamera,
+		VideoCloudDevid: "claim-override-reclaim-video",
+		ActivityID:      "claim-override-reclaim-activity",
+		ClipPublicKey:   "claim-override-reclaim-clip-key",
+		ExpiresAt:       time.Now().UTC().Add(time.Hour),
+		Now:             time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reclaimResolveRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+source.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": reclaimRaw,
+		"device_name": "Claim Reclaim API Camera",
+	}, source.Tokens.AccessToken)
+	if reclaimResolveRes.Code != http.StatusCreated {
+		t.Fatalf("expected reclaim seed resolve 201, got %d: %s", reclaimResolveRes.Code, reclaimResolveRes.Body.String())
+	}
+	reclaimRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claim-tokens/"+reclaimToken.ID+"/reclaim", map[string]any{
+		"target_organization_id": target.Organization.ID,
+		"reason":                 "factory reset and support verified",
+		"evidence":               map[string]any{"factory_reset": true, "ticket": "SUP-API-132"},
+	}, platformAdmin.Tokens.AccessToken)
+	if reclaimRes.Code != http.StatusOK {
+		t.Fatalf("expected reclaim 200, got %d: %s", reclaimRes.Code, reclaimRes.Body.String())
+	}
+	reclaimed := decodeBody[deviceClaimOverrideAdminBody](t, reclaimRes)
+	if reclaimed.DeviceClaim.Status != "reclaimed" || reclaimed.DeviceClaim.OrganizationID != target.Organization.ID {
+		t.Fatalf("expected reclaimed claim in target org, got %+v", reclaimed)
+	}
+
+	auditRes := performJSON(env.router, http.MethodGet, "/v1/admin/audit-events?subject_type=device_claim", nil, platformAdmin.Tokens.AccessToken)
+	if auditRes.Code != http.StatusOK {
+		t.Fatalf("expected audit list 200, got %d: %s", auditRes.Code, auditRes.Body.String())
+	}
+	audit := decodeBody[auditEventsBody](t, auditRes)
+	if audit.Pagination.Total != 2 {
+		t.Fatalf("expected transfer and reclaim audit events, got %+v", audit)
+	}
+}
+
 func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 	env := newIntegrationEnv(t)
 
@@ -2923,6 +3036,22 @@ type deviceClaimTokensAdminBody struct {
 		ID string `json:"id"`
 	} `json:"device_claim_tokens"`
 	Pagination paginationBody `json:"pagination"`
+}
+
+type deviceClaimOverrideAdminBody struct {
+	DeviceClaimToken struct {
+		ID             string  `json:"id"`
+		OrganizationID *string `json:"organization_id"`
+	} `json:"device_claim_token"`
+	DeviceClaim struct {
+		ID             string `json:"id"`
+		OrganizationID string `json:"organization_id"`
+		Status         string `json:"status"`
+	} `json:"device_claim"`
+	Device struct {
+		ID             string `json:"id"`
+		OrganizationID string `json:"organization_id"`
+	} `json:"device"`
 }
 
 type registryOnlyProvisioningBody struct {

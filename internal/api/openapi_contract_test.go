@@ -97,6 +97,7 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 		"device_name": "Contract Claimed Camera",
 	}, registered.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/claim/resolve", claimResolveRes)
+	claimResolveBody := decodeBody[claimResolveBody](t, claimResolveRes)
 
 	verifyToken := latestAuthToken(t, env.tokenSink, "contract-signup@example.com", "email_verification")
 	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
@@ -138,6 +139,26 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	contract.validate(t, http.MethodGet, "/v1/admin/device-claim-tokens", adminClaimTokensRes)
 	adminClaimTokenGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID, nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodGet, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID, adminClaimTokenGetRes)
+	claimTransferRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claims/"+claimResolveBody.ClaimID+"/transfer", map[string]any{
+		"target_organization_id": admin.Organization.ID,
+		"reason":                 "contract support transfer",
+		"evidence":               map[string]any{"ticket": "CONTRACT-131"},
+	}, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/device-claims/"+claimResolveBody.ClaimID+"/transfer", claimTransferRes)
+	if adminClaimTokenBody.ClaimToken == nil {
+		t.Fatalf("expected generated claim token for reclaim contract")
+	}
+	claimForReclaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": *adminClaimTokenBody.ClaimToken,
+		"device_name": "Contract Reclaim Camera",
+	}, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/claim/resolve", claimForReclaimRes)
+	claimReclaimRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID+"/reclaim", map[string]any{
+		"target_organization_id": admin.Organization.ID,
+		"reason":                 "contract support reclaim",
+		"evidence":               map[string]any{"factory_reset": true},
+	}, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID+"/reclaim", claimReclaimRes)
 	adminClaimTokenRevokeRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID+"/revoke", nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID+"/revoke", adminClaimTokenRevokeRes)
 	quotaRaiseListRes := performJSON(env.router, http.MethodGet, "/v1/admin/quota-raise-requests", nil, admin.Tokens.AccessToken)
