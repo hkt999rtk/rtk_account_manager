@@ -27,20 +27,28 @@ The current account manager now implements:
 - Maintained v2 test reporting and a local worker runbook.
 - Lifecycle admin commands for listing, inspecting, and requeueing eligible inbox/outbox rows.
 - Hashed Claim Token persistence and the app-facing `POST /v1/orgs/:orgId/devices/claim/resolve` endpoint.
+- Platform-admin Claim Token issuance/import/list/show/revoke endpoints.
+- Machine-readable Claim Token resolve retryability hints.
 - Registry-only readiness responses for existing devices before a provisioning operation exists.
-- Test-report coverage for Claim Token resolve and registry-only readiness correctness.
+- Readiness failure attribution for failed or dead-lettered provisioning/deactivation states.
+- Platform-admin quota request visibility and audit-event visibility.
+- Test-report coverage for Claim Token resolve/admin, registry-only readiness, failure attribution, admin visibility, OpenAPI contract validation, and correctness gates.
 
 Verified contract follow-up closure for this milestone snapshot:
 
 - Account-manager Claim Token persistence and `POST /v1/orgs/:orgId/devices/claim/resolve` are implemented.
+- Platform-admin Claim Token issuance/import/revoke is implemented.
+- Claim resolve retryability hints are implemented.
 - `GET /provisioning` returns registry-only readiness for existing devices before a provisioning operation exists.
-- `make test-report`, `docs/TESTING.md`, and `docs/TEST_REPORT.md` cover Claim Token and registry-only readiness correctness.
+- Failed provisioning and deactivation states return `readiness.failure` attribution.
+- `make test-report`, `docs/TESTING.md`, and `docs/TEST_REPORT.md` cover Claim Token, registry-only readiness, failure-attribution, admin visibility, OpenAPI, and correctness-gate behavior.
 
 Remaining post-v2 contract follow-up gaps for this milestone snapshot:
 
-- Add a platform-admin Claim Token issuance/import/revoke workflow so tokens do not need to be seeded through store/test paths.
-- Define and later implement transfer, reclaim, and factory-reset policy for already-claimed devices.
-- Add product-readiness failure attribution fields for failed provisioning and deactivation states.
+- Implement the already-defined transfer, reclaim, and factory-reset policy for already-claimed devices.
+- Define the unified cross-service product-readiness composition boundary beyond account-manager's current account-side readiness projection.
+- Add operational lifecycle visibility around retry, dead-letter, and latency counts without requiring direct SQL.
+- Harden production-like deployment evidence for backup freshness, restore drills, smoke checks, SMTP mode, and broker mode.
 - Keep this repo's contract docs explicit that `DELETE /devices/:deviceId` remains registry-only while product teardown still requires `POST /deactivate`, unless product policy changes later.
 
 ## Milestone And Issue Map
@@ -71,6 +79,12 @@ These issues were follow-ups to the merged account-manager v2 implementation. Th
 | `#88 [API] Implement POST /v1/orgs/:orgId/devices/claim/resolve` | verified | PR #93, `openapi.yaml`, `docs/SPEC.md` | App-facing Claim Token resolve endpoint defined by `contracts/PROVISION.md` and `contracts/PRODUCT_ONBOARDING.md`. |
 | `#89 [API] Return registry-only readiness from GET /provisioning` | verified | PR #94, `docs/TEST_REPORT.md` | Account-side readiness for existing registry devices that have no provisioning operation yet. |
 | `#90 [Testing] Extend report for Claim Token and readiness gaps` | verified | PR #95, `make test-report`, `docs/TESTING.md`, `docs/TEST_REPORT.md` | Maintained evidence for Claim Token and registry-only readiness correctness. |
+| `#97 [API/DB] Add platform-admin Claim Token issuance/import workflow` | verified | PR #104, `openapi.yaml`, `docs/TEST_REPORT.md` | Platform-admin token create/import/list/show/revoke workflow with hashed token storage and raw generated token one-time return. |
+| `#98 [API] Add retryability details to Claim Token resolve errors` | verified | PR #106, `openapi.yaml`, `docs/TEST_REPORT.md` | Claim resolve failures include machine-readable `retryable` and `resolution_action` hints. |
+| `#99 [API] Add product-readiness failure attribution to GET /provisioning` | verified | PR #107, `openapi.yaml`, `docs/TEST_REPORT.md` | Failed provisioning/deactivation readiness responses expose `readiness.failure` attribution. |
+| `#100 [Docs/Policy] Define claim transfer, reclaim, and factory-reset policy` | verified | PR #105, `docs/SPEC.md` | Claim transfer/reclaim/factory-reset behavior is defined as platform-admin future work. |
+| `#101 [API/Admin] Add platform-admin quota request and audit visibility` | verified | PR #108, `openapi.yaml`, `docs/TEST_REPORT.md` | Platform-admin quota request list/show and audit-event list endpoints. |
+| `#102 [Testing] Extend report for post-v2 admin/readiness gaps` | verified | PR #109, `make test-report`, `docs/TESTING.md`, `docs/TEST_REPORT.md` | Maintained evidence for post-v2 admin/readiness behavior. |
 
 Status values:
 
