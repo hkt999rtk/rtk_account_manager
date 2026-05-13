@@ -3,8 +3,11 @@ package api
 import (
 	"math"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"rtk_account_manager/internal/store"
 )
 
 type evalTierMetricsResponse struct {
@@ -20,6 +23,7 @@ type evalTierMetricsResponse struct {
 		Declined int64 `json:"declined"`
 	} `json:"quota_raise_requests"`
 	EvaluationQuotaUsage []evaluationQuotaUsageResponse `json:"evaluation_quota_usage"`
+	Lifecycle            lifecycleMetricsResponse       `json:"lifecycle"`
 }
 
 type evaluationQuotaUsageResponse struct {
@@ -28,6 +32,37 @@ type evaluationQuotaUsageResponse struct {
 	ActiveDevices         int     `json:"active_devices"`
 	EvaluationDeviceQuota int     `json:"evaluation_device_quota"`
 	Utilization           float64 `json:"utilization"`
+}
+
+type lifecycleMetricsResponse struct {
+	Outbox     lifecycleMessageMetricsResponse   `json:"outbox"`
+	Inbox      lifecycleMessageMetricsResponse   `json:"inbox"`
+	Operations lifecycleOperationMetricsResponse `json:"operations"`
+}
+
+type lifecycleMessageMetricsResponse struct {
+	ByStatus            map[string]int64                     `json:"by_status"`
+	DeadLetteredByError []lifecycleMessageErrorCountResponse `json:"dead_lettered_by_error"`
+	LastCompletedAt     *time.Time                           `json:"last_completed_at,omitempty"`
+}
+
+type lifecycleMessageErrorCountResponse struct {
+	MessageType string `json:"message_type"`
+	ErrorCode   string `json:"error_code"`
+	Count       int64  `json:"count"`
+}
+
+type lifecycleOperationMetricsResponse struct {
+	ByStatus                map[string]int64                        `json:"by_status"`
+	ByTypeAndStatus         []lifecycleOperationStatusCountResponse `json:"by_type_and_status"`
+	OldestActiveAgeSeconds  int64                                   `json:"oldest_active_age_seconds"`
+	LastTerminalCompletedAt *time.Time                              `json:"last_terminal_completed_at,omitempty"`
+}
+
+type lifecycleOperationStatusCountResponse struct {
+	OperationType string `json:"operation_type"`
+	Status        string `json:"status"`
+	Count         int64  `json:"count"`
 }
 
 func (s *Server) adminMetrics(c *gin.Context) {
@@ -47,6 +82,11 @@ func (s *Server) adminMetrics(c *gin.Context) {
 		return
 	}
 	usages, err := s.store.ListEvaluationQuotaUsage(c.Request.Context())
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	lifecycleMetrics, err := s.store.GetLifecycleMetrics(c.Request.Context())
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -72,6 +112,52 @@ func (s *Server) adminMetrics(c *gin.Context) {
 			Utilization:           usage.Utilization(),
 		})
 	}
+	body.Lifecycle = lifecycleMetricsToResponse(lifecycleMetrics)
 
 	c.JSON(http.StatusOK, body)
+}
+
+func lifecycleMetricsToResponse(metrics store.LifecycleMetrics) lifecycleMetricsResponse {
+	return lifecycleMetricsResponse{
+		Outbox: lifecycleMessageMetricsToResponse(metrics.Outbox),
+		Inbox:  lifecycleMessageMetricsToResponse(metrics.Inbox),
+		Operations: lifecycleOperationMetricsResponse{
+			ByStatus:                metrics.Operations.ByStatus,
+			ByTypeAndStatus:         lifecycleOperationStatusCountsToResponse(metrics.Operations.ByTypeAndStatus),
+			OldestActiveAgeSeconds:  metrics.Operations.OldestActiveAgeSeconds,
+			LastTerminalCompletedAt: metrics.Operations.LastTerminalCompletedAt,
+		},
+	}
+}
+
+func lifecycleMessageMetricsToResponse(metrics store.LifecycleMessageMetrics) lifecycleMessageMetricsResponse {
+	return lifecycleMessageMetricsResponse{
+		ByStatus:            metrics.ByStatus,
+		DeadLetteredByError: lifecycleMessageErrorCountsToResponse(metrics.DeadLetteredByError),
+		LastCompletedAt:     metrics.LastCompletedAt,
+	}
+}
+
+func lifecycleMessageErrorCountsToResponse(counts []store.LifecycleMessageErrorCount) []lifecycleMessageErrorCountResponse {
+	out := make([]lifecycleMessageErrorCountResponse, 0, len(counts))
+	for _, count := range counts {
+		out = append(out, lifecycleMessageErrorCountResponse{
+			MessageType: count.MessageType,
+			ErrorCode:   count.ErrorCode,
+			Count:       count.Count,
+		})
+	}
+	return out
+}
+
+func lifecycleOperationStatusCountsToResponse(counts []store.LifecycleOperationStatusCount) []lifecycleOperationStatusCountResponse {
+	out := make([]lifecycleOperationStatusCountResponse, 0, len(counts))
+	for _, count := range counts {
+		out = append(out, lifecycleOperationStatusCountResponse{
+			OperationType: count.OperationType,
+			Status:        count.Status,
+			Count:         count.Count,
+		})
+	}
+	return out
 }

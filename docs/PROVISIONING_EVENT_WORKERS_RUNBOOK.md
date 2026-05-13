@@ -267,6 +267,20 @@ go run ./cmd/lifecycle-admin outbox show -message-id "$PROVISION_MESSAGE_ID" | j
 go run ./cmd/lifecycle-admin inbox show -message-id "evt-bad-online-1" | jq .
 ```
 
+For a summarized platform-admin view, call the admin metrics endpoint instead
+of querying the database directly:
+
+```sh
+curl -sS "$BASE_URL/v1/admin/metrics" \
+  -H "Authorization: Bearer $PLATFORM_ADMIN_ACCESS_TOKEN" \
+  | jq '.lifecycle'
+```
+
+The `lifecycle` block reports outbox and inbox counts by status, dead-letter
+breakdowns by message type and error, operation counts by status and
+operation-type/status, active-operation age, and last terminal timestamps. This
+is intentionally an operator/backend surface, not a WebUI dashboard.
+
 Requeue a failed outbox row after fixing the publication problem:
 
 ```sh

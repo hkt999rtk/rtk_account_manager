@@ -58,6 +58,7 @@ Generated: ci-candidate
 | Account readiness projection | `TestReadinessFromProjectionStates` | PASS |
 | Registry-only readiness | `TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness` | PASS |
 | Admin quota and audit visibility | `TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow` | PASS |
+| Lifecycle observability | `TestIntegrationAdminMetricsIncludesLifecycleVisibility` | PASS |
 | Broker adapters | `TestAzureEventHubsPublisherPublishesJSONRecord` | PASS |
 | Database invariants | `TestIntegrationDatabaseSchemaInvariants` | PASS |
 | OpenAPI contract | `TestIntegrationResponsesMatchOpenAPIContract` | PASS |
@@ -98,6 +99,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Readiness failure attribution | `TestReadinessFromProjectionStates`, `TestIntegrationProvisioningEndpoints`, and `TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata` verify failed/dead-lettered provisioning and deactivation responses include `readiness.failure` with layer, source state, retryability, error fields, operation id, and occurrence time while pending states omit false failure details. |
 | Registry-only readiness | `TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness` verifies enabled and disabled registry-only devices return `200 OK`, `operation: null`, account-side readiness, `product_state=registered`, and preserve `404 Not Found` for truly missing devices. |
 | Admin quota and audit visibility | `TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow`, `TestIntegrationResponsesMatchOpenAPIContract`, and `TestListAuditEventsReturnsRecordedLifecycleEvents` verify platform-admin-only quota request list/show, audit event filters, pagination metadata, and existing approve/decline behavior. |
+| Lifecycle observability | `TestIntegrationAdminMetricsIncludesLifecycleVisibility` and `TestLifecycleMetricsAggregatesQueueAndOperationHealth` verify platform-admin-only lifecycle metrics for outbox/inbox status counts, dead-letter breakdowns, operation status/type counts, and active-operation age. |
 | Broker adapters | `TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds`, `TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds`, `TestLogPublisherWritesEnvelopeJSON`, `TestLogConsumerReadsEnvelopeJSON`, `TestAzureEventHubsPublisherPublishesJSONRecord`, `TestAzureEventHubsConsumerReadsAcrossPartitions`, `TestAzureEventHubsConsumerAcknowledgesAndResumesFromCheckpoint`, and `TestOpenAzurePartitionsUsesStoredCheckpointWhenPresent` cover the deterministic local default adapter plus Azure Event Hubs publish/consume and durable checkpoint resume behavior without requiring live Azure. |
 | Database invariants | `TestIntegrationDatabaseSchemaInvariants` plus existing migration tests verify idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, critical tables/columns/constraints/indexes, and automatic `updated_at` triggers. |
 | OpenAPI contract | `TestIntegrationResponsesMatchOpenAPIContract` plus OpenAPI schema validation cover representative Claim Token resolve/admin, registry-only provisioning-state with nullable `operation`, provisioned/failed provisioning-state, provisioning, deactivation, quota visibility, and audit visibility responses against `openapi.yaml`. |
@@ -125,6 +127,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestBindStrictRejectsUnknownFields`
 - `rtk_account_manager/internal/api`: `TestHealthRoute`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminDeviceClaimTokenWorkflow`
+- `rtk_account_manager/internal/api`: `TestIntegrationAdminMetricsIncludesLifecycleVisibility`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminMetricsReportsEmptySnapshot`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/admin_can_create_device`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/admin_can_list_devices`
@@ -353,6 +356,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestGetOutboxMessageDetailIncludesOperation`
 - `rtk_account_manager/internal/store`: `TestIntegrationDatabaseSchemaInvariants`
 - `rtk_account_manager/internal/store`: `TestJSONHelpers`
+- `rtk_account_manager/internal/store`: `TestLifecycleMetricsAggregatesQueueAndOperationHealth`
 - `rtk_account_manager/internal/store`: `TestListAuditEventsReturnsRecordedLifecycleEvents`
 - `rtk_account_manager/internal/store`: `TestListInboxMessagesByStatusAndShowDetail`
 - `rtk_account_manager/internal/store`: `TestListOutboxMessagesByStatusFiltersLifecycleRows`

@@ -155,6 +155,7 @@ When implementing the v2 provisioning/event-channel milestone, the maintained re
 | Registry-only readiness | `GET /provisioning` returns account-side readiness with nullable `operation` for enabled and disabled registry-only devices while preserving `404` for missing devices. |
 | Readiness failure attribution | Failed/dead-lettered provisioning and deactivation readiness responses include `readiness.failure` with layer, source state, retryability, error fields, operation id, and occurrence time. |
 | Admin visibility | Platform-admin quota request list/show and audit event list endpoints enforce admin-only access, pagination, and filters. |
+| Lifecycle observability | Platform-admin-only metrics expose outbox/inbox status counts, dead-letter breakdowns, operation status/type counts, and active-operation age. |
 | Database schema invariants | Catalog tests verify critical tables, columns, constraints, indexes, token hashing columns, message dedupe keys, and audit/query filter indexes. |
 | OpenAPI contract validation | Claim resolve, registry-only provisioning-state, provisioned provisioning-state, provisioning, and deactivation responses validate against `openapi.yaml`. |
 | Broker adapters | Local broker tests are deterministic; Azure Event Hubs tests do not run unless explicitly configured. |
