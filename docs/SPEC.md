@@ -1098,15 +1098,17 @@ Current external dependency:
 Current verified behavior:
 
 - Claim Token persistence and `POST /v1/orgs/:orgId/devices/claim/resolve` are implemented and covered by `openapi.yaml`, `docs/TESTING.md`, and `docs/TEST_REPORT.md`.
+- Platform-admin Claim Token issuance/import/list/show/revoke is implemented and covered by OpenAPI and the maintained test report.
+- Claim resolve error responses include machine-readable retryability hints.
 - `GET /provisioning` returns registry-only readiness for an existing device with no provisioning operation.
-- These behaviors were merged through PR #92, PR #93, and PR #94.
-- The maintained test report includes Claim Token and registry-only readiness correctness evidence, verified by PR #95.
+- Failed or dead-lettered provisioning and deactivation readiness responses include `readiness.failure` attribution with layer, source state, retryability, error fields, operation id, and occurrence time.
+- Platform-admin quota request list/show and audit-event list APIs are implemented.
+- These behaviors were merged through PR #92, PR #93, PR #94, PR #104, PR #106, PR #107, PR #108, and their related documentation/test-report updates.
+- The maintained test report includes Claim Token, registry-only readiness, failure-attribution, admin quota/audit, and OpenAPI correctness evidence.
 
 Remaining post-v2 follow-up items:
 
-- Add a platform-admin Claim Token issuance/import/revoke workflow so tokens do not need to be seeded through store/test paths.
 - Implement the documented transfer, reclaim, and factory-reset policy for already-claimed devices.
-- Add product-readiness failure attribution fields to failed provisioning and deactivation readiness responses.
-- Retry and dead-letter rows are inspectable in Postgres, and `cmd/lifecycle-admin` exposes list, inspect, and safe requeue workflows for operators.
+- Retry and dead-letter rows are inspectable in Postgres, and `cmd/lifecycle-admin` exposes list, inspect, and safe requeue workflows for operators. A future operational visibility surface should summarize queue health, dead-letter counts, and latency without requiring direct SQL.
 - Account registry soft-delete and product-level video deactivation remain separate. Product teardown requires explicit `POST /deactivate`; `DELETE /devices/:deviceId` only disables the account-side registry record.
 - Account manager exposes an account-side readiness projection on `GET /provisioning`, but it still does not own a final cross-service "product ready" boolean. Any future unified readiness surface must compose account record, video activation, subject-bound token issuance, device info/config, and transport ownership across service boundaries.
