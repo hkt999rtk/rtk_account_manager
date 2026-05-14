@@ -247,6 +247,8 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/me", s.me)
 	protected.DELETE("/me", s.deleteCurrentUser)
 	protected.PATCH("/me/password", s.changePassword)
+	protected.GET("/me/identities", s.listCurrentUserIdentities)
+	protected.DELETE("/me/identities/:identityId", s.deleteCurrentUserIdentity)
 
 	protected.GET("/orgs", s.listOrganizations)
 	protected.POST("/orgs", s.createOrganization)
@@ -850,6 +852,23 @@ func (s *Server) me(c *gin.Context) {
 
 func (s *Server) deleteCurrentUser(c *gin.Context) {
 	if err := s.store.DisableCurrentUser(c.Request.Context(), currentUserID(c)); err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (s *Server) listCurrentUserIdentities(c *gin.Context) {
+	identities, err := s.store.ListUserIdentities(c.Request.Context(), currentUserID(c))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"identities": identities})
+}
+
+func (s *Server) deleteCurrentUserIdentity(c *gin.Context) {
+	if err := s.store.DeleteUserIdentity(c.Request.Context(), currentUserID(c), c.Param("identityId")); err != nil {
 		writeStoreError(c, err)
 		return
 	}

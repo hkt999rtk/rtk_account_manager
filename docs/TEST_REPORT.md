@@ -164,9 +164,11 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationCleanupRefreshTokensRemovesExpiredAndRevokedRows`
 - `rtk_account_manager/internal/api`: `TestIntegrationCurrentUserCanChangePassword`
 - `rtk_account_manager/internal/api`: `TestIntegrationCurrentUserCanDisableSelfWithOwnerSafety`
+- `rtk_account_manager/internal/api`: `TestIntegrationCurrentUserOIDCIdentityManagement`
 - `rtk_account_manager/internal/api`: `TestIntegrationDatabaseMaintainsUpdatedAt`
 - `rtk_account_manager/internal/api`: `TestIntegrationDatabaseRejectsInvalidCoreData`
 - `rtk_account_manager/internal/api`: `TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata`
+- `rtk_account_manager/internal/api`: `TestIntegrationDisabledUserCannotManageOIDCIdentities`
 - `rtk_account_manager/internal/api`: `TestIntegrationDisabledUserCannotUseExistingTokens`
 - `rtk_account_manager/internal/api`: `TestIntegrationEmailVerificationAndPasswordRecovery`
 - `rtk_account_manager/internal/api`: `TestIntegrationFleetGroupsAndTags`
