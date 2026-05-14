@@ -1,4 +1,4 @@
-secrets/
-state/
-artifacts/
-.artifacts/
+/secrets/
+/state/
+/artifacts/
+/.artifacts/
