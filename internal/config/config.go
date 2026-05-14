@@ -34,6 +34,15 @@ type Config struct {
 	PasswordResetTTL              time.Duration
 	OTPResendInterval             time.Duration
 	OTPMaxAttempts                int
+	OIDCEnabled                   bool
+	OIDCProviderID                string
+	OIDCProviderName              string
+	OIDCIssuerURL                 string
+	OIDCClientID                  string
+	OIDCClientSecret              string
+	OIDCRedirectURL               string
+	OIDCScopes                    []string
+	OIDCAutoLinkEmail             bool
 }
 
 func Load() (Config, error) {
@@ -83,6 +92,15 @@ func load() (Config, error) {
 		PasswordResetTTL:              duration("PASSWORD_RESET_TTL", 30*time.Minute),
 		OTPResendInterval:             duration("OTP_RESEND_INTERVAL", 60*time.Second),
 		OTPMaxAttempts:                intValue("OTP_MAX_ATTEMPTS", 5),
+		OIDCEnabled:                   boolValue("OIDC_ENABLED", false),
+		OIDCProviderID:                getenv("OIDC_PROVIDER_ID", "keycloak"),
+		OIDCProviderName:              getenv("OIDC_PROVIDER_NAME", "Keycloak"),
+		OIDCIssuerURL:                 os.Getenv("OIDC_ISSUER_URL"),
+		OIDCClientID:                  os.Getenv("OIDC_CLIENT_ID"),
+		OIDCClientSecret:              os.Getenv("OIDC_CLIENT_SECRET"),
+		OIDCRedirectURL:               os.Getenv("OIDC_REDIRECT_URL"),
+		OIDCScopes:                    stringList("OIDC_SCOPES", []string{"openid", "email", "profile"}),
+		OIDCAutoLinkEmail:             boolValue("OIDC_AUTO_LINK_EMAIL", false),
 	}
 	return cfg, nil
 }
@@ -146,6 +164,30 @@ func intValue(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func boolValue(key string, fallback bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func stringList(key string, fallback []string) []string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return append([]string(nil), fallback...)
+	}
+	parts := strings.Fields(value)
+	if len(parts) == 0 {
+		return append([]string(nil), fallback...)
+	}
+	return parts
 }
 
 func unquote(value string) string {
