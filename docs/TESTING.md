@@ -48,6 +48,7 @@ side effect of feature work.
 Update tests whenever changing:
 
 - Authentication, JWT, refresh-token, logout, or disabled-user behavior.
+- Keycloak/OIDC provider resolution, login callback, state/nonce handling, identity linking, or external identity management.
 - Organization membership, owner/admin/member authorization, or last-owner rules.
 - Device lifecycle behavior, status changes, soft-delete behavior, or organization scoping.
 - Provisioning, deactivation, outbox, inbox, broker adapter, or cross-service projection behavior.
@@ -124,6 +125,30 @@ name representative tests for Claim Token persistence, Claim Token resolve API
 policy, registry-only readiness behavior, and OpenAPI response validation. These
 groups are required because they close contract gaps that coverage percentage
 alone cannot prove correct.
+
+For the Keycloak/OIDC SSO scope, the maintained report must name representative
+tests for provider CRUD, state/nonce replay protection, token validation,
+unknown/disabled/unverified user rejection, auto-link policy, local login
+compatibility, current-user identity management, and secret redaction. These
+groups are required because OIDC correctness depends on security policy and
+contract behavior, not just endpoint line coverage.
+
+## Keycloak/OIDC SSO Test Matrix
+
+The Keycloak/OIDC implementation uses fake OIDC/JWKS servers in automated tests.
+Do not make CI depend on a live Keycloak container; the Docker Compose Keycloak
+profile is only for local manual integration checks.
+
+| Group | Required evidence |
+| --- | --- |
+| Provider persistence | `identity_providers`, `user_identities`, and `oidc_login_states` persistence supports CRUD, uniqueness, one-enabled-provider policy, hashed state/nonce, and replay rejection. |
+| Provider admin CRUD | Platform-admin-only create/list/show/update/disable enforces `env:VAR_NAME` secret references, rejects non-admin access, rejects a second enabled provider, and emits audit events. |
+| Provider discovery and login | Disabled OIDC returns no providers and rejects login; enabled OIDC redirects with state and nonce. |
+| Callback success | Successful callback validates token claims, links to an existing local user under policy, returns the existing Account Manager token response shape, and keeps local email/password login working. |
+| Callback rejection policy | Unknown users, disabled linked users, replayed state, invalid nonce, invalid issuer/audience/signature/expiry, unexpected signing method, and unverified email are rejected with typed errors. |
+| Identity management | Current users can list/unlink their own identities, cannot access another user's identity, and disabled users cannot manage identities. |
+| Secret redaction | Raw client secrets, Keycloak access tokens, refresh tokens, state, and nonce are not persisted, returned, logged in typed errors, or written to the maintained report. |
+| OpenAPI contract validation | Public OIDC endpoints, current-user identities, and platform-admin identity-provider endpoints validate representative responses against `openapi.yaml`. |
 
 ## V2 Provisioning And Event Channel Test Matrix
 

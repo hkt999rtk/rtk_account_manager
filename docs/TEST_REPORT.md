@@ -63,6 +63,17 @@ Generated: ci-candidate
 | Broker adapters | `TestAzureEventHubsPublisherPublishesJSONRecord` | PASS |
 | Database invariants | `TestIntegrationDatabaseSchemaInvariants` | PASS |
 | OpenAPI contract | `TestIntegrationResponsesMatchOpenAPIContract` | PASS |
+| OIDC provider persistence | `TestIdentityProviderStoreCRUDAndEnabledInvariant` | PASS |
+| OIDC provider admin CRUD | `TestIntegrationAdminIdentityProviderWorkflow` | PASS |
+| OIDC state and nonce replay guards | `TestOIDCLoginStateStoresHashesAndRejectsReplay` | PASS |
+| OIDC public login callback | `TestIntegrationOIDCProviderLoginAndCallback` | PASS |
+| OIDC unknown disabled and unverified users | `TestIntegrationOIDCCallbackRejectsUnknownDisabledAndUnverifiedUsers` | PASS |
+| OIDC disabled provider behavior | `TestIntegrationOIDCDisabledDiscoveryAndLogin` | PASS |
+| OIDC current-user identities | `TestIntegrationCurrentUserOIDCIdentityManagement` | PASS |
+| OIDC token validation | `TestOIDCClientExchangeAndValidateIDToken` | PASS |
+| OIDC invalid token rejection | `TestOIDCClientRejectsInvalidNonce` | PASS |
+| OIDC secret redaction | `TestOIDCTokenErrorsDoNotContainProviderTokens` | PASS |
+| OIDC raw secret rejection | `TestIdentityProviderRejectsRawClientSecretRef` | PASS |
 | Configuration and maintenance | `TestLoadReadsEnvironmentAndDurations` | PASS |
 
 ## Correctness Validation
@@ -104,7 +115,16 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Lifecycle observability | `TestIntegrationAdminMetricsIncludesLifecycleVisibility` and `TestLifecycleMetricsAggregatesQueueAndOperationHealth` verify platform-admin-only lifecycle metrics for outbox/inbox status counts, dead-letter breakdowns, operation status/type counts, and active-operation age. |
 | Broker adapters | `TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds`, `TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds`, `TestLogPublisherWritesEnvelopeJSON`, `TestLogConsumerReadsEnvelopeJSON`, `TestAzureEventHubsPublisherPublishesJSONRecord`, `TestAzureEventHubsConsumerReadsAcrossPartitions`, `TestAzureEventHubsConsumerAcknowledgesAndResumesFromCheckpoint`, and `TestOpenAzurePartitionsUsesStoredCheckpointWhenPresent` cover the deterministic local default adapter plus Azure Event Hubs publish/consume and durable checkpoint resume behavior without requiring live Azure. |
 | Database invariants | `TestIntegrationDatabaseSchemaInvariants` plus existing migration tests verify idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, critical tables/columns/constraints/indexes, and automatic `updated_at` triggers. |
-| OpenAPI contract | `TestIntegrationResponsesMatchOpenAPIContract` plus OpenAPI schema validation cover representative Claim Token resolve/admin, registry-only provisioning-state with nullable `operation`, provisioned/failed provisioning-state, provisioning, deactivation, quota visibility, and audit visibility responses against `openapi.yaml`. |
+| OpenAPI contract | `TestIntegrationResponsesMatchOpenAPIContract` plus OpenAPI schema validation cover representative Claim Token resolve/admin, registry-only provisioning-state with nullable `operation`, provisioned/failed provisioning-state, provisioning, deactivation, quota visibility, audit visibility, public OIDC, current-user identity, and admin identity-provider responses against `openapi.yaml`. |
+| OIDC provider persistence | `TestIdentityProviderStoreCRUDAndEnabledInvariant`, `TestIdentityProviderRejectsRawClientSecretRef`, and `TestIntegrationDatabaseSchemaInvariants` verify provider CRUD, the one-enabled-provider invariant, secret-reference-only storage, identity link uniqueness, and OIDC schema/index presence. |
+| OIDC provider admin CRUD | `TestIntegrationAdminIdentityProviderWorkflow` verifies platform-admin-only create/list/show/update/disable, pagination, second-enabled-provider conflict handling, audit events, `env:VAR_NAME` secret references, and raw-secret non-persistence/non-response behavior. |
+| OIDC state and nonce replay guards | `TestOIDCLoginStateStoresHashesAndRejectsReplay`, `TestOIDCLoginStateRejectsExpiredState`, and `TestIntegrationOIDCProviderLoginAndCallback` verify raw state/nonce non-persistence, one-time state consumption, replay rejection, and callback nonce validation through hashed state records. |
+| OIDC public login callback | `TestIntegrationOIDCProviderLoginAndCallback` verifies discovery, login redirect, state/nonce creation, callback success, verified-email auto-link to an existing local user, Account Manager JWT issuance, identity persistence, replay rejection, and local email/password login compatibility. |
+| OIDC user rejection policy | `TestIntegrationOIDCCallbackRejectsUnknownDisabledAndUnverifiedUsers` verifies unknown users return `user_not_provisioned`, disabled linked users cannot login through SSO, and unverified provider emails return `unverified_oidc_email`. |
+| OIDC disabled provider behavior | `TestIntegrationOIDCDisabledDiscoveryAndLogin` verifies disabled OIDC returns no public providers and rejects login with `oidc_disabled`. |
+| OIDC current-user identities | `TestIntegrationCurrentUserOIDCIdentityManagement` and `TestIntegrationDisabledUserCannotManageOIDCIdentities` verify current-user list/unlink behavior, cross-user isolation, disabled-user rejection, and that unlinking an identity does not break local password login. |
+| OIDC token validation | `TestOIDCClientExchangeAndValidateIDToken`, `TestOIDCClientRejectsInvalidIssuer`, `TestOIDCClientRejectsInvalidAudience`, `TestOIDCClientRejectsInvalidSignature`, `TestOIDCClientRejectsExpiredToken`, `TestOIDCClientRejectsInvalidNonce`, `TestOIDCClientRejectsUnverifiedEmail`, `TestOIDCClientRejectsUnexpectedSigningMethod`, and JWKS/discovery/token-response negative tests verify authorization-code exchange and ID-token issuer, audience, signature, expiry, nonce, signing method, and verified-email validation without live Keycloak. |
+| OIDC secret redaction | `TestOIDCTokenErrorsDoNotContainProviderTokens`, `TestIdentityProviderRejectsRawClientSecretRef`, and `TestIntegrationAdminIdentityProviderWorkflow` verify Keycloak token values and raw client secrets are not persisted, returned, or included in typed validation errors. |
 | Configuration and maintenance | `.env` loading, TTL parsing/fallbacks, worker-specific broker config defaults, required JWT secrets, and refresh-token cleanup behavior. |
 
 ## Executed Test Cases
