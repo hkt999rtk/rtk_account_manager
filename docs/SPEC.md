@@ -50,7 +50,7 @@ Provisioning and account/video event-channel integration are the v2 surface impl
 - Device command dispatch.
 - Device self-registration or provisioning flows in v1.
 - Device certificate management.
-- Third-party/social login outside the planned Keycloak/OIDC integration path.
+- Third-party/social login outside the supported Keycloak/OIDC integration path.
 - Executable batch operations, OTA campaign execution, and firmware rollout policy.
 - Custom RBAC permissions.
 - Multi-region deployment concerns.
@@ -115,14 +115,14 @@ Account-manager-owned video metadata keys:
 - `video_cloud_deactivated_at`
 - `video_cloud_last_error`
 
-## 2.2 Planned Scope: Keycloak / OIDC Authentication
+## 2.2 Keycloak / OIDC Authentication
 
-Keycloak/OIDC SSO is the next planned authentication capability. Keycloak is an
-external identity provider; account manager remains the authoritative owner of
-local users, organization memberships, roles, device authorization, refresh
-tokens, and API JWT issuance.
+Keycloak/OIDC SSO is supported as an external authentication capability.
+Keycloak is an external identity provider; account manager remains the
+authoritative owner of local users, organization memberships, roles, device
+authorization, refresh tokens, and API JWT issuance.
 
-The detailed normative specification for this planned capability is
+The detailed normative specification for this capability is
 [KEYCLOAK_OIDC_SSO.md](KEYCLOAK_OIDC_SSO.md). This section summarizes the
 top-level product decisions so the main SPEC remains readable.
 
@@ -140,11 +140,13 @@ First implementation decisions:
 - Successful SSO login issues account-manager access and refresh JWTs. Clients
   keep using `Authorization: Bearer <account-manager-access-token>` for API
   calls.
-- The first implementation targets one configured Keycloak/OIDC provider from
-  environment configuration. Multi-provider platform-admin CRUD is planned as an
-  admin-only management surface.
+- The implementation supports one active Keycloak/OIDC provider, resolved from
+  an enabled database provider first and environment configuration as a
+  fallback.
+- Platform-admin provider CRUD stores only secret references such as
+  `env:OIDC_CLIENT_SECRET`; raw client secrets are not stored or returned.
 
-This planned scope does not:
+This scope does not:
 
 - Embed or operate Keycloak inside account manager.
 - Persist Keycloak access tokens or refresh tokens.
@@ -355,17 +357,14 @@ Stores one-time email verification and password reset tokens.
 Auth tokens must be stored hashed, not in raw form, and are throttled by
 `user_id` and `purpose`.
 
-### Planned Keycloak/OIDC Tables
+### Keycloak/OIDC Tables
 
-The planned SSO data model is defined in
+The SSO data model is defined in
 [KEYCLOAK_OIDC_SSO.md](KEYCLOAK_OIDC_SSO.md). It includes:
 
 - `identity_providers` for configured external OIDC provider metadata.
 - `user_identities` for local-user to OIDC issuer/subject links.
 - `oidc_login_states` for short-lived hashed state and nonce validation.
-
-No migration exists for these tables until the Keycloak/OIDC implementation
-issue is started.
 
 ### `quota_raise_requests`
 
@@ -525,14 +524,13 @@ Constraints:
   `SMTP_HOST` and `SMTP_FROM` are configured, and otherwise falls back to the
   local log adapter so quota decisions are observable in dev/test until a real
   mail adapter is configured.
-- Keycloak/OIDC SSO is a planned authentication capability. It must not be
-  presented as available API behavior until migrations, OpenAPI, handlers, and
-  tests are implemented.
+- Keycloak/OIDC SSO is available as an external authentication option when
+  enabled through environment or platform-admin provider configuration.
 - Expired or revoked refresh tokens may be removed by an explicit maintenance command.
 
-### Keycloak / OIDC Authentication (Planned)
+### Keycloak / OIDC Authentication
 
-The planned Keycloak integration treats account manager as an OIDC client and
+The Keycloak integration treats account manager as an OIDC client and
 Keycloak as an external identity provider. Detailed callback, linking, token,
 security, and test requirements are defined in
 [KEYCLOAK_OIDC_SSO.md](KEYCLOAK_OIDC_SSO.md).
@@ -542,8 +540,7 @@ security, and test requirements are defined in
 `rtk_cloud_workspace/docs/business-model.md` defines a public evaluation tier
 (default 5 devices, ceiling 200 on request, non-commercial use) and a private
 commercial tier (no minimum scale, one-time license + annual maintenance).
-Account manager is the planned owner of the API surface that supports the
-evaluation tier:
+Account manager owns the API surface that supports the evaluation tier:
 
 - `POST /v1/auth/signup` creates an evaluation-tier user and initial
   organization in a signup-pending state, issues an email verification token,
@@ -566,8 +563,8 @@ evaluation tier:
   snapshot surfaces signup counts, verification completion, quota-raise
   status counts, and live quota utilization for evaluation organizations.
 
-The implementation in this repository should stay aligned with the paired
-wire-contract updates in `rtk_cloud_contracts_doc` before the issue is closed.
+The implementation in this repository should stay aligned with paired
+wire-contract updates in `rtk_cloud_contracts_doc`.
 
 ## 6. Authorization
 
@@ -612,15 +609,15 @@ All endpoints are versioned under `/v1`.
 | `POST` | `/v1/auth/resend-verification` | No | Issue a replacement email verification token for an unverified user, with enumeration-safe response semantics. |
 | `POST` | `/v1/auth/forgot-password` | No | Issue a password reset token, with enumeration-safe response semantics. |
 | `POST` | `/v1/auth/reset-password` | No | Consume a password reset token, set a new password, and revoke active refresh tokens. |
-| `GET` | `/v1/auth/oidc/providers` | No | Planned: list enabled public OIDC provider metadata without secrets. |
-| `GET` | `/v1/auth/oidc/:providerId/login` | No | Planned: start Keycloak/OIDC login and redirect to the provider authorization endpoint. |
-| `GET` | `/v1/auth/oidc/:providerId/callback` | No | Planned: handle backend OIDC callback and return the existing token response shape. |
+| `GET` | `/v1/auth/oidc/providers` | No | List enabled public OIDC provider metadata without secrets. |
+| `GET` | `/v1/auth/oidc/:providerId/login` | No | Start Keycloak/OIDC login and redirect to the provider authorization endpoint. |
+| `GET` | `/v1/auth/oidc/:providerId/callback` | No | Handle backend OIDC callback and return the existing token response shape. |
 | `POST` | `/v1/auth/logout` | Yes | Revoke current refresh token/session. |
 | `GET` | `/v1/me` | Yes | Return current user and memberships. |
 | `DELETE` | `/v1/me` | Yes | Disable current user account and revoke refresh tokens. |
 | `PATCH` | `/v1/me/password` | Yes | Change current user password and revoke refresh tokens. |
-| `GET` | `/v1/me/identities` | Yes | Planned: list current user's linked external identities. |
-| `DELETE` | `/v1/me/identities/:identityId` | Yes | Planned: unlink one of the current user's external identities when policy allows. |
+| `GET` | `/v1/me/identities` | Yes | List current user's linked external identities. |
+| `DELETE` | `/v1/me/identities/:identityId` | Yes | Unlink one of the current user's external identities when policy allows. |
 
 ### Organizations and Members
 
@@ -651,11 +648,11 @@ All endpoints are versioned under `/v1`.
 | `POST` | `/v1/admin/device-claim-tokens/:tokenId/revoke` | Yes | Platform admin | Revoke an unused or already claimed Claim Token. |
 | `POST` | `/v1/admin/device-claim-tokens/:tokenId/reclaim` | Yes | Platform admin | Reclaim a claimed token/device after support or factory-reset evidence. |
 | `POST` | `/v1/admin/device-claims/:claimId/transfer` | Yes | Platform admin | Transfer a resolved claim/token/device to another organization after operator evidence. |
-| `POST` | `/v1/admin/identity-providers` | Yes | Platform admin | Planned: create an OIDC identity provider configuration without exposing raw secrets. |
-| `GET` | `/v1/admin/identity-providers` | Yes | Platform admin | Planned: list OIDC identity provider configurations without raw secrets. |
-| `GET` | `/v1/admin/identity-providers/:providerId` | Yes | Platform admin | Planned: show one OIDC identity provider configuration without raw secrets. |
-| `PATCH` | `/v1/admin/identity-providers/:providerId` | Yes | Platform admin | Planned: update OIDC identity provider metadata, status, or secret reference. |
-| `DELETE` | `/v1/admin/identity-providers/:providerId` | Yes | Platform admin | Planned: disable or remove an OIDC identity provider when no active policy blocks it. |
+| `POST` | `/v1/admin/identity-providers` | Yes | Platform admin | Create an OIDC identity provider configuration without exposing raw secrets. |
+| `GET` | `/v1/admin/identity-providers` | Yes | Platform admin | List OIDC identity provider configurations without raw secrets. |
+| `GET` | `/v1/admin/identity-providers/:providerId` | Yes | Platform admin | Show one OIDC identity provider configuration without raw secrets. |
+| `PATCH` | `/v1/admin/identity-providers/:providerId` | Yes | Platform admin | Update OIDC identity provider metadata, status, or secret reference. |
+| `DELETE` | `/v1/admin/identity-providers/:providerId` | Yes | Platform admin | Disable or remove an OIDC identity provider when no active policy blocks it. |
 
 ### Devices
 
@@ -1197,11 +1194,11 @@ V2 cross-service configuration:
 | `AZURE_EVENTHUB_CONNECTION_STRING` | Azure Event Hubs connection string when using Azure. |
 | `AZURE_EVENTHUB_CHECKPOINT_FILE` | Optional durable checkpoint file for the Azure inbox consumer. Defaults to `.state/azure_eventhubs/<stream>__<consumer-group>.json`. |
 
-Planned Keycloak/OIDC configuration:
+Keycloak/OIDC configuration:
 
 | Variable | Description |
 | --- | --- |
-| `OIDC_ENABLED` | Enables the planned OIDC login routes when `true`. |
+| `OIDC_ENABLED` | Enables OIDC login routes when `true`. |
 | `OIDC_PROVIDER_ID` | Stable provider id used in `/v1/auth/oidc/:providerId/...`, for example `keycloak`. |
 | `OIDC_PROVIDER_NAME` | Display name returned by provider discovery, for example `Keycloak`. |
 | `OIDC_ISSUER_URL` | Expected Keycloak/OIDC issuer URL. |
@@ -1258,7 +1255,7 @@ Tests should cover:
 - Unknown message types and invalid schema versions are rejected or dead-lettered.
 - The maintained test report maps v2 behavior groups to correctness assertions, not only coverage.
 
-Future Keycloak/OIDC implementation tests must cover:
+Keycloak/OIDC tests cover:
 
 - Provider discovery when OIDC is disabled and enabled.
 - Login redirect creates hashed state and nonce records.
@@ -1301,7 +1298,7 @@ The v2 provisioning/event-channel implementation is acceptable when:
 - Local development can run without Azure using the `log` broker adapter.
 - Automated tests cover the v2 behavior matrix and report correctness evidence.
 
-The planned Keycloak/OIDC authentication implementation is acceptable when:
+The Keycloak/OIDC authentication implementation is acceptable when:
 
 - Existing email/password login, refresh-token rotation, and account-manager JWT
   behavior remain supported and documented.
