@@ -4,7 +4,7 @@ UNIT_TEST_PACKAGES := ./internal/api ./internal/auth ./internal/broker ./interna
 RACE_TEST_PACKAGES := ./internal/channel ./internal/broker ./internal/worker/... ./internal/auth ./internal/config ./internal/readiness
 FUZZ_SMOKE_TIME ?= 2s
 
-.PHONY: tidy test integration-test test-report check-report-candidates test-race test-repeat fuzz-smoke build release check-release readiness-smoke run run-outbox-worker run-inbox-worker db-up db-down migrate cleanup-tokens
+.PHONY: tidy test integration-test test-report check-report-candidates test-race test-repeat fuzz-smoke build release check-release readiness-smoke test-linode-deploy run run-outbox-worker run-inbox-worker db-up db-down migrate cleanup-tokens
 
 tidy:
 	go mod tidy
@@ -64,6 +64,11 @@ release:
 	tar -C dist -czf "dist/rtk_account_manager-$(VERSION).tar.gz" "rtk_account_manager-$(VERSION)"
 
 check-release: release
+
+test-linode-deploy:
+	go test ./linode_deploy/...
+	bash -n linode_deploy/scripts/deploy-staging.sh
+	go run ./linode_deploy/cmd/linode-deploy plan --config linode_deploy/configs/account-manager-staging.yaml >/dev/null
 
 readiness-smoke:
 	go run ./cmd/readiness-smoke

@@ -97,6 +97,7 @@ The implementation stays aligned with the `contracts/` submodule for provisionin
 The local provisioning and worker flow, including the `log` broker adapter runbook, is documented in `docs/PROVISIONING_EVENT_WORKERS_RUNBOOK.md`.
 The optional local Keycloak/OIDC login flow is documented in `docs/KEYCLOAK_LOCAL_RUNBOOK.md`; normal local development does not require Keycloak.
 Private-cloud deployment packaging, systemd templates, migration/upgrade/rollback, and backup/restore operations are documented in `docs/PRIVATE_CLOUD_DEPLOYMENT_RUNBOOK.md`; reference deploy assets live under `deploy/`.
+Linode staging deployment for admins is documented in `linode_deploy/docs/RUNBOOK.md`; it uses an operator-run script and explicit release versions, not GitHub CD Actions.
 The local auth verification and password reset delivery adapter is `AUTH_TOKEN_DELIVERY=log`; generated one-time tokens are written to the API server log for dev/test use until a production mail or SMS adapter replaces it. Quota-raise approval and decline notifications use the SMTP mail path when `SMTP_HOST` and `SMTP_FROM` are configured, and otherwise fall back to the local log adapter for dev/test.
 Set `CROSS_SERVICE_BROKER=azure_eventhubs` plus `AZURE_EVENTHUB_CONNECTION_STRING` to run the workers against Azure Event Hubs instead of the local `log` adapter. The inbox worker persists Azure consumer checkpoints at `.state/azure_eventhubs/<stream>__<consumer-group>.json` by default; set `AZURE_EVENTHUB_CHECKPOINT_FILE` to override that path.
 
