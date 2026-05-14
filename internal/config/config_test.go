@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -55,6 +56,15 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	t.Setenv("SMTP_FROM", "noreply@example.com")
 	t.Setenv("AZURE_EVENTHUB_CONNECTION_STRING", "Endpoint=sb://example/")
 	t.Setenv("AZURE_EVENTHUB_CHECKPOINT_FILE", "/tmp/eventhub-checkpoints.json")
+	t.Setenv("OIDC_ENABLED", "true")
+	t.Setenv("OIDC_PROVIDER_ID", "corp-keycloak")
+	t.Setenv("OIDC_PROVIDER_NAME", "Corp Keycloak")
+	t.Setenv("OIDC_ISSUER_URL", "https://sso.example.test/realms/account")
+	t.Setenv("OIDC_CLIENT_ID", "rtk-account-manager")
+	t.Setenv("OIDC_CLIENT_SECRET", "oidc-secret")
+	t.Setenv("OIDC_REDIRECT_URL", "https://api.example.test/v1/auth/oidc/corp-keycloak/callback")
+	t.Setenv("OIDC_SCOPES", "openid email profile offline_access")
+	t.Setenv("OIDC_AUTO_LINK_EMAIL", "true")
 
 	cfg, err := Load()
 	if err != nil {
@@ -104,6 +114,24 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	}
 	if cfg.CrossServicePollInterval != 5*time.Second {
 		t.Fatalf("unexpected poll interval: %s", cfg.CrossServicePollInterval)
+	}
+	if !cfg.OIDCEnabled {
+		t.Fatal("expected OIDC to be enabled")
+	}
+	if cfg.OIDCProviderID != "corp-keycloak" || cfg.OIDCProviderName != "Corp Keycloak" {
+		t.Fatalf("unexpected OIDC provider metadata: %+v", cfg)
+	}
+	if cfg.OIDCIssuerURL != "https://sso.example.test/realms/account" || cfg.OIDCClientID != "rtk-account-manager" || cfg.OIDCClientSecret != "oidc-secret" {
+		t.Fatalf("unexpected OIDC issuer/client config: %+v", cfg)
+	}
+	if cfg.OIDCRedirectURL != "https://api.example.test/v1/auth/oidc/corp-keycloak/callback" {
+		t.Fatalf("unexpected OIDC redirect URL: %q", cfg.OIDCRedirectURL)
+	}
+	if !reflect.DeepEqual(cfg.OIDCScopes, []string{"openid", "email", "profile", "offline_access"}) {
+		t.Fatalf("unexpected OIDC scopes: %#v", cfg.OIDCScopes)
+	}
+	if !cfg.OIDCAutoLinkEmail {
+		t.Fatal("expected OIDC auto-link to be enabled")
 	}
 }
 
@@ -156,6 +184,30 @@ func TestLoadWorkerFallsBackForInvalidMaxAttempts(t *testing.T) {
 	}
 	if cfg.CrossServiceMaxAttempts != 5 {
 		t.Fatalf("expected default max attempts, got %d", cfg.CrossServiceMaxAttempts)
+	}
+}
+
+func TestLoadUsesOIDCDefaultsAndBooleanFallbacks(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("OIDC_ENABLED", "not-bool")
+	t.Setenv("OIDC_AUTO_LINK_EMAIL", "not-bool")
+	t.Setenv("OIDC_SCOPES", "")
+
+	cfg, err := LoadWorker()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OIDCEnabled {
+		t.Fatal("expected OIDC to default disabled for invalid boolean")
+	}
+	if cfg.OIDCAutoLinkEmail {
+		t.Fatal("expected OIDC auto-link to default disabled for invalid boolean")
+	}
+	if cfg.OIDCProviderID != "keycloak" || cfg.OIDCProviderName != "Keycloak" {
+		t.Fatalf("unexpected default provider metadata: %+v", cfg)
+	}
+	if !reflect.DeepEqual(cfg.OIDCScopes, []string{"openid", "email", "profile"}) {
+		t.Fatalf("unexpected default scopes: %#v", cfg.OIDCScopes)
 	}
 }
 
