@@ -27,6 +27,8 @@ var (
 	ErrClaimUnsupportedCategory = errors.New("claim token category is unsupported")
 	ErrClaimInvalidState        = errors.New("claim token state does not allow this operation")
 	ErrClaimEvidenceRequired    = errors.New("claim override requires operator evidence")
+	ErrOIDCStateInvalid         = errors.New("oidc login state is invalid")
+	ErrOIDCStateExpired         = errors.New("oidc login state is expired")
 )
 
 type Store struct {
@@ -81,6 +83,11 @@ type QuotaRaiseRequestPage struct {
 type AuditEventPage struct {
 	Events []model.AuditEvent
 	Page   Page
+}
+
+type IdentityProviderPage struct {
+	Providers []model.IdentityProvider
+	Page      Page
 }
 
 type RegisterInput struct {

@@ -37,6 +37,55 @@ type AuditEvent struct {
 	UpdatedAt      time.Time      `json:"updated_at"`
 }
 
+type IdentityProviderType string
+
+const (
+	IdentityProviderTypeOIDC IdentityProviderType = "oidc"
+)
+
+type IdentityProvider struct {
+	ID              string               `json:"id"`
+	ProviderID      string               `json:"provider_id"`
+	Name            string               `json:"name"`
+	Type            IdentityProviderType `json:"type"`
+	IssuerURL       string               `json:"issuer_url"`
+	ClientID        string               `json:"client_id"`
+	ClientSecretRef *string              `json:"client_secret_ref,omitempty"`
+	Scopes          []string             `json:"scopes"`
+	Enabled         bool                 `json:"enabled"`
+	Metadata        map[string]any       `json:"metadata"`
+	CreatedAt       time.Time            `json:"created_at"`
+	UpdatedAt       time.Time            `json:"updated_at"`
+}
+
+type UserIdentity struct {
+	ID            string         `json:"id"`
+	UserID        string         `json:"user_id"`
+	ProviderID    string         `json:"provider_id"`
+	ProviderKey   string         `json:"provider_key"`
+	IssuerURL     string         `json:"issuer_url"`
+	Subject       string         `json:"subject"`
+	Email         string         `json:"email"`
+	EmailVerified bool           `json:"email_verified"`
+	Claims        map[string]any `json:"claims"`
+	LinkedAt      time.Time      `json:"linked_at"`
+	LastLoginAt   *time.Time     `json:"last_login_at,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
+}
+
+type OIDCLoginState struct {
+	ID                   string     `json:"id"`
+	ProviderID           string     `json:"provider_id"`
+	StateHash            string     `json:"state_hash"`
+	NonceHash            string     `json:"nonce_hash"`
+	RedirectURL          string     `json:"redirect_url"`
+	PostLoginRedirectURL *string    `json:"post_login_redirect_url,omitempty"`
+	ExpiresAt            time.Time  `json:"expires_at"`
+	ConsumedAt           *time.Time `json:"consumed_at,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+}
+
 type DeviceClaimToken struct {
 	ID              string         `json:"id"`
 	OrganizationID  *string        `json:"organization_id,omitempty"`

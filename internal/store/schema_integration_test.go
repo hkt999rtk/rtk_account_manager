@@ -17,7 +17,10 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"device_message_inbox",
 		"device_message_outbox",
 		"device_operations",
+		"identity_providers",
+		"oidc_login_states",
 		"quota_raise_requests",
+		"user_identities",
 	}
 	for _, table := range requiredTables {
 		requireTable(t, ctx, env, table)
@@ -29,9 +32,13 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"device_message_inbox": {"message_id", "operation_id", "stream", "message_type", "schema_version", "partition_key", "status", "payload", "attempt_count"},
 		"device_message_outbox": {"message_id", "operation_id", "stream", "message_type", "schema_version", "partition_key", "status", "payload",
 			"attempt_count", "available_at"},
-		"audit_events":         {"event_type", "subject_type", "subject_id", "actor_user_id", "organization_id", "payload"},
-		"quota_raise_requests": {"organization_id", "requested_by", "requested_quota", "status", "contact_info", "decision_reason"},
-		"device_operations":    {"operation_id", "organization_id", "device_id", "operation_type", "status", "request_payload", "result_payload"},
+		"audit_events":       {"event_type", "subject_type", "subject_id", "actor_user_id", "organization_id", "payload"},
+		"identity_providers": {"provider_id", "name", "type", "issuer_url", "client_id", "client_secret_ref", "scopes", "enabled", "metadata"},
+		"oidc_login_states":  {"provider_id", "state_hash", "nonce_hash", "redirect_url", "post_login_redirect_url", "expires_at", "consumed_at"},
+		"quota_raise_requests": {"organization_id", "requested_by", "requested_quota", "status", "contact_info",
+			"decision_reason"},
+		"user_identities":   {"user_id", "provider_id", "issuer_url", "subject", "email", "email_verified", "claims", "linked_at", "last_login_at"},
+		"device_operations": {"operation_id", "organization_id", "device_id", "operation_type", "status", "request_payload", "result_payload"},
 	}
 	for table, columns := range requiredColumns {
 		for _, column := range columns {
@@ -65,8 +72,17 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		{table: "device_claim_tokens", name: "device_claim_tokens_token_hash_key"},
 		{table: "device_claims", name: "device_claims_claim_token_id_key"},
 		{table: "device_claims", name: "device_claims_status_check"},
+		{table: "identity_providers", name: "identity_providers_provider_id_key"},
+		{table: "identity_providers", name: "identity_providers_provider_id_not_blank"},
+		{table: "identity_providers", name: "identity_providers_type_check"},
+		{table: "identity_providers", name: "identity_providers_client_secret_ref_check"},
+		{table: "oidc_login_states", name: "oidc_login_states_state_hash_key"},
 		{table: "quota_raise_requests", name: "quota_raise_requests_requested_quota_check"},
 		{table: "quota_raise_requests", name: "quota_raise_requests_status_check"},
+		{table: "user_identities", name: "user_identities_provider_subject_key"},
+		{table: "user_identities", name: "user_identities_user_provider_key"},
+		{table: "user_identities", name: "user_identities_email_normalized"},
+		{table: "user_identities", name: "user_identities_email_verified_check"},
 	}
 	for _, constraint := range requiredConstraints {
 		requireConstraint(t, ctx, env, constraint.table, constraint.name)
@@ -88,7 +104,11 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"device_operations_org_device_created_idx",
 		"device_operations_status_created_idx",
 		"devices_org_serial_unique",
+		"identity_providers_enabled_unique_idx",
+		"oidc_login_states_provider_created_idx",
+		"oidc_login_states_active_idx",
 		"quota_raise_requests_org_status_idx",
+		"user_identities_user_idx",
 	}
 	for _, index := range requiredIndexes {
 		requireIndex(t, ctx, env, index)
