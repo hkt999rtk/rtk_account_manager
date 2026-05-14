@@ -236,6 +236,18 @@ func (c OIDCClient) ExchangeAndValidate(ctx context.Context, provider OIDCProvid
 	return identity, tokens, nil
 }
 
+func (c OIDCClient) ExchangeAndValidateNonceHash(ctx context.Context, provider OIDCProvider, code, expectedNonceHash string) (OIDCIdentity, OIDCTokenResponse, error) {
+	tokens, err := c.ExchangeCode(ctx, provider, code)
+	if err != nil {
+		return OIDCIdentity{}, OIDCTokenResponse{}, err
+	}
+	identity, err := c.ValidateIDTokenNonceHash(ctx, provider, tokens.IDToken, expectedNonceHash)
+	if err != nil {
+		return OIDCIdentity{}, OIDCTokenResponse{}, err
+	}
+	return identity, tokens, nil
+}
+
 func (c OIDCClient) ExchangeCode(ctx context.Context, provider OIDCProvider, code string) (OIDCTokenResponse, error) {
 	discovery, err := c.Discover(ctx, provider)
 	if err != nil {
@@ -272,6 +284,18 @@ func (c OIDCClient) ExchangeCode(ctx context.Context, provider OIDCProvider, cod
 }
 
 func (c OIDCClient) ValidateIDToken(ctx context.Context, provider OIDCProvider, idToken, expectedNonce string) (OIDCIdentity, error) {
+	return c.validateIDToken(ctx, provider, idToken, func(nonce string) bool {
+		return nonce == expectedNonce
+	})
+}
+
+func (c OIDCClient) ValidateIDTokenNonceHash(ctx context.Context, provider OIDCProvider, idToken, expectedNonceHash string) (OIDCIdentity, error) {
+	return c.validateIDToken(ctx, provider, idToken, func(nonce string) bool {
+		return HashToken(nonce) == expectedNonceHash
+	})
+}
+
+func (c OIDCClient) validateIDToken(ctx context.Context, provider OIDCProvider, idToken string, validNonce func(string) bool) (OIDCIdentity, error) {
 	discovery, err := c.Discover(ctx, provider)
 	if err != nil {
 		return OIDCIdentity{}, err
@@ -288,7 +312,7 @@ func (c OIDCClient) ValidateIDToken(ctx context.Context, provider OIDCProvider, 
 	if !token.Valid {
 		return OIDCIdentity{}, ErrInvalidOIDCToken
 	}
-	if claims.Nonce != expectedNonce {
+	if validNonce == nil || !validNonce(claims.Nonce) {
 		return OIDCIdentity{}, fmt.Errorf("%w: invalid nonce", ErrInvalidOIDCToken)
 	}
 	if claims.Subject == "" || claims.Email == "" {

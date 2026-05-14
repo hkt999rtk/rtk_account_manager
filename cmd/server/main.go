@@ -35,7 +35,21 @@ func main() {
 		log.Fatalf("unsupported AUTH_TOKEN_DELIVERY %q", cfg.AuthTokenDelivery)
 	}
 	notificationSink := quotaRaiseNotificationSink(cfg)
-	server := api.NewWithAuthTokenAndNotificationSink(store.New(db), authService, authTokenSink, notificationSink)
+	accountStore := store.New(db)
+	server := api.NewWithAuthTokenAndNotificationSink(accountStore, authService, authTokenSink, notificationSink)
+	server.ConfigureOIDC(api.OIDCOptions{
+		Env: auth.OIDCEnvConfig{
+			Enabled:       cfg.OIDCEnabled,
+			ProviderID:    cfg.OIDCProviderID,
+			ProviderName:  cfg.OIDCProviderName,
+			IssuerURL:     cfg.OIDCIssuerURL,
+			ClientID:      cfg.OIDCClientID,
+			ClientSecret:  cfg.OIDCClientSecret,
+			RedirectURL:   cfg.OIDCRedirectURL,
+			Scopes:        cfg.OIDCScopes,
+			AutoLinkEmail: cfg.OIDCAutoLinkEmail,
+		},
+	})
 
 	log.Printf("listening on :%s", cfg.Port)
 	if err := server.Router().Run(":" + cfg.Port); err != nil {
