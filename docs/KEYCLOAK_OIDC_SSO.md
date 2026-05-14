@@ -2,9 +2,9 @@
 
 ## Source Of Truth
 
-This document is the detailed planned specification for Keycloak/OIDC SSO in
-account manager. `SPEC.md` remains the top-level product and API specification
-and links here for the OIDC details.
+This document is the detailed specification for Keycloak/OIDC SSO in account
+manager. `SPEC.md` remains the top-level product and API specification and
+links here for the OIDC details.
 
 The local development flow for validating this integration against Keycloak is
 documented in [KEYCLOAK_LOCAL_RUNBOOK.md](KEYCLOAK_LOCAL_RUNBOOK.md).
@@ -98,16 +98,16 @@ manager and does not own account-manager authorization policy.
 
 ### `identity_providers`
 
-Stores configured external OIDC provider metadata. The first implementation may
-load the single provider from environment variables, but the table is reserved
-for the planned platform-admin management surface.
+Stores configured external OIDC provider metadata. The implementation resolves
+an enabled database provider first and falls back to the environment-configured
+provider when no enabled database provider exists.
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `id` | UUID | Yes | Primary key. |
 | `provider_id` | Text | Yes | Stable URL-safe provider identifier, unique. |
 | `name` | Text | Yes | Human-readable provider name, for example `Keycloak`. |
-| `type` | Text | Yes | `oidc` for the planned Keycloak integration. |
+| `type` | Text | Yes | `oidc` for the Keycloak integration. |
 | `issuer_url` | Text | Yes | Expected OIDC issuer URL. |
 | `client_id` | Text | Yes | OIDC client id registered in Keycloak. |
 | `client_secret_ref` | Text | No | Optional secret reference for admin-managed providers; raw secrets must not be returned by APIs. |
@@ -208,7 +208,7 @@ references, not raw client secrets.
 
 | Variable | Description |
 | --- | --- |
-| `OIDC_ENABLED` | Enables the planned OIDC login routes when `true`. |
+| `OIDC_ENABLED` | Enables OIDC login routes when `true`. |
 | `OIDC_PROVIDER_ID` | Stable provider id used in `/v1/auth/oidc/:providerId/...`, for example `keycloak`. |
 | `OIDC_PROVIDER_NAME` | Display name returned by provider discovery, for example `Keycloak`. |
 | `OIDC_ISSUER_URL` | Expected Keycloak/OIDC issuer URL. |
@@ -218,7 +218,7 @@ references, not raw client secrets.
 | `OIDC_SCOPES` | Space-separated scopes, default `openid email profile`. |
 | `OIDC_AUTO_LINK_EMAIL` | Whether callback may link a validated provider subject to an existing pre-provisioned local user by verified email. Default `false`. |
 
-## Future Implementation Tests
+## Implementation Tests
 
 Tests must cover:
 
@@ -237,7 +237,7 @@ Tests must cover:
 
 ## Acceptance Criteria
 
-The planned Keycloak/OIDC authentication implementation is acceptable when:
+The Keycloak/OIDC authentication implementation is acceptable when:
 
 - Existing email/password login, refresh-token rotation, and account-manager JWT
   behavior remain supported and documented.

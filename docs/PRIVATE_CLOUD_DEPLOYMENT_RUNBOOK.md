@@ -258,6 +258,29 @@ It intentionally contains placeholders only.
 | `SIGNUP_CAPTCHA_REQUIRED` | Require a captcha token in signup payload. | `false` unless enabled. |
 | `SIGNUP_DISPOSABLE_DOMAINS` | Comma-separated disposable email domain denylist override. | Built-in denylist when unset. |
 
+### Keycloak/OIDC SSO
+
+OIDC is disabled by default. Enable it only after the external Keycloak/OIDC
+client exists and the redirect URL is registered with the provider. Account
+manager remains the authorization source of truth; Keycloak proves identity
+only.
+
+| Variable | Purpose | Secret |
+| --- | --- | --- |
+| `OIDC_ENABLED` | Enables public OIDC provider discovery, login, and callback routes. | No |
+| `OIDC_PROVIDER_ID` | Stable provider id used in `/v1/auth/oidc/:providerId/...`, for example `keycloak`. | No |
+| `OIDC_PROVIDER_NAME` | Display name returned by provider discovery. | No |
+| `OIDC_ISSUER_URL` | Expected Keycloak/OIDC issuer URL. | No |
+| `OIDC_CLIENT_ID` | OIDC client id registered for account manager. | No |
+| `OIDC_CLIENT_SECRET` | OIDC client secret for the env-configured provider and `env:OIDC_CLIENT_SECRET` references. | Yes |
+| `OIDC_REDIRECT_URL` | Exact backend callback URL registered with Keycloak. | No |
+| `OIDC_SCOPES` | Space-separated scopes. | No; default `openid email profile` |
+| `OIDC_AUTO_LINK_EMAIL` | Allows verified OIDC email to link to an existing enabled local user. | No; default `false` |
+
+Platform-admin-managed providers store only `client_secret_ref` values such as
+`env:OIDC_CLIENT_SECRET`. Do not put raw client secrets in API payloads,
+database rows, issue comments, reports, or deployment evidence.
+
 ### SMTP And Quota Notifications
 
 Quota-raise approval and decline notifications use SMTP when `SMTP_HOST` and
@@ -297,6 +320,7 @@ Never commit real values for:
 
 - `DATABASE_URL`
 - JWT signing secrets
+- OIDC client secrets and provider token material
 - SMTP password or relay credentials
 - Azure Event Hubs connection strings
 - future cloud-provider credentials
