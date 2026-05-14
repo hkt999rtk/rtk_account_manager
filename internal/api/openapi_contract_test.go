@@ -135,6 +135,27 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	}, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/admin/device-claim-tokens", adminClaimTokenRes)
 	adminClaimTokenBody := decodeBody[deviceClaimTokenAdminBody](t, adminClaimTokenRes)
+	adminIDPCreateRes := performJSON(env.router, http.MethodPost, "/v1/admin/identity-providers", map[string]any{
+		"provider_id":       "contract-keycloak",
+		"name":              "Contract Keycloak",
+		"issuer_url":        "https://contract-sso.example.test/realms/account",
+		"client_id":         "contract-account-manager",
+		"client_secret_ref": "env:CONTRACT_OIDC_SECRET",
+		"scopes":            []string{"openid", "email", "profile"},
+		"enabled":           false,
+		"metadata":          map[string]any{"contract": true},
+	}, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/identity-providers", adminIDPCreateRes)
+	adminIDPListRes := performJSON(env.router, http.MethodGet, "/v1/admin/identity-providers", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/admin/identity-providers", adminIDPListRes)
+	adminIDPGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/identity-providers/contract-keycloak", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/admin/identity-providers/contract-keycloak", adminIDPGetRes)
+	adminIDPPatchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/identity-providers/contract-keycloak", map[string]any{
+		"name": "Contract Keycloak Updated",
+	}, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPatch, "/v1/admin/identity-providers/contract-keycloak", adminIDPPatchRes)
+	adminIDPDeleteRes := performJSON(env.router, http.MethodDelete, "/v1/admin/identity-providers/contract-keycloak", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodDelete, "/v1/admin/identity-providers/contract-keycloak", adminIDPDeleteRes)
 	adminClaimTokensRes := performJSON(env.router, http.MethodGet, "/v1/admin/device-claim-tokens", nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodGet, "/v1/admin/device-claim-tokens", adminClaimTokensRes)
 	adminClaimTokenGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID, nil, admin.Tokens.AccessToken)
