@@ -158,6 +158,81 @@ paths:
           description: Password reset and active refresh tokens revoked.
         "400":
           $ref: "#/components/responses/Error"
+  /v1/auth/oidc/providers:
+    get:
+      summary: List enabled public OIDC providers.
+      description: Returns public provider metadata only. Client secrets and secret references are never exposed by this endpoint.
+      responses:
+        "200":
+          description: OIDC provider discovery result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OIDCProvidersResponse"
+        "503":
+          $ref: "#/components/responses/Error"
+  /v1/auth/oidc/{providerId}/login:
+    get:
+      summary: Start an OIDC authorization-code login.
+      description: Creates a short-lived hashed state/nonce record and redirects the browser to the provider authorization endpoint.
+      parameters:
+        - $ref: "#/components/parameters/OIDCProviderId"
+      responses:
+        "302":
+          description: Redirect to OIDC provider authorization endpoint.
+          headers:
+            Location:
+              description: Provider authorization URL.
+              schema:
+                type: string
+                format: uri
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /v1/auth/oidc/{providerId}/callback:
+    get:
+      summary: Handle OIDC authorization-code callback.
+      description: Validates state, nonce, issuer, audience, signature, expiry, and verified email before returning the normal account-manager token response shape.
+      parameters:
+        - $ref: "#/components/parameters/OIDCProviderId"
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: error
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: error_description
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OIDC login succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
   /v1/auth/logout:
     post:
       security:
@@ -219,6 +294,34 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+  /v1/me/identities:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List current user's external identities.
+      responses:
+        "200":
+          description: Current user's linked external identities.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserIdentitiesResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/me/identities/{identityId}:
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Unlink a current-user external identity.
+      parameters:
+        - $ref: "#/components/parameters/IdentityId"
+      responses:
+        "204":
+          description: External identity unlinked.
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
           $ref: "#/components/responses/Error"
   /v1/orgs:
     get:
@@ -483,6 +586,116 @@ paths:
         "401":
           $ref: "#/components/responses/Error"
         "403":
+          $ref: "#/components/responses/Error"
+  /v1/admin/identity-providers:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Create an OIDC identity provider.
+      description: Platform-admin only. The API stores only provider metadata and `client_secret_ref`; raw client secrets are rejected and never returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminIdentityProviderCreateRequest"
+      responses:
+        "201":
+          description: Identity provider created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminIdentityProviderResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+    get:
+      security:
+        - bearerAuth: []
+      summary: List OIDC identity providers.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Identity provider list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminIdentityProvidersResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/admin/identity-providers/{providerId}:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get an OIDC identity provider.
+      parameters:
+        - $ref: "#/components/parameters/OIDCProviderId"
+      responses:
+        "200":
+          description: Identity provider.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminIdentityProviderResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update an OIDC identity provider.
+      description: Platform-admin only. `client_secret_ref` must use the supported `env:VAR_NAME` format; raw client secrets are rejected.
+      parameters:
+        - $ref: "#/components/parameters/OIDCProviderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminIdentityProviderUpdateRequest"
+      responses:
+        "200":
+          description: Identity provider updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminIdentityProviderResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Disable or remove an OIDC identity provider.
+      parameters:
+        - $ref: "#/components/parameters/OIDCProviderId"
+      responses:
+        "204":
+          description: Identity provider disabled or removed.
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
           $ref: "#/components/responses/Error"
   /v1/admin/device-claim-tokens:
     post:
@@ -1379,6 +1592,21 @@ components:
       schema:
         type: string
         format: uuid
+    OIDCProviderId:
+      name: providerId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        pattern: "^[A-Za-z0-9_-]+$"
+    IdentityId:
+      name: identityId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     GroupId:
       name: groupId
       in: path
@@ -1434,6 +1662,42 @@ components:
                   message: Claim resolve is temporarily unavailable
                   retryable: true
                   resolution_action: retry_later
+            oidc_user_not_provisioned:
+              summary: Unknown SSO user.
+              value:
+                error:
+                  code: user_not_provisioned
+                  message: SSO user is not provisioned in account manager
+            oidc_disabled:
+              summary: OIDC login disabled.
+              value:
+                error:
+                  code: oidc_disabled
+                  message: OIDC authentication is disabled
+            invalid_oidc_state:
+              summary: Invalid or replayed OIDC state.
+              value:
+                error:
+                  code: invalid_oidc_state
+                  message: Invalid OIDC login state
+            invalid_oidc_token:
+              summary: Invalid OIDC token.
+              value:
+                error:
+                  code: invalid_oidc_token
+                  message: Invalid OIDC token
+            unverified_oidc_email:
+              summary: Unverified OIDC email.
+              value:
+                error:
+                  code: unverified_oidc_email
+                  message: OIDC email is not verified
+            oidc_provider_misconfigured:
+              summary: OIDC provider misconfigured.
+              value:
+                error:
+                  code: oidc_provider_misconfigured
+                  message: OIDC provider is misconfigured
   schemas:
     HealthResponse:
       type: object
@@ -1524,6 +1788,194 @@ components:
         new_password:
           type: string
           minLength: 8
+    OIDCProvidersResponse:
+      type: object
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/OIDCProviderPublic"
+    OIDCProviderPublic:
+      type: object
+      required: [provider_id, name, type, issuer_url, scopes, enabled]
+      properties:
+        provider_id:
+          type: string
+        name:
+          type: string
+        type:
+          $ref: "#/components/schemas/IdentityProviderType"
+        issuer_url:
+          type: string
+          format: uri
+        scopes:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+    UserIdentity:
+      type: object
+      required: [id, provider_id, provider_key, issuer_url, subject, email, email_verified, linked_at, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        provider_id:
+          type: string
+          format: uuid
+          description: Internal identity provider row id.
+        provider_key:
+          type: string
+          description: Stable public provider identifier, for example `keycloak`.
+        issuer_url:
+          type: string
+          format: uri
+        subject:
+          type: string
+          description: OIDC `sub` claim.
+        email:
+          type: string
+          format: email
+        email_verified:
+          type: boolean
+        linked_at:
+          type: string
+          format: date-time
+        last_login_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    UserIdentitiesResponse:
+      type: object
+      required: [identities]
+      properties:
+        identities:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserIdentity"
+    AdminIdentityProviderCreateRequest:
+      type: object
+      required: [provider_id, name, issuer_url, client_id, client_secret_ref]
+      additionalProperties: false
+      properties:
+        provider_id:
+          type: string
+          minLength: 1
+          pattern: "^[A-Za-z0-9_-]+$"
+        name:
+          type: string
+          minLength: 1
+        issuer_url:
+          type: string
+          format: uri
+        client_id:
+          type: string
+          minLength: 1
+        client_secret_ref:
+          $ref: "#/components/schemas/SecretRef"
+        scopes:
+          type: array
+          default: [openid, email, profile]
+          items:
+            type: string
+            minLength: 1
+        enabled:
+          type: boolean
+          default: false
+        metadata:
+          type: object
+          additionalProperties: true
+    AdminIdentityProviderUpdateRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+        issuer_url:
+          type: string
+          format: uri
+        client_id:
+          type: string
+          minLength: 1
+        client_secret_ref:
+          $ref: "#/components/schemas/SecretRef"
+        scopes:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        enabled:
+          type: boolean
+        metadata:
+          type: object
+          additionalProperties: true
+    AdminIdentityProviderResponse:
+      type: object
+      required: [identity_provider]
+      properties:
+        identity_provider:
+          $ref: "#/components/schemas/IdentityProvider"
+    AdminIdentityProvidersResponse:
+      type: object
+      required: [identity_providers, pagination]
+      properties:
+        identity_providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/IdentityProvider"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+    IdentityProvider:
+      type: object
+      required: [id, provider_id, name, type, issuer_url, client_id, scopes, enabled, metadata, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        provider_id:
+          type: string
+        name:
+          type: string
+        type:
+          $ref: "#/components/schemas/IdentityProviderType"
+        issuer_url:
+          type: string
+          format: uri
+        client_id:
+          type: string
+        client_secret_ref:
+          $ref: "#/components/schemas/SecretRef"
+        scopes:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SecretRef:
+      type: string
+      pattern: "^env:[A-Za-z_][A-Za-z0-9_]*$"
+      description: Reference to a runtime secret. Raw secrets are not accepted; first implementation supports `env:VAR_NAME`.
+    IdentityProviderType:
+      type: string
+      enum: [oidc]
     CreateOrganizationRequest:
       type: object
       required: [name]
