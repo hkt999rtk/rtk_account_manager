@@ -6,8 +6,8 @@ This document is the detailed planned specification for Keycloak/OIDC SSO in
 account manager. `SPEC.md` remains the top-level product and API specification
 and links here for the OIDC details.
 
-This is specification-only until the matching migrations, OpenAPI, handlers,
-configuration wiring, and tests are implemented.
+The local development flow for validating this integration against Keycloak is
+documented in [KEYCLOAK_LOCAL_RUNBOOK.md](KEYCLOAK_LOCAL_RUNBOOK.md).
 
 ## Goal
 
@@ -32,10 +32,11 @@ manager and does not own account-manager authorization policy.
 - Successful SSO login issues account-manager access and refresh JWTs. Clients
   keep using `Authorization: Bearer <account-manager-access-token>` for API
   calls.
-- The first implementation targets one configured Keycloak/OIDC provider from
-  environment configuration.
-- Multi-provider platform-admin CRUD is planned as an admin-only management
-  surface after the env-configured provider path is implemented.
+- The first implementation supports one active Keycloak/OIDC provider, resolved
+  from an enabled database provider first and environment configuration as a
+  fallback.
+- Platform-admin provider CRUD stores only secret references such as
+  `env:OIDC_CLIENT_SECRET`; raw client secrets are not stored or returned.
 
 ## Backend Callback Flow
 
@@ -192,8 +193,8 @@ Constraints:
 
 ### Platform Admin Provider Management
 
-These endpoints are planned admin-only scope. The first implementation can ship
-the env-configured single provider before this CRUD surface.
+These endpoints are admin-only. They manage provider metadata and secret
+references, not raw client secrets.
 
 | Method | Path | Auth | Role | Description |
 | --- | --- | --- | --- | --- |
