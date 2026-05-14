@@ -340,6 +340,109 @@ func TestIntegrationOIDCDisabledDiscoveryAndLogin(t *testing.T) {
 	assertErrorCode(t, loginRes, http.StatusBadRequest, "oidc_disabled")
 }
 
+func TestIntegrationCurrentUserOIDCIdentityManagement(t *testing.T) {
+	env := newIntegrationEnv(t)
+	fake := newAPIOIDCTestServer(t)
+	defer fake.close()
+	configureOIDCTestServer(t, env.server, fake, true)
+	owner := registerUser(t, env.router, "identity-owner@example.com", "Identity Owner Org")
+	other := registerUser(t, env.router, "identity-other@example.com", "Identity Other Org")
+
+	state, nonce := startOIDCTestLogin(t, env.router)
+	fake.idToken = fake.signToken(t, apiOIDCTokenFixture{
+		Subject:       "identity-subject",
+		Email:         "identity-owner@example.com",
+		EmailVerified: true,
+		Nonce:         nonce,
+	})
+	callbackRes := performJSON(env.router, http.MethodGet, "/v1/auth/oidc/keycloak/callback?code=auth-code&state="+url.QueryEscape(state), nil, "")
+	if callbackRes.Code != http.StatusOK {
+		t.Fatalf("expected callback 200, got %d: %s", callbackRes.Code, callbackRes.Body.String())
+	}
+	callbackBody := decodeBody[tokenBody](t, callbackRes)
+
+	listRes := performJSON(env.router, http.MethodGet, "/v1/me/identities", nil, callbackBody.Tokens.AccessToken)
+	if listRes.Code != http.StatusOK {
+		t.Fatalf("expected identities list 200, got %d: %s", listRes.Code, listRes.Body.String())
+	}
+	var listBody struct {
+		Identities []model.UserIdentity `json:"identities"`
+	}
+	listBody = decodeBody[struct {
+		Identities []model.UserIdentity `json:"identities"`
+	}](t, listRes)
+	if len(listBody.Identities) != 1 || listBody.Identities[0].Subject != "identity-subject" || listBody.Identities[0].Email != "identity-owner@example.com" {
+		t.Fatalf("unexpected identities list: %+v", listBody)
+	}
+	identityID := listBody.Identities[0].ID
+
+	otherDeleteRes := performJSON(env.router, http.MethodDelete, "/v1/me/identities/"+identityID, nil, other.Tokens.AccessToken)
+	assertErrorCode(t, otherDeleteRes, http.StatusNotFound, "not_found")
+
+	deleteRes := performJSON(env.router, http.MethodDelete, "/v1/me/identities/"+identityID, nil, callbackBody.Tokens.AccessToken)
+	if deleteRes.Code != http.StatusNoContent {
+		t.Fatalf("expected identity delete 204, got %d: %s", deleteRes.Code, deleteRes.Body.String())
+	}
+
+	listAfterDeleteRes := performJSON(env.router, http.MethodGet, "/v1/me/identities", nil, callbackBody.Tokens.AccessToken)
+	if listAfterDeleteRes.Code != http.StatusOK {
+		t.Fatalf("expected identities list after delete 200, got %d: %s", listAfterDeleteRes.Code, listAfterDeleteRes.Body.String())
+	}
+	listAfterDelete := decodeBody[struct {
+		Identities []model.UserIdentity `json:"identities"`
+	}](t, listAfterDeleteRes)
+	if len(listAfterDelete.Identities) != 0 {
+		t.Fatalf("expected no identities after delete, got %+v", listAfterDelete)
+	}
+
+	configureOIDCTestServer(t, env.server, fake, false)
+	state, nonce = startOIDCTestLogin(t, env.router)
+	fake.idToken = fake.signToken(t, apiOIDCTokenFixture{
+		Subject:       "identity-subject",
+		Email:         "identity-owner@example.com",
+		EmailVerified: true,
+		Nonce:         nonce,
+	})
+	unlinkedCallbackRes := performJSON(env.router, http.MethodGet, "/v1/auth/oidc/keycloak/callback?code=auth-code&state="+url.QueryEscape(state), nil, "")
+	assertErrorCode(t, unlinkedCallbackRes, http.StatusForbidden, "user_not_provisioned")
+
+	localLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    owner.User.Email,
+		"password": "password123",
+	}, "")
+	if localLoginRes.Code != http.StatusOK {
+		t.Fatalf("expected local password login to survive identity unlink, got %d: %s", localLoginRes.Code, localLoginRes.Body.String())
+	}
+}
+
+func TestIntegrationDisabledUserCannotManageOIDCIdentities(t *testing.T) {
+	env := newIntegrationEnv(t)
+	fake := newAPIOIDCTestServer(t)
+	defer fake.close()
+	configureOIDCTestServer(t, env.server, fake, true)
+	registered := registerUser(t, env.router, "disabled-identities@example.com", "Disabled Identities Org")
+	provider := seedOIDCTestProvider(t, env.db, fake)
+	if _, err := store.New(env.db).CreateUserIdentity(context.Background(), store.UserIdentityCreateInput{
+		UserID:        registered.User.ID,
+		ProviderID:    provider.ID,
+		IssuerURL:     fake.server.URL,
+		Subject:       "disabled-identities-subject",
+		Email:         registered.User.Email,
+		EmailVerified: true,
+		Claims:        map[string]any{"sub": "disabled-identities-subject"},
+		Now:           time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(context.Background(), `UPDATE users SET disabled_at = now(), updated_at = now() WHERE id = $1`, registered.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	listRes := performJSON(env.router, http.MethodGet, "/v1/me/identities", nil, registered.Tokens.AccessToken)
+	if listRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected disabled user identities list 401, got %d: %s", listRes.Code, listRes.Body.String())
+	}
+}
+
 func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	env := newIntegrationEnv(t)
 
