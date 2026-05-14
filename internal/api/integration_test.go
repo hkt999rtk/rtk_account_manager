@@ -2908,6 +2908,167 @@ func TestIntegrationAdminDeviceClaimTokenWorkflow(t *testing.T) {
 	assertErrorCode(t, resolveRevokedRes, http.StatusNotFound, "invalid_claim_token")
 }
 
+func TestIntegrationAdminIdentityProviderWorkflow(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+
+	admin := registerUser(t, env.router, "idp-platform-admin@example.com", "IdP Admin Org")
+	nonAdmin := registerUser(t, env.router, "idp-non-admin@example.com", "IdP Non Admin Org")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	createPayload := map[string]any{
+		"provider_id":       "keycloak",
+		"name":              "Keycloak",
+		"issuer_url":        "https://sso.example.test/realms/account",
+		"client_id":         "rtk-account-manager",
+		"client_secret_ref": "env:OIDC_CLIENT_SECRET",
+		"scopes":            []string{"openid", "email", "profile"},
+		"enabled":           true,
+		"metadata":          map[string]any{"realm": "account"},
+	}
+
+	nonAdminCreateRes := performJSON(env.router, http.MethodPost, "/v1/admin/identity-providers", createPayload, nonAdmin.Tokens.AccessToken)
+	if nonAdminCreateRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-admin create 403, got %d: %s", nonAdminCreateRes.Code, nonAdminCreateRes.Body.String())
+	}
+	rawSecretPayload := map[string]any{
+		"provider_id":       "raw-secret-provider",
+		"name":              "Raw Secret Provider",
+		"issuer_url":        "https://raw-secret.example.test/realms/account",
+		"client_id":         "raw-client",
+		"client_secret_ref": "super-secret-value",
+	}
+	rawSecretRes := performJSON(env.router, http.MethodPost, "/v1/admin/identity-providers", rawSecretPayload, admin.Tokens.AccessToken)
+	assertErrorCode(t, rawSecretRes, http.StatusBadRequest, "invalid_client_secret_ref")
+
+	createRes := performJSON(env.router, http.MethodPost, "/v1/admin/identity-providers", createPayload, admin.Tokens.AccessToken)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected identity provider create 201, got %d: %s", createRes.Code, createRes.Body.String())
+	}
+	created := decodeBody[identityProviderAdminBody](t, createRes)
+	if created.IdentityProvider.ProviderID != "keycloak" || created.IdentityProvider.ClientSecretRef == nil || *created.IdentityProvider.ClientSecretRef != "env:OIDC_CLIENT_SECRET" || !created.IdentityProvider.Enabled {
+		t.Fatalf("unexpected created provider: %+v", created)
+	}
+	if bytes.Contains(createRes.Body.Bytes(), []byte("super-secret-value")) {
+		t.Fatalf("raw secret leaked in create response: %s", createRes.Body.String())
+	}
+
+	createSecondEnabledRes := performJSON(env.router, http.MethodPost, "/v1/admin/identity-providers", map[string]any{
+		"provider_id":       "second-enabled",
+		"name":              "Second Enabled",
+		"issuer_url":        "https://second.example.test/realms/account",
+		"client_id":         "second-client",
+		"client_secret_ref": "env:SECOND_OIDC_SECRET",
+		"enabled":           true,
+	}, admin.Tokens.AccessToken)
+	assertErrorCode(t, createSecondEnabledRes, http.StatusConflict, "conflict")
+
+	createSecondDisabledRes := performJSON(env.router, http.MethodPost, "/v1/admin/identity-providers", map[string]any{
+		"provider_id":       "second-disabled",
+		"name":              "Second Disabled",
+		"issuer_url":        "https://second-disabled.example.test/realms/account",
+		"client_id":         "second-disabled-client",
+		"client_secret_ref": "env:SECOND_OIDC_SECRET",
+		"enabled":           false,
+	}, admin.Tokens.AccessToken)
+	if createSecondDisabledRes.Code != http.StatusCreated {
+		t.Fatalf("expected disabled second provider create 201, got %d: %s", createSecondDisabledRes.Code, createSecondDisabledRes.Body.String())
+	}
+
+	patchSecondEnabledRes := performJSON(env.router, http.MethodPatch, "/v1/admin/identity-providers/second-disabled", map[string]any{
+		"enabled": true,
+	}, admin.Tokens.AccessToken)
+	assertErrorCode(t, patchSecondEnabledRes, http.StatusConflict, "conflict")
+
+	listRes := performJSON(env.router, http.MethodGet, "/v1/admin/identity-providers?limit=1&offset=0", nil, admin.Tokens.AccessToken)
+	if listRes.Code != http.StatusOK {
+		t.Fatalf("expected identity provider list 200, got %d: %s", listRes.Code, listRes.Body.String())
+	}
+	listBody := decodeBody[identityProvidersAdminBody](t, listRes)
+	if listBody.Pagination.Total != 2 || len(listBody.IdentityProviders) != 1 {
+		t.Fatalf("unexpected provider list: %+v", listBody)
+	}
+
+	nonAdminListRes := performJSON(env.router, http.MethodGet, "/v1/admin/identity-providers", nil, nonAdmin.Tokens.AccessToken)
+	if nonAdminListRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-admin list 403, got %d: %s", nonAdminListRes.Code, nonAdminListRes.Body.String())
+	}
+
+	getRes := performJSON(env.router, http.MethodGet, "/v1/admin/identity-providers/keycloak", nil, admin.Tokens.AccessToken)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("expected identity provider get 200, got %d: %s", getRes.Code, getRes.Body.String())
+	}
+
+	patchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/identity-providers/keycloak", map[string]any{
+		"name":              "Keycloak Updated",
+		"client_secret_ref": "env:OIDC_CLIENT_SECRET_ROTATED",
+		"scopes":            []string{"openid", "email"},
+		"metadata":          map[string]any{"realm": "account", "rotation": "planned"},
+	}, admin.Tokens.AccessToken)
+	if patchRes.Code != http.StatusOK {
+		t.Fatalf("expected identity provider patch 200, got %d: %s", patchRes.Code, patchRes.Body.String())
+	}
+	patched := decodeBody[identityProviderAdminBody](t, patchRes)
+	if patched.IdentityProvider.Name != "Keycloak Updated" || patched.IdentityProvider.ClientSecretRef == nil || *patched.IdentityProvider.ClientSecretRef != "env:OIDC_CLIENT_SECRET_ROTATED" || len(patched.IdentityProvider.Scopes) != 2 {
+		t.Fatalf("unexpected patched provider: %+v", patched)
+	}
+
+	rawPatchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/identity-providers/keycloak", map[string]any{
+		"client_secret_ref": "raw-rotated-secret",
+	}, admin.Tokens.AccessToken)
+	assertErrorCode(t, rawPatchRes, http.StatusBadRequest, "invalid_client_secret_ref")
+
+	deleteRes := performJSON(env.router, http.MethodDelete, "/v1/admin/identity-providers/keycloak", nil, admin.Tokens.AccessToken)
+	if deleteRes.Code != http.StatusNoContent {
+		t.Fatalf("expected identity provider delete 204, got %d: %s", deleteRes.Code, deleteRes.Body.String())
+	}
+	showDisabledRes := performJSON(env.router, http.MethodGet, "/v1/admin/identity-providers/keycloak", nil, admin.Tokens.AccessToken)
+	if showDisabledRes.Code != http.StatusOK {
+		t.Fatalf("expected disabled provider show 200, got %d: %s", showDisabledRes.Code, showDisabledRes.Body.String())
+	}
+	disabled := decodeBody[identityProviderAdminBody](t, showDisabledRes)
+	if disabled.IdentityProvider.Enabled {
+		t.Fatalf("expected delete to disable provider, got %+v", disabled)
+	}
+
+	enableSecondRes := performJSON(env.router, http.MethodPatch, "/v1/admin/identity-providers/second-disabled", map[string]any{
+		"enabled": true,
+	}, admin.Tokens.AccessToken)
+	if enableSecondRes.Code != http.StatusOK {
+		t.Fatalf("expected enabling second provider after disabling first to succeed, got %d: %s", enableSecondRes.Code, enableSecondRes.Body.String())
+	}
+
+	var rawSecretCount int
+	if err := env.db.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM identity_providers
+		WHERE client_secret_ref IN ('super-secret-value', 'raw-rotated-secret')
+			OR metadata::text LIKE '%super-secret-value%'
+			OR metadata::text LIKE '%raw-rotated-secret%'
+	`).Scan(&rawSecretCount); err != nil {
+		t.Fatal(err)
+	}
+	if rawSecretCount != 0 {
+		t.Fatal("raw OIDC client secret was persisted")
+	}
+
+	events, err := store.New(env.db).ListAuditEvents(ctx, store.AuditEventListFilter{
+		SubjectType: "identity_provider",
+		Limit:       20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if events.Page.Total < 4 {
+		t.Fatalf("expected identity provider audit events, got %+v", events)
+	}
+	if !hasAuditEvent(events.Events, "identity_provider_created") || !hasAuditEvent(events.Events, "identity_provider_updated") || !hasAuditEvent(events.Events, "identity_provider_disabled") {
+		t.Fatalf("missing expected identity provider audit events: %+v", events.Events)
+	}
+}
+
 func TestIntegrationAdminDeviceClaimOverrideWorkflow(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
@@ -3322,6 +3483,15 @@ type deviceClaimTokensAdminBody struct {
 	Pagination paginationBody `json:"pagination"`
 }
 
+type identityProviderAdminBody struct {
+	IdentityProvider model.IdentityProvider `json:"identity_provider"`
+}
+
+type identityProvidersAdminBody struct {
+	IdentityProviders []model.IdentityProvider `json:"identity_providers"`
+	Pagination        paginationBody           `json:"pagination"`
+}
+
 type deviceClaimOverrideAdminBody struct {
 	DeviceClaimToken struct {
 		ID             string  `json:"id"`
@@ -3725,6 +3895,15 @@ func assertOIDCStateStoredAsHash(t *testing.T, db *pgxpool.Pool, state, nonce st
 	if hashedCount != 1 {
 		t.Fatalf("expected hashed OIDC state row, got %d", hashedCount)
 	}
+}
+
+func hasAuditEvent(events []model.AuditEvent, eventType string) bool {
+	for _, event := range events {
+		if event.EventType == eventType {
+			return true
+		}
+	}
+	return false
 }
 
 type apiOIDCTestServer struct {

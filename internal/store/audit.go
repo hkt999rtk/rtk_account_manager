@@ -48,6 +48,29 @@ func createAuditEventTx(ctx context.Context, tx pgx.Tx, in AuditEventInput) erro
 	return err
 }
 
+func (s *Store) CreateAuditEvent(ctx context.Context, in AuditEventInput) error {
+	payload := []byte(`{}`)
+	if len(in.Payload) > 0 {
+		raw, err := json.Marshal(in.Payload)
+		if err != nil {
+			return err
+		}
+		payload = raw
+	}
+	_, err := s.db.Exec(ctx, `
+		INSERT INTO audit_events (
+			event_type,
+			actor_user_id,
+			organization_id,
+			subject_type,
+			subject_id,
+			payload
+		)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, in.EventType, in.ActorUserID, in.OrganizationID, in.SubjectType, in.SubjectID, payload)
+	return err
+}
+
 func (s *Store) ListAuditEvents(ctx context.Context, in AuditEventListFilter) (AuditEventPage, error) {
 	var total int
 	if err := s.db.QueryRow(ctx, `
