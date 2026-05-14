@@ -3,17 +3,23 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"rtk_account_manager/internal/auth"
@@ -26,6 +32,7 @@ import (
 
 type integrationEnv struct {
 	router           *gin.Engine
+	server           *Server
 	db               *pgxpool.Pool
 	tokenSink        *recordingAuthTokenSink
 	notificationSink *recordingQuotaRaiseNotificationSink
@@ -70,7 +77,7 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		TRUNCATE auth_tokens, quota_raise_requests, device_claims, device_claim_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
+		TRUNCATE oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_claims, device_claim_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatal(err)
@@ -80,8 +87,10 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 	authService := auth.NewService("test-access-secret", "test-refresh-secret", time.Minute, time.Hour)
 	tokenSink := &recordingAuthTokenSink{}
 	notificationSink := &recordingQuotaRaiseNotificationSink{}
+	server := NewWithAuthTokenAndNotificationSink(store.New(db), authService, tokenSink, notificationSink)
 	return integrationEnv{
-		router:           NewWithAuthTokenAndNotificationSink(store.New(db), authService, tokenSink, notificationSink).Router(),
+		router:           server.Router(),
+		server:           server,
 		db:               db,
 		tokenSink:        tokenSink,
 		notificationSink: notificationSink,
@@ -157,6 +166,178 @@ func TestIntegrationRegisterLoginRefreshAndLogout(t *testing.T) {
 	if invalidRefreshRes.Code != http.StatusUnauthorized {
 		t.Fatalf("expected invalid refresh token 401, got %d", invalidRefreshRes.Code)
 	}
+}
+
+func TestIntegrationOIDCProviderLoginAndCallback(t *testing.T) {
+	env := newIntegrationEnv(t)
+	fake := newAPIOIDCTestServer(t)
+	defer fake.close()
+	configureOIDCTestServer(t, env.server, fake, true)
+
+	registered := registerUser(t, env.router, "oidc-user@example.com", "OIDC Org")
+
+	providersRes := performJSON(env.router, http.MethodGet, "/v1/auth/oidc/providers", nil, "")
+	if providersRes.Code != http.StatusOK {
+		t.Fatalf("expected OIDC providers 200, got %d: %s", providersRes.Code, providersRes.Body.String())
+	}
+	var providersBody struct {
+		Providers []struct {
+			ProviderID string   `json:"provider_id"`
+			Name       string   `json:"name"`
+			Type       string   `json:"type"`
+			IssuerURL  string   `json:"issuer_url"`
+			Scopes     []string `json:"scopes"`
+			Enabled    bool     `json:"enabled"`
+		} `json:"providers"`
+	}
+	providersBody = decodeBody[struct {
+		Providers []struct {
+			ProviderID string   `json:"provider_id"`
+			Name       string   `json:"name"`
+			Type       string   `json:"type"`
+			IssuerURL  string   `json:"issuer_url"`
+			Scopes     []string `json:"scopes"`
+			Enabled    bool     `json:"enabled"`
+		} `json:"providers"`
+	}](t, providersRes)
+	if len(providersBody.Providers) != 1 || providersBody.Providers[0].ProviderID != "keycloak" || !providersBody.Providers[0].Enabled {
+		t.Fatalf("unexpected providers response: %+v", providersBody)
+	}
+
+	loginRes := performJSON(env.router, http.MethodGet, "/v1/auth/oidc/keycloak/login", nil, "")
+	if loginRes.Code != http.StatusFound {
+		t.Fatalf("expected OIDC login redirect, got %d: %s", loginRes.Code, loginRes.Body.String())
+	}
+	location := loginRes.Header().Get("Location")
+	authURL, err := url.Parse(location)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := authURL.Query().Get("state")
+	nonce := authURL.Query().Get("nonce")
+	if state == "" || nonce == "" || authURL.Path != "/authorize" {
+		t.Fatalf("unexpected authorization redirect: %s", location)
+	}
+	assertOIDCStateStoredAsHash(t, env.db, state, nonce)
+
+	fake.idToken = fake.signToken(t, apiOIDCTokenFixture{
+		Subject:       "subject-1",
+		Email:         "OIDC-User@Example.com",
+		EmailVerified: true,
+		Nonce:         nonce,
+	})
+	callbackRes := performJSON(env.router, http.MethodGet, "/v1/auth/oidc/keycloak/callback?code=auth-code&state="+url.QueryEscape(state), nil, "")
+	if callbackRes.Code != http.StatusOK {
+		t.Fatalf("expected OIDC callback 200, got %d: %s", callbackRes.Code, callbackRes.Body.String())
+	}
+	callbackBody := decodeBody[struct {
+		User struct {
+			ID    string `json:"id"`
+			Email string `json:"email"`
+		} `json:"user"`
+		Tokens struct {
+			AccessToken  string `json:"access_token"`
+			RefreshToken string `json:"refresh_token"`
+		} `json:"tokens"`
+	}](t, callbackRes)
+	if callbackBody.User.ID != registered.User.ID || callbackBody.User.Email != "oidc-user@example.com" || callbackBody.Tokens.AccessToken == "" || callbackBody.Tokens.RefreshToken == "" {
+		t.Fatalf("unexpected callback body: %+v", callbackBody)
+	}
+
+	var identityCount int
+	if err := env.db.QueryRow(context.Background(), `
+		SELECT count(*) FROM user_identities WHERE user_id = $1 AND subject = 'subject-1'
+	`, registered.User.ID).Scan(&identityCount); err != nil {
+		t.Fatal(err)
+	}
+	if identityCount != 1 {
+		t.Fatalf("expected exactly one linked identity, got %d", identityCount)
+	}
+
+	replayRes := performJSON(env.router, http.MethodGet, "/v1/auth/oidc/keycloak/callback?code=auth-code&state="+url.QueryEscape(state), nil, "")
+	assertErrorCode(t, replayRes, http.StatusBadRequest, "invalid_oidc_state")
+
+	localLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "oidc-user@example.com",
+		"password": "password123",
+	}, "")
+	if localLoginRes.Code != http.StatusOK {
+		t.Fatalf("expected local login to remain available, got %d: %s", localLoginRes.Code, localLoginRes.Body.String())
+	}
+}
+
+func TestIntegrationOIDCCallbackRejectsUnknownDisabledAndUnverifiedUsers(t *testing.T) {
+	t.Run("unknown without auto link", func(t *testing.T) {
+		env := newIntegrationEnv(t)
+		fake := newAPIOIDCTestServer(t)
+		defer fake.close()
+		configureOIDCTestServer(t, env.server, fake, false)
+
+		state, nonce := startOIDCTestLogin(t, env.router)
+		fake.idToken = fake.signToken(t, apiOIDCTokenFixture{Subject: "unknown-subject", Email: "missing@example.com", EmailVerified: true, Nonce: nonce})
+		res := performJSON(env.router, http.MethodGet, "/v1/auth/oidc/keycloak/callback?code=auth-code&state="+url.QueryEscape(state), nil, "")
+		assertErrorCode(t, res, http.StatusForbidden, "user_not_provisioned")
+	})
+
+	t.Run("disabled linked user", func(t *testing.T) {
+		env := newIntegrationEnv(t)
+		fake := newAPIOIDCTestServer(t)
+		defer fake.close()
+		configureOIDCTestServer(t, env.server, fake, false)
+		registered := registerUser(t, env.router, "disabled-oidc@example.com", "Disabled OIDC Org")
+		provider := seedOIDCTestProvider(t, env.db, fake)
+		if _, err := store.New(env.db).CreateUserIdentity(context.Background(), store.UserIdentityCreateInput{
+			UserID:        registered.User.ID,
+			ProviderID:    provider.ID,
+			IssuerURL:     fake.server.URL,
+			Subject:       "disabled-subject",
+			Email:         "disabled-oidc@example.com",
+			EmailVerified: true,
+			Claims:        map[string]any{"sub": "disabled-subject"},
+			Now:           time.Now().UTC(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := env.db.Exec(context.Background(), `UPDATE users SET disabled_at = now(), updated_at = now() WHERE id = $1`, registered.User.ID); err != nil {
+			t.Fatal(err)
+		}
+		state, nonce := seedOIDCTestState(t, env.db, provider.ID)
+		fake.idToken = fake.signToken(t, apiOIDCTokenFixture{Subject: "disabled-subject", Email: "disabled-oidc@example.com", EmailVerified: true, Nonce: nonce})
+		res := performJSON(env.router, http.MethodGet, "/v1/auth/oidc/keycloak/callback?code=auth-code&state="+url.QueryEscape(state), nil, "")
+		assertErrorCode(t, res, http.StatusForbidden, "user_not_provisioned")
+	})
+
+	t.Run("unverified email", func(t *testing.T) {
+		env := newIntegrationEnv(t)
+		fake := newAPIOIDCTestServer(t)
+		defer fake.close()
+		configureOIDCTestServer(t, env.server, fake, true)
+		state, nonce := startOIDCTestLogin(t, env.router)
+		fake.idToken = fake.signToken(t, apiOIDCTokenFixture{Subject: "subject-2", Email: "unverified@example.com", EmailVerified: false, Nonce: nonce})
+		res := performJSON(env.router, http.MethodGet, "/v1/auth/oidc/keycloak/callback?code=auth-code&state="+url.QueryEscape(state), nil, "")
+		assertErrorCode(t, res, http.StatusBadRequest, "unverified_oidc_email")
+	})
+}
+
+func TestIntegrationOIDCDisabledDiscoveryAndLogin(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	providersRes := performJSON(env.router, http.MethodGet, "/v1/auth/oidc/providers", nil, "")
+	if providersRes.Code != http.StatusOK {
+		t.Fatalf("expected disabled discovery 200, got %d", providersRes.Code)
+	}
+	var providers struct {
+		Providers []any `json:"providers"`
+	}
+	providers = decodeBody[struct {
+		Providers []any `json:"providers"`
+	}](t, providersRes)
+	if len(providers.Providers) != 0 {
+		t.Fatalf("expected no providers when disabled, got %+v", providers)
+	}
+
+	loginRes := performJSON(env.router, http.MethodGet, "/v1/auth/oidc/keycloak/login", nil, "")
+	assertErrorCode(t, loginRes, http.StatusBadRequest, "oidc_disabled")
 }
 
 func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
@@ -3343,6 +3524,206 @@ func latestAuthToken(t *testing.T, sink *recordingAuthTokenSink, email, purpose 
 	}
 	t.Fatalf("missing %s token delivery for %s in %+v", purpose, email, sink.deliveries)
 	return ""
+}
+
+func configureOIDCTestServer(t *testing.T, server *Server, fake *apiOIDCTestServer, autoLink bool) {
+	t.Helper()
+	t.Setenv("OIDC_CLIENT_SECRET", "client-secret")
+	server.ConfigureOIDC(OIDCOptions{
+		Env: auth.OIDCEnvConfig{
+			Enabled:       true,
+			ProviderID:    "keycloak",
+			ProviderName:  "Keycloak",
+			IssuerURL:     fake.server.URL,
+			ClientID:      "rtk-account-manager",
+			ClientSecret:  "client-secret",
+			RedirectURL:   "https://api.example.test/v1/auth/oidc/keycloak/callback",
+			Scopes:        []string{"openid", "email", "profile"},
+			AutoLinkEmail: autoLink,
+		},
+		HTTPClient: fake.server.Client(),
+		Now:        fake.nowFn,
+	})
+}
+
+func startOIDCTestLogin(t *testing.T, router *gin.Engine) (string, string) {
+	t.Helper()
+	loginRes := performJSON(router, http.MethodGet, "/v1/auth/oidc/keycloak/login", nil, "")
+	if loginRes.Code != http.StatusFound {
+		t.Fatalf("expected OIDC login redirect, got %d: %s", loginRes.Code, loginRes.Body.String())
+	}
+	authURL, err := url.Parse(loginRes.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := authURL.Query().Get("state")
+	nonce := authURL.Query().Get("nonce")
+	if state == "" || nonce == "" {
+		t.Fatalf("missing state/nonce in redirect: %s", loginRes.Header().Get("Location"))
+	}
+	return state, nonce
+}
+
+func seedOIDCTestProvider(t *testing.T, db *pgxpool.Pool, fake *apiOIDCTestServer) model.IdentityProvider {
+	t.Helper()
+	secretRef := "env:OIDC_CLIENT_SECRET"
+	provider, err := store.New(db).CreateIdentityProvider(context.Background(), store.IdentityProviderCreateInput{
+		ProviderID:      "keycloak",
+		Name:            "Keycloak",
+		Type:            model.IdentityProviderTypeOIDC,
+		IssuerURL:       fake.server.URL,
+		ClientID:        "rtk-account-manager",
+		ClientSecretRef: &secretRef,
+		Scopes:          []string{"openid", "email", "profile"},
+		Enabled:         true,
+		Metadata:        map[string]any{"source": "test"},
+		Now:             time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return provider
+}
+
+func seedOIDCTestState(t *testing.T, db *pgxpool.Pool, providerID string) (string, string) {
+	t.Helper()
+	state := "state-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	nonce := "nonce-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	if _, err := store.New(db).CreateOIDCLoginState(context.Background(), store.OIDCLoginStateCreateInput{
+		ProviderID:  providerID,
+		StateHash:   auth.HashToken(state),
+		NonceHash:   auth.HashToken(nonce),
+		RedirectURL: "https://api.example.test/v1/auth/oidc/keycloak/callback",
+		ExpiresAt:   time.Now().UTC().Add(24 * time.Hour),
+		Now:         time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return state, nonce
+}
+
+func assertOIDCStateStoredAsHash(t *testing.T, db *pgxpool.Pool, state, nonce string) {
+	t.Helper()
+	var rawCount int
+	if err := db.QueryRow(context.Background(), `
+		SELECT count(*) FROM oidc_login_states WHERE state_hash = $1 OR nonce_hash = $2
+	`, state, nonce).Scan(&rawCount); err != nil {
+		t.Fatal(err)
+	}
+	if rawCount != 0 {
+		t.Fatal("raw OIDC state or nonce was persisted")
+	}
+	var hashedCount int
+	if err := db.QueryRow(context.Background(), `
+		SELECT count(*) FROM oidc_login_states WHERE state_hash = $1 AND nonce_hash = $2
+	`, auth.HashToken(state), auth.HashToken(nonce)).Scan(&hashedCount); err != nil {
+		t.Fatal(err)
+	}
+	if hashedCount != 1 {
+		t.Fatalf("expected hashed OIDC state row, got %d", hashedCount)
+	}
+}
+
+type apiOIDCTestServer struct {
+	server  *httptest.Server
+	key     *rsa.PrivateKey
+	keyID   string
+	now     time.Time
+	idToken string
+}
+
+func newAPIOIDCTestServer(t *testing.T) *apiOIDCTestServer {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &apiOIDCTestServer{
+		key:   key,
+		keyID: "api-oidc-test-key",
+		now:   time.Date(2026, 5, 14, 9, 0, 0, 0, time.UTC),
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONResponse(t, w, map[string]any{
+			"issuer":                 fake.server.URL,
+			"authorization_endpoint": fake.server.URL + "/authorize",
+			"token_endpoint":         fake.server.URL + "/token",
+			"jwks_uri":               fake.server.URL + "/jwks",
+		})
+	})
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if r.Form.Get("grant_type") != "authorization_code" || r.Form.Get("code") != "auth-code" || r.Form.Get("client_id") != "rtk-account-manager" || r.Form.Get("client_secret") != "client-secret" {
+			http.Error(w, "invalid token request", http.StatusBadRequest)
+			return
+		}
+		writeJSONResponse(t, w, map[string]any{
+			"token_type":    "Bearer",
+			"expires_in":    3600,
+			"access_token":  "provider-access-token",
+			"refresh_token": "provider-refresh-token",
+			"id_token":      fake.idToken,
+		})
+	})
+	mux.HandleFunc("/jwks", func(w http.ResponseWriter, r *http.Request) {
+		writeJSONResponse(t, w, map[string]any{"keys": []map[string]string{{
+			"kid": fake.keyID,
+			"kty": "RSA",
+			"alg": "RS256",
+			"use": "sig",
+			"n":   base64.RawURLEncoding.EncodeToString(fake.key.PublicKey.N.Bytes()),
+			"e":   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(fake.key.PublicKey.E)).Bytes()),
+		}}})
+	})
+	fake.server = httptest.NewServer(mux)
+	return fake
+}
+
+func (s *apiOIDCTestServer) close() {
+	s.server.Close()
+}
+
+func (s *apiOIDCTestServer) nowFn() time.Time {
+	return s.now
+}
+
+type apiOIDCTokenFixture struct {
+	Subject       string
+	Email         string
+	EmailVerified bool
+	Nonce         string
+}
+
+func (s *apiOIDCTestServer) signToken(t *testing.T, fixture apiOIDCTokenFixture) string {
+	t.Helper()
+	claims := jwt.MapClaims{
+		"iss":            s.server.URL,
+		"sub":            fixture.Subject,
+		"aud":            "rtk-account-manager",
+		"exp":            s.now.Add(time.Hour).Unix(),
+		"iat":            s.now.Unix(),
+		"nonce":          fixture.Nonce,
+		"email":          fixture.Email,
+		"email_verified": fixture.EmailVerified,
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	token.Header["kid"] = s.keyID
+	signed, err := token.SignedString(s.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signed
+}
+
+func writeJSONResponse(t *testing.T, w http.ResponseWriter, value any) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func devicePayload(name, serial string) map[string]any {

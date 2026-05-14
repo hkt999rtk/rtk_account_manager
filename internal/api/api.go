@@ -28,6 +28,10 @@ type Server struct {
 	quotaRaiseNotificationSink QuotaRaiseNotificationSink
 	signupLimiter              *signupLimiter
 	signupPolicy               signupPolicy
+	oidcResolver               auth.ProviderResolver
+	oidcClient                 auth.OIDCClient
+	oidcStateTTL               time.Duration
+	oidcEnvClientSecretRef     string
 }
 
 var ErrAuthTokenSinkUnavailable = errors.New("auth token sink unavailable")
@@ -44,6 +48,36 @@ func newServer(store *store.Store, authService *auth.Service, sink AuthTokenSink
 
 func New(store *store.Store, authService *auth.Service) *Server {
 	return newServer(store, authService, nil)
+}
+
+type OIDCOptions struct {
+	Env             auth.OIDCEnvConfig
+	HTTPClient      *http.Client
+	Now             func() time.Time
+	StateTTL        time.Duration
+	ClientSecretRef string
+}
+
+func (s *Server) ConfigureOIDC(options OIDCOptions) {
+	s.oidcResolver = auth.ProviderResolver{
+		Store: s.store,
+		Env:   options.Env,
+		IsNotFound: func(err error) bool {
+			return errors.Is(err, store.ErrNotFound)
+		},
+	}
+	s.oidcClient = auth.OIDCClient{
+		HTTPClient: options.HTTPClient,
+		Now:        options.Now,
+	}
+	s.oidcStateTTL = options.StateTTL
+	if s.oidcStateTTL <= 0 {
+		s.oidcStateTTL = 10 * time.Minute
+	}
+	s.oidcEnvClientSecretRef = options.ClientSecretRef
+	if s.oidcEnvClientSecretRef == "" {
+		s.oidcEnvClientSecretRef = "env:OIDC_CLIENT_SECRET"
+	}
 }
 
 type AuthTokenDelivery struct {
@@ -203,6 +237,9 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/auth/resend-verification", s.resendVerification)
 	v1.POST("/auth/forgot-password", s.forgotPassword)
 	v1.POST("/auth/reset-password", s.resetPassword)
+	v1.GET("/auth/oidc/providers", s.listOIDCProviders)
+	v1.GET("/auth/oidc/:providerId/login", s.startOIDCLogin)
+	v1.GET("/auth/oidc/:providerId/callback", s.handleOIDCCallback)
 
 	protected := v1.Group("")
 	protected.Use(s.requireAuth())
@@ -337,6 +374,243 @@ func (s *Server) login(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"user": user, "tokens": tokens})
+}
+
+func (s *Server) listOIDCProviders(c *gin.Context) {
+	provider, err := s.resolveOIDCProvider(c, "", false)
+	if err != nil {
+		if errors.Is(err, auth.ErrOIDCDisabled) || errors.Is(err, auth.ErrOIDCProviderNotFound) {
+			c.JSON(http.StatusOK, gin.H{"providers": []any{}})
+			return
+		}
+		writeOIDCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"providers": []gin.H{publicOIDCProvider(provider)}})
+}
+
+func (s *Server) startOIDCLogin(c *gin.Context) {
+	provider, err := s.resolveOIDCProvider(c, c.Param("providerId"), true)
+	if err != nil {
+		writeOIDCError(c, err)
+		return
+	}
+	state, err := auth.RandomToken()
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "oidc_state_failed", "Could not create OIDC login state")
+		return
+	}
+	nonce, err := auth.RandomToken()
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "oidc_state_failed", "Could not create OIDC login state")
+		return
+	}
+	var postLoginRedirect *string
+	if value := strings.TrimSpace(c.Query("redirect_uri")); value != "" {
+		postLoginRedirect = &value
+	}
+	if _, err := s.store.CreateOIDCLoginState(c.Request.Context(), store.OIDCLoginStateCreateInput{
+		ProviderID:           provider.ID,
+		StateHash:            auth.HashToken(state),
+		NonceHash:            auth.HashToken(nonce),
+		RedirectURL:          provider.RedirectURL,
+		PostLoginRedirectURL: postLoginRedirect,
+		ExpiresAt:            s.now().Add(s.oidcStateTTL),
+		Now:                  s.now(),
+	}); err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	location, err := s.oidcClient.AuthorizationURL(c.Request.Context(), provider, state, nonce)
+	if err != nil {
+		writeOIDCError(c, err)
+		return
+	}
+	c.Redirect(http.StatusFound, location)
+}
+
+func (s *Server) handleOIDCCallback(c *gin.Context) {
+	if providerErr := strings.TrimSpace(c.Query("error")); providerErr != "" {
+		message := strings.TrimSpace(c.Query("error_description"))
+		if message == "" {
+			message = "OIDC provider returned an error"
+		}
+		writeError(c, http.StatusBadRequest, "invalid_oidc_token", message)
+		return
+	}
+	code := strings.TrimSpace(c.Query("code"))
+	state := strings.TrimSpace(c.Query("state"))
+	if code == "" || state == "" {
+		writeError(c, http.StatusBadRequest, "invalid_oidc_state", "Invalid OIDC login state")
+		return
+	}
+	provider, err := s.resolveOIDCProvider(c, c.Param("providerId"), true)
+	if err != nil {
+		writeOIDCError(c, err)
+		return
+	}
+	loginState, err := s.store.ConsumeOIDCLoginState(c.Request.Context(), auth.HashToken(state), s.now())
+	if err != nil {
+		writeOIDCError(c, err)
+		return
+	}
+	if loginState.ProviderID != provider.ID {
+		writeError(c, http.StatusBadRequest, "invalid_oidc_state", "Invalid OIDC login state")
+		return
+	}
+	identity, _, err := s.oidcClient.ExchangeAndValidateNonceHash(c.Request.Context(), provider, code, loginState.NonceHash)
+	if err != nil {
+		writeOIDCError(c, err)
+		return
+	}
+	user, err := s.resolveOIDCUser(c, provider, identity)
+	if err != nil {
+		writeOIDCError(c, err)
+		return
+	}
+	tokens, err := s.issueTokens(c, user.ID)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"user": user, "tokens": tokens})
+}
+
+func (s *Server) resolveOIDCUser(c *gin.Context, provider auth.OIDCProvider, oidcIdentity auth.OIDCIdentity) (model.User, error) {
+	linked, err := s.store.GetUserIdentityByProviderSubject(c.Request.Context(), provider.ID, oidcIdentity.Subject)
+	if err == nil {
+		user, getErr := s.store.GetUser(c.Request.Context(), linked.UserID)
+		if getErr != nil {
+			return model.User{}, errOIDCUserNotProvisioned
+		}
+		if user.SignupPendingVerification {
+			return model.User{}, errOIDCUserNotProvisioned
+		}
+		now := s.now()
+		if _, updateErr := s.store.UpdateUserIdentityLastLogin(c.Request.Context(), linked.ID, now); updateErr != nil {
+			return model.User{}, updateErr
+		}
+		return user, nil
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return model.User{}, err
+	}
+	if !provider.AutoLinkEmail {
+		return model.User{}, errOIDCUserNotProvisioned
+	}
+	user, err := s.store.GetUserByEmail(c.Request.Context(), oidcIdentity.Email)
+	if err != nil || user.SignupPendingVerification {
+		return model.User{}, errOIDCUserNotProvisioned
+	}
+	if _, err := s.store.CreateUserIdentity(c.Request.Context(), store.UserIdentityCreateInput{
+		UserID:        user.ID,
+		ProviderID:    provider.ID,
+		IssuerURL:     oidcIdentity.Issuer,
+		Subject:       oidcIdentity.Subject,
+		Email:         oidcIdentity.Email,
+		EmailVerified: oidcIdentity.EmailVerified,
+		Claims:        oidcIdentity.Claims,
+		Now:           s.now(),
+	}); err != nil {
+		return model.User{}, err
+	}
+	return user, nil
+}
+
+func (s *Server) resolveOIDCProvider(c *gin.Context, providerID string, persistEnvProvider bool) (auth.OIDCProvider, error) {
+	if s.store == nil {
+		return auth.OIDCProvider{}, auth.ErrOIDCProviderMisconfigured
+	}
+	provider, err := s.oidcResolver.Resolve(c.Request.Context())
+	if err != nil {
+		return auth.OIDCProvider{}, err
+	}
+	if providerID != "" && provider.ProviderID != providerID {
+		return auth.OIDCProvider{}, auth.ErrOIDCProviderNotFound
+	}
+	if provider.ID == "" && persistEnvProvider {
+		persisted, err := s.persistEnvOIDCProvider(c, provider)
+		if err != nil {
+			return auth.OIDCProvider{}, err
+		}
+		provider.ID = persisted.ID
+	}
+	if provider.ID == "" && persistEnvProvider {
+		return auth.OIDCProvider{}, auth.ErrOIDCProviderMisconfigured
+	}
+	return provider, nil
+}
+
+func (s *Server) persistEnvOIDCProvider(c *gin.Context, provider auth.OIDCProvider) (model.IdentityProvider, error) {
+	existing, err := s.store.GetIdentityProviderByProviderID(c.Request.Context(), provider.ProviderID)
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return model.IdentityProvider{}, err
+	}
+	secretRef := s.oidcEnvClientSecretRef
+	created, err := s.store.CreateIdentityProvider(c.Request.Context(), store.IdentityProviderCreateInput{
+		ProviderID:      provider.ProviderID,
+		Name:            provider.Name,
+		Type:            model.IdentityProviderTypeOIDC,
+		IssuerURL:       provider.IssuerURL,
+		ClientID:        provider.ClientID,
+		ClientSecretRef: &secretRef,
+		Scopes:          provider.Scopes,
+		Enabled:         true,
+		Metadata:        map[string]any{"source": "env"},
+		Now:             s.now(),
+	})
+	if err == nil {
+		return created, nil
+	}
+	existing, getErr := s.store.GetIdentityProviderByProviderID(c.Request.Context(), provider.ProviderID)
+	if getErr == nil {
+		return existing, nil
+	}
+	return model.IdentityProvider{}, err
+}
+
+func publicOIDCProvider(provider auth.OIDCProvider) gin.H {
+	return gin.H{
+		"provider_id": provider.ProviderID,
+		"name":        provider.Name,
+		"type":        string(model.IdentityProviderTypeOIDC),
+		"issuer_url":  provider.IssuerURL,
+		"scopes":      provider.Scopes,
+		"enabled":     provider.Enabled,
+	}
+}
+
+var errOIDCUserNotProvisioned = errors.New("oidc user is not provisioned")
+
+func writeOIDCError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, auth.ErrOIDCDisabled):
+		writeError(c, http.StatusBadRequest, "oidc_disabled", "OIDC authentication is disabled")
+	case errors.Is(err, auth.ErrOIDCProviderNotFound):
+		writeError(c, http.StatusNotFound, "oidc_provider_not_found", "OIDC provider not found")
+	case errors.Is(err, store.ErrOIDCStateInvalid), errors.Is(err, store.ErrOIDCStateExpired):
+		writeError(c, http.StatusBadRequest, "invalid_oidc_state", "Invalid OIDC login state")
+	case errors.Is(err, auth.ErrUnverifiedOIDCEmail):
+		writeError(c, http.StatusBadRequest, "unverified_oidc_email", "OIDC email is not verified")
+	case errors.Is(err, auth.ErrInvalidOIDCToken):
+		writeError(c, http.StatusBadRequest, "invalid_oidc_token", "Invalid OIDC token")
+	case errors.Is(err, auth.ErrOIDCProviderMisconfigured):
+		writeError(c, http.StatusServiceUnavailable, "oidc_provider_misconfigured", "OIDC provider is misconfigured")
+	case errors.Is(err, errOIDCUserNotProvisioned):
+		writeError(c, http.StatusForbidden, "user_not_provisioned", "SSO user is not provisioned in account manager")
+	default:
+		writeStoreError(c, err)
+	}
+}
+
+func (s *Server) now() time.Time {
+	if s.oidcClient.Now != nil {
+		return s.oidcClient.Now()
+	}
+	return time.Now().UTC()
 }
 
 type tokenResponse struct {

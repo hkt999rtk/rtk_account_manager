@@ -173,6 +173,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationLastOwnerCannotBeRemovedOrDowngraded`
 - `rtk_account_manager/internal/api`: `TestIntegrationListPaginationMetadata`
 - `rtk_account_manager/internal/api`: `TestIntegrationMigrationsAreIdempotent`
+- `rtk_account_manager/internal/api`: `TestIntegrationOIDCCallbackRejectsUnknownDisabledAndUnverifiedUsers/disabled_linked_user`
+- `rtk_account_manager/internal/api`: `TestIntegrationOIDCCallbackRejectsUnknownDisabledAndUnverifiedUsers/unknown_without_auto_link`
+- `rtk_account_manager/internal/api`: `TestIntegrationOIDCCallbackRejectsUnknownDisabledAndUnverifiedUsers/unverified_email`
+- `rtk_account_manager/internal/api`: `TestIntegrationOIDCCallbackRejectsUnknownDisabledAndUnverifiedUsers`
+- `rtk_account_manager/internal/api`: `TestIntegrationOIDCDisabledDiscoveryAndLogin`
+- `rtk_account_manager/internal/api`: `TestIntegrationOIDCProviderLoginAndCallback`
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanDisableAndEnableMemberUser`
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanUpdateAndRemoveMember`
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanUpdateOrganization`
