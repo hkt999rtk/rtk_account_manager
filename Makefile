@@ -54,6 +54,7 @@ release:
 	cp -R deploy/systemd "dist/rtk_account_manager-$(VERSION)/deploy/systemd"
 	cp deploy/account-manager.env.example "dist/rtk_account_manager-$(VERSION)/deploy/account-manager.env.example"
 	cp deploy/install.sh deploy/verify.sh "dist/rtk_account_manager-$(VERSION)/deploy/"
+	find "dist/rtk_account_manager-$(VERSION)" -name '._*' -delete
 	{ \
 		echo "version=$(VERSION)"; \
 		echo "git_sha=$$(git rev-parse HEAD 2>/dev/null || echo unknown)"; \
@@ -61,7 +62,7 @@ release:
 		echo "module=$$(go list -m)"; \
 	} > "dist/rtk_account_manager-$(VERSION)/release-manifest.txt"
 	./deploy/check-release.sh "dist/rtk_account_manager-$(VERSION)"
-	tar -C dist -czf "dist/rtk_account_manager-$(VERSION).tar.gz" "rtk_account_manager-$(VERSION)"
+	COPYFILE_DISABLE=1 tar -C dist -czf "dist/rtk_account_manager-$(VERSION).tar.gz" "rtk_account_manager-$(VERSION)"
 
 check-release: release
 
