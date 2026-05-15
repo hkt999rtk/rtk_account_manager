@@ -1,171 +1,98 @@
-# Account Manager Linode Deploy Runbook
+# Account Manager Linode Runbook
 
-This runbook defines the operator-local Linode deployment flow for
-`rtk_account_manager`. GitHub CI remains artifact-only. It must not SSH into
-Linode hosts or run deployment.
+This runbook covers the dedicated public VM staging profile for
+`rtk_account_manager`.
 
-## Topology
+## Source Of Truth
 
-Account Manager runs on a dedicated VPC-only VM in the existing video-cloud
-Linode staging stack:
+- Runtime API and service behavior: repo code and `openapi.yaml`.
+- Deployment scripts: `linode_deploy/scripts/`.
+- Operator secrets: ignored files under `linode_deploy/secrets/` and local shell
+  environment.
+- Deployment state: ignored files under `linode_deploy/state/`.
 
-| Role | Placement |
-| --- | --- |
-| `edge` | Existing public/VPC edge VM, terminates HTTPS. |
-| `infra` | Existing VPC-only infra VM, hosts PostgreSQL. |
-| `account-manager` | New VPC-only VM at `10.42.1.20`, API on `18081`. |
+## Prerequisites
 
-Public route:
+Operator machine:
 
-```text
-account-manager-staging.realtekconnect.com
-  -> edge nginx
-  -> 10.42.1.20:18081
-```
+- `curl`, `jq`, `openssl`, `go`, `ssh`, `scp`, `tar`
+- `LINODE_TOKEN` with Linode instance/firewall permissions
+- `GODADDY_KEY` and `GODADDY_SECRET` for `realtekconnect.com` DNS
+- an SSH key pair for the VM
+- operator public CIDR for SSH allowlisting
 
-Account Manager uses a separate Postgres database and role:
+Remote VM target:
 
-```text
-database: rtk_account_manager
-role:     rtk_account_manager
-```
+- Ubuntu 24.04
+- public IPv4 only
+- inbound `22/tcp` restricted to operator CIDRs
+- inbound `80/tcp` and `443/tcp` public for certbot and HTTPS
 
-Do not reuse the `video_cloud` database or database role.
+## Runtime Shape
 
-## Operator Secrets
+- service user: `rtk-account-manager`
+- install prefix: `/opt/rtk-account-manager`
+- env file: `/etc/rtk-account-manager/account-manager.env`
+- state dir: `/var/lib/rtk-account-manager`
+- API bind: `127.0.0.1:18081` behind nginx
+- PostgreSQL: local database `rtk_account_manager`
 
-Create a local ignored secrets file:
-
-```sh
-mkdir -p linode_deploy/secrets
-install -m 0600 /dev/null linode_deploy/secrets/account-manager-staging.env
-```
-
-Minimum keys:
+## Deploy
 
 ```sh
-ACCOUNT_MANAGER_DB_PASSWORD='<db-role-password>'
-JWT_ACCESS_SECRET='<access-token-secret>'
-JWT_REFRESH_SECRET='<refresh-token-secret>'
+set -a
+. ~/.env
+. linode_deploy/secrets/account-manager-public-staging.env
+set +a
+
+linode_deploy/scripts/provision-public-vm.sh
+. linode_deploy/state/rtk-account-manager-staging.env
+linode_deploy/scripts/set-godaddy-dns.sh
+linode_deploy/scripts/deploy-public-vm.sh
+linode_deploy/scripts/verify-public-vm.sh
 ```
 
-OIDC keys when SSO smoke is enabled:
+`deploy-public-vm.sh` builds a Linux/amd64 release from the checked-out commit,
+uploads it to the VM, installs OS dependencies, creates or updates the local
+PostgreSQL role/database, writes the environment file, runs migrations, starts
+the API service and cleanup timer, configures nginx, and obtains the Let's
+Encrypt certificate when enabled.
+
+## Verify
+
+The external verifier checks:
+
+- `GET /v1/health`
+- `POST /v1/auth/register`
+- `POST /v1/auth/login`
+- `GET /v1/me` with the issued bearer token
+
+Verification artifacts are written under `.artifacts/linode-account-manager-verify/`
+and must remain untracked.
+
+## Backup
 
 ```sh
-OIDC_ISSUER_URL='https://<keycloak>/realms/<realm>'
-OIDC_CLIENT_ID='rtk-account-manager'
-OIDC_CLIENT_SECRET='<oidc-client-secret>'
+set -a
+. linode_deploy/secrets/account-manager-public-staging.env
+. linode_deploy/state/rtk-account-manager-staging.env
+set +a
+
+linode_deploy/scripts/backup-public-postgres.sh
 ```
 
-Optional keys:
+The backup script creates a PostgreSQL custom-format dump and a checksum under
+`.artifacts/linode-account-manager-backups/`. Raw dumps are not committed.
 
-```sh
-SMTP_HOST=
-SMTP_USERNAME=
-SMTP_PASSWORD=
-SMTP_FROM=
-AZURE_EVENTHUB_CONNECTION_STRING=
-```
+## Staging Limitations
 
-Secrets must stay out of git, issue comments, generated reports, and shell
-history where possible.
+The default public VM profile is appropriate for staging smoke and admin
+integration:
 
-## Plan
+- `AUTH_TOKEN_DELIVERY=log`
+- `CROSS_SERVICE_BROKER=log`
+- `OIDC_ENABLED=false`
+- SMTP optional and usually unset
 
-Review the manifest:
-
-```sh
-go run ./linode_deploy/cmd/linode-deploy plan \
-  --config linode_deploy/configs/account-manager-staging.yaml
-```
-
-The plan must show:
-
-- Account Manager VM `account-manager-staging-account-manager` at `10.42.1.20`
-- edge route for `account-manager-staging.realtekconnect.com`
-- edge -> account-manager `18081/tcp`
-- account-manager -> infra `5432/tcp`
-- DB migration gate before runtime restart
-- workers disabled by default
-
-## Deploy Script
-
-Run a dry-run first:
-
-```sh
-linode_deploy/scripts/deploy-staging.sh \
-  --release vX.Y.Z \
-  --stack account-manager-staging \
-  --config linode_deploy/configs/account-manager-staging.yaml \
-  --secrets-file linode_deploy/secrets/account-manager-staging.env \
-  --report .artifacts/account-manager-linode-deploy.md
-```
-
-Use a local bundle only for debug:
-
-```sh
-linode_deploy/scripts/deploy-staging.sh \
-  --release vX.Y.Z \
-  --release-bundle dist/rtk_account_manager-vX.Y.Z.tar.gz
-```
-
-The script refuses `latest`. Operators must choose an explicit release.
-
-## Live Execution Notes
-
-The current deploy artifact validates and records the ordered Linode deployment
-plan. The operator performs live Linode/API/SSH mutation using the generated
-report until a dedicated Account Manager Linode executor is wired.
-
-Live steps from the report:
-
-1. Confirm `10.42.1.20` is unused.
-2. Create or update the `account-manager` VPC-only VM.
-3. Update Linode firewall rules for edge, infra, and account-manager.
-4. Add the edge nginx vhost for `account-manager-staging.realtekconnect.com`.
-5. Create/verify `rtk_account_manager` Postgres role and database on infra.
-6. Install the release under `/opt/rtk-account-manager`.
-7. Write `/etc/rtk-account-manager/account-manager.env` with mode `0600`.
-8. Confirm DB backup marker at `/var/lib/rtk-account-manager/last-db-backup-ok`.
-9. Run `rtk-account-manager-migrate.service`.
-10. Restart API and cleanup timer.
-11. Start outbox/inbox workers only when explicitly enabled.
-12. Run health and smoke checks.
-
-## Runtime Defaults
-
-```sh
-DATABASE_URL='postgres://rtk_account_manager:<secret>@10.42.1.30:5432/rtk_account_manager?sslmode=disable'
-PORT=18081
-AUTH_TOKEN_DELIVERY=log
-CROSS_SERVICE_BROKER=log
-OIDC_REDIRECT_URL='https://account-manager-staging.realtekconnect.com/v1/auth/oidc/keycloak/callback'
-```
-
-## Verification
-
-Private VM health:
-
-```sh
-curl -fsS http://127.0.0.1:18081/v1/health
-```
-
-Edge/public health:
-
-```sh
-curl -fsS https://account-manager-staging.realtekconnect.com/v1/health
-```
-
-Optional smoke checks:
-
-- login with existing smoke user
-- read smoke organization
-- read smoke device
-- read provisioning state
-- OIDC provider discovery when OIDC is enabled
-
-## Evidence
-
-The report must include release, manifest digest, planned service changes,
-health/smoke status, and redacted env inventory. It must not include DSNs,
-JWT secrets, OIDC secrets, SMTP passwords, broker credentials, or raw tokens.
+Production-like identity, notification, and cross-service lifecycle testing must
+set SMTP/OIDC/broker configuration explicitly before deployment.
