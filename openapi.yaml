@@ -587,6 +587,337 @@ paths:
           $ref: "#/components/responses/Error"
         "403":
           $ref: "#/components/responses/Error"
+  /v1/admin/acl/permissions:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List product authorization permissions.
+      responses:
+        "200":
+          description: Permission catalog.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ACLPermissionsResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/admin/acl/roles:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List product authorization roles.
+      responses:
+        "200":
+          description: Product role catalog.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ACLRolesResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+    post:
+      security:
+        - bearerAuth: []
+      summary: Create a product authorization role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ACLRoleCreateRequest"
+      responses:
+        "201":
+          description: Product role created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ACLRoleResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/admin/acl/roles/{roleName}:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Show a product authorization role.
+      parameters:
+        - name: roleName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Product role.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ACLRoleResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update a product authorization role.
+      parameters:
+        - name: roleName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ACLRoleUpdateRequest"
+      responses:
+        "200":
+          description: Product role updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ACLRoleResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Disable a product authorization role.
+      parameters:
+        - name: roleName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Role disabled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/admin/acl/roles/{roleName}/permissions/{permissionName}:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Bind a permission to a product authorization role.
+      parameters:
+        - name: roleName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: permissionName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Permission bound.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/admin/acl/role-assignments:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List product authorization role assignments.
+      responses:
+        "200":
+          description: Role assignments.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ACLRoleAssignmentsResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+    post:
+      security:
+        - bearerAuth: []
+      summary: Assign a product authorization role to an actor and scope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ACLRoleAssignmentCreateRequest"
+      responses:
+        "201":
+          description: Role assignment created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ACLRoleAssignmentResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/admin/acl/role-assignments/{assignmentId}:
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Disable a product authorization role assignment.
+      parameters:
+        - name: assignmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Role assignment disabled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/admin/acl/external-group-mappings:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List external group mappings.
+      responses:
+        "200":
+          description: External group mappings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ACLExternalGroupMappingsResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+    post:
+      security:
+        - bearerAuth: []
+      summary: Map an external IdP group to a product authorization role assignment template.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ACLExternalGroupMappingCreateRequest"
+      responses:
+        "201":
+          description: External group mapping created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ACLExternalGroupMappingResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/admin/acl/external-group-mappings/{mappingId}:
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Disable an external group mapping.
+      parameters:
+        - name: mappingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: External group mapping disabled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/admin/acl/audit-events:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List ACL audit events.
+      parameters:
+        - name: event_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: subject_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: organization_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: ACL audit event list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ACLAuditEventsResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
   /v1/admin/identity-providers:
     post:
       security:
@@ -1852,6 +2183,289 @@ components:
         updated_at:
           type: string
           format: date-time
+    StatusResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+    ACLPermission:
+      type: object
+      required: [id, name, domain, action, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        domain:
+          type: string
+        action:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ACLPermissionsResponse:
+      type: object
+      required: [permissions, pagination]
+      properties:
+        permissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ACLPermission"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+    ACLRole:
+      type: object
+      required: [id, name, scope_type, system_role, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        scope_type:
+          type: string
+          enum: [platform, organization]
+        description:
+          type: string
+        system_role:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        disabled_at:
+          type: string
+          format: date-time
+    ACLRolesResponse:
+      type: object
+      required: [roles, pagination]
+      properties:
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/ACLRole"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+    ACLRoleResponse:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: "#/components/schemas/ACLRole"
+    ACLRoleCreateRequest:
+      type: object
+      required: [name, scope_type]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+        scope_type:
+          type: string
+          enum: [platform, organization]
+        description:
+          type: string
+    ACLRoleUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        description:
+          type: string
+    ACLRoleAssignment:
+      type: object
+      required: [id, role_id, role_name, actor_type, actor_id, scope_type, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        role_id:
+          type: string
+          format: uuid
+        role_name:
+          type: string
+        actor_type:
+          type: string
+          enum: [user, service_account]
+        actor_id:
+          type: string
+        scope_type:
+          type: string
+          enum: [platform, organization]
+        scope_id:
+          type: string
+        organization_id:
+          type: string
+          format: uuid
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        disabled_at:
+          type: string
+          format: date-time
+    ACLRoleAssignmentCreateRequest:
+      type: object
+      required: [role_name, actor_id, scope_type]
+      additionalProperties: false
+      properties:
+        role_name:
+          type: string
+          minLength: 1
+        actor_type:
+          type: string
+          enum: [user, service_account]
+        actor_id:
+          type: string
+          minLength: 1
+        scope_type:
+          type: string
+          enum: [platform, organization]
+        scope_id:
+          type: string
+        organization_id:
+          type: string
+          format: uuid
+    ACLRoleAssignmentResponse:
+      type: object
+      required: [role_assignment]
+      properties:
+        role_assignment:
+          $ref: "#/components/schemas/ACLRoleAssignment"
+    ACLRoleAssignmentsResponse:
+      type: object
+      required: [role_assignments, pagination]
+      properties:
+        role_assignments:
+          type: array
+          items:
+            $ref: "#/components/schemas/ACLRoleAssignment"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+    ACLExternalGroupMapping:
+      type: object
+      required: [id, provider_id, external_group, role_id, role_name, scope_type, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        provider_id:
+          type: string
+        external_group:
+          type: string
+        role_id:
+          type: string
+          format: uuid
+        role_name:
+          type: string
+        scope_type:
+          type: string
+          enum: [platform, organization]
+        scope_id:
+          type: string
+        organization_id:
+          type: string
+          format: uuid
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        disabled_at:
+          type: string
+          format: date-time
+    ACLExternalGroupMappingCreateRequest:
+      type: object
+      required: [provider_id, external_group, role_name, scope_type]
+      additionalProperties: false
+      properties:
+        provider_id:
+          type: string
+          minLength: 1
+        external_group:
+          type: string
+          minLength: 1
+        role_name:
+          type: string
+          minLength: 1
+        scope_type:
+          type: string
+          enum: [platform, organization]
+        scope_id:
+          type: string
+        organization_id:
+          type: string
+          format: uuid
+    ACLExternalGroupMappingResponse:
+      type: object
+      required: [external_group_mapping]
+      properties:
+        external_group_mapping:
+          $ref: "#/components/schemas/ACLExternalGroupMapping"
+    ACLExternalGroupMappingsResponse:
+      type: object
+      required: [external_group_mappings, pagination]
+      properties:
+        external_group_mappings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ACLExternalGroupMapping"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+    ACLAuditEvent:
+      type: object
+      required: [id, event_type, subject_type, subject_id, payload, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        actor_user_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        subject_type:
+          type: string
+        subject_id:
+          type: string
+        payload:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ACLAuditEventsResponse:
+      type: object
+      required: [audit_events, pagination]
+      properties:
+        audit_events:
+          type: array
+          items:
+            $ref: "#/components/schemas/ACLAuditEvent"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
     UserIdentitiesResponse:
       type: object
       required: [identities]

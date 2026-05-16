@@ -134,9 +134,10 @@ First implementation decisions:
 - Local email/password login remains supported.
 - User provisioning is pre-provision only. OIDC login never creates a local
   user, organization, or membership.
-- Organization roles are resolved only from account-manager local memberships.
-  Keycloak groups, realm roles, and client roles are not authorization inputs in
-  the first implementation.
+- Organization authorization is resolved from account-manager persisted ACL
+  facts. Keycloak groups, realm roles, and client roles grant no permissions
+  unless an account-manager `external_group_mappings` row maps the external
+  group to a scoped product role assignment.
 - Successful SSO login issues account-manager access and refresh JWTs. Clients
   keep using `Authorization: Bearer <account-manager-access-token>` for API
   calls.
@@ -366,6 +367,22 @@ The SSO data model is defined in
 - `user_identities` for local-user to OIDC issuer/subject links.
 - `oidc_login_states` for short-lived hashed state and nonce validation.
 
+### Product ACL Tables
+
+Product authorization state is persisted in Account Manager and follows
+`contracts/AUTHORIZATION.md`.
+
+- `permissions` stores stable `<domain>.<action>` permission names.
+- `roles` stores system and custom product roles.
+- `role_permissions` explicitly binds permissions to roles; there is no
+  implicit role hierarchy.
+- `role_assignments` binds a role to an actor and platform or organization
+  scope.
+- `external_group_mappings` maps IdP groups such as Keycloak groups to scoped
+  product role assignments. Unmapped external groups grant nothing.
+- `acl_audit_events` records role, permission binding, assignment, and external
+  group mapping changes.
+
 ### `quota_raise_requests`
 
 Tracks evaluation-tier quota raise requests and platform-admin decisions.
@@ -568,16 +585,26 @@ wire-contract updates in `rtk_cloud_contracts_doc`.
 
 ## 6. Authorization
 
-Authorization is organization scoped.
+Authorization is permission based and scope aware. Legacy `owner`, `admin`, and
+`member` memberships remain for membership lifecycle and compatibility, but
+route authorization is evaluated through persisted role assignments and
+permission bindings.
 
 | Role | Permissions |
 | --- | --- |
 | `owner` | Manage organization, manage members, manage devices, view all organization resources. |
 | `admin` | Manage devices, view organization members, view organization resources. |
 | `member` | View organization resources and devices. |
+| `tenant_admin`, `fleet_manager`, `installer`, `firmware_operator`, `read_only_observer`, `end_user`, `device_agent` | Seeded organization-scoped system roles from the product authorization catalog. |
+| `platform_admin`, `support_operator`, `service_integration` | Seeded platform-scoped system roles from the product authorization catalog. |
 
 Rules:
 
+- Runtime route checks use permission names such as `registry_device.manage`,
+  `claim.resolve`, and `lifecycle_operation.inspect`.
+- `organization_members.role` is not the new authorization source of truth; it
+  is mirrored into role assignments for compatibility until membership role
+  updates are fully deprecated.
 - Only `owner` may invite/add members, remove members, or change member roles.
 - Only `owner` may disable or enable member user accounts.
 - Only `owner` may remove another `owner`.
@@ -592,6 +619,9 @@ Rules:
 - `member` may read provisioning state but may not initiate provisioning or deactivation.
 - No user may access an organization without an active membership.
 - No endpoint may allow cross-organization device access.
+- Platform-admin ACL APIs can list the permission catalog, manage roles, bind
+  permissions, create scoped role assignments, create external group mappings,
+  and list ACL audit events.
 
 ## 7. API Contract
 
@@ -653,6 +683,13 @@ All endpoints are versioned under `/v1`.
 | `GET` | `/v1/admin/identity-providers/:providerId` | Yes | Platform admin | Show one OIDC identity provider configuration without raw secrets. |
 | `PATCH` | `/v1/admin/identity-providers/:providerId` | Yes | Platform admin | Update OIDC identity provider metadata, status, or secret reference. |
 | `DELETE` | `/v1/admin/identity-providers/:providerId` | Yes | Platform admin | Disable or remove an OIDC identity provider when no active policy blocks it. |
+| `GET` | `/v1/admin/acl/permissions` | Yes | Platform admin | List the product permission catalog. |
+| `GET` | `/v1/admin/acl/roles` | Yes | Platform admin | List product authorization roles. |
+| `POST` | `/v1/admin/acl/roles` | Yes | Platform admin | Create a product authorization role. |
+| `POST` | `/v1/admin/acl/roles/:roleName/permissions/:permissionName` | Yes | Platform admin | Bind a permission to a role. |
+| `POST` | `/v1/admin/acl/role-assignments` | Yes | Platform admin | Assign a product role to an actor and scope. |
+| `POST` | `/v1/admin/acl/external-group-mappings` | Yes | Platform admin | Map an external IdP group to a scoped product role assignment template. |
+| `GET` | `/v1/admin/acl/audit-events` | Yes | Platform admin | List ACL audit events with filters. |
 
 ### Devices
 

@@ -253,37 +253,37 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/orgs", s.listOrganizations)
 	protected.POST("/orgs", s.createOrganization)
 	protected.GET("/orgs/:orgId", s.getOrganization)
-	protected.PATCH("/orgs/:orgId", s.requireOrgRole(model.RoleOwner), s.updateOrganization)
-	protected.POST("/orgs/:orgId/quota-raise-requests", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.createQuotaRaiseRequest)
-	protected.GET("/orgs/:orgId/members", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.listMembers)
-	protected.POST("/orgs/:orgId/members", s.requireOrgRole(model.RoleOwner), s.addMember)
-	protected.PATCH("/orgs/:orgId/members/:userId", s.requireOrgRole(model.RoleOwner), s.updateMemberRole)
-	protected.PATCH("/orgs/:orgId/members/:userId/disable", s.requireOrgRole(model.RoleOwner), s.disableMemberUser)
-	protected.PATCH("/orgs/:orgId/members/:userId/enable", s.requireOrgRole(model.RoleOwner), s.enableMemberUser)
-	protected.DELETE("/orgs/:orgId/members/:userId", s.requireOrgRole(model.RoleOwner), s.removeMember)
+	protected.PATCH("/orgs/:orgId", s.requirePermission("organization.update"), s.updateOrganization)
+	protected.POST("/orgs/:orgId/quota-raise-requests", s.requirePermission("quota_request.create"), s.createQuotaRaiseRequest)
+	protected.GET("/orgs/:orgId/members", s.requirePermission("membership.read"), s.listMembers)
+	protected.POST("/orgs/:orgId/members", s.requirePermission("membership.manage"), s.addMember)
+	protected.PATCH("/orgs/:orgId/members/:userId", s.requirePermission("membership.manage"), s.updateMemberRole)
+	protected.PATCH("/orgs/:orgId/members/:userId/disable", s.requirePermission("membership.manage"), s.disableMemberUser)
+	protected.PATCH("/orgs/:orgId/members/:userId/enable", s.requirePermission("membership.manage"), s.enableMemberUser)
+	protected.DELETE("/orgs/:orgId/members/:userId", s.requirePermission("membership.manage"), s.removeMember)
 
-	protected.GET("/orgs/:orgId/device-groups", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.listDeviceGroups)
-	protected.POST("/orgs/:orgId/device-groups", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.createDeviceGroup)
-	protected.GET("/orgs/:orgId/device-groups/:groupId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.getDeviceGroup)
-	protected.PATCH("/orgs/:orgId/device-groups/:groupId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.updateDeviceGroup)
-	protected.DELETE("/orgs/:orgId/device-groups/:groupId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.deleteDeviceGroup)
-	protected.GET("/orgs/:orgId/device-groups/:groupId/devices", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.listDeviceGroupDevices)
-	protected.PUT("/orgs/:orgId/device-groups/:groupId/devices/:deviceId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.addDeviceToGroup)
-	protected.DELETE("/orgs/:orgId/device-groups/:groupId/devices/:deviceId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.removeDeviceFromGroup)
+	protected.GET("/orgs/:orgId/device-groups", s.requirePermission("device_group.read"), s.listDeviceGroups)
+	protected.POST("/orgs/:orgId/device-groups", s.requirePermission("device_group.manage"), s.createDeviceGroup)
+	protected.GET("/orgs/:orgId/device-groups/:groupId", s.requirePermission("device_group.read"), s.getDeviceGroup)
+	protected.PATCH("/orgs/:orgId/device-groups/:groupId", s.requirePermission("device_group.manage"), s.updateDeviceGroup)
+	protected.DELETE("/orgs/:orgId/device-groups/:groupId", s.requirePermission("device_group.manage"), s.deleteDeviceGroup)
+	protected.GET("/orgs/:orgId/device-groups/:groupId/devices", s.requirePermission("device_group.read"), s.listDeviceGroupDevices)
+	protected.PUT("/orgs/:orgId/device-groups/:groupId/devices/:deviceId", s.requirePermission("device_group.assign"), s.addDeviceToGroup)
+	protected.DELETE("/orgs/:orgId/device-groups/:groupId/devices/:deviceId", s.requirePermission("device_group.assign"), s.removeDeviceFromGroup)
 
-	protected.POST("/orgs/:orgId/devices", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.createDevice)
-	protected.GET("/orgs/:orgId/devices", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.listDevices)
-	protected.POST("/orgs/:orgId/devices/claim/resolve", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.resolveDeviceClaim)
-	protected.GET("/orgs/:orgId/devices/:deviceId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.getDevice)
-	protected.GET("/orgs/:orgId/devices/:deviceId/tags", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.listDeviceTags)
-	protected.PUT("/orgs/:orgId/devices/:deviceId/tags/:tag", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.addDeviceTag)
-	protected.DELETE("/orgs/:orgId/devices/:deviceId/tags/:tag", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.deleteDeviceTag)
-	protected.POST("/orgs/:orgId/devices/:deviceId/provision", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.provisionDevice)
-	protected.GET("/orgs/:orgId/devices/:deviceId/provisioning", s.requireOrgRole(model.RoleOwner, model.RoleAdmin, model.RoleMember), s.getProvisioningState)
-	protected.POST("/orgs/:orgId/devices/:deviceId/deactivate", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.deactivateDevice)
-	protected.PATCH("/orgs/:orgId/devices/:deviceId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.updateDevice)
-	protected.DELETE("/orgs/:orgId/devices/:deviceId", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.deleteDevice)
-	protected.PATCH("/orgs/:orgId/devices/:deviceId/status", s.requireOrgRole(model.RoleOwner, model.RoleAdmin), s.updateDeviceStatus)
+	protected.POST("/orgs/:orgId/devices", s.requirePermission("registry_device.manage"), s.createDevice)
+	protected.GET("/orgs/:orgId/devices", s.requirePermission("registry_device.read"), s.listDevices)
+	protected.POST("/orgs/:orgId/devices/claim/resolve", s.requirePermission("claim.resolve"), s.resolveDeviceClaim)
+	protected.GET("/orgs/:orgId/devices/:deviceId", s.requirePermission("registry_device.read"), s.getDevice)
+	protected.GET("/orgs/:orgId/devices/:deviceId/tags", s.requirePermission("device_tag.read"), s.listDeviceTags)
+	protected.PUT("/orgs/:orgId/devices/:deviceId/tags/:tag", s.requirePermission("device_tag.assign"), s.addDeviceTag)
+	protected.DELETE("/orgs/:orgId/devices/:deviceId/tags/:tag", s.requirePermission("device_tag.assign"), s.deleteDeviceTag)
+	protected.POST("/orgs/:orgId/devices/:deviceId/provision", s.requirePermission("lifecycle_operation.provision"), s.provisionDevice)
+	protected.GET("/orgs/:orgId/devices/:deviceId/provisioning", s.requirePermission("lifecycle_operation.inspect"), s.getProvisioningState)
+	protected.POST("/orgs/:orgId/devices/:deviceId/deactivate", s.requirePermission("lifecycle_operation.deactivate"), s.deactivateDevice)
+	protected.PATCH("/orgs/:orgId/devices/:deviceId", s.requirePermission("registry_device.manage"), s.updateDevice)
+	protected.DELETE("/orgs/:orgId/devices/:deviceId", s.requirePermission("registry_device.manage"), s.deleteDevice)
+	protected.PATCH("/orgs/:orgId/devices/:deviceId/status", s.requirePermission("registry_device.manage"), s.updateDeviceStatus)
 
 	protected.POST("/admin/quota-raise-requests/:requestId/approve", s.requirePlatformAdmin(), s.approveQuotaRaiseRequest)
 	protected.POST("/admin/quota-raise-requests/:requestId/decline", s.requirePlatformAdmin(), s.declineQuotaRaiseRequest)
@@ -302,6 +302,20 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/admin/quota-raise-requests", s.requirePlatformAdmin(), s.listAdminQuotaRaiseRequests)
 	protected.GET("/admin/quota-raise-requests/:requestId", s.requirePlatformAdmin(), s.getAdminQuotaRaiseRequest)
 	protected.GET("/admin/audit-events", s.requirePlatformAdmin(), s.listAdminAuditEvents)
+	protected.GET("/admin/acl/permissions", s.requirePlatformAdmin(), s.listACLPermissions)
+	protected.GET("/admin/acl/roles", s.requirePlatformAdmin(), s.listACLRoles)
+	protected.POST("/admin/acl/roles", s.requirePlatformAdmin(), s.createACLRole)
+	protected.GET("/admin/acl/roles/:roleName", s.requirePlatformAdmin(), s.getACLRole)
+	protected.PATCH("/admin/acl/roles/:roleName", s.requirePlatformAdmin(), s.updateACLRole)
+	protected.DELETE("/admin/acl/roles/:roleName", s.requirePlatformAdmin(), s.deleteACLRole)
+	protected.POST("/admin/acl/roles/:roleName/permissions/:permissionName", s.requirePlatformAdmin(), s.bindACLRolePermission)
+	protected.GET("/admin/acl/role-assignments", s.requirePlatformAdmin(), s.listACLRoleAssignments)
+	protected.POST("/admin/acl/role-assignments", s.requirePlatformAdmin(), s.createACLRoleAssignment)
+	protected.DELETE("/admin/acl/role-assignments/:assignmentId", s.requirePlatformAdmin(), s.deleteACLRoleAssignment)
+	protected.GET("/admin/acl/external-group-mappings", s.requirePlatformAdmin(), s.listACLExternalGroupMappings)
+	protected.POST("/admin/acl/external-group-mappings", s.requirePlatformAdmin(), s.createACLExternalGroupMapping)
+	protected.DELETE("/admin/acl/external-group-mappings/:mappingId", s.requirePlatformAdmin(), s.deleteACLExternalGroupMapping)
+	protected.GET("/admin/acl/audit-events", s.requirePlatformAdmin(), s.listACLAuditEvents)
 
 	return r
 }
@@ -475,6 +489,10 @@ func (s *Server) handleOIDCCallback(c *gin.Context) {
 		writeOIDCError(c, err)
 		return
 	}
+	if err := s.store.ApplyExternalGroupMappings(c.Request.Context(), user.ID, provider.ProviderID, oidcGroupsFromClaims(identity.Claims), s.now()); err != nil {
+		writeStoreError(c, err)
+		return
+	}
 	tokens, err := s.issueTokens(c, user.ID)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
@@ -522,6 +540,41 @@ func (s *Server) resolveOIDCUser(c *gin.Context, provider auth.OIDCProvider, oid
 		return model.User{}, err
 	}
 	return user, nil
+}
+
+func oidcGroupsFromClaims(claims map[string]any) []string {
+	if len(claims) == 0 {
+		return nil
+	}
+	raw, ok := claims["groups"]
+	if !ok {
+		raw = claims["group"]
+	}
+	switch value := raw.(type) {
+	case []any:
+		groups := make([]string, 0, len(value))
+		for _, item := range value {
+			if group, ok := item.(string); ok && strings.TrimSpace(group) != "" {
+				groups = append(groups, strings.TrimSpace(group))
+			}
+		}
+		return groups
+	case []string:
+		groups := make([]string, 0, len(value))
+		for _, group := range value {
+			if strings.TrimSpace(group) != "" {
+				groups = append(groups, strings.TrimSpace(group))
+			}
+		}
+		return groups
+	case string:
+		if strings.TrimSpace(value) == "" {
+			return nil
+		}
+		return []string{strings.TrimSpace(value)}
+	default:
+		return nil
+	}
 }
 
 func (s *Server) resolveOIDCProvider(c *gin.Context, providerID string, persistEnvProvider bool) (auth.OIDCProvider, error) {
@@ -1306,24 +1359,27 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 	}
 }
 
-func (s *Server) requireOrgRole(allowed ...model.Role) gin.HandlerFunc {
-	allowedSet := map[model.Role]bool{}
-	for _, role := range allowed {
-		allowedSet[role] = true
-	}
+func (s *Server) requirePermission(permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role, err := s.store.GetRole(c.Request.Context(), c.Param("orgId"), currentUserID(c))
+		if orgID := c.Param("orgId"); orgID != "" {
+			if _, err := s.store.GetRole(c.Request.Context(), orgID, currentUserID(c)); err != nil {
+				writeError(c, http.StatusNotFound, "not_found", "Resource not found")
+				c.Abort()
+				return
+			}
+		}
+		allowed, err := s.store.HasPermission(c.Request.Context(), currentUserID(c), c.Param("orgId"), permission)
 		if err != nil {
 			writeError(c, http.StatusNotFound, "not_found", "Resource not found")
 			c.Abort()
 			return
 		}
-		if !allowedSet[role] {
-			writeError(c, http.StatusForbidden, "forbidden", "Insufficient role permissions")
+		if !allowed {
+			writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
 			c.Abort()
 			return
 		}
-		c.Set("role", role)
+		c.Set("permission", permission)
 		c.Next()
 	}
 }

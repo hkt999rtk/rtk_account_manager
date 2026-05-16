@@ -44,6 +44,9 @@ Generated: ci-candidate
 | Member management | `TestIntegrationLastOwnerCannotBeRemovedOrDowngraded` | PASS |
 | Device lifecycle | `TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness` | PASS |
 | Authorization and tenancy matrix | `TestIntegrationAuthorizationAndTenancyMatrix` | PASS |
+| ACL persistence and system roles | `TestACLSeedPermissionCatalogAndSystemRoles` | PASS |
+| ACL scoped assignments | `TestACLRoleAssignmentsAuthorizeInsideScopeOnly` | PASS |
+| ACL admin workflow | `TestIntegrationACLAdminWorkflow` | PASS |
 | Provisioning API | `TestIntegrationProvisioningEndpoints` | PASS |
 | Claim Token persistence | `TestResolveDeviceClaimTokenCreatesDeviceAndClaim` | PASS |
 | Claim Token admin workflow | `TestDeviceClaimTokenAdminLifecycle` | PASS |
@@ -88,6 +91,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Member management | Owner add/update/remove/disable/enable member flows, admin/member forbidden paths, last-owner downgrade/remove/disable protection. |
 | Device lifecycle | Device create/list/get/update/status update/soft-delete, disabled-device read-only behavior, duplicate serial rejection, same serial in another org allowed. |
 | Authorization and tenancy matrix | `TestIntegrationAuthorizationAndTenancyMatrix` verifies owner/admin/member/platform-admin/outsider/disabled-user behavior across device reads/writes, claim resolve, provisioning, deactivation, quota visibility, audit visibility, and foreign organization access. |
+| ACL persistence and system roles | `TestACLSeedPermissionCatalogAndSystemRoles`, `TestACLRoleAssignmentsAuthorizeInsideScopeOnly`, and `TestIntegrationDatabaseSchemaInvariants` verify ACL tables, indexes, permission catalog seed, system roles, explicit role-permission bindings, scoped assignment behavior, and read-only observer write denial. |
+| ACL admin workflow | `TestIntegrationACLAdminWorkflow` verifies platform-admin-only permission/role catalog access, role create/show/update/delete, permission binding, role assignment create/list/delete, external group mapping create/list/delete, and ACL audit event listing. |
 | Provisioning API | `TestIntegrationProvisioningEndpoints` verifies owner/admin initiation, member read-only access, raw claim-material rejection, transactional `device_operations` plus `device_message_outbox` writes, projected command payload shape, account-side readiness source facts, disabled-device rejection, and idempotent `operation_id` reuse. |
 | Claim Token persistence | `TestResolveDeviceClaimTokenCreatesDeviceAndClaim`, `TestResolveDeviceClaimTokenMatchesExistingDevice`, `TestResolveDeviceClaimTokenRejectsInvalidToken`, `TestResolveDeviceClaimTokenRejectsExpiredToken`, `TestResolveDeviceClaimTokenRejectsAlreadyClaimedToken`, `TestResolveDeviceClaimTokenRejectsCrossOrganizationToken`, and `TestResolveDeviceClaimTokenRejectsUnsupportedCategory` verify account-manager-owned Claim Token storage, raw-token non-persistence, hashed-token lookup, expiry, idempotent ownership matching, category policy, and organization boundaries. |
 | Claim Token admin workflow | `TestDeviceClaimTokenAdminLifecycle` and `TestIntegrationAdminDeviceClaimTokenWorkflow` verify platform-admin token creation/import/list/show/revoke, raw-token non-persistence, generated raw-token one-time return, platform-admin-only access, and revoked-token resolve rejection. |
@@ -119,7 +124,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | OIDC provider persistence | `TestIdentityProviderStoreCRUDAndEnabledInvariant`, `TestIdentityProviderRejectsRawClientSecretRef`, and `TestIntegrationDatabaseSchemaInvariants` verify provider CRUD, the one-enabled-provider invariant, secret-reference-only storage, identity link uniqueness, and OIDC schema/index presence. |
 | OIDC provider admin CRUD | `TestIntegrationAdminIdentityProviderWorkflow` verifies platform-admin-only create/list/show/update/disable, pagination, second-enabled-provider conflict handling, audit events, `env:VAR_NAME` secret references, and raw-secret non-persistence/non-response behavior. |
 | OIDC state and nonce replay guards | `TestOIDCLoginStateStoresHashesAndRejectsReplay`, `TestOIDCLoginStateRejectsExpiredState`, and `TestIntegrationOIDCProviderLoginAndCallback` verify raw state/nonce non-persistence, one-time state consumption, replay rejection, and callback nonce validation through hashed state records. |
-| OIDC public login callback | `TestIntegrationOIDCProviderLoginAndCallback` verifies discovery, login redirect, state/nonce creation, callback success, verified-email auto-link to an existing local user, Account Manager JWT issuance, identity persistence, replay rejection, and local email/password login compatibility. |
+| OIDC public login callback | `TestIntegrationOIDCProviderLoginAndCallback` verifies discovery, login redirect, state/nonce creation, callback success, verified-email auto-link to an existing local user, external group mapping to scoped product role assignment, Account Manager JWT issuance, identity persistence, replay rejection, and local email/password login compatibility. |
 | OIDC user rejection policy | `TestIntegrationOIDCCallbackRejectsUnknownDisabledAndUnverifiedUsers` verifies unknown users return `user_not_provisioned`, disabled linked users cannot login through SSO, and unverified provider emails return `unverified_oidc_email`. |
 | OIDC disabled provider behavior | `TestIntegrationOIDCDisabledDiscoveryAndLogin` verifies disabled OIDC returns no public providers and rejects login with `oidc_disabled`. |
 | OIDC current-user identities | `TestIntegrationCurrentUserOIDCIdentityManagement` and `TestIntegrationDisabledUserCannotManageOIDCIdentities` verify current-user list/unlink behavior, cross-user isolation, disabled-user rejection, and that unlinking an identity does not break local password login. |
@@ -148,6 +153,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestAuthTokenDeliveryHook`
 - `rtk_account_manager/internal/api`: `TestBindStrictRejectsUnknownFields`
 - `rtk_account_manager/internal/api`: `TestHealthRoute`
+- `rtk_account_manager/internal/api`: `TestIntegrationACLAdminWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminDeviceClaimOverrideWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminDeviceClaimTokenWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminIdentityProviderWorkflow`
@@ -222,6 +228,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestMatchExistingDeactivateOperation`
 - `rtk_account_manager/internal/api`: `TestMatchExistingProvisionOperation`
 - `rtk_account_manager/internal/api`: `TestNewAuthTokenAndUnsupportedPurpose`
+- `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes/array`
+- `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes/missing`
+- `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes/single_group`
+- `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes/string_slice`
+- `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes/unsupported`
+- `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes`
 - `rtk_account_manager/internal/api`: `TestPaginationClampsAndDefaultsValues`
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/accepted_provisioning_waits_for_activation`
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/activation_failure_stays_visible`
@@ -404,6 +416,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/readiness`: `TestRunSmokeReadsHealthAuthOrgDeviceAndProvisioning`
 - `rtk_account_manager/internal/readiness`: `TestRunSmokeSkipsWhenNoOrganizationsAreVisible`
 - `rtk_account_manager/internal/readiness`: `TestUtilityHelpersAndEnvFallbacks`
+- `rtk_account_manager/internal/store`: `TestACLExternalGroupMappingCreatesScopedAssignment`
+- `rtk_account_manager/internal/store`: `TestACLPlatformAssignmentsAuditAndErrorPaths`
+- `rtk_account_manager/internal/store`: `TestACLRoleAssignmentsAuthorizeInsideScopeOnly`
+- `rtk_account_manager/internal/store`: `TestACLSeedPermissionCatalogAndSystemRoles`
 - `rtk_account_manager/internal/store`: `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`
 - `rtk_account_manager/internal/store`: `TestClaimOutboxMessagesReadyLeasesRows`
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshotWithLossyUTF8`

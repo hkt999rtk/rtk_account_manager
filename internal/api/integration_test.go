@@ -77,7 +77,7 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		TRUNCATE oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_claims, device_claim_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
+		TRUNCATE acl_audit_events, external_group_mappings, role_assignments, oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_claims, device_claim_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatal(err)
@@ -175,6 +175,18 @@ func TestIntegrationOIDCProviderLoginAndCallback(t *testing.T) {
 	configureOIDCTestServer(t, env.server, fake, true)
 
 	registered := registerUser(t, env.router, "oidc-user@example.com", "OIDC Org")
+	targetOrg := registerUser(t, env.router, "oidc-target@example.com", "OIDC Target Org")
+	targetOrgID := targetOrg.Organization.ID
+	if _, err := store.New(env.db).CreateExternalGroupMapping(context.Background(), store.ExternalGroupMappingCreateInput{
+		ProviderID:     "keycloak",
+		ExternalGroup:  "/installers",
+		RoleName:       "installer",
+		ScopeType:      store.ScopeTypeOrganization,
+		OrganizationID: &targetOrgID,
+		Now:            time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	providersRes := performJSON(env.router, http.MethodGet, "/v1/auth/oidc/providers", nil, "")
 	if providersRes.Code != http.StatusOK {
@@ -225,6 +237,7 @@ func TestIntegrationOIDCProviderLoginAndCallback(t *testing.T) {
 		Email:         "OIDC-User@Example.com",
 		EmailVerified: true,
 		Nonce:         nonce,
+		Groups:        []string{"/installers", "/unmapped"},
 	})
 	callbackRes := performJSON(env.router, http.MethodGet, "/v1/auth/oidc/keycloak/callback?code=auth-code&state="+url.QueryEscape(state), nil, "")
 	if callbackRes.Code != http.StatusOK {
@@ -252,6 +265,20 @@ func TestIntegrationOIDCProviderLoginAndCallback(t *testing.T) {
 	}
 	if identityCount != 1 {
 		t.Fatalf("expected exactly one linked identity, got %d", identityCount)
+	}
+	canClaimMappedOrg, err := store.New(env.db).HasPermission(context.Background(), registered.User.ID, targetOrg.Organization.ID, "claim.resolve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !canClaimMappedOrg {
+		t.Fatal("expected mapped OIDC group to grant scoped installer permission")
+	}
+	canManageMappedOrg, err := store.New(env.db).HasPermission(context.Background(), registered.User.ID, targetOrg.Organization.ID, "registry_device.manage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canManageMappedOrg {
+		t.Fatal("mapped installer group must not grant unmapped registry manage permission")
 	}
 
 	replayRes := performJSON(env.router, http.MethodGet, "/v1/auth/oidc/keycloak/callback?code=auth-code&state="+url.QueryEscape(state), nil, "")
@@ -927,6 +954,147 @@ func TestIntegrationAdminMetricsReportsEmptySnapshot(t *testing.T) {
 	}
 	if metricsBody.Lifecycle.Outbox.ByStatus == nil || metricsBody.Lifecycle.Inbox.ByStatus == nil || metricsBody.Lifecycle.Operations.ByStatus == nil {
 		t.Fatalf("expected lifecycle maps in empty metrics response, got %+v", metricsBody.Lifecycle)
+	}
+}
+
+func TestIntegrationACLAdminWorkflow(t *testing.T) {
+	env := newIntegrationEnv(t)
+	admin := registerUser(t, env.router, "acl-admin@example.com", "ACL Admin Org")
+	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	tenant := registerUser(t, env.router, "acl-tenant@example.com", "ACL Tenant Org")
+
+	nonAdminRes := performJSON(env.router, http.MethodGet, "/v1/admin/acl/permissions", nil, tenant.Tokens.AccessToken)
+	if nonAdminRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-platform-admin ACL permission list 403, got %d: %s", nonAdminRes.Code, nonAdminRes.Body.String())
+	}
+
+	permissionsRes := performJSON(env.router, http.MethodGet, "/v1/admin/acl/permissions", nil, admin.Tokens.AccessToken)
+	if permissionsRes.Code != http.StatusOK {
+		t.Fatalf("expected ACL permissions 200, got %d: %s", permissionsRes.Code, permissionsRes.Body.String())
+	}
+	rolesRes := performJSON(env.router, http.MethodGet, "/v1/admin/acl/roles", nil, admin.Tokens.AccessToken)
+	if rolesRes.Code != http.StatusOK {
+		t.Fatalf("expected ACL roles 200, got %d: %s", rolesRes.Code, rolesRes.Body.String())
+	}
+
+	roleName := fmt.Sprintf("custom_installer_%s", admin.User.ID[:8])
+	roleRes := performJSON(env.router, http.MethodPost, "/v1/admin/acl/roles", map[string]any{
+		"name":        roleName,
+		"scope_type":  "organization",
+		"description": "Custom installer",
+	}, admin.Tokens.AccessToken)
+	if roleRes.Code != http.StatusCreated {
+		t.Fatalf("expected role create 201, got %d: %s", roleRes.Code, roleRes.Body.String())
+	}
+	getRoleRes := performJSON(env.router, http.MethodGet, "/v1/admin/acl/roles/"+roleName, nil, admin.Tokens.AccessToken)
+	if getRoleRes.Code != http.StatusOK {
+		t.Fatalf("expected role show 200, got %d: %s", getRoleRes.Code, getRoleRes.Body.String())
+	}
+	updateRoleRes := performJSON(env.router, http.MethodPatch, "/v1/admin/acl/roles/"+roleName, map[string]any{"description": "Updated custom installer"}, admin.Tokens.AccessToken)
+	if updateRoleRes.Code != http.StatusOK {
+		t.Fatalf("expected role update 200, got %d: %s", updateRoleRes.Code, updateRoleRes.Body.String())
+	}
+	bindRes := performJSON(env.router, http.MethodPost, "/v1/admin/acl/roles/"+roleName+"/permissions/claim.resolve", nil, admin.Tokens.AccessToken)
+	if bindRes.Code != http.StatusOK {
+		t.Fatalf("expected role permission bind 200, got %d: %s", bindRes.Code, bindRes.Body.String())
+	}
+	assignRes := performJSON(env.router, http.MethodPost, "/v1/admin/acl/role-assignments", map[string]any{
+		"role_name":       "read_only_observer",
+		"actor_id":        tenant.User.ID,
+		"scope_type":      "organization",
+		"organization_id": admin.Organization.ID,
+	}, admin.Tokens.AccessToken)
+	if assignRes.Code != http.StatusCreated {
+		t.Fatalf("expected role assignment 201, got %d: %s", assignRes.Code, assignRes.Body.String())
+	}
+	assignment := decodeBody[aclRoleAssignmentBody](t, assignRes)
+	assignmentsRes := performJSON(env.router, http.MethodGet, "/v1/admin/acl/role-assignments", nil, admin.Tokens.AccessToken)
+	if assignmentsRes.Code != http.StatusOK {
+		t.Fatalf("expected role assignment list 200, got %d: %s", assignmentsRes.Code, assignmentsRes.Body.String())
+	}
+	deleteAssignmentRes := performJSON(env.router, http.MethodDelete, "/v1/admin/acl/role-assignments/"+assignment.RoleAssignment.ID, nil, admin.Tokens.AccessToken)
+	if deleteAssignmentRes.Code != http.StatusOK {
+		t.Fatalf("expected role assignment delete 200, got %d: %s", deleteAssignmentRes.Code, deleteAssignmentRes.Body.String())
+	}
+	mappingRes := performJSON(env.router, http.MethodPost, "/v1/admin/acl/external-group-mappings", map[string]any{
+		"provider_id":     "keycloak",
+		"external_group":  "/installers",
+		"role_name":       "installer",
+		"scope_type":      "organization",
+		"organization_id": admin.Organization.ID,
+	}, admin.Tokens.AccessToken)
+	if mappingRes.Code != http.StatusCreated {
+		t.Fatalf("expected external group mapping 201, got %d: %s", mappingRes.Code, mappingRes.Body.String())
+	}
+	mapping := decodeBody[aclExternalGroupMappingBody](t, mappingRes)
+	mappingsRes := performJSON(env.router, http.MethodGet, "/v1/admin/acl/external-group-mappings", nil, admin.Tokens.AccessToken)
+	if mappingsRes.Code != http.StatusOK {
+		t.Fatalf("expected external group mapping list 200, got %d: %s", mappingsRes.Code, mappingsRes.Body.String())
+	}
+	deleteMappingRes := performJSON(env.router, http.MethodDelete, "/v1/admin/acl/external-group-mappings/"+mapping.ExternalGroupMapping.ID, nil, admin.Tokens.AccessToken)
+	if deleteMappingRes.Code != http.StatusOK {
+		t.Fatalf("expected external group mapping delete 200, got %d: %s", deleteMappingRes.Code, deleteMappingRes.Body.String())
+	}
+	deleteRoleRes := performJSON(env.router, http.MethodDelete, "/v1/admin/acl/roles/"+roleName, nil, admin.Tokens.AccessToken)
+	if deleteRoleRes.Code != http.StatusOK {
+		t.Fatalf("expected role delete 200, got %d: %s", deleteRoleRes.Code, deleteRoleRes.Body.String())
+	}
+	missingRoleRes := performJSON(env.router, http.MethodGet, "/v1/admin/acl/roles/"+roleName, nil, admin.Tokens.AccessToken)
+	if missingRoleRes.Code != http.StatusNotFound {
+		t.Fatalf("expected deleted role show 404, got %d: %s", missingRoleRes.Code, missingRoleRes.Body.String())
+	}
+	missingRoleUpdateRes := performJSON(env.router, http.MethodPatch, "/v1/admin/acl/roles/"+roleName, map[string]any{"description": "again"}, admin.Tokens.AccessToken)
+	if missingRoleUpdateRes.Code != http.StatusNotFound {
+		t.Fatalf("expected deleted role update 404, got %d: %s", missingRoleUpdateRes.Code, missingRoleUpdateRes.Body.String())
+	}
+	missingRoleDeleteRes := performJSON(env.router, http.MethodDelete, "/v1/admin/acl/roles/"+roleName, nil, admin.Tokens.AccessToken)
+	if missingRoleDeleteRes.Code != http.StatusNotFound {
+		t.Fatalf("expected deleted role delete 404, got %d: %s", missingRoleDeleteRes.Code, missingRoleDeleteRes.Body.String())
+	}
+	missingAssignmentDeleteRes := performJSON(env.router, http.MethodDelete, "/v1/admin/acl/role-assignments/"+assignment.RoleAssignment.ID, nil, admin.Tokens.AccessToken)
+	if missingAssignmentDeleteRes.Code != http.StatusNotFound {
+		t.Fatalf("expected deleted role assignment delete 404, got %d: %s", missingAssignmentDeleteRes.Code, missingAssignmentDeleteRes.Body.String())
+	}
+	missingMappingDeleteRes := performJSON(env.router, http.MethodDelete, "/v1/admin/acl/external-group-mappings/"+mapping.ExternalGroupMapping.ID, nil, admin.Tokens.AccessToken)
+	if missingMappingDeleteRes.Code != http.StatusNotFound {
+		t.Fatalf("expected deleted external group mapping delete 404, got %d: %s", missingMappingDeleteRes.Code, missingMappingDeleteRes.Body.String())
+	}
+	auditRes := performJSON(env.router, http.MethodGet, "/v1/admin/acl/audit-events?event_type=external_group_mapping_created", nil, admin.Tokens.AccessToken)
+	if auditRes.Code != http.StatusOK {
+		t.Fatalf("expected ACL audit list 200, got %d: %s", auditRes.Code, auditRes.Body.String())
+	}
+
+	badRoleRes := performJSON(env.router, http.MethodPost, "/v1/admin/acl/roles", map[string]any{
+		"name":       " ",
+		"scope_type": "organization",
+	}, admin.Tokens.AccessToken)
+	if badRoleRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected blank ACL role 400, got %d: %s", badRoleRes.Code, badRoleRes.Body.String())
+	}
+	missingPermissionRes := performJSON(env.router, http.MethodPost, "/v1/admin/acl/roles/"+roleName+"/permissions/missing.permission", nil, admin.Tokens.AccessToken)
+	if missingPermissionRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing permission 404, got %d: %s", missingPermissionRes.Code, missingPermissionRes.Body.String())
+	}
+	badAssignmentRes := performJSON(env.router, http.MethodPost, "/v1/admin/acl/role-assignments", map[string]any{
+		"role_name":       "missing-role",
+		"actor_id":        tenant.User.ID,
+		"scope_type":      "organization",
+		"scope_id":        " ",
+		"organization_id": admin.Organization.ID,
+	}, admin.Tokens.AccessToken)
+	if badAssignmentRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing role assignment 404, got %d: %s", badAssignmentRes.Code, badAssignmentRes.Body.String())
+	}
+	badMappingRes := performJSON(env.router, http.MethodPost, "/v1/admin/acl/external-group-mappings", map[string]any{
+		"provider_id":    "keycloak",
+		"external_group": " ",
+		"role_name":      "installer",
+		"scope_type":     "organization",
+	}, admin.Tokens.AccessToken)
+	if badMappingRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected blank external group mapping 400, got %d: %s", badMappingRes.Code, badMappingRes.Body.String())
 	}
 }
 
@@ -3492,6 +3660,14 @@ type identityProvidersAdminBody struct {
 	Pagination        paginationBody           `json:"pagination"`
 }
 
+type aclRoleAssignmentBody struct {
+	RoleAssignment model.RoleAssignment `json:"role_assignment"`
+}
+
+type aclExternalGroupMappingBody struct {
+	ExternalGroupMapping model.ExternalGroupMapping `json:"external_group_mapping"`
+}
+
 type deviceClaimOverrideAdminBody struct {
 	DeviceClaimToken struct {
 		ID             string  `json:"id"`
@@ -3977,6 +4153,7 @@ type apiOIDCTokenFixture struct {
 	Email         string
 	EmailVerified bool
 	Nonce         string
+	Groups        []string
 }
 
 func (s *apiOIDCTestServer) signToken(t *testing.T, fixture apiOIDCTokenFixture) string {
@@ -3990,6 +4167,9 @@ func (s *apiOIDCTestServer) signToken(t *testing.T, fixture apiOIDCTokenFixture)
 		"nonce":          fixture.Nonce,
 		"email":          fixture.Email,
 		"email_verified": fixture.EmailVerified,
+	}
+	if len(fixture.Groups) > 0 {
+		claims["groups"] = fixture.Groups
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	token.Header["kid"] = s.keyID
