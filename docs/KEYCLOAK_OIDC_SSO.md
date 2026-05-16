@@ -65,12 +65,12 @@ manager and does not own account-manager authorization policy.
 
 ## Authorization Model
 
-- Account-manager local organization memberships and roles remain the only
-  authorization source.
-- Keycloak groups, realm roles, and client roles are ignored by account-manager
-  authorization in the first implementation.
-- A successful SSO login only proves identity. It does not grant organization or
-  device access without local membership.
+- Account-manager persisted ACL facts remain the authorization source.
+- Keycloak groups, realm roles, and client roles grant no permissions directly.
+  They can affect authorization only through account-manager-managed
+  `external_group_mappings`, which create scoped product role assignments.
+- A successful SSO login proves identity. Unmapped external groups grant
+  nothing.
 
 ## Token Model
 
@@ -231,8 +231,9 @@ Tests must cover:
 - Successful callback links an identity under the configured policy and returns
   the existing account-manager token response shape.
 - Local email/password login continues to work after OIDC is enabled.
-- Keycloak groups, realm roles, and client roles do not grant account-manager
-  organization access.
+- Keycloak groups, realm roles, and client roles do not directly grant
+  account-manager organization access; mapped groups grant only the scoped role
+  assignments configured in Account Manager.
 - Keycloak access tokens and refresh tokens are not persisted.
 
 ## Acceptance Criteria
