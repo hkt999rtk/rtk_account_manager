@@ -41,6 +41,51 @@ func TestACLSeedPermissionCatalogAndSystemRoles(t *testing.T) {
 	assertRolePermission(t, ctx, env, "read_only_observer", "registry_device.manage", false)
 }
 
+func TestEnsurePlatformAdminCreatesAndReenablesUser(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+
+	displayName := "Platform Root"
+	created, err := env.store.EnsurePlatformAdmin(ctx, " Root@Example.COM ", "hash-one", &displayName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Email != "root@example.com" || created.DisplayName == nil || *created.DisplayName != displayName {
+		t.Fatalf("expected normalized created platform admin, got %+v", created)
+	}
+	if !created.EmailVerified || created.SignupPendingVerification || created.DisabledAt != nil {
+		t.Fatalf("expected enabled verified platform admin, got %+v", created)
+	}
+	isAdmin, err := env.store.IsPlatformAdmin(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isAdmin {
+		t.Fatal("expected ensured user to be platform admin")
+	}
+
+	if _, err := env.db.Exec(ctx, `UPDATE users SET disabled_at = now(), platform_admin = false WHERE id = $1`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := env.store.EnsurePlatformAdmin(ctx, "root@example.com", "hash-two", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ID != created.ID || updated.DisplayName == nil || *updated.DisplayName != displayName {
+		t.Fatalf("expected existing display name and user id to be preserved, got %+v", updated)
+	}
+	if updated.DisabledAt != nil {
+		t.Fatalf("expected disabled platform admin to be reenabled, got %+v", updated)
+	}
+	isAdmin, err = env.store.IsPlatformAdmin(ctx, updated.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isAdmin {
+		t.Fatal("expected reenabled user to be platform admin")
+	}
+}
+
 func TestACLRoleAssignmentsAuthorizeInsideScopeOnly(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()

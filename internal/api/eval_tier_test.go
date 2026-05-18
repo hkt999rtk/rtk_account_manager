@@ -100,3 +100,32 @@ func TestAllowSignupEnforcesCaptchaDisposableAndRateLimit(t *testing.T) {
 		t.Fatalf("expected rate limit failure 429, got %d", limitedRecorder.Code)
 	}
 }
+
+func TestFailureFromMetadataUsesProjectedErrorFacts(t *testing.T) {
+	updatedAt := time.Date(2026, 5, 18, 8, 30, 0, 0, time.UTC)
+
+	failure := failureFromMetadata(map[string]any{
+		"code":    "video_timeout",
+		"message": "Video cloud did not finish activation",
+	}, updatedAt)
+	if failure == nil {
+		t.Fatal("expected failure response")
+	}
+	if failure.FailedLayer != "cloud_activation" || failure.SourceState != "video_cloud_last_error" {
+		t.Fatalf("unexpected failure source: %+v", failure)
+	}
+	if failure.Retryable {
+		t.Fatal("projected metadata failures should not be retryable by default")
+	}
+	if failure.ErrorCode != "video_timeout" || failure.ErrorMessage != "Video cloud did not finish activation" {
+		t.Fatalf("expected projected error facts, got %+v", failure)
+	}
+	if failure.OccurredAt == nil || !failure.OccurredAt.Equal(updatedAt) {
+		t.Fatalf("expected metadata update time, got %+v", failure.OccurredAt)
+	}
+
+	fallback := failureFromMetadata("legacy-error", updatedAt)
+	if fallback.ErrorCode != "video_cloud_last_error" || fallback.ErrorMessage != "Projected video cloud error" {
+		t.Fatalf("expected fallback metadata error facts, got %+v", fallback)
+	}
+}

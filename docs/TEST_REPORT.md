@@ -152,6 +152,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests`
 - `rtk_account_manager/internal/api`: `TestAuthTokenDeliveryHook`
 - `rtk_account_manager/internal/api`: `TestBindStrictRejectsUnknownFields`
+- `rtk_account_manager/internal/api`: `TestFailureFromMetadataUsesProjectedErrorFacts`
 - `rtk_account_manager/internal/api`: `TestHealthRoute`
 - `rtk_account_manager/internal/api`: `TestIntegrationACLAdminWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminDeviceClaimOverrideWorkflow`
@@ -211,6 +212,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanDisableAndEnableMemberUser`
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanUpdateAndRemoveMember`
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanUpdateOrganization`
+- `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminBrandCloudLifecycle`
 - `rtk_account_manager/internal/api`: `TestIntegrationProvisioningEndpoints`
 - `rtk_account_manager/internal/api`: `TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness`
 - `rtk_account_manager/internal/api`: `TestIntegrationQuotaRaiseValidationAndDefaultApproval`
@@ -296,6 +298,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/auth`: `TestProviderResolverRejectsUnsupportedOrUnsetSecretRefs`
 - `rtk_account_manager/internal/auth`: `TestRandomTokenProducesHashableDistinctValues`
 - `rtk_account_manager/internal/auth`: `TestTokenKindValidation`
+- `rtk_account_manager/internal/broker`: `TestAzureCheckpointFileDefaultsAndSanitizesComponents`
 - `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerAcknowledgesAndResumesFromCheckpoint`
 - `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerCloseClosesPartitions`
 - `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerDoesNotAdvanceCheckpointPastEarlierUnacknowledgedMessage`
@@ -433,6 +436,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestDeviceClaimTokenAdminLifecycle`
 - `rtk_account_manager/internal/store`: `TestDeviceClaimTransferMovesOwnershipAndAudits`
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
+- `rtk_account_manager/internal/store`: `TestEnsurePlatformAdminCreatesAndReenablesUser`
 - `rtk_account_manager/internal/store`: `TestEvaluationQuotaUsageUtilizationHandlesZeroAndNonZeroQuotas`
 - `rtk_account_manager/internal/store`: `TestGetOutboxMessageDetailIncludesOperation`
 - `rtk_account_manager/internal/store`: `TestIdentityProviderRejectsRawClientSecretRef`

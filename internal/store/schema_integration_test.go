@@ -33,6 +33,7 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 	}
 
 	requiredColumns := map[string][]string{
+		"organizations":        {"organization_kind", "status", "metadata"},
 		"device_claim_tokens":  {"token_hash", "organization_id", "created_by", "revoked_at", "metadata", "notes", "expires_at", "claimed_at"},
 		"device_claims":        {"claim_token_id", "organization_id", "device_id", "claimed_by", "status", "provision_input", "overridden_by", "override_reason", "override_evidence", "overridden_at"},
 		"device_message_inbox": {"message_id", "operation_id", "stream", "message_type", "schema_version", "partition_key", "status", "payload", "attempt_count"},
@@ -66,6 +67,8 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		{table: "organizations", name: "organizations_name_not_blank"},
 		{table: "organizations", name: "organizations_tier_check"},
 		{table: "organizations", name: "organizations_evaluation_device_quota_check"},
+		{table: "organizations", name: "organizations_kind_check"},
+		{table: "organizations", name: "organizations_status_check"},
 		{table: "users", name: "users_email_normalized"},
 		{table: "devices", name: "devices_name_not_blank"},
 		{table: "devices", name: "devices_category_check"},
@@ -127,6 +130,7 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"device_operations_org_device_created_idx",
 		"device_operations_status_created_idx",
 		"devices_org_serial_unique",
+		"organizations_kind_status_idx",
 		"identity_providers_enabled_unique_idx",
 		"oidc_login_states_provider_created_idx",
 		"oidc_login_states_active_idx",

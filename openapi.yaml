@@ -558,6 +558,123 @@ paths:
           $ref: "#/components/responses/Error"
         "403":
           $ref: "#/components/responses/Error"
+  /v1/admin/brand-clouds:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Create a platform-managed brand cloud.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandCloudRequest"
+      responses:
+        "201":
+          description: Brand cloud created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandCloudResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+    get:
+      security:
+        - bearerAuth: []
+      summary: List platform-managed brand clouds.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Brand cloud list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandCloudsResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/admin/brand-clouds/{brandCloudId}:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get a platform-managed brand cloud.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+      responses:
+        "200":
+          description: Brand cloud.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandCloudResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update a platform-managed brand cloud.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandCloudRequest"
+      responses:
+        "200":
+          description: Brand cloud updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandCloudResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/admin/brand-clouds/{brandCloudId}/members:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Assign an existing user to a brand cloud.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandCloudMemberRequest"
+      responses:
+        "201":
+          description: Brand cloud member assigned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
   /v1/admin/audit-events:
     get:
       security:
@@ -1888,6 +2005,13 @@ components:
       schema:
         type: string
         format: uuid
+    BrandCloudId:
+      name: brandCloudId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     UserId:
       name: userId
       in: path
@@ -2604,6 +2728,26 @@ components:
         name:
           type: string
           minLength: 1
+    BrandCloudRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        status:
+          $ref: "#/components/schemas/OrganizationStatus"
+        metadata:
+          type: object
+          additionalProperties: true
+    BrandCloudMemberRequest:
+      type: object
+      required: [user_id, role]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        role:
+          $ref: "#/components/schemas/Role"
     AddMemberRequest:
       type: object
       required: [email, role]
@@ -2890,6 +3034,22 @@ components:
       properties:
         organization:
           $ref: "#/components/schemas/Organization"
+    BrandCloudResponse:
+      type: object
+      required: [brand_cloud]
+      properties:
+        brand_cloud:
+          $ref: "#/components/schemas/Organization"
+    BrandCloudsResponse:
+      type: object
+      required: [brand_clouds, pagination]
+      properties:
+        brand_clouds:
+          type: array
+          items:
+            $ref: "#/components/schemas/Organization"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
     QuotaRaiseRequestResponse:
       type: object
       required: [quota_raise_request]
@@ -3220,7 +3380,7 @@ components:
           format: date-time
     Organization:
       type: object
-      required: [id, name, tier, evaluation_device_quota, created_at, updated_at]
+      required: [id, name, organization_kind, status, tier, evaluation_device_quota, created_at, updated_at]
       properties:
         id:
           type: string
@@ -3229,18 +3389,31 @@ components:
           type: string
         role:
           $ref: "#/components/schemas/Role"
+        organization_kind:
+          $ref: "#/components/schemas/OrganizationKind"
+        status:
+          $ref: "#/components/schemas/OrganizationStatus"
         tier:
           $ref: "#/components/schemas/OrganizationTier"
         evaluation_device_quota:
           type: integer
           minimum: 1
           maximum: 200
+        metadata:
+          type: object
+          additionalProperties: true
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
+    OrganizationKind:
+      type: string
+      enum: [customer_org, brand_cloud]
+    OrganizationStatus:
+      type: string
+      enum: [active, disabled]
     OrganizationTier:
       type: string
       enum: [evaluation, commercial]

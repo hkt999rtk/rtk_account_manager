@@ -36,6 +36,21 @@ func main() {
 	}
 	notificationSink := quotaRaiseNotificationSink(cfg)
 	accountStore := store.New(db)
+	if cfg.BootstrapPlatformAdminEmail != "" || cfg.BootstrapPlatformAdminPassword != "" {
+		if cfg.BootstrapPlatformAdminEmail == "" || cfg.BootstrapPlatformAdminPassword == "" {
+			log.Fatal("both ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL and ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD are required when bootstrapping platform admin")
+		}
+		hash, err := auth.HashPassword(cfg.BootstrapPlatformAdminPassword)
+		if err != nil {
+			log.Fatal(err)
+		}
+		displayName := "Realtek Platform Admin"
+		admin, err := accountStore.EnsurePlatformAdmin(ctx, cfg.BootstrapPlatformAdminEmail, hash, &displayName)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("ensured account-manager platform admin email=%s user_id=%s", admin.Email, admin.ID)
+	}
 	server := api.NewWithAuthTokenAndNotificationSink(accountStore, authService, authTokenSink, notificationSink)
 	server.ConfigureOIDC(api.OIDCOptions{
 		Env: auth.OIDCEnvConfig{

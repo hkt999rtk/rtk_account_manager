@@ -80,6 +80,20 @@ const (
 	OrganizationTierCommercial OrganizationTier = "commercial"
 )
 
+type OrganizationKind string
+
+const (
+	OrganizationKindCustomerOrg OrganizationKind = "customer_org"
+	OrganizationKindBrandCloud  OrganizationKind = "brand_cloud"
+)
+
+type OrganizationStatus string
+
+const (
+	OrganizationStatusActive   OrganizationStatus = "active"
+	OrganizationStatusDisabled OrganizationStatus = "disabled"
+)
+
 type QuotaRaiseRequestStatus string
 
 const (
@@ -290,13 +304,16 @@ type User struct {
 }
 
 type Organization struct {
-	ID                    string           `json:"id"`
-	Name                  string           `json:"name"`
-	Role                  Role             `json:"role,omitempty"`
-	Tier                  OrganizationTier `json:"tier"`
-	EvaluationDeviceQuota int              `json:"evaluation_device_quota"`
-	CreatedAt             time.Time        `json:"created_at"`
-	UpdatedAt             time.Time        `json:"updated_at"`
+	ID                    string             `json:"id"`
+	Name                  string             `json:"name"`
+	Role                  Role               `json:"role,omitempty"`
+	OrganizationKind      OrganizationKind   `json:"organization_kind"`
+	Status                OrganizationStatus `json:"status"`
+	Tier                  OrganizationTier   `json:"tier"`
+	EvaluationDeviceQuota int                `json:"evaluation_device_quota"`
+	Metadata              map[string]any     `json:"metadata,omitempty"`
+	CreatedAt             time.Time          `json:"created_at"`
+	UpdatedAt             time.Time          `json:"updated_at"`
 }
 
 type Member struct {
