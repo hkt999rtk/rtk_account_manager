@@ -36,7 +36,7 @@ VM as a gateway. Other services should call it through public HTTPS.
 | `scripts/provision-public-vm.sh` | Creates the public-only Linode VM and firewall through the Linode API. |
 | `scripts/set-godaddy-dns.sh` | Updates the staging DNS A record through the GoDaddy API. |
 | `scripts/deploy-public-vm.sh` | Builds a Linux release, installs PostgreSQL/nginx/certbot/systemd, applies migrations, and starts the service. |
-| `scripts/verify-public-vm.sh` | Runs external HTTPS health/register/login smoke checks. |
+| `scripts/verify-public-vm.sh` | Runs external HTTPS health/register/login smoke checks, with optional platform-admin brand-cloud API verification. |
 | `scripts/backup-public-postgres.sh` | Pulls a sanitized PostgreSQL custom-format dump artifact. |
 
 ## Public VM Quick Start
@@ -57,6 +57,25 @@ linode_deploy/scripts/set-godaddy-dns.sh
 linode_deploy/scripts/deploy-public-vm.sh
 linode_deploy/scripts/verify-public-vm.sh
 ```
+
+To verify the brand-cloud API after deployment, provide Account Manager
+platform-admin credentials from ignored operator secrets and enable the optional
+check:
+
+```sh
+set -a
+. linode_deploy/secrets/account-manager-platform-admin.env
+set +a
+
+ACCOUNT_MANAGER_VERIFY_BRAND_CLOUD=1 \
+ACCOUNT_MANAGER_VERIFY_BRAND_CLOUD_NAME="Realtek Connect+ Verify $(date -u +%Y%m%d%H%M%S)" \
+  linode_deploy/scripts/verify-public-vm.sh
+```
+
+The brand-cloud verification logs in as the Account Manager platform admin,
+creates a `brand_cloud` organization, reads it back, lists brand clouds, and
+checks audit events. Platform-admin login request/response bodies are kept in
+temporary files only and are not persisted to verification artifacts.
 
 Ignored state and artifacts stay under `linode_deploy/state/` and `.artifacts/`.
 Do not commit copied env files, state files, database dumps, or verification
