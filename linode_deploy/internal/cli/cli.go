@@ -117,7 +117,7 @@ func runDeploy(args []string, out io.Writer) error {
 		}
 		_, _ = fmt.Fprintf(out, "verify local release bundle %s\n", *releaseBundle)
 	} else {
-		_, _ = fmt.Fprintf(out, "verify Object Storage release releases/%s/rtk_account_manager-%s.tar.gz\n", *release, *release)
+		_, _ = fmt.Fprintf(out, "verify Object Storage release releases/rtk_account_manager-%s/%s.tar.gz\n", *release, *release)
 	}
 	_, _ = io.WriteString(out, "write runtime env to /etc/rtk-account-manager/account-manager.env mode 0600\n")
 	_, _ = io.WriteString(out, "require database backup marker\n")
