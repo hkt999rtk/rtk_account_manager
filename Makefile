@@ -69,6 +69,9 @@ check-release: release
 test-linode-deploy:
 	go test ./linode_deploy/...
 	bash -n linode_deploy/scripts/deploy-staging.sh
+	bash -n linode_deploy/scripts/verify-public-vm.sh
+	bash -n linode_deploy/scripts/verify-public-vm-test.sh
+	linode_deploy/scripts/verify-public-vm-test.sh
 	go run ./linode_deploy/cmd/linode-deploy plan --config linode_deploy/configs/account-manager-staging.yaml >/dev/null
 
 readiness-smoke:

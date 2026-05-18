@@ -67,6 +67,37 @@ The external verifier checks:
 - `POST /v1/auth/login`
 - `GET /v1/me` with the issued bearer token
 
+When `ACCOUNT_MANAGER_VERIFY_BRAND_CLOUD=1` is set, the verifier also checks
+the platform-admin brand-cloud management path:
+
+- `POST /v1/auth/login` with Account Manager platform-admin credentials
+- `POST /v1/admin/brand-clouds`
+- `GET /v1/admin/brand-clouds`
+- `GET /v1/admin/brand-clouds/{id}`
+- `GET /v1/admin/audit-events?subject_type=brand_cloud`
+
+Provide the platform-admin credentials from ignored operator secrets. The
+verifier reads `ACCOUNT_MANAGER_VERIFY_PLATFORM_ADMIN_EMAIL` and
+`ACCOUNT_MANAGER_VERIFY_PLATFORM_ADMIN_PASSWORD`, or falls back to
+`ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL` and
+`ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD` when those are already
+loaded for deployment bootstrap.
+
+```sh
+set -a
+. linode_deploy/secrets/account-manager-public-staging.env
+. linode_deploy/state/rtk-account-manager-staging.env
+. linode_deploy/secrets/account-manager-platform-admin.env
+set +a
+
+ACCOUNT_MANAGER_VERIFY_BRAND_CLOUD=1 \
+ACCOUNT_MANAGER_VERIFY_BRAND_CLOUD_NAME="Realtek Connect+ Verify $(date -u +%Y%m%d%H%M%S)" \
+  linode_deploy/scripts/verify-public-vm.sh
+```
+
+The platform-admin login request/response is held in temporary files only. Do
+not persist platform-admin bearer tokens in `.artifacts/`.
+
 Verification artifacts are written under `.artifacts/linode-account-manager-verify/`
 and must remain untracked.
 
