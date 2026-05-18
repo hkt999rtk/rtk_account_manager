@@ -29,14 +29,16 @@ func TestVerifyLocalRequiresAccountManagerBundleContract(t *testing.T) {
 
 func TestValidateManifestRejectsWrongArtifactName(t *testing.T) {
 	err := ValidateManifest(Manifest{
+		Repo:         "hkt999rtk/rtk_account_manager",
+		ArtifactName: "video_cloud",
 		Version:      "v1.2.3",
 		SourceCommit: "abc123",
 		Bundle:       "video_cloud-v1.2.3.tar.gz",
-		ArtifactPath: "releases/v1.2.3/video_cloud-v1.2.3.tar.gz",
+		ArtifactPath: "releases/video_cloud-v1.2.3/v1.2.3.tar.gz",
 		SHA256:       strings.Repeat("a", 64),
 		CreatedAt:    "2026-05-14T00:00:00Z",
 	}, "v1.2.3")
-	if err == nil || !strings.Contains(err.Error(), "rtk_account_manager-v1.2.3.tar.gz") {
+	if err == nil || !strings.Contains(err.Error(), "manifest artifact_name") {
 		t.Fatalf("expected account-manager artifact validation error, got %v", err)
 	}
 }
@@ -52,17 +54,19 @@ func TestVerifyManifestAndChecksum(t *testing.T) {
 	sum := sha256.Sum256(raw)
 	sha := hex.EncodeToString(sum[:])
 	manifestBytes, err := json.Marshal(Manifest{
+		Repo:         "hkt999rtk/rtk_account_manager",
+		ArtifactName: "rtk_account_manager",
 		Version:      "v1.2.3",
 		SourceCommit: "abc123",
-		Bundle:       "rtk_account_manager-v1.2.3.tar.gz",
-		ArtifactPath: "releases/v1.2.3/rtk_account_manager-v1.2.3.tar.gz",
+		Bundle:       "v1.2.3.tar.gz",
+		ArtifactPath: "releases/rtk_account_manager-v1.2.3/v1.2.3.tar.gz",
 		SHA256:       sha,
 		CreatedAt:    "2026-05-14T00:00:00Z",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyManifestAndChecksum(manifestBytes, []byte(sha+"  rtk_account_manager-v1.2.3.tar.gz\n"), raw, "v1.2.3"); err != nil {
+	if err := VerifyManifestAndChecksum(manifestBytes, []byte(sha+"  v1.2.3.tar.gz\n"), raw, "v1.2.3"); err != nil {
 		t.Fatalf("VerifyManifestAndChecksum: %v", err)
 	}
 }

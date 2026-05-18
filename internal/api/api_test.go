@@ -553,6 +553,33 @@ func TestBindStrictRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestOIDCGroupsFromClaimsShapes(t *testing.T) {
+	tests := []struct {
+		name   string
+		claims map[string]any
+		want   []string
+	}{
+		{name: "missing", claims: map[string]any{}, want: nil},
+		{name: "array", claims: map[string]any{"groups": []any{"/installers", "", 42, " /support "}}, want: []string{"/installers", "/support"}},
+		{name: "string slice", claims: map[string]any{"groups": []string{"/fleet", " "}}, want: []string{"/fleet"}},
+		{name: "single group", claims: map[string]any{"group": " /ops "}, want: []string{"/ops"}},
+		{name: "unsupported", claims: map[string]any{"groups": 12}, want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := oidcGroupsFromClaims(tt.claims)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %v want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("got %v want %v", got, tt.want)
+				}
+			}
+		})
+	}
+}
+
 func FuzzBindStrictRequestShape(f *testing.F) {
 	gin.SetMode(gin.TestMode)
 

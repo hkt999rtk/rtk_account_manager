@@ -15,6 +15,8 @@ import (
 )
 
 type Manifest struct {
+	Repo         string `json:"repo"`
+	ArtifactName string `json:"artifact_name"`
 	Version      string `json:"version"`
 	SourceCommit string `json:"source_commit"`
 	Bundle       string `json:"bundle"`
@@ -74,11 +76,16 @@ func VerifyManifestAndChecksum(manifestBytes, checksumBytes, bundleBytes []byte,
 }
 
 func ValidateManifest(m Manifest, version string) error {
-	expectedBundle := bundleName(version)
-	expectedPath := "releases/" + version + "/" + expectedBundle
+	expectedArtifactName := "rtk_account_manager"
+	expectedBundle := objectBundleName(version)
+	expectedPath := "releases/" + expectedArtifactName + "-" + version + "/" + expectedBundle
 	switch {
 	case version == "" || strings.EqualFold(version, "latest"):
 		return fmt.Errorf("explicit release version is required")
+	case m.Repo != "" && m.Repo != "hkt999rtk/rtk_account_manager":
+		return fmt.Errorf("manifest repo %q must be hkt999rtk/rtk_account_manager", m.Repo)
+	case m.ArtifactName != "" && m.ArtifactName != expectedArtifactName:
+		return fmt.Errorf("manifest artifact_name %q must be %q", m.ArtifactName, expectedArtifactName)
 	case m.Version != version:
 		return fmt.Errorf("manifest version %q does not match requested release %q", m.Version, version)
 	case m.Bundle != expectedBundle:
@@ -97,6 +104,10 @@ func ValidateManifest(m Manifest, version string) error {
 
 func bundleName(version string) string {
 	return "rtk_account_manager-" + version + ".tar.gz"
+}
+
+func objectBundleName(version string) string {
+	return version + ".tar.gz"
 }
 
 func verifyReleaseManifest(r io.Reader, version string) error {

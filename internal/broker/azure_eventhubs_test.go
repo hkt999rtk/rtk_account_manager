@@ -203,6 +203,23 @@ func TestAzureEventHubsPublisherCloseClosesClient(t *testing.T) {
 	}
 }
 
+func TestAzureCheckpointFileDefaultsAndSanitizesComponents(t *testing.T) {
+	explicit := resolveAzureCheckpointFile("/tmp/custom-checkpoint.json", "ignored stream", "ignored group")
+	if explicit != "/tmp/custom-checkpoint.json" {
+		t.Fatalf("expected explicit checkpoint path to win, got %q", explicit)
+	}
+
+	resolved := resolveAzureCheckpointFile("", "account.video.commands", "$Default/Group")
+	want := filepath.Join(defaultAzureCheckpointDir, "account_video_commands___Default_Group.json")
+	if resolved != want {
+		t.Fatalf("expected sanitized default checkpoint path %q, got %q", want, resolved)
+	}
+
+	if got := sanitizeAzureCheckpointComponent("AZaz09._-/"); got != "AZaz09____" {
+		t.Fatalf("unexpected sanitized component: %q", got)
+	}
+}
+
 func TestAzureEventHubsPublisherMarksBatchErrorsTransient(t *testing.T) {
 	t.Run("new batch", func(t *testing.T) {
 		client := &fakeAzureProducerClient{

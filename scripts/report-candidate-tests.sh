@@ -66,14 +66,50 @@ cat >"$key_report" <<'EOF'
 EOF
 assert_rejects "private key material" "$repo_root/scripts/validate-report-candidate.sh" docs/TEST_REPORT.md "$key_report"
 
+release_dir="$tmp_dir/rtk_account_manager-vtest"
+mkdir -p "$release_dir/bin" "$release_dir/deploy/systemd" "$release_dir/migrations"
+for executable in \
+	bin/rtk-account-manager \
+	bin/rtk-account-manager-migrate \
+	bin/rtk-account-manager-outbox-worker \
+	bin/rtk-account-manager-inbox-worker \
+	bin/rtk-account-manager-cleanup-tokens \
+	deploy/install.sh \
+	deploy/verify.sh; do
+	printf '#!/usr/bin/env sh\nexit 0\n' >"$release_dir/$executable"
+	chmod +x "$release_dir/$executable"
+done
+for file in \
+	deploy/account-manager.env.example \
+	deploy/systemd/rtk-account-manager.service \
+	deploy/systemd/rtk-account-manager-migrate.service \
+	deploy/systemd/rtk-account-manager-outbox-worker.service \
+	deploy/systemd/rtk-account-manager-inbox-worker.service \
+	deploy/systemd/rtk-account-manager-cleanup-tokens.service \
+	deploy/systemd/rtk-account-manager-cleanup-tokens.timer \
+	release-manifest.txt \
+	migrations/001_test.sql; do
+	printf 'test\n' >"$release_dir/$file"
+done
 asset="$tmp_dir/rtk_account_manager-vtest.tar.gz"
-printf 'release-bundle' >"$asset"
+tar -C "$tmp_dir" -czf "$asset" "$(basename "$release_dir")"
+object_output="$tmp_dir/object-output"
+mkdir -p "$object_output"
+VERSION="vtest" \
+	SOURCE_COMMIT="abc123" \
+	RELEASE_ASSET="$asset" \
+	OUTPUT_DIR="$object_output" \
+	"$repo_root/scripts/prepare-linode-release-objects.sh" >/dev/null
+"$repo_root/scripts/verify-linode-release-objects.sh" vtest "$object_output" >/dev/null
 release_output="$tmp_dir/candidates/docs/RELEASE_TEST_REPORT.md"
 OUTPUT="$release_output" \
 	VERSION="vtest" \
 	SOURCE_COMMIT="abc123" \
 	RELEASE_ASSET="$asset" \
 	CONTRACTS_COMMIT="def456" \
+	OBJECT_STORAGE_BUNDLE_KEY="releases/rtk_account_manager-vtest/vtest.tar.gz" \
+	OBJECT_STORAGE_CHECKSUM_KEY="releases/rtk_account_manager-vtest/vtest.tar.gz.sha256" \
+	OBJECT_STORAGE_MANIFEST_KEY="releases/rtk_account_manager-vtest/manifest.json" \
 	RUN_URL="https://github.example/run/1" \
 	REPORT_GENERATED_AT="test" \
 	"$repo_root/scripts/generate-release-report-candidate.sh" >/dev/null
@@ -82,6 +118,9 @@ assert_contains "$release_output" "| Release version | \`vtest\` |"
 assert_contains "$release_output" "| Source commit | \`abc123\` |"
 assert_contains "$release_output" "| Contracts commit | \`def456\` |"
 assert_contains "$release_output" "| Release asset SHA256 |"
+assert_contains "$release_output" "| Object Storage SHA256 |"
+assert_contains "$release_output" "| Object Storage bundle key | \`releases/rtk_account_manager-vtest/vtest.tar.gz\` |"
+assert_contains "$release_output" "| Object Storage manifest key | \`releases/rtk_account_manager-vtest/manifest.json\` |"
 
 evidence="$tmp_dir/deployment-evidence"
 mkdir -p "$evidence"

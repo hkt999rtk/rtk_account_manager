@@ -232,6 +232,7 @@ func (s *Store) DecideQuotaRaiseRequest(ctx context.Context, in QuotaRaiseDecisi
 	var org model.Organization
 	var requester model.User
 	var rawContactInfo []byte
+	var rawOrgMetadata []byte
 	err = tx.QueryRow(ctx, `
 		SELECT
 			q.id::text,
@@ -248,8 +249,11 @@ func (s *Store) DecideQuotaRaiseRequest(ctx context.Context, in QuotaRaiseDecisi
 			q.decided_at,
 			o.id::text,
 			o.name,
+			o.organization_kind,
+			o.status,
 			o.tier,
 			o.evaluation_device_quota,
+			o.metadata,
 			o.created_at,
 			o.updated_at,
 			u.id::text,
@@ -281,8 +285,11 @@ func (s *Store) DecideQuotaRaiseRequest(ctx context.Context, in QuotaRaiseDecisi
 		&request.DecidedAt,
 		&org.ID,
 		&org.Name,
+		&org.OrganizationKind,
+		&org.Status,
 		&org.Tier,
 		&org.EvaluationDeviceQuota,
+		&rawOrgMetadata,
 		&org.CreatedAt,
 		&org.UpdatedAt,
 		&requester.ID,
@@ -302,6 +309,9 @@ func (s *Store) DecideQuotaRaiseRequest(ctx context.Context, in QuotaRaiseDecisi
 		return model.QuotaRaiseRequest{}, model.Organization{}, model.User{}, err
 	}
 	if err := json.Unmarshal(rawContactInfo, &request.ContactInfo); err != nil {
+		return model.QuotaRaiseRequest{}, model.Organization{}, model.User{}, err
+	}
+	if err := json.Unmarshal(rawOrgMetadata, &org.Metadata); err != nil {
 		return model.QuotaRaiseRequest{}, model.Organization{}, model.User{}, err
 	}
 	if request.Status != model.QuotaRaiseRequestStatusPending {

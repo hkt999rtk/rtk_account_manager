@@ -112,8 +112,42 @@ Build an immutable release bundle with:
 VERSION=v0.1.0 make release
 ```
 
-This writes `dist/rtk_account_manager-$VERSION.tar.gz`. GitHub Actions
-publishes the same tarball through `.github/workflows/release.yml`.
+This writes `dist/rtk_account_manager-$VERSION.tar.gz`. The release workflow
+also publishes formal release objects to Linode Object Storage using the
+workspace artifact governance shape:
+
+```text
+releases/rtk_account_manager-$VERSION/$VERSION.tar.gz
+releases/rtk_account_manager-$VERSION/$VERSION.tar.gz.sha256
+releases/rtk_account_manager-$VERSION/manifest.json
+```
+
+GitHub Actions artifacts and GitHub Releases are debug/mirror surfaces. Linode
+Object Storage is the durable release store.
+
+Developer self-check with the AWS CLI as an S3-compatible client for Linode
+Object Storage:
+
+```sh
+aws s3 ls "s3://$LINODE_OBJ_BUCKET/releases/rtk_account_manager-$VERSION/" \
+  --endpoint-url "$LINODE_OBJ_ENDPOINT"
+
+mkdir -p ".artifacts/release-download/$VERSION"
+aws s3 cp "s3://$LINODE_OBJ_BUCKET/releases/rtk_account_manager-$VERSION/$VERSION.tar.gz" \
+  ".artifacts/release-download/$VERSION/$VERSION.tar.gz" \
+  --endpoint-url "$LINODE_OBJ_ENDPOINT"
+aws s3 cp "s3://$LINODE_OBJ_BUCKET/releases/rtk_account_manager-$VERSION/$VERSION.tar.gz.sha256" \
+  ".artifacts/release-download/$VERSION/$VERSION.tar.gz.sha256" \
+  --endpoint-url "$LINODE_OBJ_ENDPOINT"
+aws s3 cp "s3://$LINODE_OBJ_BUCKET/releases/rtk_account_manager-$VERSION/manifest.json" \
+  ".artifacts/release-download/$VERSION/manifest.json" \
+  --endpoint-url "$LINODE_OBJ_ENDPOINT"
+
+scripts/verify-linode-release-objects.sh "$VERSION" ".artifacts/release-download/$VERSION"
+```
+
+The verifier checks manifest fields, checksum consistency, and the repo-owned
+`deploy/check-release.sh` bundle contract.
 
 ## Staging CD On `video-cloud-cd.local`
 
@@ -158,7 +192,7 @@ PORT=18081
 ```
 
 The deploy workflow is `.github/workflows/deploy-local.yml`. It is manual
-(`workflow_dispatch`) and deploys an existing GitHub Release version. Configure
+(`workflow_dispatch`) and deploys an existing release version. Configure
 the staging environment with:
 
 | GitHub setting | Purpose |
@@ -177,7 +211,7 @@ Manual deploy inputs:
 
 | Input | Purpose |
 | --- | --- |
-| `version` | Existing GitHub Release tag to deploy. |
+| `version` | Existing release version to deploy. |
 | `restart_units` | Space-separated account-manager units to restart after migration. |
 | `verify` | Run package verification after restart. |
 | `run_readiness_smoke` | Run login, organization read, device read, and provisioning/readiness smoke when smoke secrets are configured. |
@@ -197,6 +231,34 @@ backup and create the deploy gate marker:
 sudo install -d -o rtk-account-manager -g rtk-account-manager /var/lib/rtk-account-manager
 printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | \
   sudo tee /var/lib/rtk-account-manager/last-db-backup-ok >/dev/null
+```
+
+Release artifacts are published to Linode Object Storage through its
+S3-compatible API. The release workflow may use AWS CLI as an S3-compatible
+client, but the durable artifact backend is Linode Object Storage, not AWS
+storage.
+
+Expected Object Storage prefix:
+
+```text
+releases/rtk_account_manager-<version>/
+```
+
+Required objects:
+
+```text
+releases/rtk_account_manager-<version>/<version>.tar.gz
+releases/rtk_account_manager-<version>/<version>.tar.gz.sha256
+releases/rtk_account_manager-<version>/manifest.json
+```
+
+Developer self-check:
+
+```sh
+aws s3 ls "s3://$LINODE_OBJ_BUCKET/releases/rtk_account_manager-$VERSION/" \
+  --endpoint-url "$LINODE_OBJ_ENDPOINT"
+aws s3 cp "s3://$LINODE_OBJ_BUCKET/releases/rtk_account_manager-$VERSION/manifest.json" - \
+  --endpoint-url "$LINODE_OBJ_ENDPOINT"
 ```
 
 Deploy sequence:

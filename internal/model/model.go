@@ -10,6 +10,69 @@ const (
 	RoleMember Role = "member"
 )
 
+type Permission struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Domain      string    `json:"domain"`
+	Action      string    `json:"action"`
+	Description *string   `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type ProductRole struct {
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	ScopeType   string     `json:"scope_type"`
+	Description *string    `json:"description,omitempty"`
+	SystemRole  bool       `json:"system_role"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	DisabledAt  *time.Time `json:"disabled_at,omitempty"`
+}
+
+type RoleAssignment struct {
+	ID             string     `json:"id"`
+	RoleID         string     `json:"role_id"`
+	RoleName       string     `json:"role_name"`
+	ActorType      string     `json:"actor_type"`
+	ActorID        string     `json:"actor_id"`
+	ScopeType      string     `json:"scope_type"`
+	ScopeID        *string    `json:"scope_id,omitempty"`
+	OrganizationID *string    `json:"organization_id,omitempty"`
+	CreatedBy      *string    `json:"created_by,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	DisabledAt     *time.Time `json:"disabled_at,omitempty"`
+}
+
+type ExternalGroupMapping struct {
+	ID             string     `json:"id"`
+	ProviderID     string     `json:"provider_id"`
+	ExternalGroup  string     `json:"external_group"`
+	RoleID         string     `json:"role_id"`
+	RoleName       string     `json:"role_name"`
+	ScopeType      string     `json:"scope_type"`
+	ScopeID        *string    `json:"scope_id,omitempty"`
+	OrganizationID *string    `json:"organization_id,omitempty"`
+	CreatedBy      *string    `json:"created_by,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	DisabledAt     *time.Time `json:"disabled_at,omitempty"`
+}
+
+type ACLAuditEvent struct {
+	ID             string         `json:"id"`
+	EventType      string         `json:"event_type"`
+	ActorUserID    *string        `json:"actor_user_id,omitempty"`
+	OrganizationID *string        `json:"organization_id,omitempty"`
+	SubjectType    string         `json:"subject_type"`
+	SubjectID      string         `json:"subject_id"`
+	Payload        map[string]any `json:"payload"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+}
+
 type OrganizationTier string
 
 const (

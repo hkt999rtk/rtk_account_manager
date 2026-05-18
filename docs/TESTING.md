@@ -49,7 +49,8 @@ Update tests whenever changing:
 
 - Authentication, JWT, refresh-token, logout, or disabled-user behavior.
 - Keycloak/OIDC provider resolution, login callback, state/nonce handling, identity linking, or external identity management.
-- Organization membership, owner/admin/member authorization, or last-owner rules.
+- Organization membership, ACL permission checks, owner/admin/member
+  compatibility, or last-owner rules.
 - Device lifecycle behavior, status changes, soft-delete behavior, or organization scoping.
 - Provisioning, deactivation, outbox, inbox, broker adapter, or cross-service projection behavior.
 - SQL migrations, database constraints, or timestamp triggers.
@@ -161,6 +162,7 @@ When implementing the v2 provisioning/event-channel milestone, the maintained re
 | Authorization | `owner` and `admin` may initiate lifecycle operations; `member` may only read provisioning state. |
 | Device scoping | Cross-organization and missing devices are rejected without leaking resource existence. |
 | Authorization matrix | Owner/admin/member/platform-admin/outsider/disabled-user behavior is checked across device, claim, lifecycle, quota, and audit endpoints. |
+| ACL persistence and admin workflow | ACL schema invariants, permission catalog seed, system roles, scoped role assignments, read-only observer write denial, platform-admin ACL management APIs, external group mappings, and ACL audit events are checked. |
 | Disabled devices | Disabled devices cannot be provisioned. |
 | Operation idempotency | Reusing `operation_id` with the same payload returns the existing operation. |
 | Operation conflicts | Reusing `operation_id` with a different payload returns `409 Conflict`. |
