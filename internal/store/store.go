@@ -51,6 +51,12 @@ type OrganizationPage struct {
 	Page          Page
 }
 
+type BrandCloudInput struct {
+	Name     string
+	Status   model.OrganizationStatus
+	Metadata map[string]any
+}
+
 type MemberPage struct {
 	Members []model.Member
 	Page    Page
@@ -132,12 +138,16 @@ func (s *Store) Register(ctx context.Context, in RegisterInput) (RegisterResult,
 		quota = 5
 	}
 	var org model.Organization
+	var orgMetadata []byte
 	err = tx.QueryRow(ctx, `
-		INSERT INTO organizations (name, tier, evaluation_device_quota)
-		VALUES ($1, $2, $3)
-		RETURNING id::text, name, tier, evaluation_device_quota, created_at, updated_at
-	`, in.OrganizationName, tier, quota).Scan(&org.ID, &org.Name, &org.Tier, &org.EvaluationDeviceQuota, &org.CreatedAt, &org.UpdatedAt)
+		INSERT INTO organizations (name, tier, evaluation_device_quota, organization_kind, status, metadata)
+		VALUES ($1, $2, $3, 'customer_org', 'active', '{}'::jsonb)
+		RETURNING id::text, name, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at
+	`, in.OrganizationName, tier, quota).Scan(&org.ID, &org.Name, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &orgMetadata, &org.CreatedAt, &org.UpdatedAt)
 	if err != nil {
+		return RegisterResult{}, err
+	}
+	if err := json.Unmarshal(orgMetadata, &org.Metadata); err != nil {
 		return RegisterResult{}, err
 	}
 	org.Role = model.RoleOwner
@@ -225,6 +235,25 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (model.User, e
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, ErrNotFound
 	}
+	return user, err
+}
+
+func (s *Store) EnsurePlatformAdmin(ctx context.Context, email, passwordHash string, displayName *string) (model.User, error) {
+	var user model.User
+	err := s.db.QueryRow(ctx, `
+		INSERT INTO users (email, password_hash, display_name, email_verified, email_verified_at, platform_admin)
+		VALUES ($1, $2, $3, true, now(), true)
+		ON CONFLICT (email)
+		DO UPDATE SET
+			password_hash = EXCLUDED.password_hash,
+			display_name = COALESCE(EXCLUDED.display_name, users.display_name),
+			email_verified = true,
+			email_verified_at = COALESCE(users.email_verified_at, now()),
+			platform_admin = true,
+			disabled_at = NULL,
+			updated_at = now()
+		RETURNING id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
+	`, strings.ToLower(strings.TrimSpace(email)), passwordHash, displayName).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	return user, err
 }
 
@@ -618,7 +647,7 @@ func (s *Store) ListOrganizations(ctx context.Context, userID string, limit, off
 		return OrganizationPage{}, err
 	}
 	rows, err := s.db.Query(ctx, `
-		SELECT o.id::text, o.name, m.role, o.tier, o.evaluation_device_quota, o.created_at, o.updated_at
+		SELECT o.id::text, o.name, m.role, o.organization_kind, o.status, o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at
 		FROM organizations o
 		JOIN organization_members m ON m.organization_id = o.id
 		JOIN users u ON u.id = m.user_id
@@ -634,7 +663,11 @@ func (s *Store) ListOrganizations(ctx context.Context, userID string, limit, off
 	orgs := []model.Organization{}
 	for rows.Next() {
 		var org model.Organization
-		if err := rows.Scan(&org.ID, &org.Name, &org.Role, &org.Tier, &org.EvaluationDeviceQuota, &org.CreatedAt, &org.UpdatedAt); err != nil {
+		var rawMetadata []byte
+		if err := rows.Scan(&org.ID, &org.Name, &org.Role, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &rawMetadata, &org.CreatedAt, &org.UpdatedAt); err != nil {
+			return OrganizationPage{}, err
+		}
+		if err := json.Unmarshal(rawMetadata, &org.Metadata); err != nil {
 			return OrganizationPage{}, err
 		}
 		orgs = append(orgs, org)
@@ -653,12 +686,16 @@ func (s *Store) CreateOrganization(ctx context.Context, userID, name string) (mo
 	defer tx.Rollback(ctx)
 
 	var org model.Organization
+	var rawMetadata []byte
 	err = tx.QueryRow(ctx, `
-		INSERT INTO organizations (name, tier, evaluation_device_quota)
-		VALUES ($1, 'commercial', 5)
-		RETURNING id::text, name, tier, evaluation_device_quota, created_at, updated_at
-	`, name).Scan(&org.ID, &org.Name, &org.Tier, &org.EvaluationDeviceQuota, &org.CreatedAt, &org.UpdatedAt)
+		INSERT INTO organizations (name, tier, evaluation_device_quota, organization_kind, status, metadata)
+		VALUES ($1, 'commercial', 5, 'customer_org', 'active', '{}'::jsonb)
+		RETURNING id::text, name, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at
+	`, name).Scan(&org.ID, &org.Name, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &rawMetadata, &org.CreatedAt, &org.UpdatedAt)
 	if err != nil {
+		return model.Organization{}, err
+	}
+	if err := json.Unmarshal(rawMetadata, &org.Metadata); err != nil {
 		return model.Organization{}, err
 	}
 	_, err = tx.Exec(ctx, `
@@ -677,20 +714,28 @@ func (s *Store) CreateOrganization(ctx context.Context, userID, name string) (mo
 
 func (s *Store) GetOrganization(ctx context.Context, orgID, userID string) (model.Organization, error) {
 	var org model.Organization
+	var rawMetadata []byte
 	err := s.db.QueryRow(ctx, `
-		SELECT o.id::text, o.name, m.role, o.tier, o.evaluation_device_quota, o.created_at, o.updated_at
+		SELECT o.id::text, o.name, m.role, o.organization_kind, o.status, o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at
 		FROM organizations o
 		JOIN organization_members m ON m.organization_id = o.id
 		WHERE o.id = $1 AND m.user_id = $2
-	`, orgID, userID).Scan(&org.ID, &org.Name, &org.Role, &org.Tier, &org.EvaluationDeviceQuota, &org.CreatedAt, &org.UpdatedAt)
+	`, orgID, userID).Scan(&org.ID, &org.Name, &org.Role, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &rawMetadata, &org.CreatedAt, &org.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Organization{}, ErrNotFound
 	}
-	return org, err
+	if err != nil {
+		return model.Organization{}, err
+	}
+	if err := json.Unmarshal(rawMetadata, &org.Metadata); err != nil {
+		return model.Organization{}, err
+	}
+	return org, nil
 }
 
 func (s *Store) UpdateOrganization(ctx context.Context, orgID, userID, name string) (model.Organization, error) {
 	var org model.Organization
+	var rawMetadata []byte
 	err := s.db.QueryRow(ctx, `
 		UPDATE organizations o
 		SET name = $3, updated_at = now()
@@ -698,12 +743,18 @@ func (s *Store) UpdateOrganization(ctx context.Context, orgID, userID, name stri
 		WHERE o.id = $1
 		  AND m.organization_id = o.id
 		  AND m.user_id = $2
-		RETURNING o.id::text, o.name, m.role, o.tier, o.evaluation_device_quota, o.created_at, o.updated_at
-	`, orgID, userID, name).Scan(&org.ID, &org.Name, &org.Role, &org.Tier, &org.EvaluationDeviceQuota, &org.CreatedAt, &org.UpdatedAt)
+		RETURNING o.id::text, o.name, m.role, o.organization_kind, o.status, o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at
+	`, orgID, userID, name).Scan(&org.ID, &org.Name, &org.Role, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &rawMetadata, &org.CreatedAt, &org.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Organization{}, ErrNotFound
 	}
-	return org, err
+	if err != nil {
+		return model.Organization{}, err
+	}
+	if err := json.Unmarshal(rawMetadata, &org.Metadata); err != nil {
+		return model.Organization{}, err
+	}
+	return org, nil
 }
 
 func (s *Store) GetRole(ctx context.Context, orgID, userID string) (model.Role, error) {

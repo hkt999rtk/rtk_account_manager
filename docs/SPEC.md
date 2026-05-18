@@ -27,6 +27,8 @@ Provisioning and account/video event-channel integration are the v2 surface impl
 - JWT-based API authentication.
 - Refresh-token support for longer sessions.
 - Organization-based account model.
+- Platform-admin brand cloud management with
+  `organizations.organization_kind=brand_cloud`.
 - Multiple users per organization.
 - Role-based access control with `owner`, `admin`, and `member`.
 - Owner-managed organization profile updates.
@@ -160,6 +162,17 @@ This scope does not:
 ### Organization
 
 An organization represents an account boundary. Devices belong to organizations, and users gain access to devices through organization membership.
+
+Organizations have an explicit kind:
+
+- `customer_org`: default for existing self-service register/signup
+  organizations and normal customer account boundaries.
+- `brand_cloud`: second-layer brand cloud under the Realtek platform root,
+  created and managed only through Account Manager platform-admin APIs.
+
+Account Manager is the source of truth for brand cloud state, membership, and
+audit. `rtk_cloud_admin` may proxy or present brand cloud management, but it
+must not store authoritative brand cloud records in SQLite.
 
 ### User
 
@@ -639,6 +652,11 @@ All endpoints are versioned under `/v1`.
 
 | Method | Path | Auth | Role | Description |
 | --- | --- | --- | --- | --- |
+| `POST` | `/v1/admin/brand-clouds` | Yes | Platform admin | Create a brand cloud organization. |
+| `GET` | `/v1/admin/brand-clouds` | Yes | Platform admin | List brand cloud organizations. |
+| `GET` | `/v1/admin/brand-clouds/:brandCloudId` | Yes | Platform admin | Read one brand cloud organization. |
+| `PATCH` | `/v1/admin/brand-clouds/:brandCloudId` | Yes | Platform admin | Update brand cloud name, status, or metadata. |
+| `POST` | `/v1/admin/brand-clouds/:brandCloudId/members` | Yes | Platform admin | Assign an existing Account Manager user to a brand cloud. |
 | `POST` | `/v1/admin/quota-raise-requests/:requestId/approve` | Yes | Platform admin | Approve a pending quota raise request and apply the approved evaluation quota. |
 | `POST` | `/v1/admin/quota-raise-requests/:requestId/decline` | Yes | Platform admin | Decline a pending quota raise request with an optional decision reason. |
 | `GET` | `/v1/admin/metrics` | Yes | Platform admin | Return evaluation signup, verification, quota request, and quota utilization metrics. |

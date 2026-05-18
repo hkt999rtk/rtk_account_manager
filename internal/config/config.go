@@ -10,39 +10,41 @@ import (
 )
 
 type Config struct {
-	DatabaseURL                   string
-	AccessSecret                  string
-	RefreshSecret                 string
-	AccessTokenTTL                time.Duration
-	RefreshTokenTTL               time.Duration
-	Port                          string
-	AuthTokenDelivery             string
-	SMTPHost                      string
-	SMTPPort                      string
-	SMTPUsername                  string
-	SMTPPassword                  string
-	SMTPFrom                      string
-	CrossServiceBroker            string
-	AzureEventHubConnectionString string
-	AzureEventHubCheckpointFile   string
-	AccountVideoCommandsStream    string
-	VideoAccountEventsStream      string
-	CrossServiceConsumerGroup     string
-	CrossServiceMaxAttempts       int
-	CrossServicePollInterval      time.Duration
-	EmailVerificationTTL          time.Duration
-	PasswordResetTTL              time.Duration
-	OTPResendInterval             time.Duration
-	OTPMaxAttempts                int
-	OIDCEnabled                   bool
-	OIDCProviderID                string
-	OIDCProviderName              string
-	OIDCIssuerURL                 string
-	OIDCClientID                  string
-	OIDCClientSecret              string
-	OIDCRedirectURL               string
-	OIDCScopes                    []string
-	OIDCAutoLinkEmail             bool
+	DatabaseURL                    string
+	AccessSecret                   string
+	RefreshSecret                  string
+	AccessTokenTTL                 time.Duration
+	RefreshTokenTTL                time.Duration
+	Port                           string
+	AuthTokenDelivery              string
+	SMTPHost                       string
+	SMTPPort                       string
+	SMTPUsername                   string
+	SMTPPassword                   string
+	SMTPFrom                       string
+	CrossServiceBroker             string
+	AzureEventHubConnectionString  string
+	AzureEventHubCheckpointFile    string
+	AccountVideoCommandsStream     string
+	VideoAccountEventsStream       string
+	CrossServiceConsumerGroup      string
+	CrossServiceMaxAttempts        int
+	CrossServicePollInterval       time.Duration
+	EmailVerificationTTL           time.Duration
+	PasswordResetTTL               time.Duration
+	OTPResendInterval              time.Duration
+	OTPMaxAttempts                 int
+	OIDCEnabled                    bool
+	OIDCProviderID                 string
+	OIDCProviderName               string
+	OIDCIssuerURL                  string
+	OIDCClientID                   string
+	OIDCClientSecret               string
+	OIDCRedirectURL                string
+	OIDCScopes                     []string
+	OIDCAutoLinkEmail              bool
+	BootstrapPlatformAdminEmail    string
+	BootstrapPlatformAdminPassword string
 }
 
 func Load() (Config, error) {
@@ -68,39 +70,41 @@ func load() (Config, error) {
 		return Config{}, err
 	}
 	cfg := Config{
-		DatabaseURL:                   getenv("DATABASE_URL", "postgres://rtk:rtk_password@localhost:5432/rtk_account_manager?sslmode=disable"),
-		AccessSecret:                  os.Getenv("JWT_ACCESS_SECRET"),
-		RefreshSecret:                 os.Getenv("JWT_REFRESH_SECRET"),
-		AccessTokenTTL:                duration("ACCESS_TOKEN_TTL", 15*time.Minute),
-		RefreshTokenTTL:               duration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
-		Port:                          getenv("PORT", "8080"),
-		AuthTokenDelivery:             getenv("AUTH_TOKEN_DELIVERY", "log"),
-		SMTPHost:                      getenv("SMTP_HOST", ""),
-		SMTPPort:                      getenv("SMTP_PORT", "587"),
-		SMTPUsername:                  getenv("SMTP_USERNAME", ""),
-		SMTPPassword:                  getenv("SMTP_PASSWORD", ""),
-		SMTPFrom:                      getenv("SMTP_FROM", ""),
-		CrossServiceBroker:            getenv("CROSS_SERVICE_BROKER", "log"),
-		AzureEventHubConnectionString: getenv("AZURE_EVENTHUB_CONNECTION_STRING", ""),
-		AzureEventHubCheckpointFile:   getenv("AZURE_EVENTHUB_CHECKPOINT_FILE", ""),
-		AccountVideoCommandsStream:    getenv("ACCOUNT_VIDEO_COMMANDS_STREAM", "account.video.commands"),
-		VideoAccountEventsStream:      getenv("VIDEO_ACCOUNT_EVENTS_STREAM", "video.account.events"),
-		CrossServiceConsumerGroup:     getenv("CROSS_SERVICE_CONSUMER_GROUP", "rtk_account_manager"),
-		CrossServiceMaxAttempts:       intValue("CROSS_SERVICE_MAX_ATTEMPTS", 5),
-		CrossServicePollInterval:      duration("CROSS_SERVICE_POLL_INTERVAL", 5*time.Second),
-		EmailVerificationTTL:          duration("EMAIL_VERIFICATION_TTL", 30*time.Minute),
-		PasswordResetTTL:              duration("PASSWORD_RESET_TTL", 30*time.Minute),
-		OTPResendInterval:             duration("OTP_RESEND_INTERVAL", 60*time.Second),
-		OTPMaxAttempts:                intValue("OTP_MAX_ATTEMPTS", 5),
-		OIDCEnabled:                   boolValue("OIDC_ENABLED", false),
-		OIDCProviderID:                getenv("OIDC_PROVIDER_ID", "keycloak"),
-		OIDCProviderName:              getenv("OIDC_PROVIDER_NAME", "Keycloak"),
-		OIDCIssuerURL:                 os.Getenv("OIDC_ISSUER_URL"),
-		OIDCClientID:                  os.Getenv("OIDC_CLIENT_ID"),
-		OIDCClientSecret:              os.Getenv("OIDC_CLIENT_SECRET"),
-		OIDCRedirectURL:               os.Getenv("OIDC_REDIRECT_URL"),
-		OIDCScopes:                    stringList("OIDC_SCOPES", []string{"openid", "email", "profile"}),
-		OIDCAutoLinkEmail:             boolValue("OIDC_AUTO_LINK_EMAIL", false),
+		DatabaseURL:                    getenv("DATABASE_URL", "postgres://rtk:rtk_password@localhost:5432/rtk_account_manager?sslmode=disable"),
+		AccessSecret:                   os.Getenv("JWT_ACCESS_SECRET"),
+		RefreshSecret:                  os.Getenv("JWT_REFRESH_SECRET"),
+		AccessTokenTTL:                 duration("ACCESS_TOKEN_TTL", 15*time.Minute),
+		RefreshTokenTTL:                duration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
+		Port:                           getenv("PORT", "8080"),
+		AuthTokenDelivery:              getenv("AUTH_TOKEN_DELIVERY", "log"),
+		SMTPHost:                       getenv("SMTP_HOST", ""),
+		SMTPPort:                       getenv("SMTP_PORT", "587"),
+		SMTPUsername:                   getenv("SMTP_USERNAME", ""),
+		SMTPPassword:                   getenv("SMTP_PASSWORD", ""),
+		SMTPFrom:                       getenv("SMTP_FROM", ""),
+		CrossServiceBroker:             getenv("CROSS_SERVICE_BROKER", "log"),
+		AzureEventHubConnectionString:  getenv("AZURE_EVENTHUB_CONNECTION_STRING", ""),
+		AzureEventHubCheckpointFile:    getenv("AZURE_EVENTHUB_CHECKPOINT_FILE", ""),
+		AccountVideoCommandsStream:     getenv("ACCOUNT_VIDEO_COMMANDS_STREAM", "account.video.commands"),
+		VideoAccountEventsStream:       getenv("VIDEO_ACCOUNT_EVENTS_STREAM", "video.account.events"),
+		CrossServiceConsumerGroup:      getenv("CROSS_SERVICE_CONSUMER_GROUP", "rtk_account_manager"),
+		CrossServiceMaxAttempts:        intValue("CROSS_SERVICE_MAX_ATTEMPTS", 5),
+		CrossServicePollInterval:       duration("CROSS_SERVICE_POLL_INTERVAL", 5*time.Second),
+		EmailVerificationTTL:           duration("EMAIL_VERIFICATION_TTL", 30*time.Minute),
+		PasswordResetTTL:               duration("PASSWORD_RESET_TTL", 30*time.Minute),
+		OTPResendInterval:              duration("OTP_RESEND_INTERVAL", 60*time.Second),
+		OTPMaxAttempts:                 intValue("OTP_MAX_ATTEMPTS", 5),
+		OIDCEnabled:                    boolValue("OIDC_ENABLED", false),
+		OIDCProviderID:                 getenv("OIDC_PROVIDER_ID", "keycloak"),
+		OIDCProviderName:               getenv("OIDC_PROVIDER_NAME", "Keycloak"),
+		OIDCIssuerURL:                  os.Getenv("OIDC_ISSUER_URL"),
+		OIDCClientID:                   os.Getenv("OIDC_CLIENT_ID"),
+		OIDCClientSecret:               os.Getenv("OIDC_CLIENT_SECRET"),
+		OIDCRedirectURL:                os.Getenv("OIDC_REDIRECT_URL"),
+		OIDCScopes:                     stringList("OIDC_SCOPES", []string{"openid", "email", "profile"}),
+		OIDCAutoLinkEmail:              boolValue("OIDC_AUTO_LINK_EMAIL", false),
+		BootstrapPlatformAdminEmail:    os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL"),
+		BootstrapPlatformAdminPassword: os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD"),
 	}
 	return cfg, nil
 }

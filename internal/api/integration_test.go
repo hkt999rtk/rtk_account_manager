@@ -930,6 +930,75 @@ func TestIntegrationAdminMetricsReportsEmptySnapshot(t *testing.T) {
 	}
 }
 
+func TestIntegrationPlatformAdminBrandCloudLifecycle(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+
+	admin := registerUser(t, env.router, "brand-root@example.com", "Root Org")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	owner := registerUser(t, env.router, "brand-owner@example.com", "Owner Org")
+	nonAdmin := registerUser(t, env.router, "brand-user@example.com", "User Org")
+
+	nonAdminCreateRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
+		"name": "Realtek Connect+",
+	}, nonAdmin.Tokens.AccessToken)
+	if nonAdminCreateRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-admin create 403, got %d: %s", nonAdminCreateRes.Code, nonAdminCreateRes.Body.String())
+	}
+
+	createRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
+		"name":     "Realtek Connect+",
+		"metadata": map[string]any{"public_name": "Realtek Connect+"},
+	}, admin.Tokens.AccessToken)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected brand cloud create 201, got %d: %s", createRes.Code, createRes.Body.String())
+	}
+	created := decodeBody[brandCloudBody](t, createRes)
+	if created.BrandCloud.OrganizationKind != "brand_cloud" || created.BrandCloud.Status != "active" {
+		t.Fatalf("unexpected brand cloud response: %+v", created.BrandCloud)
+	}
+
+	patchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/"+created.BrandCloud.ID, map[string]any{
+		"name":   "Realtek Connect Plus",
+		"status": "disabled",
+	}, admin.Tokens.AccessToken)
+	if patchRes.Code != http.StatusOK {
+		t.Fatalf("expected brand cloud patch 200, got %d: %s", patchRes.Code, patchRes.Body.String())
+	}
+	patched := decodeBody[brandCloudBody](t, patchRes)
+	if patched.BrandCloud.Name != "Realtek Connect Plus" || patched.BrandCloud.Status != "disabled" {
+		t.Fatalf("unexpected patched brand cloud: %+v", patched.BrandCloud)
+	}
+
+	memberRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+created.BrandCloud.ID+"/members", map[string]any{
+		"user_id": owner.User.ID,
+		"role":    "owner",
+	}, admin.Tokens.AccessToken)
+	if memberRes.Code != http.StatusCreated {
+		t.Fatalf("expected brand cloud member assignment 201, got %d: %s", memberRes.Code, memberRes.Body.String())
+	}
+
+	listRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds", nil, admin.Tokens.AccessToken)
+	if listRes.Code != http.StatusOK {
+		t.Fatalf("expected brand cloud list 200, got %d: %s", listRes.Code, listRes.Body.String())
+	}
+	list := decodeBody[brandCloudsBody](t, listRes)
+	if len(list.BrandClouds) != 1 || list.BrandClouds[0].ID != created.BrandCloud.ID || list.BrandClouds[0].OrganizationKind != "brand_cloud" {
+		t.Fatalf("unexpected brand cloud list: %+v", list.BrandClouds)
+	}
+
+	auditRes := performJSON(env.router, http.MethodGet, "/v1/admin/audit-events?subject_type=brand_cloud", nil, admin.Tokens.AccessToken)
+	if auditRes.Code != http.StatusOK {
+		t.Fatalf("expected audit list 200, got %d: %s", auditRes.Code, auditRes.Body.String())
+	}
+	audit := decodeBody[auditEventsBody](t, auditRes)
+	if len(audit.AuditEvents) < 3 {
+		t.Fatalf("expected create/update/member audit events, got %+v", audit.AuditEvents)
+	}
+}
+
 func TestIntegrationAdminMetricsIncludesLifecycleVisibility(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
@@ -3566,6 +3635,28 @@ type organizationBody struct {
 		Tier                  string `json:"tier"`
 		EvaluationDeviceQuota int    `json:"evaluation_device_quota"`
 	} `json:"organization"`
+}
+
+type brandCloudBody struct {
+	BrandCloud struct {
+		ID                    string         `json:"id"`
+		Name                  string         `json:"name"`
+		OrganizationKind      string         `json:"organization_kind"`
+		Status                string         `json:"status"`
+		Tier                  string         `json:"tier"`
+		EvaluationDeviceQuota int            `json:"evaluation_device_quota"`
+		Metadata              map[string]any `json:"metadata"`
+	} `json:"brand_cloud"`
+}
+
+type brandCloudsBody struct {
+	BrandClouds []struct {
+		ID               string `json:"id"`
+		Name             string `json:"name"`
+		OrganizationKind string `json:"organization_kind"`
+		Status           string `json:"status"`
+	} `json:"brand_clouds"`
+	Pagination paginationBody `json:"pagination"`
 }
 
 type quotaRaiseRequestBody struct {

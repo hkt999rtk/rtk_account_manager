@@ -455,9 +455,21 @@ Platform-admin API access is controlled by `users.platform_admin=true`.
 Bootstrap rules:
 
 - Grant the flag only to named operator accounts.
-- Use an audited SQL migration or controlled DBA procedure.
+- Prefer deployment bootstrap through
+  `ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL` and
+  `ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD` when creating the first
+  root account for a private cloud.
+- Use an audited SQL migration or controlled DBA procedure only when env-based
+  bootstrap is unavailable.
 - Record who approved the bootstrap and when.
 - Do not share operator passwords or JWTs in tickets.
+
+Example service env bootstrap:
+
+```sh
+ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL=admin@realtekconnect.com
+ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD='<secret-from-vault>'
+```
 
 Example controlled SQL:
 
@@ -465,6 +477,29 @@ Example controlled SQL:
 UPDATE users
 SET platform_admin = true, updated_at = now()
 WHERE email = '<operator-email>';
+```
+
+Brand-cloud backend verification after bootstrap:
+
+```sh
+ACCESS_TOKEN="$(
+  curl -fsS "$ACCOUNT_MANAGER_BASE_URL/v1/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d '{"email":"admin@realtekconnect.com","password":"<secret-from-vault>"}' |
+  jq -r '.tokens.access_token'
+)"
+
+curl -fsS "$ACCOUNT_MANAGER_BASE_URL/v1/admin/brand-clouds" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Realtek Connect+","metadata":{"public_name":"Realtek Connect+"}}' |
+  jq .
+
+curl -fsS "$ACCOUNT_MANAGER_BASE_URL/v1/admin/brand-clouds" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" | jq .
+
+curl -fsS "$ACCOUNT_MANAGER_BASE_URL/v1/admin/audit-events?subject_type=brand_cloud" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" | jq .
 ```
 
 Operator endpoints:
