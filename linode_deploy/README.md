@@ -62,6 +62,46 @@ Ignored state and artifacts stay under `linode_deploy/state/` and `.artifacts/`.
 Do not commit copied env files, state files, database dumps, or verification
 artifacts.
 
+## Release Object Storage
+
+Formal release bundles are published by `.github/workflows/release.yml` to
+Linode Object Storage. The workflow uses the AWS CLI only as an S3-compatible
+client for Linode Object Storage.
+
+Object prefix:
+
+```text
+releases/rtk_account_manager-<version>/
+```
+
+Required objects:
+
+```text
+<version>.tar.gz
+<version>.tar.gz.sha256
+manifest.json
+```
+
+Self-check:
+
+```sh
+aws s3 ls "s3://$LINODE_OBJ_BUCKET/releases/rtk_account_manager-$VERSION/" \
+  --endpoint-url "$LINODE_OBJ_ENDPOINT"
+
+mkdir -p ".artifacts/release-download/$VERSION"
+aws s3 cp "s3://$LINODE_OBJ_BUCKET/releases/rtk_account_manager-$VERSION/$VERSION.tar.gz" \
+  ".artifacts/release-download/$VERSION/$VERSION.tar.gz" \
+  --endpoint-url "$LINODE_OBJ_ENDPOINT"
+aws s3 cp "s3://$LINODE_OBJ_BUCKET/releases/rtk_account_manager-$VERSION/$VERSION.tar.gz.sha256" \
+  ".artifacts/release-download/$VERSION/$VERSION.tar.gz.sha256" \
+  --endpoint-url "$LINODE_OBJ_ENDPOINT"
+aws s3 cp "s3://$LINODE_OBJ_BUCKET/releases/rtk_account_manager-$VERSION/manifest.json" \
+  ".artifacts/release-download/$VERSION/manifest.json" \
+  --endpoint-url "$LINODE_OBJ_ENDPOINT"
+
+scripts/verify-linode-release-objects.sh "$VERSION" ".artifacts/release-download/$VERSION"
+```
+
 ## Security Notes
 
 - Remote hosts never push to GitHub.
