@@ -47,10 +47,60 @@ jobs:
               exit 1
               ;;
           esac
+          artifact_name="rtk_account_manager"
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'artifact_name=%s\n' "$artifact_name" >> "$GITHUB_OUTPUT"
 
       - name: Build release bundle
         run: VERSION="${{ steps.version.outputs.version }}" make release
+
+      - name: Prepare Linode Object Storage release objects
+        id: object
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARTIFACT_NAME: ${{ steps.version.outputs.artifact_name }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          RELEASE_ASSET: dist/rtk_account_manager-${{ steps.version.outputs.version }}.tar.gz
+          OUTPUT_DIR: dist
+        run: |
+          ./scripts/prepare-linode-release-objects.sh | tee .artifacts-release-objects.env
+          while IFS= read -r line; do
+            case "$line" in
+              object_bundle=*|checksum_file=*|manifest_file=*|artifact_path=*|sha256=*)
+                printf '%s\n' "$line" >> "$GITHUB_OUTPUT"
+                ;;
+            esac
+          done < .artifacts-release-objects.env
+
+      - name: Upload release objects to Linode Object Storage
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.LINODE_OBJ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.LINODE_OBJ_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-sea
+          AWS_EC2_METADATA_DISABLED: "true"
+          LINODE_OBJ_BUCKET: ${{ vars.LINODE_OBJ_BUCKET }}
+          LINODE_OBJ_ENDPOINT: ${{ vars.LINODE_OBJ_ENDPOINT }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ARTIFACT_NAME: ${{ steps.version.outputs.artifact_name }}
+          OBJECT_BUNDLE: ${{ steps.object.outputs.object_bundle }}
+          CHECKSUM_FILE: ${{ steps.object.outputs.checksum_file }}
+          MANIFEST_FILE: ${{ steps.object.outputs.manifest_file }}
+        run: |
+          set -euo pipefail
+          if ! command -v aws >/dev/null 2>&1; then
+            python3 -m pip install --user awscli
+            export PATH="$HOME/.local/bin:$PATH"
+          fi
+          test -n "$AWS_ACCESS_KEY_ID"
+          test -n "$AWS_SECRET_ACCESS_KEY"
+          test -n "$LINODE_OBJ_BUCKET"
+          test -n "$LINODE_OBJ_ENDPOINT"
+          prefix="releases/$ARTIFACT_NAME-$VERSION"
+          aws s3 cp "$OBJECT_BUNDLE" "s3://$LINODE_OBJ_BUCKET/$prefix/$VERSION.tar.gz" --endpoint-url "$LINODE_OBJ_ENDPOINT" --only-show-errors
+          aws s3 cp "$CHECKSUM_FILE" "s3://$LINODE_OBJ_BUCKET/$prefix/$VERSION.tar.gz.sha256" --endpoint-url "$LINODE_OBJ_ENDPOINT" --only-show-errors
+          aws s3 cp "$MANIFEST_FILE" "s3://$LINODE_OBJ_BUCKET/$prefix/manifest.json" --endpoint-url "$LINODE_OBJ_ENDPOINT" --only-show-errors
 
       - name: Generate release test report candidate
         shell: bash
@@ -58,6 +108,9 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           SOURCE_COMMIT: ${{ github.sha }}
           RELEASE_ASSET: dist/rtk_account_manager-${{ steps.version.outputs.version }}.tar.gz
+          OBJECT_STORAGE_BUNDLE_KEY: releases/${{ steps.version.outputs.artifact_name }}-${{ steps.version.outputs.version }}/${{ steps.version.outputs.version }}.tar.gz
+          OBJECT_STORAGE_CHECKSUM_KEY: releases/${{ steps.version.outputs.artifact_name }}-${{ steps.version.outputs.version }}/${{ steps.version.outputs.version }}.tar.gz.sha256
+          OBJECT_STORAGE_MANIFEST_KEY: releases/${{ steps.version.outputs.artifact_name }}-${{ steps.version.outputs.version }}/manifest.json
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           contracts_commit="$(git ls-tree HEAD contracts 2>/dev/null | awk '{print $3}' || true)"
@@ -72,6 +125,9 @@ jobs:
           path: |
             dist/rtk_account_manager-${{ steps.version.outputs.version }}
             dist/rtk_account_manager-${{ steps.version.outputs.version }}.tar.gz
+            dist/${{ steps.version.outputs.version }}.tar.gz
+            dist/${{ steps.version.outputs.version }}.tar.gz.sha256
+            dist/manifest.json
           if-no-files-found: error
 
       - name: Upload release test report candidate

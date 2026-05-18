@@ -7,6 +7,9 @@ SOURCE_COMMIT="${SOURCE_COMMIT:-${GITHUB_SHA:-}}"
 RELEASE_ASSET="${RELEASE_ASSET:-}"
 RUN_URL="${RUN_URL:-}"
 CONTRACTS_COMMIT="${CONTRACTS_COMMIT:-}"
+OBJECT_STORAGE_BUNDLE_KEY="${OBJECT_STORAGE_BUNDLE_KEY:-}"
+OBJECT_STORAGE_CHECKSUM_KEY="${OBJECT_STORAGE_CHECKSUM_KEY:-}"
+OBJECT_STORAGE_MANIFEST_KEY="${OBJECT_STORAGE_MANIFEST_KEY:-}"
 GENERATED_AT="${REPORT_GENERATED_AT:-$(date -u +"%Y-%m-%dT%H:%M:%SZ")}"
 
 if [ -z "$VERSION" ]; then
@@ -58,6 +61,10 @@ Generated: $GENERATED_AT
 | Source commit | \`$SOURCE_COMMIT\` |
 | Release asset | \`$asset_name\` |
 | Release asset SHA256 | \`$asset_sha256\` |
+| Object Storage SHA256 | \`$asset_sha256\` |
+| Object Storage bundle key | \`${OBJECT_STORAGE_BUNDLE_KEY:-not published}\` |
+| Object Storage checksum key | \`${OBJECT_STORAGE_CHECKSUM_KEY:-not published}\` |
+| Object Storage manifest key | \`${OBJECT_STORAGE_MANIFEST_KEY:-not published}\` |
 | Contracts commit | \`$CONTRACTS_COMMIT\` |
 | Workflow run | $RUN_URL |
 
