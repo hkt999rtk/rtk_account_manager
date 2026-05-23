@@ -42,17 +42,14 @@ VM as a gateway. Other services should call it through public HTTPS.
 ## Public VM Quick Start
 
 ```sh
+export WORKSPACE=/path/to/rtk_cloud_workspace
+export DEPLOY_SECRETS_DIR="$WORKSPACE/.secrets/staging/linode/account-manager"
+mkdir -p "$DEPLOY_SECRETS_DIR"/{env,state}
 cp linode_deploy/templates/account-manager-public-staging.env.example \
-  linode_deploy/secrets/account-manager-public-staging.env
-$EDITOR linode_deploy/secrets/account-manager-public-staging.env
-
-set -a
-. ~/.env                         # LINODE_TOKEN, GODADDY_KEY, GODADDY_SECRET
-. linode_deploy/secrets/account-manager-public-staging.env
-set +a
+  "$DEPLOY_SECRETS_DIR/env/account-manager-public-staging.env"
+$EDITOR "$DEPLOY_SECRETS_DIR/env/account-manager-public-staging.env"
 
 linode_deploy/scripts/provision-public-vm.sh
-. linode_deploy/state/rtk-account-manager-staging.env
 linode_deploy/scripts/set-godaddy-dns.sh
 linode_deploy/scripts/deploy-public-vm.sh
 linode_deploy/scripts/verify-public-vm.sh
@@ -77,7 +74,10 @@ creates a `brand_cloud` organization, reads it back, lists brand clouds, and
 checks audit events. Platform-admin login request/response bodies are kept in
 temporary files only and are not persisted to verification artifacts.
 
-Ignored state and artifacts stay under `linode_deploy/state/` and `.artifacts/`.
+When `DEPLOY_SECRETS_DIR` is set, scripts source
+`$DEPLOY_SECRETS_DIR/env/account-manager-public-staging.env` and write/read
+state under `$DEPLOY_SECRETS_DIR/state/`. The legacy `linode_deploy/secrets/`
+and `linode_deploy/state/` paths remain supported for standalone repo usage.
 Do not commit copied env files, state files, database dumps, or verification
 artifacts.
 

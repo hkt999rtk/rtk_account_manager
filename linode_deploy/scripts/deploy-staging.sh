@@ -2,9 +2,10 @@
 
 set -euo pipefail
 
+default_secrets_file="${DEPLOY_SECRETS_DIR:+$DEPLOY_SECRETS_DIR/env/account-manager-staging.env}"
 config="linode_deploy/configs/account-manager-staging.yaml"
 stack="account-manager-staging"
-secrets_file="linode_deploy/secrets/account-manager-staging.env"
+secrets_file="${default_secrets_file:-linode_deploy/secrets/account-manager-staging.env}"
 report=".artifacts/account-manager-linode-deploy.md"
 release=""
 release_bundle=""
@@ -21,7 +22,8 @@ Usage:
 Options:
   --config PATH          Manifest path. Default: linode_deploy/configs/account-manager-staging.yaml
   --stack NAME           Stack name. Default: account-manager-staging
-  --secrets-file PATH    Operator secrets file. Default: linode_deploy/secrets/account-manager-staging.env
+  --secrets-file PATH    Operator secrets file. Default: DEPLOY_SECRETS_DIR/env/account-manager-staging.env when set,
+                         otherwise linode_deploy/secrets/account-manager-staging.env
   --release-bundle PATH  Local release bundle override for debug only.
   --report PATH          Redacted evidence report path.
   --skip-infra-apply     Skip infrastructure apply checks for deploy-only reruns.
