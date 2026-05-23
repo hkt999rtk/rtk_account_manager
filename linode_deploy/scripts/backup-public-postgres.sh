@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+load_secret_env() {
+  local file="$1"
+  if [ -f "$file" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$file"
+    set +a
+  fi
+}
+
+if [ -n "${DEPLOY_SECRETS_DIR:-}" ]; then
+  [ -d "$DEPLOY_SECRETS_DIR" ] || { printf 'error: DEPLOY_SECRETS_DIR not found: %s\n' "$DEPLOY_SECRETS_DIR" >&2; exit 1; }
+  load_secret_env "$DEPLOY_SECRETS_DIR/env/account-manager-public-staging.env"
+  load_secret_env "$DEPLOY_SECRETS_DIR/state/${ACCOUNT_MANAGER_LINODE_LABEL:-rtk-account-manager-staging}.env"
+fi
+
 host="${ACCOUNT_MANAGER_LINODE_HOST:-${ACCOUNT_MANAGER_LINODE_PUBLIC_IPV4:-}}"
 ssh_user="${ACCOUNT_MANAGER_LINODE_SSH_USER:-root}"
 ssh_key="${ACCOUNT_MANAGER_LINODE_SSH_KEY:-$HOME/.ssh/id_ed25519_rtkcloud}"

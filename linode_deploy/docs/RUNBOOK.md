@@ -7,9 +7,11 @@ This runbook covers the dedicated public VM staging profile for
 
 - Runtime API and service behavior: repo code and `openapi.yaml`.
 - Deployment scripts: `linode_deploy/scripts/`.
-- Operator secrets: ignored files under `linode_deploy/secrets/` and local shell
-  environment.
-- Deployment state: ignored files under `linode_deploy/state/`.
+- Operator secrets: workspace `.secrets/<environment>/<provider>/account-manager/`
+  through `DEPLOY_SECRETS_DIR`, with `linode_deploy/secrets/` kept as a legacy
+  fallback.
+- Deployment state: `DEPLOY_SECRETS_DIR/state/` when set, with
+  `linode_deploy/state/` kept as a legacy fallback.
 
 ## Prerequisites
 
@@ -40,17 +42,20 @@ Remote VM target:
 ## Deploy
 
 ```sh
-set -a
-. ~/.env
-. linode_deploy/secrets/account-manager-public-staging.env
-set +a
+export WORKSPACE=/path/to/rtk_cloud_workspace
+export DEPLOY_SECRETS_DIR="$WORKSPACE/.secrets/staging/linode/account-manager"
 
 linode_deploy/scripts/provision-public-vm.sh
-. linode_deploy/state/rtk-account-manager-staging.env
 linode_deploy/scripts/set-godaddy-dns.sh
 linode_deploy/scripts/deploy-public-vm.sh
 linode_deploy/scripts/verify-public-vm.sh
 ```
+
+The deploy scripts source
+`$DEPLOY_SECRETS_DIR/env/account-manager-public-staging.env` and
+`$DEPLOY_SECRETS_DIR/state/rtk-account-manager-staging.env` when present. For
+standalone repo usage, the legacy `linode_deploy/secrets/` and
+`linode_deploy/state/` paths remain supported.
 
 `deploy-public-vm.sh` builds a Linux/amd64 release from the checked-out commit,
 uploads it to the VM, installs OS dependencies, creates or updates the local
@@ -104,10 +109,8 @@ and must remain untracked.
 ## Backup
 
 ```sh
-set -a
-. linode_deploy/secrets/account-manager-public-staging.env
-. linode_deploy/state/rtk-account-manager-staging.env
-set +a
+export WORKSPACE=/path/to/rtk_cloud_workspace
+export DEPLOY_SECRETS_DIR="$WORKSPACE/.secrets/staging/linode/account-manager"
 
 linode_deploy/scripts/backup-public-postgres.sh
 ```

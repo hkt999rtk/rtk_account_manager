@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+load_secret_env() {
+  local file="$1"
+  if [ -f "$file" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$file"
+    set +a
+  fi
+}
+
+if [ -n "${DEPLOY_SECRETS_DIR:-}" ]; then
+  [ -d "$DEPLOY_SECRETS_DIR" ] || { printf 'error: DEPLOY_SECRETS_DIR not found: %s\n' "$DEPLOY_SECRETS_DIR" >&2; exit 1; }
+  load_secret_env "$DEPLOY_SECRETS_DIR/env/account-manager-public-staging.env"
+  load_secret_env "$DEPLOY_SECRETS_DIR/state/${ACCOUNT_MANAGER_LINODE_LABEL:-rtk-account-manager-staging}.env"
+fi
+
 domain="${ACCOUNT_MANAGER_LINODE_DOMAIN:-account-manager.video-cloud-staging.realtekconnect.com}"
 base_url="${ACCOUNT_MANAGER_BASE_URL:-}"
 if [ -z "$base_url" ]; then
