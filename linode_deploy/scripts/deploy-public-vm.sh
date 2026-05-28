@@ -152,6 +152,7 @@ apt-get install -y -o Dpkg::Options::=--force-confold nginx certbot python3-cert
 if ! grep -q 'server_names_hash_bucket_size' /etc/nginx/nginx.conf; then
   sed -i '/http {/a\    server_names_hash_bucket_size 128;' /etc/nginx/nginx.conf
 fi
+mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
 if [ -d /etc/nginx/sites-enabled ] && ! grep -q 'sites-enabled' /etc/nginx/nginx.conf && [ ! -f /etc/nginx/conf.d/rtk-sites-enabled.conf ]; then
   printf 'include /etc/nginx/sites-enabled/*;\n' > /etc/nginx/conf.d/rtk-sites-enabled.conf
 fi
@@ -173,7 +174,7 @@ SQL
 
 rm -rf /tmp/rtk-account-manager-release
 mkdir -p /tmp/rtk-account-manager-release
-tar -xzf "$remote_bundle" -C /tmp/rtk-account-manager-release --strip-components=1
+tar --warning=no-unknown-keyword -xzf "$remote_bundle" -C /tmp/rtk-account-manager-release --strip-components=1
 cp /tmp/rtk-account-manager-deploy/account-manager.env /tmp/rtk-account-manager-release/deploy/account-manager.env.example
 (cd /tmp/rtk-account-manager-release && ./deploy/install.sh)
 install -m 0600 -o root -g root /tmp/rtk-account-manager-deploy/account-manager.env /etc/rtk-account-manager/account-manager.env
@@ -202,7 +203,8 @@ server {
 }
 NGINX
 ln -sf /etc/nginx/sites-available/rtk-account-manager.conf /etc/nginx/sites-enabled/rtk-account-manager.conf
-rm -f /etc/nginx/sites-enabled/default
+ln -sf /etc/nginx/sites-available/rtk-account-manager.conf /etc/nginx/conf.d/rtk-account-manager.conf
+rm -f /etc/nginx/sites-enabled/default /etc/nginx/conf.d/default.conf
 nginx -t
 systemctl reload nginx
 
@@ -219,7 +221,25 @@ if [ "${ready:-0}" != "1" ]; then
 fi
 
 if [ "$certbot_enable" = "1" ] && [ "$http_only" != "1" ]; then
-  certbot --nginx --non-interactive --agree-tos --email "$certbot_email" -d "$domain" --redirect
+  certbot_log="$(mktemp)"
+  set +e
+  certbot --nginx --non-interactive --agree-tos --email "$certbot_email" -d "$domain" --redirect 2>&1 | tee "$certbot_log"
+  certbot_status="${PIPESTATUS[0]}"
+  set -e
+  if [ "$certbot_status" -ne 0 ]; then
+    if grep -Eqi 'too many certificates|rate-limits|rate limit' "$certbot_log"; then
+      retry_after="$(sed -nE 's/.*retry after ([^:]+:[^:]+:[^ ]+ UTC).*/\1/p' "$certbot_log" | tail -n 1)"
+      printf 'error: Let'\''s Encrypt rate limit hit for %s; Account Manager deploy stopped before verify.' "$domain" >&2
+      if [ -n "$retry_after" ]; then
+        printf ' Retry after %s.' "$retry_after" >&2
+      fi
+      printf ' See Certbot output above and %s.\n' "$certbot_log" >&2
+    else
+      printf 'error: Certbot failed for %s; Account Manager deploy stopped before verify. See output above and %s.\n' "$domain" "$certbot_log" >&2
+    fi
+    exit "$certbot_status"
+  fi
+  rm -f "$certbot_log"
 fi
 
 systemctl is-active rtk-account-manager.service
