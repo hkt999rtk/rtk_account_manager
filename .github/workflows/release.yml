@@ -118,25 +118,6 @@ jobs:
             CONTRACTS_COMMIT="$contracts_commit" \
             ./scripts/generate-release-report-candidate.sh
 
-      - name: Upload workflow artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: rtk_account_manager-${{ steps.version.outputs.version }}
-          path: |
-            dist/rtk_account_manager-${{ steps.version.outputs.version }}
-            dist/rtk_account_manager-${{ steps.version.outputs.version }}.tar.gz
-            dist/${{ steps.version.outputs.version }}.tar.gz
-            dist/${{ steps.version.outputs.version }}.tar.gz.sha256
-            dist/manifest.json
-          if-no-files-found: error
-
-      - name: Upload release test report candidate
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-test-report-candidate-${{ steps.version.outputs.version }}
-          path: .artifacts/report-candidates/docs/RELEASE_TEST_REPORT.md
-          if-no-files-found: error
-
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         env:
