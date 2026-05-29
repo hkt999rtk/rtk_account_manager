@@ -10,6 +10,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"rtk_account_manager/internal/database"
+	"rtk_account_manager/internal/testutil"
 )
 
 func TestUtilityHelpersAndEnvFallbacks(t *testing.T) {
@@ -282,6 +285,19 @@ func TestRunMigrationCheckWithAppliedMigrations(t *testing.T) {
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
 		t.Skip("TEST_DATABASE_URL is required for migration coverage")
+	}
+
+	ctx := context.Background()
+	db, err := database.Connect(ctx, dbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(db.Close)
+
+	testutil.LockIntegrationDatabase(t, db)
+
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
 	}
 
 	check := runMigrationCheck(context.Background(), Options{
