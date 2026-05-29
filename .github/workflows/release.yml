@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version. Defaults to the git ref name or short SHA."
+        description: "Release version. Defaults to the git ref name or timestamped short SHA."
         required: false
         type: string
 
@@ -39,7 +39,7 @@ jobs:
           elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
             version="${GITHUB_REF_NAME}"
           else
-            version="${GITHUB_SHA::12}"
+            version="ci-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::12}"
           fi
           case "$version" in
             *[!A-Za-z0-9._-]* | "" | .* | *..*)

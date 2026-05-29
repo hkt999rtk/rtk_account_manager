@@ -28,7 +28,8 @@ ssh_key="${ACCOUNT_MANAGER_LINODE_SSH_KEY:-$HOME/.ssh/id_ed25519_rtkcloud}"
 host="${ACCOUNT_MANAGER_LINODE_HOST:-${ACCOUNT_MANAGER_LINODE_PUBLIC_IPV4:-}}"
 remote_bundle="${ACCOUNT_MANAGER_LINODE_REMOTE_BUNDLE:-/tmp/rtk-account-manager-${release}.tar.gz}"
 artifact_dir="${ACCOUNT_MANAGER_LINODE_ARTIFACT_DIR:-$root_dir/.artifacts/linode-account-manager-deploy/$release}"
-bundle="$artifact_dir/rtk_account_manager-${release}.tar.gz"
+release_bundle="${ACCOUNT_MANAGER_LINODE_RELEASE_BUNDLE:-}"
+bundle="${release_bundle:-$artifact_dir/rtk_account_manager-${release}.tar.gz}"
 certbot_enable="${ACCOUNT_MANAGER_LINODE_CERTBOT_ENABLE:-1}"
 cert_cache_dir="${ACCOUNT_MANAGER_LINODE_CERT_CACHE_DIR:-}"
 http_only="${ACCOUNT_MANAGER_LINODE_HTTP_ONLY:-0}"
@@ -70,12 +71,17 @@ fi
 database_url="postgres://${db_user}:${db_password}@127.0.0.1:5432/${db_name}?sslmode=disable"
 mkdir -p "$artifact_dir"
 
-printf '[account-manager-deploy] building Linux release %s\n' "$release" >&2
-(
-  cd "$root_dir"
-  GOOS=linux GOARCH=amd64 CGO_ENABLED=0 VERSION="$release" make release >/dev/null
-)
-cp "$root_dir/dist/rtk_account_manager-${release}.tar.gz" "$bundle"
+if [ -n "$release_bundle" ]; then
+  [ -s "$release_bundle" ] || die "ACCOUNT_MANAGER_LINODE_RELEASE_BUNDLE not found: $release_bundle"
+  printf '[account-manager-deploy] using release bundle %s\n' "$release_bundle" >&2
+else
+  printf '[account-manager-deploy] building Linux release %s\n' "$release" >&2
+  (
+    cd "$root_dir"
+    GOOS=linux GOARCH=amd64 CGO_ENABLED=0 VERSION="$release" make release >/dev/null
+  )
+  cp "$root_dir/dist/rtk_account_manager-${release}.tar.gz" "$bundle"
+fi
 
 ssh_opts=(-i "$ssh_key" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 remote="$ssh_user@$host"
