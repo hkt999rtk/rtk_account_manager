@@ -340,21 +340,3 @@ jobs:
           OUTPUT=.artifacts/report-candidates/docs/READINESS_TEST_REPORT.md \
             EVIDENCE_DIR=deployment-evidence \
             ./scripts/generate-readiness-report-candidate.sh
-
-      - name: Upload deployment evidence
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: account-manager-deployment-evidence-${{ steps.version.outputs.version }}
-          path: |
-            deployment-evidence/*
-            .artifacts/report-candidates/docs/READINESS_TEST_REPORT.md
-          if-no-files-found: warn
-
-      - name: Upload readiness test report candidate
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: readiness-test-report-candidate-${{ steps.version.outputs.version }}
-          path: .artifacts/report-candidates/docs/READINESS_TEST_REPORT.md
-          if-no-files-found: error

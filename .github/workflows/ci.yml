@@ -89,22 +89,6 @@ jobs:
       - name: Check report candidate scripts
         run: make check-report-candidates
 
-      - name: Upload raw test artifacts
-        uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: test-report-raw
-          path: |
-            reports/
-
-      - name: Upload test report candidate
-        uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: test-report-candidate
-          path: .artifacts/report-candidates/docs/TEST_REPORT.md
-          if-no-files-found: error
-
   deep-test:
     runs-on: [self-hosted, account-manager-ci]
     timeout-minutes: 20
@@ -128,10 +112,3 @@ jobs:
 
       - name: Run fuzz smoke
         run: make fuzz-smoke
-
-      - name: Upload deep test artifacts
-        uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: deep-test-report
-          path: reports/
