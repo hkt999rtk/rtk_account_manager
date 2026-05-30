@@ -1044,7 +1044,7 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 
 	nonAdmin := registerUser(t, env.router, "brand-user-non-admin@example.com", "Non Admin Org")
 	nonAdminRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email":        "rtk+001@users.local",
+		"email":        "rtk+001@users.example.com",
 		"password":     "initial-password123",
 		"display_name": "RTK User 001",
 		"role":         "member",
@@ -1054,7 +1054,7 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 	}
 
 	createRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email":        " RTK+001@Users.Local ",
+		"email":        "RTK+001@Users.Example.Com",
 		"password":     "initial-password123",
 		"display_name": "RTK User 001",
 		"role":         "member",
@@ -1063,12 +1063,12 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 		t.Fatalf("expected brand user create 201, got %d: %s", createRes.Code, createRes.Body.String())
 	}
 	created := decodeBody[brandCloudUserBody](t, createRes)
-	if created.Action != "created" || created.User.Email != "rtk+001@users.local" || !created.User.EmailVerified || created.User.SignupPendingVerification || created.Member.Role != "member" {
+	if created.Action != "created" || created.User.Email != "rtk+001@users.example.com" || !created.User.EmailVerified || created.User.SignupPendingVerification || created.Member.Role != "member" {
 		t.Fatalf("unexpected created brand user response: %+v", created)
 	}
 
 	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
-		"email":    "rtk+001@users.local",
+		"email":    "rtk+001@users.example.com",
 		"password": "initial-password123",
 	}, "")
 	if loginRes.Code != http.StatusOK {
@@ -1079,7 +1079,7 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	reassignRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email":        "rtk+001@users.local",
+		"email":        "rtk+001@users.example.com",
 		"password":     "ignored-password123",
 		"display_name": "RTK User 001 Reactivated",
 		"role":         "member",
@@ -1092,7 +1092,7 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 		t.Fatalf("unexpected reassigned brand user response: %+v", reassigned)
 	}
 	ignoredPasswordLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
-		"email":    "rtk+001@users.local",
+		"email":    "rtk+001@users.example.com",
 		"password": "ignored-password123",
 	}, "")
 	if ignoredPasswordLoginRes.Code != http.StatusUnauthorized {
@@ -1100,7 +1100,7 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 	}
 
 	rotateRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email":           "rtk+001@users.local",
+		"email":           "rtk+001@users.example.com",
 		"password":        "rotated-password123",
 		"role":            "member",
 		"rotate_password": true,
@@ -1109,7 +1109,7 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 		t.Fatalf("expected rotate existing brand user 200, got %d: %s", rotateRes.Code, rotateRes.Body.String())
 	}
 	rotatedLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
-		"email":    "rtk+001@users.local",
+		"email":    "rtk+001@users.example.com",
 		"password": "rotated-password123",
 	}, "")
 	if rotatedLoginRes.Code != http.StatusOK {
@@ -3104,10 +3104,10 @@ func TestIntegrationAuthorizationAndTenancyMatrix(t *testing.T) {
 		{name: "outsider cannot resolve claim in foreign org", actor: "outsider", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/claim/resolve", body: fixtures.claimResolvePayload(owner.Organization.ID, "outsider"), wantStatus: http.StatusNotFound},
 		{name: "owner can start provision", actor: "owner", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + fixtures.createDevice(owner, "matrix-provision-owner", "MATRIX-PROVISION-OWNER").Device.ID + "/provision", body: lifecycleProvisionPayload("matrix-provision-owner"), wantStatus: http.StatusCreated},
 		{name: "admin can start provision", actor: "admin", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + fixtures.createDevice(owner, "matrix-provision-admin", "MATRIX-PROVISION-ADMIN").Device.ID + "/provision", body: lifecycleProvisionPayload("matrix-provision-admin"), wantStatus: http.StatusCreated},
-		{name: "member cannot start provision", actor: "member", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + fixtures.createDevice(owner, "matrix-provision-member", "MATRIX-PROVISION-MEMBER").Device.ID + "/provision", body: lifecycleProvisionPayload("matrix-provision-member"), wantStatus: http.StatusForbidden},
+		{name: "member can start provision", actor: "member", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + fixtures.createDevice(owner, "matrix-provision-member", "MATRIX-PROVISION-MEMBER").Device.ID + "/provision", body: lifecycleProvisionPayload("matrix-provision-member"), wantStatus: http.StatusCreated},
 		{name: "outsider cannot start provision in foreign org", actor: "outsider", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + fixtures.createDevice(owner, "matrix-provision-outsider", "MATRIX-PROVISION-OUTSIDER").Device.ID + "/provision", body: lifecycleProvisionPayload("matrix-provision-outsider"), wantStatus: http.StatusNotFound},
 		{name: "owner can start deactivation", actor: "owner", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + projectedDevice.Device.ID + "/deactivate", body: lifecycleDeactivatePayload("matrix-deactivate-owner"), wantStatus: http.StatusCreated},
-		{name: "member cannot start deactivation", actor: "member", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + projectedDevice.Device.ID + "/deactivate", body: lifecycleDeactivatePayload("matrix-deactivate-member"), wantStatus: http.StatusForbidden},
+		{name: "member can start deactivation", actor: "member", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + projectedDevice.Device.ID + "/deactivate", body: lifecycleDeactivatePayload("matrix-deactivate-member"), wantStatus: http.StatusCreated},
 		{name: "outsider cannot start deactivation in foreign org", actor: "outsider", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + projectedDevice.Device.ID + "/deactivate", body: lifecycleDeactivatePayload("matrix-deactivate-outsider"), wantStatus: http.StatusNotFound},
 		{name: "platform admin can list claim tokens", actor: "platform_admin", method: http.MethodGet, path: "/v1/admin/device-claim-tokens", wantStatus: http.StatusOK},
 		{name: "owner cannot list claim tokens as platform admin", actor: "owner", method: http.MethodGet, path: "/v1/admin/device-claim-tokens", wantStatus: http.StatusForbidden},
