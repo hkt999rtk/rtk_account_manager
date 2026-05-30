@@ -744,10 +744,10 @@ Fleet registry APIs are selection primitives only. Account manager owns group, t
 
 | Method | Path | Auth | Role | Description |
 | --- | --- | --- | --- | --- |
-| `POST` | `/v1/orgs/:orgId/devices/:deviceId/provision` | Yes | `owner`, `admin` | Create or reuse a provisioning operation and enqueue `DeviceProvisionRequested`. |
+| `POST` | `/v1/orgs/:orgId/devices/:deviceId/provision` | Yes | `owner`, `admin`, `member` | Create or reuse a provisioning operation and enqueue `DeviceProvisionRequested`. |
 | `GET` | `/v1/orgs/:orgId/devices/:deviceId/provisioning` | Yes | `owner`, `admin`, `member` | Return latest provisioning operation, account-side readiness projection, and projected video metadata. |
-| `POST` | `/v1/orgs/:orgId/devices/:deviceId/deactivate` | Yes | `owner`, `admin` | Create or reuse a deactivation operation and enqueue `DeviceDeactivateRequested`. |
-| `POST` | `/v1/orgs/:orgId/devices/claim/resolve` | Yes | `owner`, `admin` | Resolve an opaque Claim Token into an organization-owned registry device and provisioning input. |
+| `POST` | `/v1/orgs/:orgId/devices/:deviceId/deactivate` | Yes | `owner`, `admin`, `member` | Create or reuse a deactivation operation and enqueue `DeviceDeactivateRequested`. |
+| `POST` | `/v1/orgs/:orgId/devices/claim/resolve` | Yes | `owner`, `admin`, `member` | Resolve an opaque Claim Token into an organization-owned registry device and provisioning input. |
 
 Provision request body:
 
@@ -760,12 +760,19 @@ Provision request body:
 }
 ```
 
-Current claim and bind ownership policy:
+Current claim, bind, and possession-proof policy:
 
 Account manager owns the final account-side claim/bind authorization decision
 for organization-owned registry devices. SDKs, apps, and integration services
 may parse or submit normalized claim material, but they must not decide final
 ownership locally.
+
+Claim Token is the first supported possession-proof mechanism for app and
+scripted onboarding. In staging bulk tests, possession of the raw Claim Token
+represents the user physically having the device, QR code, packaging label, or
+customer-provided handoff material. Customer deployments may replace the proof
+capture method, but the account-manager API must still receive equivalent
+claim material and make the final ownership decision.
 
 The current implemented `/provision` API does not create a device from raw claim
 material. A caller must first address an existing enabled registry device by
@@ -785,7 +792,8 @@ The implemented endpoint accepts an opaque `claim_token` plus a display name,
 makes the account-manager-owned claim/bind policy decision, creates or matches the
 organization registry device, and returns `claim_id`, `device`, and
 `provision_input` containing `video_cloud_devid`, `activity_id`, and
-`clip_public_key`. Claim resolution remains separate from cloud provisioning:
+`clip_public_key`. Future schema additions may include canonical service ACL
+facts such as `service_options`. Claim resolution remains separate from cloud provisioning:
 resolving a Claim Token does not create a provisioning operation, publish an
 outbox message, or call Realtek video server directly.
 
@@ -810,36 +818,50 @@ Raw claim-material endpoint decision:
   account-manager registry device or create an explicit pending claim record
   before the caller may start cloud provisioning.
 
-Device categories and video credential scope:
+Device categories, service options, and activation scope:
 
 Account-manager device categories (`ip_camera`, `mqtt_device`, and `generic`)
-are product registry categories. They are not Realtek video server credential
-scope names and they must not be used to infer which video-cloud token family is
-issued. Any registry device category may participate in the account/video
-lifecycle flow when the device has, or claim resolution returns, a valid
-`video_cloud_devid` mapping plus the required video lifecycle input.
+are product registry categories. They are not device service ACLs and they must
+not be used to infer whether MQTT, WebRTC/video streaming, or video storage is
+available. Service access is controlled by canonical `service_options` such as
+`mqtt`, `video_streaming`, and `video_storage`.
+
+Device activation is one lifecycle operation for the mapped device identity.
+There is no separate MQTT activation, WebRTC activation, or video-storage
+activation. An activated device may use only the services granted by its
+`service_options`; an `mqtt`-only device must not receive WebRTC or
+video-storage capability.
+
+Any registry device category may participate in the lifecycle flow when the
+device has, or claim resolution returns, a valid `video_cloud_devid` mapping
+plus the required lifecycle input. The `video_cloud_*` field names remain
+compatibility names for current APIs and event payloads; new documentation and
+future API additions should describe the behavior as device activation.
 
 Account manager does not issue Realtek video server device tokens,
 device-bound `camera` tokens, app/subscriber scoped tokens, or device
 certificates. It persists the account registry record, creates/reuses lifecycle
 operations, publishes/projections lifecycle messages, and stores the projected
-`video_cloud_*` metadata. Realtek video server or the video-side integration
-layer remains responsible for issuing subject-bound credentials and accepting
-websocket/MQTT owner transport.
+`video_cloud_*` compatibility metadata. Realtek video server or the video-side
+integration layer remains responsible for issuing subject-bound credentials,
+embedding or enforcing `service_options`, and accepting websocket/MQTT owner
+transport.
 
 Accepted lifecycle input in the current API:
 
 | Registry category | Current account-manager lifecycle input | Notes |
 | --- | --- | --- |
-| `ip_camera` | `video_cloud_devid`, `activity_id`, `clip_public_key` | Supported by `POST .../provision` when mapped to a Realtek video identity. The eventual video-side credentials are device-bound to `video_cloud_devid`, not to the account-manager category string. |
-| `mqtt_device` | `video_cloud_devid`, `activity_id`, `clip_public_key` when the device maps to Realtek video cloud | The category may describe the product registry entry or preferred transport, but MQTT broker credentials and factory identity parsing remain outside this account-manager API. Video-cloud subject-bound tokens are still issued by the video side. |
-| `generic` | `video_cloud_devid`, `activity_id`, `clip_public_key` when the device maps to Realtek video cloud | Generic registry entries can still be bound to a video-cloud device identity. Serial-number, QR-code, activation-code, MAC-address, and future factory-identity claim flows remain out of scope unless a later endpoint explicitly accepts them. |
+| `ip_camera` | `video_cloud_devid`, `activity_id`, `clip_public_key`; future `service_options` | Supported by `POST .../provision` when mapped to a cloud device identity. The eventual credentials are device-bound to `video_cloud_devid`, not to the account-manager category string. |
+| `mqtt_device` | `video_cloud_devid`, `activity_id`, `clip_public_key`; future `service_options` | The category may describe the product registry entry or preferred transport. Device activation can still run, but service access must be limited to the canonical service options, such as MQTT-only. |
+| `generic` | `video_cloud_devid`, `activity_id`, `clip_public_key`; future `service_options` | Generic registry entries can still be bound to a cloud device identity. Serial-number, QR-code, activation-code, MAC-address, and future factory-identity claim flows remain out of scope unless a later endpoint explicitly accepts them. |
 
 Ownership consequences:
 
-- `owner` and `admin` members of the target organization may start claim/bind
-  provisioning for an existing enabled device; `member` may only read the
-  resulting provisioning state.
+- `owner`, `admin`, and `member` members of the target organization may
+  resolve claim material, start device provisioning, inspect provisioning
+  state, and request device deactivation for devices in their organization
+  scope. Member provisioning/deactivation is an end-user device workflow, not
+  a platform administration workflow.
 - Cross-organization binding is rejected by normal organization/device access
   checks. A user cannot bind a device record in an organization where they do
   not have an active membership.
@@ -1011,8 +1033,8 @@ Current readiness inputs:
 | --- | --- | --- |
 | Account registry record exists and is enabled | `rtk_account_manager` device APIs | The organization-scoped device record exists and is not soft-disabled. |
 | Provisioning operation accepted | `POST /provision`, `GET /provisioning` | Account side persisted the lifecycle operation and outbox command. |
-| Video activation result projected | `GET /provisioning`, device `video_cloud_*` metadata | Realtek video activation succeeded or failed for the mapped device identity. |
-| Subject-bound token issuance completed | Video-side or integration-service auth surface | The device or app has the video-cloud scoped credentials required for product use. These credentials are bound to the video-cloud subject such as `video_cloud_devid`; account-manager category names do not define credential scope. |
+| Device activation result projected | `GET /provisioning`, device `video_cloud_*` compatibility metadata | Device activation succeeded or failed for the mapped device identity. |
+| Subject-bound token issuance completed | Video-side or integration-service auth surface | The device or app has the scoped credentials required for product use. These credentials are bound to the device subject such as `video_cloud_devid` and must enforce canonical `service_options`; account-manager category names do not define credential scope. |
 | Video-side bootstrap prerequisites completed when required | Video-side APIs | Device info/config setup or equivalent downstream bootstrap state is available. |
 | Owner transport connected | Account-manager device `status`, projected from `DeviceOnlineChanged` | The mapped device has come online through a supported owner transport, currently websocket or MQTT in the video transport contract. |
 
@@ -1024,7 +1046,7 @@ Unified product-readiness source ownership:
 | Registry existence, disabled state, category, serial, groups, and tags | `rtk_account_manager` | Return current account registry facts and preserve account-side soft-delete semantics. |
 | Claim Token resolution and account/device binding | `rtk_account_manager` | Return claim/bind result facts, reject already-claimed normal resolve, and require explicit platform-admin workflow for transfer/reclaim. |
 | Provision/deactivate operation state | `rtk_account_manager` | Return operation status, idempotency id, failure attribution, retryability, and timestamps from durable operation rows. |
-| Projected video activation/deactivation metadata | `rtk_account_manager` from `video.account.events` | Return last projected `video_cloud_*` metadata and last video-side error facts; do not invent video-side state that has not been projected. |
+| Projected device activation/deactivation metadata | `rtk_account_manager` from `video.account.events` | Return last projected `video_cloud_*` compatibility metadata and last activation/deactivation error facts; do not invent externally owned state that has not been projected. |
 | Subject-bound video token issuance | Video cloud or integration auth service | Account manager may reference externally supplied status in a future composition response, but it must not mint or validate video scoped credentials in this repo. |
 | Device info/config/bootstrap prerequisites | Video cloud or product bootstrap service | Account manager may carry projected summary facts only after a contract defines the event/API source. |
 | Owner transport/session readiness | Video transport service, currently projected into account device `status` from `DeviceOnlineChanged` | Account manager exposes the projected online/offline account fact, but the final transport/session owner remains the video transport contract. |
@@ -1053,7 +1075,7 @@ response shape should be explicit about unknown and externally owned facts:
       "state": "registered",
       "updated_at": "2026-05-13T00:00:00Z"
     },
-    "video_activation": {
+    "device_activation": {
       "owned_by": "rtk_video_cloud",
       "state": "unknown"
     },
@@ -1109,8 +1131,8 @@ Account-side readiness projection rules:
   does not prove activation or token issuance completed.
 - The `readiness.sources` object identifies the local facts used for the
   aggregate state: registry enabled/disabled state, account device status,
-  latest provisioning operation status, projected video activation status,
-  latest deactivation operation status, and projected video last-error data.
+  latest provisioning operation status, projected device activation status,
+  latest deactivation operation status, and projected activation last-error data.
 - Compose the final readiness view from this account-manager projection plus
   the required video-side credential, bootstrap, and websocket/MQTT owner
   transport signals.
@@ -1138,7 +1160,7 @@ Account-side readiness states:
 | --- | --- | --- |
 | `activation_pending` | Provisioning operation is `pending`, `published`, or `retrying` | Account side accepted provisioning, but no terminal activation result is projected yet. |
 | `activation_failed` | Provisioning operation is `failed` or `dead_lettered`, or projected metadata records `video_cloud_last_error` | Activation did not complete; clients must surface the failure instead of claiming readiness. |
-| `transport_pending` | Provisioning operation is `succeeded`, activation metadata is `activated`, and account device status is not `online` | Video activation completed, but the device has not connected through owner transport. |
+| `transport_pending` | Provisioning operation is `succeeded`, activation metadata is `activated`, and account device status is not `online` | Device activation completed, but the device has not connected through owner transport. |
 | `ready` | Provisioning operation is `succeeded`, activation metadata is `activated`, and account device status is `online` | Account-manager-owned readiness facts are complete and the device is currently connected. |
 | `deactivation_pending` | Latest deactivation operation is `pending`, `published`, or `retrying` | Product deactivation was requested and has not reached a terminal projection. |
 | `deactivation_failed` | Latest deactivation operation is `failed` or `dead_lettered` | Product deactivation did not complete; clients must surface the failure. |
@@ -1378,7 +1400,7 @@ The account-manager implementation owns the account-side API, persistence, outbo
 
 Current external dependency:
 
-- The video-side lifecycle integration worker lives in the separate `rtk_video_cloud` `cmd/crossservice` runtime. Account manager depends on that external service to consume `account.video.commands`, call Realtek video server `POST /activate_camera` and `POST /deactivate_camera`, and publish `video.account.events`. The previously tracked video-side worker hardening in `hkt999rtk/rtk_video_cloud#128`, `hkt999rtk/rtk_video_cloud#129`, `hkt999rtk/rtk_video_cloud#131`, and PR `hkt999rtk/rtk_video_cloud#146` is closed or merged as of this spec update.
+- The video-side lifecycle integration worker lives in the separate `rtk_video_cloud` `cmd/crossservice` runtime. Account manager depends on that external service to consume `account.video.commands`, call compatibility routes such as `POST /activate_camera` and `POST /deactivate_camera`, enforce canonical `service_options`, and publish `video.account.events`. The previously tracked video-side worker hardening in `hkt999rtk/rtk_video_cloud#128`, `hkt999rtk/rtk_video_cloud#129`, `hkt999rtk/rtk_video_cloud#131`, and PR `hkt999rtk/rtk_video_cloud#146` is closed or merged as of this spec update.
 
 Current verified behavior:
 
@@ -1396,4 +1418,4 @@ Remaining post-v2 follow-up items:
 - Implement the documented transfer, reclaim, and factory-reset policy for already-claimed devices.
 - Retry and dead-letter rows are inspectable in Postgres, and `cmd/lifecycle-admin` exposes list, inspect, and safe requeue workflows for operators. A future operational visibility surface should summarize queue health, dead-letter counts, and latency without requiring direct SQL.
 - Account registry soft-delete and product-level video deactivation remain separate. Product teardown requires explicit `POST /deactivate`; `DELETE /devices/:deviceId` only disables the account-side registry record.
-- Account manager exposes an account-side readiness projection on `GET /provisioning`, but it still does not own a final cross-service "product ready" boolean. Any future unified readiness surface must compose account record, video activation, subject-bound token issuance, device info/config, and transport ownership across service boundaries.
+- Account manager exposes an account-side readiness projection on `GET /provisioning`, but it still does not own a final cross-service "product ready" boolean. Any future unified readiness surface must compose account record, device activation, service-options ACL enforcement, subject-bound token issuance, device info/config, and transport ownership across service boundaries.
