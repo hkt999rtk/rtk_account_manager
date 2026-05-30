@@ -91,7 +91,10 @@ jobs:
           set -euo pipefail
           if ! command -v aws >/dev/null 2>&1; then
             sudo apt-get update
-            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y awscli
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv
+            python3 -m venv "$RUNNER_TEMP/awscli-venv"
+            "$RUNNER_TEMP/awscli-venv/bin/python" -m pip install --upgrade pip awscli
+            export PATH="$RUNNER_TEMP/awscli-venv/bin:$PATH"
           fi
           test -n "$AWS_ACCESS_KEY_ID"
           test -n "$AWS_SECRET_ACCESS_KEY"
