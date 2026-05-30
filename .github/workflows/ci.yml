@@ -36,13 +36,20 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Prepare PostgreSQL test database
+      - name: Prepare Linode CI runner dependencies
         shell: bash
         run: |
           set -euo pipefail
+          missing_packages=()
+          if ! command -v make >/dev/null 2>&1; then
+            missing_packages+=(make)
+          fi
           if ! command -v psql >/dev/null 2>&1; then
+            missing_packages+=(postgresql postgresql-client)
+          fi
+          if [ "${#missing_packages[@]}" -gt 0 ]; then
             sudo apt-get update
-            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql postgresql-client
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing_packages[@]}"
           fi
           sudo systemctl start postgresql
           sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
