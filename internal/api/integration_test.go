@@ -1026,6 +1026,106 @@ func TestIntegrationPlatformAdminBrandCloudLifecycle(t *testing.T) {
 	}
 }
 
+func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+
+	admin := registerUser(t, env.router, "brand-user-root@example.com", "Root Org")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	brandRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
+		"name": "RTK",
+	}, admin.Tokens.AccessToken)
+	if brandRes.Code != http.StatusCreated {
+		t.Fatalf("expected brand cloud create 201, got %d: %s", brandRes.Code, brandRes.Body.String())
+	}
+	brand := decodeBody[brandCloudBody](t, brandRes)
+
+	nonAdmin := registerUser(t, env.router, "brand-user-non-admin@example.com", "Non Admin Org")
+	nonAdminRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
+		"email":        "rtk+001@users.local",
+		"password":     "initial-password123",
+		"display_name": "RTK User 001",
+		"role":         "member",
+	}, nonAdmin.Tokens.AccessToken)
+	if nonAdminRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-admin brand user create 403, got %d: %s", nonAdminRes.Code, nonAdminRes.Body.String())
+	}
+
+	createRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
+		"email":        " RTK+001@Users.Local ",
+		"password":     "initial-password123",
+		"display_name": "RTK User 001",
+		"role":         "member",
+	}, admin.Tokens.AccessToken)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected brand user create 201, got %d: %s", createRes.Code, createRes.Body.String())
+	}
+	created := decodeBody[brandCloudUserBody](t, createRes)
+	if created.Action != "created" || created.User.Email != "rtk+001@users.local" || !created.User.EmailVerified || created.User.SignupPendingVerification || created.Member.Role != "member" {
+		t.Fatalf("unexpected created brand user response: %+v", created)
+	}
+
+	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "rtk+001@users.local",
+		"password": "initial-password123",
+	}, "")
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("expected created active user login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
+	}
+
+	if _, err := env.db.Exec(ctx, `UPDATE users SET disabled_at = now() WHERE id = $1`, created.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	reassignRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
+		"email":        "rtk+001@users.local",
+		"password":     "ignored-password123",
+		"display_name": "RTK User 001 Reactivated",
+		"role":         "member",
+	}, admin.Tokens.AccessToken)
+	if reassignRes.Code != http.StatusOK {
+		t.Fatalf("expected existing brand user upsert 200, got %d: %s", reassignRes.Code, reassignRes.Body.String())
+	}
+	reassigned := decodeBody[brandCloudUserBody](t, reassignRes)
+	if reassigned.Action != "assigned" || reassigned.User.DisabledAt != nil || reassigned.User.DisplayName == nil || *reassigned.User.DisplayName != "RTK User 001 Reactivated" {
+		t.Fatalf("unexpected reassigned brand user response: %+v", reassigned)
+	}
+	ignoredPasswordLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "rtk+001@users.local",
+		"password": "ignored-password123",
+	}, "")
+	if ignoredPasswordLoginRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected ignored password login 401, got %d: %s", ignoredPasswordLoginRes.Code, ignoredPasswordLoginRes.Body.String())
+	}
+
+	rotateRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
+		"email":           "rtk+001@users.local",
+		"password":        "rotated-password123",
+		"role":            "member",
+		"rotate_password": true,
+	}, admin.Tokens.AccessToken)
+	if rotateRes.Code != http.StatusOK {
+		t.Fatalf("expected rotate existing brand user 200, got %d: %s", rotateRes.Code, rotateRes.Body.String())
+	}
+	rotatedLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "rtk+001@users.local",
+		"password": "rotated-password123",
+	}, "")
+	if rotatedLoginRes.Code != http.StatusOK {
+		t.Fatalf("expected rotated password login 200, got %d: %s", rotatedLoginRes.Code, rotatedLoginRes.Body.String())
+	}
+
+	auditRes := performJSON(env.router, http.MethodGet, "/v1/admin/audit-events?subject_type=brand_cloud", nil, admin.Tokens.AccessToken)
+	if auditRes.Code != http.StatusOK {
+		t.Fatalf("expected audit event list 200, got %d: %s", auditRes.Code, auditRes.Body.String())
+	}
+	audit := decodeBody[auditEventsBody](t, auditRes)
+	if !hasAuditEventBody(audit.AuditEvents, "brand_cloud_user_created") || !hasAuditEventBody(audit.AuditEvents, "brand_cloud_user_assigned") {
+		t.Fatalf("expected brand cloud user audit events, got %+v", audit.AuditEvents)
+	}
+}
+
 func TestIntegrationACLAdminWorkflow(t *testing.T) {
 	env := newIntegrationEnv(t)
 	admin := registerUser(t, env.router, "acl-admin@example.com", "ACL Admin Org")
@@ -2494,9 +2594,10 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 		"video_cloud_devid": "video-device-1",
 		"activity_id":       "activity-1",
 		"clip_public_key":   "clip-key-1",
+		"operation_id":      "member-provision-op-1",
 	}, member.Tokens.AccessToken)
-	if memberProvisionRes.Code != http.StatusForbidden {
-		t.Fatalf("expected member provision 403, got %d", memberProvisionRes.Code)
+	if memberProvisionRes.Code != http.StatusCreated {
+		t.Fatalf("expected member provision 201, got %d: %s", memberProvisionRes.Code, memberProvisionRes.Body.String())
 	}
 
 	rawClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provision", map[string]any{
@@ -3465,8 +3566,8 @@ func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 	memberDeactivateRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/deactivate", map[string]any{
 		"operation_id": "member-deactivate-op-1",
 	}, member.Tokens.AccessToken)
-	if memberDeactivateRes.Code != http.StatusForbidden {
-		t.Fatalf("expected member deactivate 403, got %d", memberDeactivateRes.Code)
+	if memberDeactivateRes.Code != http.StatusCreated {
+		t.Fatalf("expected member deactivate 201, got %d: %s", memberDeactivateRes.Code, memberDeactivateRes.Body.String())
 	}
 
 	outsiderDeactivateRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/deactivate", map[string]any{
@@ -3835,6 +3936,22 @@ type brandCloudsBody struct {
 	Pagination paginationBody `json:"pagination"`
 }
 
+type brandCloudUserBody struct {
+	Action string `json:"action"`
+	User   struct {
+		ID                        string     `json:"id"`
+		Email                     string     `json:"email"`
+		DisplayName               *string    `json:"display_name"`
+		EmailVerified             bool       `json:"email_verified"`
+		SignupPendingVerification bool       `json:"signup_pending_verification"`
+		DisabledAt                *time.Time `json:"disabled_at"`
+	} `json:"user"`
+	Member struct {
+		UserID string `json:"user_id"`
+		Role   string `json:"role"`
+	} `json:"member"`
+}
+
 type quotaRaiseRequestBody struct {
 	QuotaRaiseRequest struct {
 		ID             string `json:"id"`
@@ -4165,6 +4282,19 @@ func assertOIDCStateStoredAsHash(t *testing.T, db *pgxpool.Pool, state, nonce st
 }
 
 func hasAuditEvent(events []model.AuditEvent, eventType string) bool {
+	for _, event := range events {
+		if event.EventType == eventType {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAuditEventBody(events []struct {
+	ID          string `json:"id"`
+	EventType   string `json:"event_type"`
+	SubjectType string `json:"subject_type"`
+}, eventType string) bool {
 	for _, event := range events {
 		if event.EventType == eventType {
 			return true

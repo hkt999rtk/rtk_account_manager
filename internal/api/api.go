@@ -293,6 +293,7 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/admin/brand-clouds/:brandCloudId", s.requirePlatformAdmin(), s.getBrandCloud)
 	protected.PATCH("/admin/brand-clouds/:brandCloudId", s.requirePlatformAdmin(), s.updateBrandCloud)
 	protected.POST("/admin/brand-clouds/:brandCloudId/members", s.requirePlatformAdmin(), s.assignBrandCloudMember)
+	protected.POST("/admin/brand-clouds/:brandCloudId/users", s.requirePlatformAdmin(), s.createBrandCloudUser)
 	protected.POST("/admin/device-claim-tokens", s.requirePlatformAdmin(), s.createDeviceClaimToken)
 	protected.GET("/admin/device-claim-tokens", s.requirePlatformAdmin(), s.listDeviceClaimTokens)
 	protected.GET("/admin/device-claim-tokens/:tokenId", s.requirePlatformAdmin(), s.getDeviceClaimToken)
