@@ -11,7 +11,7 @@ on:
 
 jobs:
   test:
-    runs-on: [self-hosted, account-manager-ci]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
 
     services:
@@ -90,7 +90,7 @@ jobs:
         run: make check-report-candidates
 
   deep-test:
-    runs-on: [self-hosted, account-manager-ci]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
 
