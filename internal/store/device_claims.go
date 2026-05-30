@@ -230,9 +230,13 @@ func (s *Store) ResolveDeviceClaimToken(ctx context.Context, in DeviceClaimResol
 		deviceName = "Claimed Device"
 	}
 	device, err := getClaimedDeviceByVideoDevidTx(ctx, tx, in.OrganizationID, token.VideoCloudDevid)
-	if errors.Is(err, ErrNotFound) {
-		device, err = createClaimedDeviceTx(ctx, tx, in.OrganizationID, deviceName, token)
+	if err == nil {
+		return DeviceClaimResolveResult{}, ErrClaimAlreadyClaimed
 	}
+	if !errors.Is(err, ErrNotFound) {
+		return DeviceClaimResolveResult{}, err
+	}
+	device, err = createClaimedDeviceTx(ctx, tx, in.OrganizationID, deviceName, token)
 	if err != nil {
 		return DeviceClaimResolveResult{}, err
 	}
