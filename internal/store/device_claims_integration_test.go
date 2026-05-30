@@ -91,7 +91,7 @@ func TestResolveDeviceClaimTokenCreatesDeviceAndClaim(t *testing.T) {
 	}
 }
 
-func TestResolveDeviceClaimTokenMatchesExistingDevice(t *testing.T) {
+func TestResolveDeviceClaimTokenRejectsDuplicateDeviceClaim(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()
 	registered, err := env.store.Register(ctx, RegisterInput{
@@ -126,18 +126,15 @@ func TestResolveDeviceClaimTokenMatchesExistingDevice(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := env.store.ResolveDeviceClaimToken(ctx, DeviceClaimResolveInput{
+	_, err = env.store.ResolveDeviceClaimToken(ctx, DeviceClaimResolveInput{
 		TokenHash:      "hashed-claim-match",
 		OrganizationID: registered.Organization.ID,
 		RequestedBy:    registered.User.ID,
 		DeviceName:     "Ignored New Name",
 		Now:            now.Add(time.Minute),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Device.ID != existing.ID {
-		t.Fatalf("expected existing device %s to be matched, got %+v", existing.ID, result.Device)
+	if !errors.Is(err, ErrClaimAlreadyClaimed) {
+		t.Fatalf("expected ErrClaimAlreadyClaimed for existing device %s, got %v", existing.ID, err)
 	}
 
 	var deviceCount int
@@ -145,7 +142,7 @@ func TestResolveDeviceClaimTokenMatchesExistingDevice(t *testing.T) {
 		t.Fatal(err)
 	}
 	if deviceCount != 1 {
-		t.Fatalf("expected claim resolve to match instead of creating a device, got %d devices", deviceCount)
+		t.Fatalf("expected duplicate claim resolve to leave existing device unchanged, got %d devices", deviceCount)
 	}
 }
 

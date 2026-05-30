@@ -3008,6 +3008,13 @@ func TestIntegrationClaimResolveEndpoint(t *testing.T) {
 	}, owner.Tokens.AccessToken)
 	assertErrorDetails(t, alreadyClaimedRes, http.StatusConflict, "already_claimed", false, "use_existing_device_or_contact_support")
 
+	seedClaimToken("claim-token-owner-duplicate-device", "claim-video-owner", time.Now().Add(time.Hour), &ownerOrgID, model.DeviceCategoryIPCamera)
+	duplicateDeviceClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": "claim-token-owner-duplicate-device",
+		"device_name": "Front Door Duplicate Token",
+	}, owner.Tokens.AccessToken)
+	assertErrorDetails(t, duplicateDeviceClaimRes, http.StatusConflict, "already_claimed", false, "use_existing_device_or_contact_support")
+
 	seedClaimToken("claim-token-cross-org", "claim-video-cross-org", time.Now().Add(time.Hour), &ownerOrgID, model.DeviceCategoryIPCamera)
 	crossOrgClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+otherOwner.Organization.ID+"/devices/claim/resolve", map[string]any{
 		"claim_token": "claim-token-cross-org",
