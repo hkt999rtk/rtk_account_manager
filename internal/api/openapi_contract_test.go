@@ -175,6 +175,13 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 		"role":    "owner",
 	}, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/members", brandCloudMemberRes)
+	brandCloudUserRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/users", map[string]any{
+		"email":        "contract-brand-user@example.com",
+		"password":     "password123",
+		"display_name": "Contract Brand User",
+		"role":         "member",
+	}, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/users", brandCloudUserRes)
 	adminClaimTokensRes := performJSON(env.router, http.MethodGet, "/v1/admin/device-claim-tokens", nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodGet, "/v1/admin/device-claim-tokens", adminClaimTokensRes)
 	adminClaimTokenGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID, nil, admin.Tokens.AccessToken)

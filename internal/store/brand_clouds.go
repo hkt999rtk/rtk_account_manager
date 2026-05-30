@@ -217,6 +217,95 @@ func (s *Store) AssignBrandCloudMember(ctx context.Context, actorUserID, orgID, 
 	return member, nil
 }
 
+func (s *Store) CreateBrandCloudUser(ctx context.Context, actorUserID, orgID string, in BrandCloudUserInput) (BrandCloudUserResult, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return BrandCloudUserResult{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var exists bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM organizations
+			WHERE id = $1 AND organization_kind = 'brand_cloud'
+		)
+	`, orgID).Scan(&exists); err != nil {
+		return BrandCloudUserResult{}, err
+	}
+	if !exists {
+		return BrandCloudUserResult{}, ErrNotFound
+	}
+
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	var existingID string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM users WHERE email = $1`, email).Scan(&existingID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return BrandCloudUserResult{}, err
+	}
+	action := "assigned"
+	if errors.Is(err, pgx.ErrNoRows) {
+		action = "created"
+	}
+
+	var user model.User
+	err = tx.QueryRow(ctx, `
+		INSERT INTO users (email, password_hash, display_name, email_verified, email_verified_at, signup_pending_verification, disabled_at)
+		VALUES ($1, $2, $3, true, now(), false, NULL)
+		ON CONFLICT (email)
+		DO UPDATE SET
+			password_hash = CASE WHEN $4 THEN EXCLUDED.password_hash ELSE users.password_hash END,
+			display_name = COALESCE(EXCLUDED.display_name, users.display_name),
+			email_verified = true,
+			email_verified_at = COALESCE(users.email_verified_at, now()),
+			signup_pending_verification = false,
+			disabled_at = NULL,
+			updated_at = now()
+		RETURNING id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
+	`, email, in.PasswordHash, in.DisplayName, in.RotatePassword).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	if err != nil {
+		return BrandCloudUserResult{}, err
+	}
+
+	member, err := scanMember(tx.QueryRow(ctx, `
+		INSERT INTO organization_members (organization_id, user_id, role)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (organization_id, user_id)
+		DO UPDATE SET role = EXCLUDED.role, updated_at = now()
+		RETURNING organization_id::text, user_id::text, role, created_at, updated_at
+	`, orgID, user.ID, in.Role))
+	if err != nil {
+		return BrandCloudUserResult{}, err
+	}
+	member.Email = user.Email
+	member.DisplayName = user.DisplayName
+	member.DisabledAt = user.DisabledAt
+
+	eventType := "brand_cloud_user_assigned"
+	if action == "created" {
+		eventType = "brand_cloud_user_created"
+	}
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{
+		EventType:      eventType,
+		ActorUserID:    &actorUserID,
+		OrganizationID: &orgID,
+		SubjectType:    "brand_cloud",
+		SubjectID:      orgID,
+		Payload: map[string]any{
+			"user_id":         user.ID,
+			"email":           user.Email,
+			"role":            member.Role,
+			"rotate_password": in.RotatePassword,
+		},
+	}); err != nil {
+		return BrandCloudUserResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return BrandCloudUserResult{}, err
+	}
+	return BrandCloudUserResult{Action: action, User: user, Member: member}, nil
+}
+
 func (s *Store) countBrandClouds(ctx context.Context) (int, error) {
 	var total int
 	err := s.db.QueryRow(ctx, `

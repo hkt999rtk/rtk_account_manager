@@ -57,6 +57,20 @@ type BrandCloudInput struct {
 	Metadata map[string]any
 }
 
+type BrandCloudUserInput struct {
+	Email          string
+	PasswordHash   string
+	DisplayName    *string
+	Role           model.Role
+	RotatePassword bool
+}
+
+type BrandCloudUserResult struct {
+	Action string       `json:"action"`
+	User   model.User   `json:"user"`
+	Member model.Member `json:"member"`
+}
+
 type MemberPage struct {
 	Members []model.Member
 	Page    Page
