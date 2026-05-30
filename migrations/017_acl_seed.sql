@@ -87,6 +87,7 @@ WITH role_permission_names(role_name, permission_name) AS (
     ('member', 'registry_device.read'),
     ('member', 'device_group.read'),
     ('member', 'device_tag.read'),
+    ('member', 'claim.resolve'),
     ('member', 'lifecycle_operation.provision'),
     ('member', 'lifecycle_operation.deactivate'),
     ('member', 'lifecycle_operation.inspect'),

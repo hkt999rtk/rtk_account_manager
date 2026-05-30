@@ -2877,6 +2877,8 @@ components:
           type: string
           minLength: 1
           description: Public key material forwarded to the video-side lifecycle worker for activation.
+        service_options:
+          $ref: "#/components/schemas/NonEmptyServiceOptions"
         operation_id:
           type: string
           description: Optional client idempotency key; reuse with different claim material returns 409 Conflict.
@@ -2895,7 +2897,7 @@ components:
           description: Registry device name to use when the claim creates a new device.
     ClaimProvisionInput:
       type: object
-      required: [video_cloud_devid, activity_id, clip_public_key]
+      required: [video_cloud_devid, activity_id, clip_public_key, service_options]
       properties:
         video_cloud_devid:
           type: string
@@ -2903,6 +2905,8 @@ components:
           type: string
         clip_public_key:
           type: string
+        service_options:
+          $ref: "#/components/schemas/ServiceOptions"
     ClaimResolveResponse:
       type: object
       required: [claim_id, device, provision_input]
@@ -2916,7 +2920,7 @@ components:
           $ref: "#/components/schemas/ClaimProvisionInput"
     AdminDeviceClaimTokenCreateRequest:
       type: object
-      required: [category, video_cloud_devid, activity_id, clip_public_key, expires_at]
+      required: [category, video_cloud_devid, activity_id, clip_public_key, service_options, expires_at]
       additionalProperties: false
       properties:
         organization_id:
@@ -2938,6 +2942,8 @@ components:
         clip_public_key:
           type: string
           minLength: 1
+        service_options:
+          $ref: "#/components/schemas/NonEmptyServiceOptions"
         expires_at:
           type: string
           format: date-time
@@ -3666,7 +3672,7 @@ components:
           format: date-time
     DeviceClaimToken:
       type: object
-      required: [id, category, video_cloud_devid, activity_id, clip_public_key, metadata, expires_at, created_at, updated_at]
+      required: [id, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, expires_at, created_at, updated_at]
       properties:
         id:
           type: string
@@ -3685,6 +3691,8 @@ components:
           type: string
         clip_public_key:
           type: string
+        service_options:
+          $ref: "#/components/schemas/ServiceOptions"
         metadata:
           type: object
           additionalProperties: true
@@ -3800,6 +3808,19 @@ components:
     DeviceCategory:
       type: string
       enum: [ip_camera, mqtt_device, generic]
+    ServiceOptions:
+      type: array
+      uniqueItems: true
+      items:
+        type: string
+        enum: [mqtt, video_streaming, video_storage]
+    NonEmptyServiceOptions:
+      type: array
+      minItems: 1
+      uniqueItems: true
+      items:
+        type: string
+        enum: [mqtt, video_streaming, video_storage]
     DeviceStatus:
       type: string
       enum: [unknown, online, offline, disabled]

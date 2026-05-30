@@ -11,23 +11,8 @@ on:
 
 jobs:
   test:
-    runs-on: [self-hosted, account-manager-ci]
+    runs-on: [self-hosted, Linux, X64, account-manager-cd]
     timeout-minutes: 20
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: rtk_account_manager
-          POSTGRES_USER: rtk
-          POSTGRES_PASSWORD: rtk_password
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U rtk -d rtk_account_manager"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     env:
       DATABASE_URL: postgres://rtk:rtk_password@localhost:5432/rtk_account_manager?sslmode=disable
@@ -50,6 +35,43 @@ jobs:
 
       - name: Download dependencies
         run: go mod download
+
+      - name: Prepare Linode CI runner dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing_packages=()
+          if ! command -v make >/dev/null 2>&1; then
+            missing_packages+=(make)
+          fi
+          if ! command -v psql >/dev/null 2>&1; then
+            missing_packages+=(postgresql postgresql-client)
+          fi
+          if [ "${#missing_packages[@]}" -gt 0 ]; then
+            sudo apt-get update
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing_packages[@]}"
+          fi
+          sudo systemctl start postgresql
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'rtk') THEN
+              CREATE ROLE rtk LOGIN PASSWORD 'rtk_password';
+            ELSE
+              ALTER ROLE rtk LOGIN PASSWORD 'rtk_password';
+            END IF;
+          END
+          $$;
+          SELECT pg_terminate_backend(pid)
+          FROM pg_stat_activity
+          WHERE datname = 'rtk_account_manager' AND pid <> pg_backend_pid();
+          DROP DATABASE IF EXISTS rtk_account_manager;
+          CREATE DATABASE rtk_account_manager OWNER rtk;
+          SQL
+          PGPASSWORD=rtk_password psql \
+            "postgres://rtk@localhost:5432/rtk_account_manager?sslmode=disable" \
+            -v ON_ERROR_STOP=1 \
+            -c 'SELECT 1'
 
       - name: Verify formatting
         run: test -z "$(gofmt -l .)"
@@ -90,7 +112,7 @@ jobs:
         run: make check-report-candidates
 
   deep-test:
-    runs-on: [self-hosted, account-manager-ci]
+    runs-on: [self-hosted, Linux, X64, account-manager-cd]
     timeout-minutes: 20
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
 

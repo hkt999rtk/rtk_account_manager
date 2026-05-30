@@ -97,7 +97,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Claim Token persistence | `TestResolveDeviceClaimTokenCreatesDeviceAndClaim`, `TestResolveDeviceClaimTokenMatchesExistingDevice`, `TestResolveDeviceClaimTokenRejectsInvalidToken`, `TestResolveDeviceClaimTokenRejectsExpiredToken`, `TestResolveDeviceClaimTokenRejectsAlreadyClaimedToken`, `TestResolveDeviceClaimTokenRejectsCrossOrganizationToken`, and `TestResolveDeviceClaimTokenRejectsUnsupportedCategory` verify account-manager-owned Claim Token storage, raw-token non-persistence, hashed-token lookup, expiry, idempotent ownership matching, category policy, and organization boundaries. |
 | Claim Token admin workflow | `TestDeviceClaimTokenAdminLifecycle` and `TestIntegrationAdminDeviceClaimTokenWorkflow` verify platform-admin token creation/import/list/show/revoke, raw-token non-persistence, generated raw-token one-time return, platform-admin-only access, and revoked-token resolve rejection. |
 | Claim Token transfer and reclaim | `TestDeviceClaimTransferMovesOwnershipAndAudits`, `TestDeviceClaimReclaimRequiresEvidenceAndRejectsInvalidTransitions`, and `TestIntegrationAdminDeviceClaimOverrideWorkflow` verify platform-admin-only transfer/reclaim, operator evidence requirements, invalid state transitions, unchanged normal claim-resolve rejection, and audit event emission. |
-| Claim resolve API | `TestIntegrationClaimResolveEndpoint` verifies owner/admin claim resolution, member rejection, invalid/expired/already-claimed/cross-organization/unsupported-category/quota error codes, returned provisioning input, and that resolve does not create provisioning operations or outbox messages. |
+| Claim resolve API | `TestIntegrationClaimResolveEndpoint` verifies owner/admin/member claim resolution, invalid/expired/already-claimed/cross-organization/unsupported-category/quota error codes, returned provisioning input with service options, and that resolve does not create provisioning operations or outbox messages. |
 | Claim resolve retryability | `TestWriteClaimResolveErrorIncludesRetryability` and `TestIntegrationClaimResolveEndpoint` verify machine-readable `retryable` and `resolution_action` hints for non-retryable policy failures, quota failures, and retryable service-unavailable errors. |
 | Deactivation API | `TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata` verifies projected metadata is required for new deactivation work, disabled account devices may still enqueue deactivation, default reason propagation, and transactional outbox creation from projected video metadata. |
 | Device scoping | Lifecycle endpoints reject cross-organization reads and writes without leaking foreign device access. |
@@ -166,11 +166,11 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/admin_can_start_provision`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/disabled_user_cannot_list_own_devices`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/member_can_list_devices`
+- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/member_can_resolve_claim`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/member_can_start_deactivation`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/member_can_start_provision`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/member_cannot_create_device`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/member_cannot_list_quota_requests_as_platform_admin`
-- `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/member_cannot_resolve_claim`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/outsider_cannot_create_device_in_foreign_org`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/outsider_cannot_list_org_devices`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/outsider_cannot_resolve_claim_in_foreign_org`
@@ -375,6 +375,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/channel`: `TestValidateRejectsInvalidMessagesForEachType/DeviceMetadataChanged`
 - `rtk_account_manager/internal/channel`: `TestValidateRejectsInvalidMessagesForEachType/DeviceOnlineChanged`
 - `rtk_account_manager/internal/channel`: `TestValidateRejectsInvalidMessagesForEachType/DeviceProvisionFailed`
+- `rtk_account_manager/internal/channel`: `TestValidateRejectsInvalidMessagesForEachType/DeviceProvisionRequested_service_options`
 - `rtk_account_manager/internal/channel`: `TestValidateRejectsInvalidMessagesForEachType/DeviceProvisionRequested`
 - `rtk_account_manager/internal/channel`: `TestValidateRejectsInvalidMessagesForEachType/DeviceProvisionSucceeded`
 - `rtk_account_manager/internal/channel`: `TestValidateRejectsInvalidMessagesForEachType`
@@ -429,6 +430,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshotWithLossyUTF8`
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshot`
 - `rtk_account_manager/internal/store`: `TestCompareOperationCreate`
+- `rtk_account_manager/internal/store`: `TestCreateDeviceClaimTokenRejectsUnsupportedServiceOptions`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetDeviceOperationIsIdempotent`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetDeviceOperationRejectsMismatchedDeviceOrganization`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessageDeduplicates`

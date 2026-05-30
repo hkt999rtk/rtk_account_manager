@@ -88,6 +88,7 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 		VideoCloudDevid: "contract-claim-video-1",
 		ActivityID:      "contract-claim-activity-1",
 		ClipPublicKey:   "contract-claim-clip-key-1",
+		ServiceOptions:  []string{"video_streaming", "video_storage"},
 		ExpiresAt:       time.Now().UTC().Add(24 * time.Hour),
 	}); err != nil {
 		t.Fatal(err)
@@ -131,6 +132,7 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 		"video_cloud_devid": "contract-admin-claim-video-1",
 		"activity_id":       "contract-admin-claim-activity-1",
 		"clip_public_key":   "contract-admin-claim-clip-key-1",
+		"service_options":   []string{"video_streaming", "video_storage"},
 		"expires_at":        time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339Nano),
 	}, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/admin/device-claim-tokens", adminClaimTokenRes)

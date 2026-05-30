@@ -73,12 +73,13 @@ type Payload interface {
 }
 
 type DeviceProvisionRequestedPayload struct {
-	OrgID           string `json:"org_id"`
-	AccountDeviceID string `json:"account_device_id"`
-	VideoCloudDevid string `json:"video_cloud_devid"`
-	ActivityID      string `json:"activity_id"`
-	ClipPublicKey   string `json:"clip_public_key"`
-	RequestedBy     string `json:"requested_by"`
+	OrgID           string   `json:"org_id"`
+	AccountDeviceID string   `json:"account_device_id"`
+	VideoCloudDevid string   `json:"video_cloud_devid"`
+	ActivityID      string   `json:"activity_id"`
+	ClipPublicKey   string   `json:"clip_public_key"`
+	ServiceOptions  []string `json:"service_options,omitempty"`
+	RequestedBy     string   `json:"requested_by"`
 }
 
 type DeviceProvisionSucceededPayload struct {
@@ -312,6 +313,9 @@ func (p *DeviceProvisionRequestedPayload) Validate() error {
 	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
 		return err
 	}
+	if err := validateServiceOptions("payload.service_options", p.ServiceOptions); err != nil {
+		return err
+	}
 
 	return validateRequiredStrings(
 		fieldValue{"payload.video_cloud_devid", p.VideoCloudDevid},
@@ -524,6 +528,22 @@ func validateUTC(field string, value time.Time) error {
 	_, offset := value.Zone()
 	if offset != 0 {
 		return fieldError(field, "must use UTC")
+	}
+	return nil
+}
+
+func validateServiceOptions(field string, options []string) error {
+	seen := map[string]struct{}{}
+	for _, option := range options {
+		switch option {
+		case "mqtt", "video_streaming", "video_storage":
+		default:
+			return fieldError(field, "may contain only mqtt, video_streaming, or video_storage")
+		}
+		if _, ok := seen[option]; ok {
+			return fieldError(field, "must not contain duplicates")
+		}
+		seen[option] = struct{}{}
 	}
 	return nil
 }

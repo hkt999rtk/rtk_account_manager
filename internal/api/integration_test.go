@@ -2594,6 +2594,7 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 		"video_cloud_devid": "video-device-1",
 		"activity_id":       "activity-1",
 		"clip_public_key":   "clip-key-1",
+		"service_options":   []string{"mqtt"},
 		"operation_id":      "member-provision-op-1",
 	}, member.Tokens.AccessToken)
 	if memberProvisionRes.Code != http.StatusCreated {
@@ -2624,6 +2625,7 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 		"video_cloud_devid": "video-device-1",
 		"activity_id":       "activity-1",
 		"clip_public_key":   "clip-key-1",
+		"service_options":   []string{"video_streaming", "video_storage"},
 		"operation_id":      "provision-op-1",
 	}, owner.Tokens.AccessToken)
 	if provisionRes.Code != http.StatusCreated {
@@ -2641,6 +2643,7 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 		"video_cloud_devid": "video-device-1",
 		"activity_id":       "activity-1",
 		"clip_public_key":   "clip-key-1",
+		"service_options":   []string{"video_streaming", "video_storage"},
 		"operation_id":      "provision-op-1",
 	}, owner.Tokens.AccessToken)
 	if reusedRes.Code != http.StatusOK {
@@ -2692,6 +2695,9 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 	}
 	if provisionCommand.ActivityID != "activity-1" || provisionCommand.ClipPublicKey != "clip-key-1" || provisionCommand.VideoCloudDevid != "video-device-1" {
 		t.Fatalf("unexpected provision command payload: %+v", provisionCommand)
+	}
+	if !equalStringSlices(provisionCommand.ServiceOptions, []string{"video_streaming", "video_storage"}) {
+		t.Fatalf("unexpected provision command service options: %+v", provisionCommand.ServiceOptions)
 	}
 
 	memberStateRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provisioning", nil, member.Tokens.AccessToken)
@@ -2781,6 +2787,7 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 		"video_cloud_devid": "video-device-1",
 		"activity_id":       "activity-1",
 		"clip_public_key":   "clip-key-1",
+		"service_options":   []string{"video_streaming", "video_storage"},
 		"operation_id":      "provision-op-1",
 	}, owner.Tokens.AccessToken)
 	if reusedDisabledRes.Code != http.StatusOK {
@@ -2916,6 +2923,7 @@ func TestIntegrationClaimResolveEndpoint(t *testing.T) {
 			VideoCloudDevid: videoDevid,
 			ActivityID:      "activity-" + videoDevid,
 			ClipPublicKey:   "clip-key-" + videoDevid,
+			ServiceOptions:  []string{"video_streaming", "video_storage"},
 			ExpiresAt:       expiresAt,
 			Now:             time.Now().UTC(),
 		}); err != nil {
@@ -2943,6 +2951,9 @@ func TestIntegrationClaimResolveEndpoint(t *testing.T) {
 		claimBody.ProvisionInput.ActivityID != "activity-claim-video-owner" ||
 		claimBody.ProvisionInput.ClipPublicKey != "clip-key-claim-video-owner" {
 		t.Fatalf("unexpected provision input: %+v", claimBody.ProvisionInput)
+	}
+	if !equalStringSlices(claimBody.ProvisionInput.ServiceOptions, []string{"video_streaming", "video_storage"}) {
+		t.Fatalf("unexpected provision service options: %+v", claimBody.ProvisionInput.ServiceOptions)
 	}
 
 	var operationCount int
@@ -2974,8 +2985,8 @@ func TestIntegrationClaimResolveEndpoint(t *testing.T) {
 		"claim_token": "claim-token-member",
 		"device_name": "Member Camera",
 	}, member.Tokens.AccessToken)
-	if memberClaimRes.Code != http.StatusForbidden {
-		t.Fatalf("expected member claim resolve 403, got %d: %s", memberClaimRes.Code, memberClaimRes.Body.String())
+	if memberClaimRes.Code != http.StatusCreated {
+		t.Fatalf("expected member claim resolve 201, got %d: %s", memberClaimRes.Code, memberClaimRes.Body.String())
 	}
 
 	invalidClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
@@ -3004,12 +3015,21 @@ func TestIntegrationClaimResolveEndpoint(t *testing.T) {
 	}, otherOwner.Tokens.AccessToken)
 	assertErrorDetails(t, crossOrgClaimRes, http.StatusForbidden, "forbidden", false, "switch_organization_or_contact_support")
 
-	seedClaimToken("claim-token-unsupported", "claim-video-unsupported", time.Now().Add(time.Hour), &ownerOrgID, model.DeviceCategoryMQTT)
-	unsupportedClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
-		"claim_token": "claim-token-unsupported",
+	seedClaimToken("claim-token-mqtt", "claim-video-mqtt", time.Now().Add(time.Hour), &ownerOrgID, model.DeviceCategoryMQTT)
+	mqttClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": "claim-token-mqtt",
 		"device_name": "MQTT Device",
 	}, owner.Tokens.AccessToken)
-	assertErrorDetails(t, unsupportedClaimRes, http.StatusBadRequest, "unsupported_device_category", false, "use_supported_device_category")
+	if mqttClaimRes.Code != http.StatusCreated {
+		t.Fatalf("expected mqtt claim resolve 201, got %d: %s", mqttClaimRes.Code, mqttClaimRes.Body.String())
+	}
+	mqttClaim := decodeBody[claimResolveBody](t, mqttClaimRes)
+	if mqttClaim.Device.Category != model.DeviceCategoryMQTT {
+		t.Fatalf("expected mqtt device category, got %+v", mqttClaim.Device)
+	}
+	if !equalStringSlices(mqttClaim.ProvisionInput.ServiceOptions, []string{"video_streaming", "video_storage"}) {
+		t.Fatalf("unexpected mqtt provision service options: %+v", mqttClaim.ProvisionInput.ServiceOptions)
+	}
 
 	if _, err := env.db.Exec(ctx, `
 		UPDATE organizations
@@ -3100,7 +3120,7 @@ func TestIntegrationAuthorizationAndTenancyMatrix(t *testing.T) {
 		{name: "outsider cannot create device in foreign org", actor: "outsider", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices", body: func(s string) any { return devicePayload("matrix-outsider-device-"+s, "MATRIX-OUTSIDER-"+s) }, wantStatus: http.StatusNotFound},
 		{name: "owner can resolve claim", actor: "owner", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/claim/resolve", body: fixtures.claimResolvePayload(owner.Organization.ID, "owner"), wantStatus: http.StatusCreated},
 		{name: "admin can resolve claim", actor: "admin", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/claim/resolve", body: fixtures.claimResolvePayload(owner.Organization.ID, "admin"), wantStatus: http.StatusCreated},
-		{name: "member cannot resolve claim", actor: "member", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/claim/resolve", body: fixtures.claimResolvePayload(owner.Organization.ID, "member"), wantStatus: http.StatusForbidden},
+		{name: "member can resolve claim", actor: "member", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/claim/resolve", body: fixtures.claimResolvePayload(owner.Organization.ID, "member"), wantStatus: http.StatusCreated},
 		{name: "outsider cannot resolve claim in foreign org", actor: "outsider", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/claim/resolve", body: fixtures.claimResolvePayload(owner.Organization.ID, "outsider"), wantStatus: http.StatusNotFound},
 		{name: "owner can start provision", actor: "owner", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + fixtures.createDevice(owner, "matrix-provision-owner", "MATRIX-PROVISION-OWNER").Device.ID + "/provision", body: lifecycleProvisionPayload("matrix-provision-owner"), wantStatus: http.StatusCreated},
 		{name: "admin can start provision", actor: "admin", method: http.MethodPost, path: "/v1/orgs/" + owner.Organization.ID + "/devices/" + fixtures.createDevice(owner, "matrix-provision-admin", "MATRIX-PROVISION-ADMIN").Device.ID + "/provision", body: lifecycleProvisionPayload("matrix-provision-admin"), wantStatus: http.StatusCreated},
@@ -3153,6 +3173,7 @@ func TestIntegrationAdminDeviceClaimTokenWorkflow(t *testing.T) {
 		"video_cloud_devid": "admin-claim-video-1",
 		"activity_id":       "admin-claim-activity-1",
 		"clip_public_key":   "admin-claim-clip-key-1",
+		"service_options":   []string{"video_streaming", "video_storage"},
 		"expires_at":        time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano),
 		"metadata":          map[string]any{"batch": "generated"},
 		"notes":             "generated token",
@@ -3172,6 +3193,9 @@ func TestIntegrationAdminDeviceClaimTokenWorkflow(t *testing.T) {
 	}
 	if generated.DeviceClaimToken.CreatedBy == nil || *generated.DeviceClaimToken.CreatedBy != admin.User.ID {
 		t.Fatalf("expected created_by platform admin, got %+v", generated.DeviceClaimToken)
+	}
+	if !equalStringSlices(generated.DeviceClaimToken.ServiceOptions, []string{"video_streaming", "video_storage"}) {
+		t.Fatalf("unexpected generated token service options: %+v", generated.DeviceClaimToken.ServiceOptions)
 	}
 
 	listRes := performJSON(env.router, http.MethodGet, "/v1/admin/device-claim-tokens", nil, admin.Tokens.AccessToken)
@@ -3207,6 +3231,7 @@ func TestIntegrationAdminDeviceClaimTokenWorkflow(t *testing.T) {
 		"video_cloud_devid": "admin-claim-video-2",
 		"activity_id":       "admin-claim-activity-2",
 		"clip_public_key":   "admin-claim-clip-key-2",
+		"service_options":   []string{"mqtt"},
 		"expires_at":        time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano),
 		"metadata":          map[string]any{"batch": "imported"},
 	}, admin.Tokens.AccessToken)
@@ -3216,6 +3241,21 @@ func TestIntegrationAdminDeviceClaimTokenWorkflow(t *testing.T) {
 	imported := decodeBody[deviceClaimTokenAdminBody](t, importRes)
 	if imported.ClaimToken != nil {
 		t.Fatalf("imported raw token must not be echoed, got %+v", imported)
+	}
+	if !equalStringSlices(imported.DeviceClaimToken.ServiceOptions, []string{"mqtt"}) {
+		t.Fatalf("unexpected imported token service options: %+v", imported.DeviceClaimToken.ServiceOptions)
+	}
+
+	invalidServiceOptionsRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claim-tokens", map[string]any{
+		"category":          "generic",
+		"video_cloud_devid": "admin-claim-video-invalid",
+		"activity_id":       "admin-claim-activity-invalid",
+		"clip_public_key":   "admin-claim-clip-key-invalid",
+		"service_options":   []string{"mqtt", "admin"},
+		"expires_at":        time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano),
+	}, admin.Tokens.AccessToken)
+	if invalidServiceOptionsRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid service options 400, got %d: %s", invalidServiceOptionsRes.Code, invalidServiceOptionsRes.Body.String())
 	}
 
 	var rawTokenCount int
@@ -3427,6 +3467,7 @@ func TestIntegrationAdminDeviceClaimOverrideWorkflow(t *testing.T) {
 		VideoCloudDevid: "claim-override-transfer-video",
 		ActivityID:      "claim-override-transfer-activity",
 		ClipPublicKey:   "claim-override-transfer-clip-key",
+		ServiceOptions:  []string{"video_streaming", "video_storage"},
 		ExpiresAt:       time.Now().UTC().Add(time.Hour),
 		Now:             time.Now().UTC(),
 	})
@@ -3484,6 +3525,7 @@ func TestIntegrationAdminDeviceClaimOverrideWorkflow(t *testing.T) {
 		VideoCloudDevid: "claim-override-reclaim-video",
 		ActivityID:      "claim-override-reclaim-activity",
 		ClipPublicKey:   "claim-override-reclaim-clip-key",
+		ServiceOptions:  []string{"video_streaming", "video_storage"},
 		ExpiresAt:       time.Now().UTC().Add(time.Hour),
 		Now:             time.Now().UTC(),
 	})
@@ -3793,13 +3835,15 @@ type deviceBody struct {
 type claimResolveBody struct {
 	ClaimID string `json:"claim_id"`
 	Device  struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
+		ID       string               `json:"id"`
+		Name     string               `json:"name"`
+		Category model.DeviceCategory `json:"category"`
 	} `json:"device"`
 	ProvisionInput struct {
-		VideoCloudDevid string `json:"video_cloud_devid"`
-		ActivityID      string `json:"activity_id"`
-		ClipPublicKey   string `json:"clip_public_key"`
+		VideoCloudDevid string   `json:"video_cloud_devid"`
+		ActivityID      string   `json:"activity_id"`
+		ClipPublicKey   string   `json:"clip_public_key"`
+		ServiceOptions  []string `json:"service_options"`
 	} `json:"provision_input"`
 }
 
@@ -3809,6 +3853,7 @@ type deviceClaimTokenAdminBody struct {
 		OrganizationID  *string    `json:"organization_id"`
 		CreatedBy       *string    `json:"created_by"`
 		VideoCloudDevid string     `json:"video_cloud_devid"`
+		ServiceOptions  []string   `json:"service_options"`
 		RevokedAt       *time.Time `json:"revoked_at"`
 	} `json:"device_claim_token"`
 	ClaimToken *string `json:"claim_token"`
@@ -4090,6 +4135,18 @@ func registerUser(t *testing.T, router *gin.Engine, email, orgName string) regis
 	return decodeBody[registerBody](t, res)
 }
 
+func equalStringSlices(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
 type apiFixtureBuilder struct {
 	t   *testing.T
 	env integrationEnv
@@ -4137,6 +4194,7 @@ func (b apiFixtureBuilder) claimResolvePayload(orgID, slug string) func(string) 
 			VideoCloudDevid: videoDevid,
 			ActivityID:      "activity-" + videoDevid,
 			ClipPublicKey:   "clip-key-" + videoDevid,
+			ServiceOptions:  []string{"video_streaming", "video_storage"},
 			ExpiresAt:       time.Now().UTC().Add(time.Hour),
 			Now:             time.Now().UTC(),
 		}); err != nil {

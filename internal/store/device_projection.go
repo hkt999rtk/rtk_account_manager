@@ -15,8 +15,8 @@ import (
 
 const projectionMetadataPrefix = "video_cloud_"
 
-func PendingProvisionMetadata(videoCloudDevid, activityID, clipPublicKey string) map[string]any {
-	return map[string]any{
+func PendingProvisionMetadata(videoCloudDevid, activityID, clipPublicKey string, serviceOptions []string) map[string]any {
+	metadata := map[string]any{
 		model.DeviceMetadataVideoCloudDevid:            videoCloudDevid,
 		model.DeviceMetadataVideoCloudActivityID:       activityID,
 		model.DeviceMetadataVideoCloudClipPublicKey:    clipPublicKey,
@@ -25,6 +25,10 @@ func PendingProvisionMetadata(videoCloudDevid, activityID, clipPublicKey string)
 		model.DeviceMetadataVideoCloudDeactivatedAt:    nil,
 		model.DeviceMetadataVideoCloudLastError:        nil,
 	}
+	if len(serviceOptions) > 0 {
+		metadata[model.DeviceMetadataServiceOptions] = serviceOptions
+	}
+	return metadata
 }
 
 type DeviceProjectionInput struct {

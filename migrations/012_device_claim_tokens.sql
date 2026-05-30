@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS device_claim_tokens (
     video_cloud_devid TEXT NOT NULL,
     activity_id TEXT NOT NULL,
     clip_public_key TEXT NOT NULL,
+    service_options JSONB NOT NULL DEFAULT '[]'::jsonb,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     expires_at TIMESTAMPTZ NOT NULL,
     claimed_at TIMESTAMPTZ,

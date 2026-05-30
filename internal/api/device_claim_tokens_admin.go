@@ -19,6 +19,7 @@ type deviceClaimTokenAdminCreateRequest struct {
 	VideoCloudDevid string         `json:"video_cloud_devid" binding:"required"`
 	ActivityID      string         `json:"activity_id" binding:"required"`
 	ClipPublicKey   string         `json:"clip_public_key" binding:"required"`
+	ServiceOptions  []string       `json:"service_options" binding:"required"`
 	ExpiresAt       time.Time      `json:"expires_at" binding:"required"`
 	Metadata        map[string]any `json:"metadata"`
 	Notes           *string        `json:"notes"`
@@ -68,6 +69,10 @@ func (s *Server) createDeviceClaimToken(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "invalid_request", "expires_at must be in the future")
 		return
 	}
+	serviceOptions, ok := canonicalServiceOptions(c, req.ServiceOptions)
+	if !ok {
+		return
+	}
 
 	rawToken, generated, ok := adminClaimTokenRawValue(c, req.ClaimToken)
 	if !ok {
@@ -86,6 +91,7 @@ func (s *Server) createDeviceClaimToken(c *gin.Context) {
 		VideoCloudDevid: videoCloudDevid,
 		ActivityID:      activityID,
 		ClipPublicKey:   clipPublicKey,
+		ServiceOptions:  serviceOptions,
 		Metadata:        req.Metadata,
 		Notes:           trimPtr(req.Notes),
 		ExpiresAt:       req.ExpiresAt,
@@ -219,4 +225,40 @@ func adminClaimTokenRawValue(c *gin.Context, raw *string) (string, bool, bool) {
 		return "", false, false
 	}
 	return "claim_" + first + second, true, true
+}
+
+func canonicalServiceOptions(c *gin.Context, raw []string) ([]string, bool) {
+	options, ok := canonicalOptionalServiceOptions(c, raw)
+	if !ok {
+		return nil, false
+	}
+	if len(options) == 0 {
+		writeError(c, http.StatusBadRequest, "invalid_request", "service_options must include at least one option")
+		return nil, false
+	}
+	return options, true
+}
+
+func canonicalOptionalServiceOptions(c *gin.Context, raw []string) ([]string, bool) {
+	if len(raw) == 0 {
+		return nil, true
+	}
+	seen := map[string]struct{}{}
+	options := make([]string, 0, len(raw))
+	for _, option := range raw {
+		option = strings.TrimSpace(option)
+		switch option {
+		case "mqtt", "video_streaming", "video_storage":
+		default:
+			writeError(c, http.StatusBadRequest, "invalid_request", "service_options may contain only mqtt, video_streaming, or video_storage")
+			return nil, false
+		}
+		if _, exists := seen[option]; exists {
+			writeError(c, http.StatusBadRequest, "invalid_request", "service_options must not contain duplicates")
+			return nil, false
+		}
+		seen[option] = struct{}{}
+		options = append(options, option)
+	}
+	return options, true
 }

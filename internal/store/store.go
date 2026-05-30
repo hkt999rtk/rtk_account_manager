@@ -26,6 +26,7 @@ var (
 	ErrClaimRevoked             = errors.New("claim token revoked")
 	ErrClaimCrossOrganization   = errors.New("claim token belongs to another organization")
 	ErrClaimUnsupportedCategory = errors.New("claim token category is unsupported")
+	ErrClaimUnsupportedService  = errors.New("claim token service option is unsupported")
 	ErrClaimInvalidState        = errors.New("claim token state does not allow this operation")
 	ErrClaimEvidenceRequired    = errors.New("claim override requires operator evidence")
 	ErrOIDCStateInvalid         = errors.New("oidc login state is invalid")

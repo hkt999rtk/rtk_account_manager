@@ -32,6 +32,7 @@ func TestValidateAndDecodeAcceptsEachMessageType(t *testing.T) {
 				VideoCloudDevid: "video-1",
 				ActivityID:      "activity-1",
 				ClipPublicKey:   "clip-key",
+				ServiceOptions:  []string{"video_streaming", "video_storage"},
 				RequestedBy:     "user-1",
 			}),
 			stream:      StreamAccountVideoCommands,
@@ -168,6 +169,20 @@ func TestValidateRejectsInvalidMessagesForEachType(t *testing.T) {
 			}),
 			stream:      StreamAccountVideoCommands,
 			wantMessage: "payload.activity_id must be non-empty",
+		},
+		{
+			name: "DeviceProvisionRequested service options",
+			envelope: validEnvelope(MessageTypeDeviceProvisionRequested, DeviceProvisionRequestedPayload{
+				OrgID:           testOrgID,
+				AccountDeviceID: testDeviceID,
+				VideoCloudDevid: "video-1",
+				ActivityID:      "activity-1",
+				ClipPublicKey:   "clip-key",
+				ServiceOptions:  []string{"mqtt", "admin"},
+				RequestedBy:     "user-1",
+			}),
+			stream:      StreamAccountVideoCommands,
+			wantMessage: "payload.service_options may contain only mqtt, video_streaming, or video_storage",
 		},
 		{
 			name: "DeviceProvisionSucceeded",
