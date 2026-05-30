@@ -24,6 +24,7 @@ type provisionRequest struct {
 	VideoCloudDevid string         `json:"video_cloud_devid"`
 	ActivityID      string         `json:"activity_id"`
 	ClipPublicKey   string         `json:"clip_public_key"`
+	ServiceOptions  []string       `json:"service_options"`
 	OperationID     string         `json:"operation_id"`
 	ClaimMaterial   map[string]any `json:"claim_material"`
 	QRPayload       *string        `json:"qr_payload"`
@@ -119,6 +120,10 @@ func (s *Server) provisionDevice(c *gin.Context) {
 		!requireNonBlank(c, "clip_public_key", clipPublicKey) {
 		return
 	}
+	serviceOptions, ok := canonicalOptionalServiceOptions(c, req.ServiceOptions)
+	if !ok {
+		return
+	}
 
 	operationID, ok := ensureOperationID(c, req.OperationID)
 	if !ok {
@@ -130,6 +135,9 @@ func (s *Server) provisionDevice(c *gin.Context) {
 		"video_cloud_devid": videoCloudDevid,
 		"activity_id":       activityID,
 		"clip_public_key":   clipPublicKey,
+	}
+	if len(serviceOptions) > 0 {
+		requestPayload["service_options"] = serviceOptions
 	}
 	if hasExplicitOperationID {
 		if _, err := s.store.GetDevice(c.Request.Context(), c.Param("orgId"), c.Param("deviceId")); err != nil {
@@ -170,9 +178,10 @@ func (s *Server) provisionDevice(c *gin.Context) {
 			"video_cloud_devid": videoCloudDevid,
 			"activity_id":       activityID,
 			"clip_public_key":   clipPublicKey,
+			"service_options":   serviceOptions,
 			"requested_by":      currentUserID(c),
 		},
-		MetadataPatch: store.PendingProvisionMetadata(videoCloudDevid, activityID, clipPublicKey),
+		MetadataPatch: store.PendingProvisionMetadata(videoCloudDevid, activityID, clipPublicKey, serviceOptions),
 		Now:           time.Now().UTC().Truncate(time.Microsecond),
 	})
 	if err != nil {

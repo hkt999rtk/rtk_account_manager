@@ -851,9 +851,9 @@ Accepted lifecycle input in the current API:
 
 | Registry category | Current account-manager lifecycle input | Notes |
 | --- | --- | --- |
-| `ip_camera` | `video_cloud_devid`, `activity_id`, `clip_public_key`; future `service_options` | Supported by `POST .../provision` when mapped to a cloud device identity. The eventual credentials are device-bound to `video_cloud_devid`, not to the account-manager category string. |
-| `mqtt_device` | `video_cloud_devid`, `activity_id`, `clip_public_key`; future `service_options` | The category may describe the product registry entry or preferred transport. Device activation can still run, but service access must be limited to the canonical service options, such as MQTT-only. |
-| `generic` | `video_cloud_devid`, `activity_id`, `clip_public_key`; future `service_options` | Generic registry entries can still be bound to a cloud device identity. Serial-number, QR-code, activation-code, MAC-address, and future factory-identity claim flows remain out of scope unless a later endpoint explicitly accepts them. |
+| `ip_camera` | `video_cloud_devid`, `activity_id`, `clip_public_key`, `service_options` | Supported by `POST .../provision` when mapped to a cloud device identity. The eventual credentials are device-bound to `video_cloud_devid`, not to the account-manager category string. |
+| `mqtt_device` | `video_cloud_devid`, `activity_id`, `clip_public_key`, `service_options` | The category may describe the product registry entry or preferred transport. Device activation can still run, but service access must be limited to the canonical service options, such as MQTT-only. |
+| `generic` | `video_cloud_devid`, `activity_id`, `clip_public_key`, `service_options` | Generic registry entries can still be bound to a cloud device identity. Serial-number, QR-code, activation-code, MAC-address, and future factory-identity claim flows remain out of scope unless a later endpoint explicitly accepts them. |
 
 Ownership consequences:
 
@@ -1323,7 +1323,7 @@ Tests should cover:
 - Contract tests validate representative API responses against `openapi.yaml`.
 - Provisioning creates operation and outbox records transactionally.
 - Provisioning rejects disabled devices and cross-organization devices.
-- Provisioning enforces `owner`/`admin` write permissions and `member` read-only permissions.
+- Provisioning and deactivation allow `owner`, `admin`, and `member` for organization-scoped end-user device lifecycle actions.
 - Duplicate provisioning/deactivation `operation_id` is idempotent for the same payload and conflicts for a different payload.
 - Outbox worker publish success, retry, and dead-letter behavior is covered.
 - Inbox worker deduplicates by `message_id`.

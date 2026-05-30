@@ -27,6 +27,7 @@ func TestResolveDeviceClaimTokenCreatesDeviceAndClaim(t *testing.T) {
 		VideoCloudDevid: "video-device-1",
 		ActivityID:      "activity-1",
 		ClipPublicKey:   "clip-key-1",
+		ServiceOptions:  []string{"video_streaming", "video_storage"},
 		ExpiresAt:       now.Add(time.Hour),
 		Now:             now,
 	})
@@ -61,6 +62,9 @@ func TestResolveDeviceClaimTokenCreatesDeviceAndClaim(t *testing.T) {
 		result.ProvisionInput.ActivityID != "activity-1" ||
 		result.ProvisionInput.ClipPublicKey != "clip-key-1" {
 		t.Fatalf("unexpected provision input: %+v", result.ProvisionInput)
+	}
+	if !stringSlicesEqual(result.ProvisionInput.ServiceOptions, []string{"video_streaming", "video_storage"}) {
+		t.Fatalf("unexpected provision service options: %+v", result.ProvisionInput.ServiceOptions)
 	}
 
 	var rawTokenCount int
@@ -115,6 +119,7 @@ func TestResolveDeviceClaimTokenMatchesExistingDevice(t *testing.T) {
 		VideoCloudDevid: "video-device-match",
 		ActivityID:      "activity-match",
 		ClipPublicKey:   "clip-key-match",
+		ServiceOptions:  []string{"video_streaming", "video_storage"},
 		ExpiresAt:       now.Add(time.Hour),
 		Now:             now,
 	}); err != nil {
@@ -186,6 +191,7 @@ func TestResolveDeviceClaimTokenRejectsExpiredToken(t *testing.T) {
 		VideoCloudDevid: "video-device-expired",
 		ActivityID:      "activity-expired",
 		ClipPublicKey:   "clip-key-expired",
+		ServiceOptions:  []string{"video_streaming", "video_storage"},
 		ExpiresAt:       now.Add(-time.Minute),
 		Now:             now.Add(-time.Hour),
 	}); err != nil {
@@ -225,6 +231,7 @@ func TestDeviceClaimTokenAdminLifecycle(t *testing.T) {
 		VideoCloudDevid: "admin-video-device",
 		ActivityID:      "admin-activity",
 		ClipPublicKey:   "admin-clip-key",
+		ServiceOptions:  []string{"video_streaming", "video_storage"},
 		Metadata:        map[string]any{"batch": "7"},
 		Notes:           &notes,
 		ExpiresAt:       now.Add(time.Hour),
@@ -255,6 +262,9 @@ func TestDeviceClaimTokenAdminLifecycle(t *testing.T) {
 	if fetched.ID != token.ID || fetched.VideoCloudDevid != "admin-video-device" {
 		t.Fatalf("unexpected fetched token: %+v", fetched)
 	}
+	if !stringSlicesEqual(fetched.ServiceOptions, []string{"video_streaming", "video_storage"}) {
+		t.Fatalf("unexpected fetched service options: %+v", fetched.ServiceOptions)
+	}
 
 	revoked, err := env.store.RevokeDeviceClaimToken(ctx, token.ID, now.Add(time.Minute))
 	if err != nil {
@@ -276,6 +286,38 @@ func TestDeviceClaimTokenAdminLifecycle(t *testing.T) {
 	}
 }
 
+func TestCreateDeviceClaimTokenRejectsUnsupportedServiceOptions(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	if _, err := env.store.CreateDeviceClaimToken(ctx, DeviceClaimTokenCreateInput{
+		TokenHash:       "hashed-admin-token-unsupported-service",
+		Category:        model.DeviceCategoryIPCamera,
+		VideoCloudDevid: "unsupported-service-video-device",
+		ActivityID:      "unsupported-service-activity",
+		ClipPublicKey:   "unsupported-service-clip-key",
+		ServiceOptions:  []string{"mqtt", "admin"},
+		ExpiresAt:       now.Add(time.Hour),
+		Now:             now,
+	}); !errors.Is(err, ErrClaimUnsupportedService) {
+		t.Fatalf("expected ErrClaimUnsupportedService, got %v", err)
+	}
+
+	if _, err := env.store.CreateDeviceClaimToken(ctx, DeviceClaimTokenCreateInput{
+		TokenHash:       "hashed-admin-token-duplicate-service",
+		Category:        model.DeviceCategoryIPCamera,
+		VideoCloudDevid: "duplicate-service-video-device",
+		ActivityID:      "duplicate-service-activity",
+		ClipPublicKey:   "duplicate-service-clip-key",
+		ServiceOptions:  []string{"mqtt", "mqtt"},
+		ExpiresAt:       now.Add(time.Hour),
+		Now:             now,
+	}); !errors.Is(err, ErrClaimUnsupportedService) {
+		t.Fatalf("expected ErrClaimUnsupportedService for duplicate service option, got %v", err)
+	}
+}
+
 func TestResolveDeviceClaimTokenRejectsAlreadyClaimedToken(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()
@@ -294,6 +336,7 @@ func TestResolveDeviceClaimTokenRejectsAlreadyClaimedToken(t *testing.T) {
 		VideoCloudDevid: "video-device-claimed",
 		ActivityID:      "activity-claimed",
 		ClipPublicKey:   "clip-key-claimed",
+		ServiceOptions:  []string{"video_streaming", "video_storage"},
 		ExpiresAt:       now.Add(time.Hour),
 		Now:             now,
 	}); err != nil {
@@ -348,6 +391,7 @@ func TestResolveDeviceClaimTokenRejectsCrossOrganizationToken(t *testing.T) {
 		VideoCloudDevid: "video-device-cross-org",
 		ActivityID:      "activity-cross-org",
 		ClipPublicKey:   "clip-key-cross-org",
+		ServiceOptions:  []string{"video_streaming", "video_storage"},
 		ExpiresAt:       now.Add(time.Hour),
 		Now:             now,
 	}); err != nil {
@@ -426,6 +470,7 @@ func TestDeviceClaimTransferMovesOwnershipAndAudits(t *testing.T) {
 		VideoCloudDevid: "transfer-video-device",
 		ActivityID:      "transfer-activity",
 		ClipPublicKey:   "transfer-clip-key",
+		ServiceOptions:  []string{"video_streaming", "video_storage"},
 		ExpiresAt:       now.Add(time.Hour),
 		Now:             now,
 	})
@@ -515,6 +560,7 @@ func TestDeviceClaimReclaimRequiresEvidenceAndRejectsInvalidTransitions(t *testi
 		VideoCloudDevid: "reclaim-video-device",
 		ActivityID:      "reclaim-activity",
 		ClipPublicKey:   "reclaim-clip-key",
+		ServiceOptions:  []string{"video_streaming", "video_storage"},
 		ExpiresAt:       now.Add(time.Hour),
 		Now:             now,
 	})
@@ -586,4 +632,16 @@ func TestDeviceClaimReclaimRequiresEvidenceAndRejectsInvalidTransitions(t *testi
 	if events.Page.Total != 1 || events.Events[0].SubjectID != resolved.Claim.ID {
 		t.Fatalf("expected reclaim audit event, got %+v", events)
 	}
+}
+
+func stringSlicesEqual(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }

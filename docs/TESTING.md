@@ -159,7 +159,7 @@ When implementing the v2 provisioning/event-channel milestone, the maintained re
 | --- | --- |
 | Provisioning API | Creating a provision operation writes `device_operations` and `device_message_outbox` in one transaction. |
 | Deactivation API | Creating a deactivation operation writes the correct operation and outbox command. |
-| Authorization | `owner` and `admin` may initiate lifecycle operations; `member` may only read provisioning state. |
+| Authorization | `owner`, `admin`, and `member` may resolve claims and initiate organization-scoped lifecycle operations; outsiders and disabled users are rejected. |
 | Device scoping | Cross-organization and missing devices are rejected without leaking resource existence. |
 | Authorization matrix | Owner/admin/member/platform-admin/outsider/disabled-user behavior is checked across device, claim, lifecycle, quota, and audit endpoints. |
 | ACL persistence and admin workflow | ACL schema invariants, permission catalog seed, system roles, scoped role assignments, read-only observer write denial, platform-admin ACL management APIs, external group mappings, and ACL audit events are checked. |
@@ -178,7 +178,7 @@ When implementing the v2 provisioning/event-channel milestone, the maintained re
 | Claim Token persistence | Claim Tokens are stored as hashes, resolve once, reject expired/already-claimed/cross-organization tokens, and only support categories accepted by the product policy. |
 | Claim Token admin workflow | Platform-admin generated/imported/revoked Claim Tokens never persist raw token values; generated raw tokens are returned once; revoked tokens cannot resolve. |
 | Claim Token transfer/reclaim | Platform-admin-only override endpoints require operator reason/evidence, preserve normal claim-resolve rejection, reject repeated override transitions, and emit audit events. |
-| Claim resolve API | `POST /v1/orgs/:orgId/devices/claim/resolve` returns provisioning input, enforces owner/admin authorization, rejects member access, emits machine-readable errors, and does not publish lifecycle outbox work. |
+| Claim resolve API | `POST /v1/orgs/:orgId/devices/claim/resolve` returns provisioning input with `service_options`, allows owner/admin/member organization members, rejects outsiders, emits machine-readable errors, and does not publish lifecycle outbox work. |
 | Claim resolve retryability | Claim resolve errors include stable `retryable` and `resolution_action` hints for invalid, expired, already-claimed, cross-organization, unsupported, quota, and service-unavailable failures. |
 | Registry-only readiness | `GET /provisioning` returns account-side readiness with nullable `operation` for enabled and disabled registry-only devices while preserving `404` for missing devices. |
 | Readiness failure attribution | Failed/dead-lettered provisioning and deactivation readiness responses include `readiness.failure` with layer, source state, retryability, error fields, operation id, and occurrence time. |

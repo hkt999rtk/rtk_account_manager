@@ -171,6 +171,7 @@ type DeviceClaimToken struct {
 	VideoCloudDevid string         `json:"video_cloud_devid"`
 	ActivityID      string         `json:"activity_id"`
 	ClipPublicKey   string         `json:"clip_public_key"`
+	ServiceOptions  []string       `json:"service_options"`
 	Metadata        map[string]any `json:"metadata"`
 	Notes           *string        `json:"notes,omitempty"`
 	ExpiresAt       time.Time      `json:"expires_at"`
@@ -253,6 +254,7 @@ const (
 	DeviceMetadataVideoCloudDeactivatedAt    = "video_cloud_deactivated_at"
 	DeviceMetadataVideoCloudClipPublicKey    = "video_cloud_clip_public_key"
 	DeviceMetadataVideoCloudLastError        = "video_cloud_last_error"
+	DeviceMetadataServiceOptions             = "service_options"
 )
 
 type DeviceOperationType string

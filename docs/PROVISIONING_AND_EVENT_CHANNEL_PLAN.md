@@ -269,9 +269,9 @@ Suggested endpoints:
 
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
-| `POST` | `/v1/orgs/:orgId/devices/:deviceId/provision` | owner/admin | Create or reuse a provisioning operation and enqueue `DeviceProvisionRequested`. |
+| `POST` | `/v1/orgs/:orgId/devices/:deviceId/provision` | owner/admin/member | Create or reuse a provisioning operation and enqueue `DeviceProvisionRequested`. |
 | `GET` | `/v1/orgs/:orgId/devices/:deviceId/provisioning` | owner/admin/member | Return latest provisioning operation and projected video metadata. |
-| `POST` | `/v1/orgs/:orgId/devices/:deviceId/deactivate` | owner/admin | Create or reuse a deactivation operation and enqueue `DeviceDeactivateRequested`. |
+| `POST` | `/v1/orgs/:orgId/devices/:deviceId/deactivate` | owner/admin/member | Create or reuse a deactivation operation and enqueue `DeviceDeactivateRequested`. |
 
 Provision request:
 
@@ -280,6 +280,7 @@ Provision request:
   "video_cloud_devid": "device-1",
   "activity_id": "activity-1",
   "clip_public_key": "<clip-public-key>",
+  "service_options": ["video_streaming", "video_storage"],
   "operation_id": "optional-client-idempotency-key"
 }
 ```
@@ -299,8 +300,7 @@ Response:
 
 Rules:
 
-- `owner` and `admin` may initiate provisioning/deactivation.
-- `member` may read provisioning state but may not initiate lifecycle commands.
+- `owner`, `admin`, and `member` may initiate provisioning/deactivation for devices in their organization.
 - Device must exist in the organization.
 - Disabled devices cannot be provisioned.
 - Accepting provisioning immediately exposes pending `video_cloud_devid`, `video_cloud_activity_id`, `video_cloud_clip_public_key`, and `video_cloud_activation_status=pending` in projected device metadata.
