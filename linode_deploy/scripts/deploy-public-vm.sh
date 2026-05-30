@@ -63,6 +63,8 @@ if [ -n "$cert_cache_dir" ]; then
 fi
 [ -n "${JWT_ACCESS_SECRET:-}" ] || die "JWT_ACCESS_SECRET is required"
 [ -n "${JWT_REFRESH_SECRET:-}" ] || die "JWT_REFRESH_SECRET is required"
+[[ "$db_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "ACCOUNT_MANAGER_POSTGRES_DB must be a PostgreSQL identifier"
+[[ "$db_user" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "ACCOUNT_MANAGER_POSTGRES_USER must be a PostgreSQL identifier"
 if [ -z "$db_password" ]; then
   db_password="$(openssl rand -hex 32)"
   printf '[account-manager-deploy] generated local PostgreSQL password for this deploy\n' >&2
@@ -191,6 +193,58 @@ END
 \$\$;
 SELECT 'CREATE DATABASE "$db_name" OWNER "$db_user"'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$db_name')\gexec
+ALTER DATABASE "$db_name" OWNER TO "$db_user";
+GRANT CONNECT, TEMPORARY ON DATABASE "$db_name" TO "$db_user";
+SQL
+
+sudo -u postgres psql -d "$db_name" -v ON_ERROR_STOP=1 <<SQL
+ALTER SCHEMA public OWNER TO "$db_user";
+GRANT USAGE, CREATE ON SCHEMA public TO "$db_user";
+
+DO \$\$
+DECLARE
+  obj record;
+BEGIN
+  FOR obj IN
+    SELECT
+      n.nspname AS schema_name,
+      c.relname AS object_name,
+      CASE c.relkind
+        WHEN 'r' THEN 'TABLE'
+        WHEN 'p' THEN 'TABLE'
+        WHEN 'S' THEN 'SEQUENCE'
+        WHEN 'v' THEN 'VIEW'
+        WHEN 'm' THEN 'MATERIALIZED VIEW'
+        WHEN 'f' THEN 'FOREIGN TABLE'
+      END AS object_kind
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
+      AND c.relowner <> (SELECT oid FROM pg_roles WHERE rolname = '$db_user')
+  LOOP
+    EXECUTE format('ALTER %s %I.%I OWNER TO %I', obj.object_kind, obj.schema_name, obj.object_name, '$db_user');
+  END LOOP;
+
+  FOR obj IN
+    SELECT p.oid::regprocedure::text AS function_signature
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.prokind = 'f'
+      AND p.proowner <> (SELECT oid FROM pg_roles WHERE rolname = '$db_user')
+  LOOP
+    EXECUTE format('ALTER FUNCTION %s OWNER TO %I', obj.function_signature, '$db_user');
+  END LOOP;
+END
+\$\$;
+
+GRANT SELECT, INSERT, UPDATE, DELETE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public TO "$db_user";
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO "$db_user";
+ALTER DEFAULT PRIVILEGES FOR ROLE "$db_user" IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE, REFERENCES, TRIGGER ON TABLES TO "$db_user";
+ALTER DEFAULT PRIVILEGES FOR ROLE "$db_user" IN SCHEMA public
+  GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO "$db_user";
 SQL
 
 rm -rf /tmp/rtk-account-manager-release
