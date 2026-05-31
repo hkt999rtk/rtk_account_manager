@@ -158,13 +158,28 @@ func TestLoadWorkerAllowsMissingJWTSecrets(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("JWT_ACCESS_SECRET", "")
 	t.Setenv("JWT_REFRESH_SECRET", "")
-	t.Setenv("CROSS_SERVICE_BROKER", "log")
+	t.Setenv("CROSS_SERVICE_BROKER", "nats")
+	t.Setenv("CROSS_SERVICE_NATS_URL", "nats://10.42.1.30:4222")
+	t.Setenv("CROSS_SERVICE_NATS_NAME", "rtk-account-manager-test")
+	t.Setenv("CROSS_SERVICE_PARTITION_COUNT", "8")
 	t.Setenv("CROSS_SERVICE_MAX_ATTEMPTS", "7")
 	t.Setenv("CROSS_SERVICE_POLL_INTERVAL", "9s")
 
 	cfg, err := LoadWorker()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if cfg.CrossServiceBroker != "nats" {
+		t.Fatalf("unexpected broker: %q", cfg.CrossServiceBroker)
+	}
+	if cfg.CrossServiceNATSURL != "nats://10.42.1.30:4222" {
+		t.Fatalf("unexpected nats url: %q", cfg.CrossServiceNATSURL)
+	}
+	if cfg.CrossServiceNATSName != "rtk-account-manager-test" {
+		t.Fatalf("unexpected nats name: %q", cfg.CrossServiceNATSName)
+	}
+	if cfg.CrossServicePartitionCount != 8 {
+		t.Fatalf("unexpected partition count: %d", cfg.CrossServicePartitionCount)
 	}
 	if cfg.CrossServiceMaxAttempts != 7 {
 		t.Fatalf("unexpected max attempts: %d", cfg.CrossServiceMaxAttempts)

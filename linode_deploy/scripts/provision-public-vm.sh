@@ -23,6 +23,9 @@ image="${ACCOUNT_MANAGER_LINODE_IMAGE:-linode/ubuntu24.04}"
 public_key_path="${ACCOUNT_MANAGER_LINODE_PUBLIC_KEY_PATH:-$HOME/.ssh/id_ed25519_rtkcloud.pub}"
 allowed_ssh_cidrs="${ACCOUNT_MANAGER_LINODE_ALLOWED_SSH_CIDRS:-}"
 firewall_label="${ACCOUNT_MANAGER_LINODE_FIREWALL_LABEL:-${label}-fw}"
+vpc_subnet_id="${ACCOUNT_MANAGER_LINODE_VPC_SUBNET_ID:-}"
+private_ipv4="${ACCOUNT_MANAGER_LINODE_PRIVATE_IPV4:-}"
+vpc_cidr="${ACCOUNT_MANAGER_LINODE_VPC_CIDR:-10.42.1.0/24}"
 default_state_path="${DEPLOY_SECRETS_DIR:+$DEPLOY_SECRETS_DIR/state/${label}.env}"
 state_path="${ACCOUNT_MANAGER_LINODE_STATE_PATH:-${default_state_path:-linode_deploy/state/${label}.env}}"
 api_base="${LINODE_API_BASE:-https://api.linode.com/v4}"
@@ -66,16 +69,36 @@ create_payload="$(jq -cn \
   --arg image "$image" \
   --arg root_pass "$root_pass" \
   --arg ssh_key "$ssh_key" \
-  '{label:$label, region:$region, type:$type, image:$image, root_pass:$root_pass, authorized_keys:[$ssh_key], tags:["rtk-account-manager","account-manager-staging"]}')"
+  --arg subnet_id "$vpc_subnet_id" \
+  --arg private_ip "$private_ipv4" \
+  '{
+    label:$label,
+    region:$region,
+    type:$type,
+    image:$image,
+    root_pass:$root_pass,
+    authorized_keys:[$ssh_key],
+    tags:["rtk-account-manager","account-manager-staging"]
+  }
+  | if ($subnet_id != "" and $private_ip != "") then
+      .interfaces = [
+        {purpose:"public", primary:true},
+        {purpose:"vpc", subnet_id:($subnet_id|tonumber), ipv4:{vpc:$private_ip}}
+      ]
+    else . end')"
 
-printf '[account-manager-linode] creating public-only Linode %s in %s\n' "$label" "$region" >&2
+if [ -n "$vpc_subnet_id" ] && [ -n "$private_ipv4" ]; then
+  printf '[account-manager-linode] creating public+vpc Linode %s in %s private_ip=%s\n' "$label" "$region" "$private_ipv4" >&2
+else
+  printf '[account-manager-linode] creating public-only Linode %s in %s\n' "$label" "$region" >&2
+fi
 create_json="$(api POST /linode/instances "$create_payload")"
 linode_id="$(printf '%s' "$create_json" | jq -r '.id')"
 public_ipv4="$(printf '%s' "$create_json" | jq -r '.ipv4[0]')"
 [ -n "$linode_id" ] && [ "$linode_id" != null ] || die "failed to read Linode id"
 [ -n "$public_ipv4" ] && [ "$public_ipv4" != null ] || die "failed to read Linode public IPv4"
 
-firewall_payload="$(jq -cn --arg label "$firewall_label" --arg cidrs "$allowed_ssh_cidrs" '{
+firewall_payload="$(jq -cn --arg label "$firewall_label" --arg cidrs "$allowed_ssh_cidrs" --arg vpc_cidr "$vpc_cidr" '{
   label: $label,
   rules: {
     inbound_policy: "DROP",
@@ -83,7 +106,8 @@ firewall_payload="$(jq -cn --arg label "$firewall_label" --arg cidrs "$allowed_s
     inbound: [
       {label:"ssh", action:"ACCEPT", protocol:"TCP", ports:"22", addresses:{ipv4:($cidrs|split(","))}},
       {label:"http", action:"ACCEPT", protocol:"TCP", ports:"80", addresses:{ipv4:["0.0.0.0/0"], ipv6:["::/0"]}},
-      {label:"https", action:"ACCEPT", protocol:"TCP", ports:"443", addresses:{ipv4:["0.0.0.0/0"], ipv6:["::/0"]}}
+      {label:"https", action:"ACCEPT", protocol:"TCP", ports:"443", addresses:{ipv4:["0.0.0.0/0"], ipv6:["::/0"]}},
+      {label:"vpc-private-tcp", action:"ACCEPT", protocol:"TCP", ports:"18081", addresses:{ipv4:[$vpc_cidr]}}
     ],
     outbound: []
   }
@@ -101,6 +125,7 @@ ACCOUNT_MANAGER_LINODE_ID=$linode_id
 ACCOUNT_MANAGER_LINODE_LABEL=$label
 ACCOUNT_MANAGER_LINODE_PUBLIC_IPV4=$public_ipv4
 ACCOUNT_MANAGER_LINODE_HOST=$public_ipv4
+ACCOUNT_MANAGER_LINODE_PRIVATE_IPV4=$private_ipv4
 ACCOUNT_MANAGER_LINODE_FIREWALL_ID=$firewall_id
 ACCOUNT_MANAGER_LINODE_FIREWALL_LABEL=$firewall_label
 STATE

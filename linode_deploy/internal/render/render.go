@@ -39,15 +39,8 @@ func RuntimeEnv(m manifest.Manifest, vals secrets.Values, opts Options) (string,
 		"SMTP_USERNAME=" + vals.Get("SMTP_USERNAME"),
 		"SMTP_PASSWORD=" + vals.Get("SMTP_PASSWORD"),
 		"SMTP_FROM=" + vals.Get("SMTP_FROM"),
-		"CROSS_SERVICE_BROKER=log",
-		"ACCOUNT_VIDEO_COMMANDS_STREAM=account.video.commands",
-		"VIDEO_ACCOUNT_EVENTS_STREAM=video.account.events",
-		"CROSS_SERVICE_CONSUMER_GROUP=rtk_account_manager",
-		"CROSS_SERVICE_MAX_ATTEMPTS=5",
-		"CROSS_SERVICE_POLL_INTERVAL=5s",
-		"AZURE_EVENTHUB_CONNECTION_STRING=" + vals.Get("AZURE_EVENTHUB_CONNECTION_STRING"),
-		"AZURE_EVENTHUB_CHECKPOINT_FILE=" + m.Deploy.StateDir + "/azure_eventhubs_checkpoint.json",
 	}
+	lines = append(lines, crossServiceLines(m, vals, opts)...)
 	if opts.SkipOIDC {
 		lines = append(lines, "OIDC_ENABLED=false")
 	} else {
@@ -73,6 +66,27 @@ func RuntimeEnv(m manifest.Manifest, vals secrets.Values, opts Options) (string,
 	}
 	sort.Strings(reportLines)
 	return env, strings.Join(reportLines, "\n") + "\n"
+}
+
+func crossServiceLines(m manifest.Manifest, vals secrets.Values, opts Options) []string {
+	lines := []string{
+		"ACCOUNT_VIDEO_COMMANDS_STREAM=account.video.commands",
+		"VIDEO_ACCOUNT_EVENTS_STREAM=video.account.events",
+		"CROSS_SERVICE_CONSUMER_GROUP=rtk_account_manager",
+		"CROSS_SERVICE_MAX_ATTEMPTS=5",
+		"CROSS_SERVICE_POLL_INTERVAL=5s",
+		"AZURE_EVENTHUB_CONNECTION_STRING=" + vals.Get("AZURE_EVENTHUB_CONNECTION_STRING"),
+		"AZURE_EVENTHUB_CHECKPOINT_FILE=" + m.Deploy.StateDir + "/azure_eventhubs_checkpoint.json",
+	}
+	if !opts.EnableWorkers {
+		return append([]string{"CROSS_SERVICE_BROKER=log"}, lines...)
+	}
+	return append([]string{
+		"CROSS_SERVICE_BROKER=nats",
+		"CROSS_SERVICE_NATS_URL=nats://" + m.Infra().PrivateIP + ":4222",
+		"CROSS_SERVICE_NATS_NAME=" + m.AccountManager().Label,
+		"CROSS_SERVICE_PARTITION_COUNT=4",
+	}, lines...)
 }
 
 func secretKey(key string) bool {
