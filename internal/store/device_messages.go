@@ -96,6 +96,10 @@ type DeviceMessageInboxUpdateInput struct {
 }
 
 func (s *Store) CreateOrGetDeviceOperation(ctx context.Context, in DeviceOperationCreateInput) (model.DeviceOperation, bool, error) {
+	if err := s.requireDeviceInOrganization(ctx, in.OrganizationID, in.DeviceID); err != nil {
+		return model.DeviceOperation{}, false, err
+	}
+
 	requestPayload, err := marshalJSONMap(in.RequestPayload)
 	if err != nil {
 		return model.DeviceOperation{}, false, err
@@ -142,6 +146,23 @@ func (s *Store) CreateOrGetDeviceOperation(ctx context.Context, in DeviceOperati
 		return model.DeviceOperation{}, false, err
 	}
 	return existing, false, nil
+}
+
+func (s *Store) requireDeviceInOrganization(ctx context.Context, orgID, deviceID string) error {
+	var exists bool
+	if err := s.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM devices
+			WHERE organization_id = $1 AND id = $2
+		)
+	`, orgID, deviceID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) GetDeviceOperation(ctx context.Context, operationID string) (model.DeviceOperation, error) {

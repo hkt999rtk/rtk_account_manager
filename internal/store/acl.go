@@ -143,6 +143,7 @@ func isPlatformPermission(permission string) bool {
 		permission == "quota_request.approve" ||
 		permission == "quota_request.decline" ||
 		permission == "platform_metrics.read" ||
+		permission == "device.unprovision_override" ||
 		permission == "acl.read" ||
 		permission == "acl.manage"
 }

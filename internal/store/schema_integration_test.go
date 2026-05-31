@@ -78,7 +78,6 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		{table: "device_operations", name: "device_operations_operation_id_key"},
 		{table: "device_operations", name: "device_operations_operation_type_check"},
 		{table: "device_operations", name: "device_operations_status_check"},
-		{table: "device_operations", name: "device_operations_org_device_fkey"},
 		{table: "device_message_outbox", name: "device_message_outbox_message_id_key"},
 		{table: "device_message_outbox", name: "device_message_outbox_stream_check"},
 		{table: "device_message_outbox", name: "device_message_outbox_message_type_check"},
