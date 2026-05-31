@@ -12,6 +12,7 @@ import (
 
 const AdapterLog = "log"
 const AdapterAzureEventHubs = "azure_eventhubs"
+const AdapterNATS = "nats"
 
 type Publisher interface {
 	Publish(ctx context.Context, stream string, envelope channel.Envelope) error
@@ -45,6 +46,9 @@ type PublisherOptions struct {
 	LogWriter                      io.Writer
 	AzureEventHubsConnectionString string
 	Stream                         string
+	NATSURL                        string
+	NATSName                       string
+	PartitionCount                 int
 }
 
 type ConsumerOptions struct {
@@ -54,6 +58,9 @@ type ConsumerOptions struct {
 	ConsumerGroup                  string
 	ReceiveTimeout                 time.Duration
 	CheckpointFile                 string
+	NATSURL                        string
+	NATSName                       string
+	PartitionCount                 int
 }
 
 type publishError struct {
@@ -95,6 +102,12 @@ func NewPublisher(kind string, opts PublisherOptions) (Publisher, error) {
 	switch kind {
 	case "", AdapterLog:
 		return NewLogPublisher(opts.LogWriter), nil
+	case AdapterNATS:
+		return NewNATSPublisher(NATSOptions{
+			URL:            opts.NATSURL,
+			Name:           opts.NATSName,
+			PartitionCount: opts.PartitionCount,
+		})
 	case AdapterAzureEventHubs:
 		return NewAzureEventHubsPublisherFromConnectionString(opts.AzureEventHubsConnectionString, opts.Stream)
 	default:
@@ -106,6 +119,15 @@ func NewConsumer(kind string, opts ConsumerOptions) (Consumer, error) {
 	switch kind {
 	case "", AdapterLog:
 		return NewLogConsumer(opts.LogReader), nil
+	case AdapterNATS:
+		return NewNATSConsumer(NATSOptions{
+			URL:            opts.NATSURL,
+			Name:           opts.NATSName,
+			PartitionCount: opts.PartitionCount,
+			Stream:         opts.Stream,
+			ConsumerGroup:  opts.ConsumerGroup,
+			ReceiveTimeout: opts.ReceiveTimeout,
+		})
 	case AdapterAzureEventHubs:
 		return NewAzureEventHubsConsumerFromConnectionString(
 			opts.AzureEventHubsConnectionString,

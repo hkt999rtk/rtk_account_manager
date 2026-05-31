@@ -120,6 +120,9 @@ trap cleanup EXIT
   printf 'OIDC_SCOPES=%s\n' "${OIDC_SCOPES:-openid email profile}"
   printf 'OIDC_AUTO_LINK_EMAIL=%s\n' "${OIDC_AUTO_LINK_EMAIL:-false}"
   printf 'CROSS_SERVICE_BROKER=%s\n' "${CROSS_SERVICE_BROKER:-log}"
+  printf 'CROSS_SERVICE_NATS_URL=%s\n' "${CROSS_SERVICE_NATS_URL:-}"
+  printf 'CROSS_SERVICE_NATS_NAME=%s\n' "${CROSS_SERVICE_NATS_NAME:-$label}"
+  printf 'CROSS_SERVICE_PARTITION_COUNT=%s\n' "${CROSS_SERVICE_PARTITION_COUNT:-4}"
   printf 'ACCOUNT_VIDEO_COMMANDS_STREAM=%s\n' "${ACCOUNT_VIDEO_COMMANDS_STREAM:-account.video.commands}"
   printf 'VIDEO_ACCOUNT_EVENTS_STREAM=%s\n' "${VIDEO_ACCOUNT_EVENTS_STREAM:-video.account.events}"
   printf 'CROSS_SERVICE_CONSUMER_GROUP=%s\n' "${CROSS_SERVICE_CONSUMER_GROUP:-rtk_account_manager}"
@@ -406,6 +409,10 @@ fi
 
 systemctl is-active rtk-account-manager.service
 systemctl is-active nginx
+systemctl enable --now rtk-account-manager-outbox-worker.service rtk-account-manager-inbox-worker.service
+systemctl restart rtk-account-manager-outbox-worker.service rtk-account-manager-inbox-worker.service
+systemctl is-active rtk-account-manager-outbox-worker.service
+systemctl is-active rtk-account-manager-inbox-worker.service
 printf 'rtk_account_manager %s deployed for %s\n' "$release" "$domain"
 REMOTE
 

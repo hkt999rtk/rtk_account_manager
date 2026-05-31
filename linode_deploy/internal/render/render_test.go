@@ -38,3 +38,28 @@ func TestRuntimeEnvRendersDefaultsAndSecretsWithoutLeakingRawValuesInReport(t *t
 		t.Fatalf("report missing redacted OIDC key:\n%s", report)
 	}
 }
+
+func TestRuntimeEnvRendersNATSWhenWorkersAreEnabled(t *testing.T) {
+	m, err := manifest.Load("../../configs/account-manager-staging.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	vals := secrets.Values{
+		"ACCOUNT_MANAGER_DB_PASSWORD": "db-secret",
+		"JWT_ACCESS_SECRET":           "access-secret",
+		"JWT_REFRESH_SECRET":          "refresh-secret",
+	}
+	env, _ := RuntimeEnv(m, vals, Options{SkipOIDC: true, EnableWorkers: true})
+	for _, want := range []string{
+		"CROSS_SERVICE_BROKER=nats",
+		"CROSS_SERVICE_NATS_URL=nats://10.42.1.30:4222",
+		"CROSS_SERVICE_NATS_NAME=account-manager-staging-account-manager",
+		"CROSS_SERVICE_PARTITION_COUNT=4",
+		"ACCOUNT_VIDEO_COMMANDS_STREAM=account.video.commands",
+		"VIDEO_ACCOUNT_EVENTS_STREAM=video.account.events",
+	} {
+		if !strings.Contains(env, want) {
+			t.Fatalf("worker env missing %q:\n%s", want, env)
+		}
+	}
+}

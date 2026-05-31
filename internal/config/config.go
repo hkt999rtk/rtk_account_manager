@@ -25,6 +25,9 @@ type Config struct {
 	CrossServiceBroker             string
 	AzureEventHubConnectionString  string
 	AzureEventHubCheckpointFile    string
+	CrossServiceNATSURL            string
+	CrossServiceNATSName           string
+	CrossServicePartitionCount     int
 	AccountVideoCommandsStream     string
 	VideoAccountEventsStream       string
 	CrossServiceConsumerGroup      string
@@ -85,6 +88,9 @@ func load() (Config, error) {
 		CrossServiceBroker:             getenv("CROSS_SERVICE_BROKER", "log"),
 		AzureEventHubConnectionString:  getenv("AZURE_EVENTHUB_CONNECTION_STRING", ""),
 		AzureEventHubCheckpointFile:    getenv("AZURE_EVENTHUB_CHECKPOINT_FILE", ""),
+		CrossServiceNATSURL:            getenv("CROSS_SERVICE_NATS_URL", ""),
+		CrossServiceNATSName:           getenv("CROSS_SERVICE_NATS_NAME", "rtk-account-manager"),
+		CrossServicePartitionCount:     intValue("CROSS_SERVICE_PARTITION_COUNT", 4),
 		AccountVideoCommandsStream:     getenv("ACCOUNT_VIDEO_COMMANDS_STREAM", "account.video.commands"),
 		VideoAccountEventsStream:       getenv("VIDEO_ACCOUNT_EVENTS_STREAM", "video.account.events"),
 		CrossServiceConsumerGroup:      getenv("CROSS_SERVICE_CONSUMER_GROUP", "rtk_account_manager"),
