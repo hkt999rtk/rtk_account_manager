@@ -2,6 +2,16 @@ openapi: 3.0.3
 info:
   title: RTK Account Manager API
   version: 0.1.0
+  description: |
+    RTK Account Manager is a backend service API and authoritative account-side
+    control plane for identity, tenant context, authorization, device registry,
+    and provisioning intent.
+
+    This service does not provide a WebUI, dashboard, frontend console, BFF
+    session layer, UI preferences, or display-cache ownership. WebUI and
+    dashboard experiences belong to client or console repositories such as
+    `rtk_cloud_admin`; those clients consume this OpenAPI contract instead of
+    being implemented in this server.
 servers:
   - url: http://localhost:8080
 paths:
