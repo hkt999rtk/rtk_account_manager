@@ -53,6 +53,8 @@ Generated: ci-candidate
 | Claim Token transfer and reclaim | `TestIntegrationAdminDeviceClaimOverrideWorkflow` | PASS |
 | Claim resolve API | `TestIntegrationClaimResolveEndpoint` | PASS |
 | Deactivation API | `TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata` | PASS |
+| Device user unprovision | `TestIntegrationDeviceUserUnprovisionWorkflow` | PASS |
+| Device unprovision override | `TestIntegrationAdminDeviceUnprovisionOverride` | PASS |
 | Message validation | `TestValidateRejectsEnvelopeContractMismatches` | PASS |
 | Contract parser fuzz seeds | `FuzzEnvelopeStrictJSONAndValidation` | PASS |
 | Strict API bind fuzz seeds | `FuzzBindStrictRequestShape` | PASS |
@@ -100,6 +102,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Claim resolve API | `TestIntegrationClaimResolveEndpoint` verifies owner/admin/member claim resolution, invalid/expired/already-claimed/cross-organization/unsupported-category/quota error codes, returned provisioning input with service options, and that resolve does not create provisioning operations or outbox messages. |
 | Claim resolve retryability | `TestWriteClaimResolveErrorIncludesRetryability` and `TestIntegrationClaimResolveEndpoint` verify machine-readable `retryable` and `resolution_action` hints for non-retryable policy failures, quota failures, and retryable service-unavailable errors. |
 | Deactivation API | `TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata` verifies projected metadata is required for new deactivation work, disabled account devices may still enqueue deactivation, default reason propagation, and transactional outbox creation from projected video metadata. |
+| Device user unprovision | `TestIntegrationDeviceUserUnprovisionWorkflow` verifies member self-service unprovision releases the user/org binding, old users can no longer read or deactivate the device, the original Claim Token remains one-time, a fresh Claim Token can onboard the same factory identity again, outsiders are rejected, and `DeviceUnprovisionRequested` is persisted to outbox with account/video identifiers. |
+| Device unprovision override | `TestIntegrationAdminDeviceUnprovisionOverride` verifies platform-admin override requires reason/evidence, non-platform users are rejected, `device_unprovisioned` audit events are written, and the outbox command marks `platform_override`. |
 | Device scoping | Lifecycle endpoints reject cross-organization reads and writes without leaking foreign device access. |
 | Authorization boundaries | owner/admin/member role permissions are enforced across device CRUD, provisioning, deactivation, and member management paths. |
 | Operation idempotency | Reusing the same lifecycle `operation_id` returns the existing operation and preserves the original outbox `message_id`, including retries after device disablement or missing live metadata. |
@@ -156,6 +160,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestHealthRoute`
 - `rtk_account_manager/internal/api`: `TestIntegrationACLAdminWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminDeviceClaimOverrideWorkflow`
+- `rtk_account_manager/internal/api`: `TestIntegrationDeviceUserUnprovisionWorkflow`
+- `rtk_account_manager/internal/api`: `TestIntegrationAdminDeviceUnprovisionOverride`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminDeviceClaimTokenWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminIdentityProviderWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminMetricsIncludesLifecycleVisibility`

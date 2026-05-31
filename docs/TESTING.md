@@ -53,6 +53,7 @@ Update tests whenever changing:
   compatibility, or last-owner rules.
 - Device lifecycle behavior, status changes, soft-delete behavior, or organization scoping.
 - Provisioning, deactivation, outbox, inbox, broker adapter, or cross-service projection behavior.
+- User unprovision, Claim Token reuse policy, device binding release, or platform-admin support override behavior.
 - SQL migrations, database constraints, or timestamp triggers.
 - OpenAPI request/response contracts.
 - Configuration loading or local development commands.
@@ -178,6 +179,8 @@ When implementing the v2 provisioning/event-channel milestone, the maintained re
 | Claim Token persistence | Claim Tokens are stored as hashes, resolve once, reject expired/already-claimed/cross-organization tokens, and only support categories accepted by the product policy. |
 | Claim Token admin workflow | Platform-admin generated/imported/revoked Claim Tokens never persist raw token values; generated raw tokens are returned once; revoked tokens cannot resolve. |
 | Claim Token transfer/reclaim | Platform-admin-only override endpoints require operator reason/evidence, preserve normal claim-resolve rejection, reject repeated override transitions, and emit audit events. |
+| Device user unprovision | Member/admin/owner can release a normal device binding for resale, old users can no longer operate the released device, the original Claim Token remains one-time, and a fresh Claim Token can onboard the same factory identity. |
+| Device unprovision override | Platform-admin override requires reason/evidence, rejects non-platform users, and writes audit evidence. |
 | Claim resolve API | `POST /v1/orgs/:orgId/devices/claim/resolve` returns provisioning input with `service_options`, allows owner/admin/member organization members, rejects outsiders, emits machine-readable errors, and does not publish lifecycle outbox work. |
 | Claim resolve retryability | Claim resolve errors include stable `retryable` and `resolution_action` hints for invalid, expired, already-claimed, cross-organization, unsupported, quota, and service-unavailable failures. |
 | Registry-only readiness | `GET /provisioning` returns account-side readiness with nullable `operation` for enabled and disabled registry-only devices while preserving `404` for missing devices. |

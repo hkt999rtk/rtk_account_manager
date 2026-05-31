@@ -8,13 +8,6 @@ BEGIN
             UNIQUE (organization_id, id);
     END IF;
 
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'device_operations_org_device_fkey'
-    ) THEN
-        ALTER TABLE device_operations
-            ADD CONSTRAINT device_operations_org_device_fkey
-            FOREIGN KEY (organization_id, device_id)
-            REFERENCES devices (organization_id, id)
-            ON DELETE CASCADE;
-    END IF;
+    ALTER TABLE device_operations
+        DROP CONSTRAINT IF EXISTS device_operations_org_device_fkey;
 END $$;

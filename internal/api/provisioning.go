@@ -40,6 +40,11 @@ type deactivateRequest struct {
 	OperationID string `json:"operation_id"`
 }
 
+type unprovisionRequest struct {
+	Reason   string         `json:"reason"`
+	Evidence map[string]any `json:"evidence"`
+}
+
 type claimResolveRequest struct {
 	ClaimToken string `json:"claim_token"`
 	DeviceName string `json:"device_name"`
@@ -59,6 +64,18 @@ type provisioningBody struct {
 	Operation     *operationResponse `json:"operation"`
 	Readiness     readinessResponse  `json:"readiness"`
 	VideoMetadata map[string]any     `json:"video_metadata"`
+}
+
+type deviceUnprovisionResponse struct {
+	Unprovision deviceUnprovisionBody `json:"unprovision"`
+}
+
+type deviceUnprovisionBody struct {
+	DeviceID        string    `json:"device_id"`
+	OrganizationID  string    `json:"organization_id"`
+	VideoCloudDevid string    `json:"video_cloud_devid"`
+	Status          string    `json:"status"`
+	UnprovisionedAt time.Time `json:"unprovisioned_at"`
 }
 
 type operationResponse struct {
@@ -346,6 +363,63 @@ func (s *Server) deactivateDevice(c *gin.Context) {
 		status = http.StatusOK
 	}
 	c.JSON(status, operationBody{Operation: operationFromResult(result.Operation, result.Message)})
+}
+
+func (s *Server) unprovisionDevice(c *gin.Context) {
+	var req unprovisionRequest
+	if !bindStrict(c, &req) {
+		return
+	}
+	result, err := s.store.UnprovisionDevice(c.Request.Context(), store.DeviceUnprovisionInput{
+		OrganizationID: c.Param("orgId"),
+		DeviceID:       c.Param("deviceId"),
+		ActorUserID:    currentUserID(c),
+		Reason:         req.Reason,
+		Now:            time.Now().UTC().Truncate(time.Microsecond),
+	})
+	if err != nil {
+		writeUnprovisionError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, unprovisionResponseFromResult(result))
+}
+
+func (s *Server) adminUnprovisionDevice(c *gin.Context) {
+	var req unprovisionRequest
+	if !bindStrict(c, &req) {
+		return
+	}
+	result, err := s.store.UnprovisionDevice(c.Request.Context(), store.DeviceUnprovisionInput{
+		DeviceID:         c.Param("deviceId"),
+		ActorUserID:      currentUserID(c),
+		Reason:           req.Reason,
+		Evidence:         req.Evidence,
+		PlatformOverride: true,
+		Now:              time.Now().UTC().Truncate(time.Microsecond),
+	})
+	if err != nil {
+		writeUnprovisionError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, unprovisionResponseFromResult(result))
+}
+
+func writeUnprovisionError(c *gin.Context, err error) {
+	if errors.Is(err, store.ErrClaimEvidenceRequired) {
+		writeError(c, http.StatusBadRequest, "operator_evidence_required", "Operator reason and evidence are required")
+		return
+	}
+	writeStoreError(c, err)
+}
+
+func unprovisionResponseFromResult(result store.DeviceUnprovisionResult) deviceUnprovisionResponse {
+	return deviceUnprovisionResponse{Unprovision: deviceUnprovisionBody{
+		DeviceID:        result.DeviceID,
+		OrganizationID:  result.OrganizationID,
+		VideoCloudDevid: result.VideoCloudDevid,
+		Status:          "unprovisioned",
+		UnprovisionedAt: result.UnprovisionedAt,
+	}}
 }
 
 func (s *Server) writeExistingLifecycleOperationIfMatch(c *gin.Context, operationID string, match func(model.DeviceOperation) error) (bool, error) {
