@@ -24,14 +24,17 @@ const (
 type MessageType string
 
 const (
-	MessageTypeDeviceProvisionRequested  MessageType = "DeviceProvisionRequested"
-	MessageTypeDeviceProvisionSucceeded  MessageType = "DeviceProvisionSucceeded"
-	MessageTypeDeviceProvisionFailed     MessageType = "DeviceProvisionFailed"
-	MessageTypeDeviceDeactivateRequested MessageType = "DeviceDeactivateRequested"
-	MessageTypeDeviceDeactivateSucceeded MessageType = "DeviceDeactivateSucceeded"
-	MessageTypeDeviceDeactivateFailed    MessageType = "DeviceDeactivateFailed"
-	MessageTypeDeviceOnlineChanged       MessageType = "DeviceOnlineChanged"
-	MessageTypeDeviceMetadataChanged     MessageType = "DeviceMetadataChanged"
+	MessageTypeDeviceProvisionRequested   MessageType = "DeviceProvisionRequested"
+	MessageTypeDeviceProvisionSucceeded   MessageType = "DeviceProvisionSucceeded"
+	MessageTypeDeviceProvisionFailed      MessageType = "DeviceProvisionFailed"
+	MessageTypeDeviceDeactivateRequested  MessageType = "DeviceDeactivateRequested"
+	MessageTypeDeviceDeactivateSucceeded  MessageType = "DeviceDeactivateSucceeded"
+	MessageTypeDeviceDeactivateFailed     MessageType = "DeviceDeactivateFailed"
+	MessageTypeDeviceUnprovisionRequested MessageType = "DeviceUnprovisionRequested"
+	MessageTypeDeviceUnprovisionSucceeded MessageType = "DeviceUnprovisionSucceeded"
+	MessageTypeDeviceUnprovisionFailed    MessageType = "DeviceUnprovisionFailed"
+	MessageTypeDeviceOnlineChanged        MessageType = "DeviceOnlineChanged"
+	MessageTypeDeviceMetadataChanged      MessageType = "DeviceMetadataChanged"
 )
 
 type OnlineStatus string
@@ -126,6 +129,33 @@ type DeviceDeactivateFailedPayload struct {
 	FailedAt        time.Time `json:"failed_at"`
 }
 
+type DeviceUnprovisionRequestedPayload struct {
+	OrgID            string    `json:"org_id"`
+	AccountDeviceID  string    `json:"account_device_id"`
+	VideoCloudDevid  string    `json:"video_cloud_devid"`
+	RequestedBy      string    `json:"requested_by"`
+	Reason           string    `json:"reason"`
+	PlatformOverride bool      `json:"platform_override"`
+	UnprovisionedAt  time.Time `json:"unprovisioned_at"`
+}
+
+type DeviceUnprovisionSucceededPayload struct {
+	OrgID           string    `json:"org_id"`
+	AccountDeviceID string    `json:"account_device_id"`
+	VideoCloudDevid string    `json:"video_cloud_devid"`
+	UnprovisionedAt time.Time `json:"unprovisioned_at"`
+}
+
+type DeviceUnprovisionFailedPayload struct {
+	OrgID           string    `json:"org_id"`
+	AccountDeviceID string    `json:"account_device_id"`
+	VideoCloudDevid string    `json:"video_cloud_devid"`
+	ErrorCode       string    `json:"error_code"`
+	ErrorMessage    string    `json:"error_message"`
+	Retryable       bool      `json:"retryable"`
+	FailedAt        time.Time `json:"failed_at"`
+}
+
 type DeviceOnlineChangedPayload struct {
 	OrgID           string       `json:"org_id"`
 	AccountDeviceID string       `json:"account_device_id"`
@@ -204,6 +234,32 @@ var messageSpecs = map[MessageType]messageSpec{
 		requiredJSONFields: []string{"retryable"},
 		newPayload: func() Payload {
 			return &DeviceDeactivateFailedPayload{}
+		},
+	},
+	MessageTypeDeviceUnprovisionRequested: {
+		stream:             StreamAccountVideoCommands,
+		sourceService:      ServiceAccountManager,
+		targetService:      ServiceRealtekVideoCloud,
+		requiredJSONFields: []string{"platform_override"},
+		newPayload: func() Payload {
+			return &DeviceUnprovisionRequestedPayload{}
+		},
+	},
+	MessageTypeDeviceUnprovisionSucceeded: {
+		stream:        StreamVideoAccountEvents,
+		sourceService: ServiceRealtekVideoCloud,
+		targetService: ServiceAccountManager,
+		newPayload: func() Payload {
+			return &DeviceUnprovisionSucceededPayload{}
+		},
+	},
+	MessageTypeDeviceUnprovisionFailed: {
+		stream:             StreamVideoAccountEvents,
+		sourceService:      ServiceRealtekVideoCloud,
+		targetService:      ServiceAccountManager,
+		requiredJSONFields: []string{"retryable"},
+		newPayload: func() Payload {
+			return &DeviceUnprovisionFailedPayload{}
 		},
 	},
 	MessageTypeDeviceOnlineChanged: {
@@ -436,6 +492,76 @@ func (p *DeviceDeactivateFailedPayload) Validate() error {
 }
 
 func (p *DeviceDeactivateFailedPayload) PartitionKey() string {
+	return p.AccountDeviceID
+}
+
+func (p *DeviceUnprovisionRequestedPayload) Validate() error {
+	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
+		return err
+	}
+	if err := validateRequiredStrings(
+		fieldValue{"payload.video_cloud_devid", p.VideoCloudDevid},
+		fieldValue{"payload.requested_by", p.RequestedBy},
+		fieldValue{"payload.reason", p.Reason},
+	); err != nil {
+		return err
+	}
+	if p.UnprovisionedAt.IsZero() {
+		return fieldError("payload.unprovisioned_at", "must be set")
+	}
+	if err := validateUTC("payload.unprovisioned_at", p.UnprovisionedAt); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *DeviceUnprovisionRequestedPayload) PartitionKey() string {
+	return p.AccountDeviceID
+}
+
+func (p *DeviceUnprovisionSucceededPayload) Validate() error {
+	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
+		return err
+	}
+	if err := validateRequiredStrings(
+		fieldValue{"payload.video_cloud_devid", p.VideoCloudDevid},
+	); err != nil {
+		return err
+	}
+	if p.UnprovisionedAt.IsZero() {
+		return fieldError("payload.unprovisioned_at", "must be set")
+	}
+	if err := validateUTC("payload.unprovisioned_at", p.UnprovisionedAt); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *DeviceUnprovisionSucceededPayload) PartitionKey() string {
+	return p.AccountDeviceID
+}
+
+func (p *DeviceUnprovisionFailedPayload) Validate() error {
+	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
+		return err
+	}
+	if err := validateRequiredStrings(
+		fieldValue{"payload.video_cloud_devid", p.VideoCloudDevid},
+		fieldValue{"payload.error_code", p.ErrorCode},
+		fieldValue{"payload.error_message", p.ErrorMessage},
+	); err != nil {
+		return err
+	}
+	if p.FailedAt.IsZero() {
+		return fieldError("payload.failed_at", "must be set")
+	}
+	if err := validateUTC("payload.failed_at", p.FailedAt); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *DeviceUnprovisionFailedPayload) PartitionKey() string {
 	return p.AccountDeviceID
 }
 

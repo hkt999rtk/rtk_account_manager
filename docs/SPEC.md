@@ -698,7 +698,7 @@ All endpoints are versioned under `/v1`.
 | `POST` | `/v1/admin/device-claim-tokens/:tokenId/revoke` | Yes | Platform admin | Revoke an unused or already claimed Claim Token. |
 | `POST` | `/v1/admin/device-claim-tokens/:tokenId/reclaim` | Yes | Platform admin | Reclaim a claimed token/device after support or factory-reset evidence. |
 | `POST` | `/v1/admin/device-claims/:claimId/transfer` | Yes | Platform admin | Transfer a resolved claim/token/device to another organization after operator evidence. |
-| `POST` | `/v1/admin/devices/:deviceId/unprovision` | Yes | Platform admin | Planned support override to release a normal device from its current user/org binding after reason, evidence, and audit. |
+| `POST` | `/v1/admin/devices/:deviceId/unprovision` | Yes | Platform admin | Support override to release a normal device from its current user/org binding after reason, evidence, and audit. |
 | `POST` | `/v1/admin/identity-providers` | Yes | Platform admin | Create an OIDC identity provider configuration without exposing raw secrets. |
 | `GET` | `/v1/admin/identity-providers` | Yes | Platform admin | List OIDC identity provider configurations without raw secrets. |
 | `GET` | `/v1/admin/identity-providers/:providerId` | Yes | Platform admin | Show one OIDC identity provider configuration without raw secrets. |
@@ -748,7 +748,7 @@ Fleet registry APIs are selection primitives only. Account manager owns group, t
 | `POST` | `/v1/orgs/:orgId/devices/:deviceId/provision` | Yes | `owner`, `admin`, `member` | Create or reuse a provisioning operation and enqueue `DeviceProvisionRequested`. |
 | `GET` | `/v1/orgs/:orgId/devices/:deviceId/provisioning` | Yes | `owner`, `admin`, `member` | Return latest provisioning operation, account-side readiness projection, and projected video metadata. |
 | `POST` | `/v1/orgs/:orgId/devices/:deviceId/deactivate` | Yes | `owner`, `admin`, `member` | Create or reuse a deactivation operation and enqueue `DeviceDeactivateRequested`. |
-| `POST` | `/v1/orgs/:orgId/devices/:deviceId/unprovision` | Yes | `owner`, `admin`, `member` | Planned user-facing release of a normal device from the current user/org binding for resale or re-onboarding. |
+| `POST` | `/v1/orgs/:orgId/devices/:deviceId/unprovision` | Yes | `owner`, `admin`, `member` | User-facing release of a normal device from the current user/org binding for resale or re-onboarding. |
 | `POST` | `/v1/orgs/:orgId/devices/claim/resolve` | Yes | `owner`, `admin`, `member` | Resolve an opaque Claim Token into an organization-owned registry device and provisioning input. |
 
 Provision request body:
@@ -890,7 +890,7 @@ Ownership consequences:
 
 User unprovision / factory-ready resale policy:
 
-User unprovision is a planned self-service lifecycle distinct from
+User unprovision is a self-service lifecycle distinct from
 deactivation, soft-disable, transfer, and reclaim. Account manager owns the
 user/org/device binding release policy. The normal user-facing endpoint is:
 
@@ -900,11 +900,19 @@ POST /v1/orgs/:orgId/devices/:deviceId/unprovision
 
 `owner`, `admin`, and `member` users may request unprovision for a device in
 their own active organization scope. The endpoint validates organization
-membership, device ownership, and the `device:unprovision` or equivalent
-permission before releasing the current user/org binding. After success, the
+membership, device ownership, and the `device.unprovision` permission before
+releasing the current user/org binding. After success, the
 previous user must no longer be able to list, inspect, provision, deactivate,
 command, stream, or otherwise operate that device through the released
 organization scope.
+
+The current implementation releases the binding by deleting the account-manager
+registry device row in the same transaction that writes the audit event and
+durable `DeviceUnprovisionRequested` outbox command. This is not the same as
+`DELETE /devices/:deviceId`: user unprovision requires a resolved Claim Token
+device, preserves the original one-time Claim Token as already claimed, and
+allows a future fresh Claim Token for the same factory identity to create a new
+registry device.
 
 Unprovision keeps the factory identity, factory certificate, canonical
 `service_options`, and entitlement facts intact. It does not revoke or denylist
@@ -912,7 +920,12 @@ the device, does not imply compromise, and does not authorize service access for
 the next owner until that owner completes possession proof, claim/bind, and a
 new device activation/provisioning flow.
 
-The platform-admin support override endpoint is planned as:
+The Video Cloud cross-service worker consumes `DeviceUnprovisionRequested`,
+calls `POST /api/devices/{devid}/unprovision`, clears only the
+`video_cloud_devid` binding fields such as `org_id` and `account_device_id`,
+and publishes `DeviceUnprovisionSucceeded` or `DeviceUnprovisionFailed`.
+
+The platform-admin support override endpoint is:
 
 ```http
 POST /v1/admin/devices/:deviceId/unprovision
@@ -1051,7 +1064,7 @@ Provisioning rules:
 - Registry soft-delete does not transfer ownership, release claim material, or
   prove product-level deactivation. Product teardown requires `POST
   .../deactivate` and a terminal video-side deactivation result.
-- User unprovision is a separate planned lifecycle. It releases the current
+- User unprovision is a separate lifecycle. It releases the current
   user/org binding for a normal resale or re-onboarding path, and it must not be
   implemented by `POST .../deactivate` or `DELETE /devices/:deviceId`.
 - Omitting the deactivation `reason` defaults the outbox payload to `account_device_disabled`.
@@ -1201,10 +1214,9 @@ vocabulary as follows:
 
 The shared states `claim_pending` and `local_onboarding_pending` remain outside
 the current account-manager projection until this repository owns durable
-source facts for those phases. A future user-unprovision implementation should
-add an explicit resale or factory-ready state rather than overloading
-`deactivated`, because unprovision does not remove factory identity, revoke the
-device certificate, or denylist device cloud access.
+source facts for those phases. User unprovision does not project `deactivated`:
+the current account-manager registry binding is released, so later readiness is
+reported only after a fresh Claim Token creates a new registry device.
 
 Account-side readiness states:
 
@@ -1462,13 +1474,13 @@ Current verified behavior:
 - `GET /provisioning` returns registry-only readiness for an existing device with no provisioning operation.
 - Failed or dead-lettered provisioning and deactivation readiness responses include `readiness.failure` attribution with layer, source state, retryability, error fields, operation id, and occurrence time.
 - Platform-admin quota request list/show and audit-event list APIs are implemented.
+- User unprovision APIs are implemented for org-scoped `owner`/`admin`/`member` users and platform-admin support override. They release the account registry binding, keep the original Claim Token one-time, permit future onboarding through a fresh Claim Token for the same factory identity, and write `device_unprovisioned` audit events.
 - These behaviors were merged through PR #92, PR #93, PR #94, PR #104, PR #106, PR #107, PR #108, and their related documentation/test-report updates.
 - The maintained test report includes Claim Token, registry-only readiness, failure-attribution, admin quota/audit, and OpenAPI correctness evidence.
 
 Remaining post-v2 follow-up items:
 
 - Implement the documented transfer, reclaim, and factory-reset policy for already-claimed devices.
-- Implement the documented user unprovision lifecycle with org-scoped member/admin/owner API, platform-admin override API, `device:unprovision` permissions, audit events, and readiness/product-state projection that does not reuse `deactivated`.
 - Retry and dead-letter rows are inspectable in Postgres, and `cmd/lifecycle-admin` exposes list, inspect, and safe requeue workflows for operators. A future operational visibility surface should summarize queue health, dead-letter counts, and latency without requiring direct SQL.
 - Account registry soft-delete and product-level video deactivation remain separate. Product teardown requires explicit `POST /deactivate`; `DELETE /devices/:deviceId` only disables the account-side registry record.
 - Account manager exposes an account-side readiness projection on `GET /provisioning`, but it still does not own a final cross-service "product ready" boolean. Any future unified readiness surface must compose account record, device activation, service-options ACL enforcement, subject-bound token issuance, device info/config, and transport ownership across service boundaries.

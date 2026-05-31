@@ -133,6 +133,8 @@ require_passed_test "Claim Token admin workflow" "TestDeviceClaimTokenAdminLifec
 require_passed_test "Claim Token transfer and reclaim" "TestIntegrationAdminDeviceClaimOverrideWorkflow"
 require_passed_test "Claim resolve API" "TestIntegrationClaimResolveEndpoint"
 require_passed_test "Deactivation API" "TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata"
+require_passed_test "Device user unprovision" "TestIntegrationDeviceUserUnprovisionWorkflow"
+require_passed_test "Device unprovision override" "TestIntegrationAdminDeviceUnprovisionOverride"
 require_passed_test "Message validation" "TestValidateRejectsEnvelopeContractMismatches"
 require_passed_test "Contract parser fuzz seeds" "FuzzEnvelopeStrictJSONAndValidation"
 require_passed_test "Strict API bind fuzz seeds" "FuzzBindStrictRequestShape"
@@ -226,6 +228,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Claim resolve API | \`TestIntegrationClaimResolveEndpoint\` verifies owner/admin/member claim resolution, invalid/expired/already-claimed/cross-organization/unsupported-category/quota error codes, returned provisioning input with service options, and that resolve does not create provisioning operations or outbox messages. |
 | Claim resolve retryability | \`TestWriteClaimResolveErrorIncludesRetryability\` and \`TestIntegrationClaimResolveEndpoint\` verify machine-readable \`retryable\` and \`resolution_action\` hints for non-retryable policy failures, quota failures, and retryable service-unavailable errors. |
 | Deactivation API | \`TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata\` verifies projected metadata is required for new deactivation work, disabled account devices may still enqueue deactivation, default reason propagation, and transactional outbox creation from projected video metadata. |
+| Device user unprovision | \`TestIntegrationDeviceUserUnprovisionWorkflow\` verifies member self-service unprovision releases the user/org binding, old users can no longer read or deactivate the device, the original Claim Token remains one-time, a fresh Claim Token can onboard the same factory identity again, and outsiders are rejected. |
+| Device unprovision override | \`TestIntegrationAdminDeviceUnprovisionOverride\` verifies platform-admin override requires reason/evidence, non-platform users are rejected, and \`device_unprovisioned\` audit events are written. |
 | Device scoping | Lifecycle endpoints reject cross-organization reads and writes without leaking foreign device access. |
 | Authorization boundaries | owner/admin/member role permissions are enforced across device CRUD, provisioning, deactivation, and member management paths. |
 | Operation idempotency | Reusing the same lifecycle \`operation_id\` returns the existing operation and preserves the original outbox \`message_id\`, including retries after device disablement or missing live metadata. |

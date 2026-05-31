@@ -98,7 +98,30 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 		"device_name": "Contract Claimed Camera",
 	}, registered.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/claim/resolve", claimResolveRes)
-	claimResolveBody := decodeBody[claimResolveBody](t, claimResolveRes)
+	claimResolved := decodeBody[claimResolveBody](t, claimResolveRes)
+
+	if _, err := store.New(env.db).CreateDeviceClaimToken(context.Background(), store.DeviceClaimTokenCreateInput{
+		OrganizationID:  &registeredOrgID,
+		TokenHash:       auth.HashToken("contract-unprovision-claim-token"),
+		Category:        model.DeviceCategoryMQTT,
+		VideoCloudDevid: "contract-unprovision-video-1",
+		ActivityID:      "contract-unprovision-activity-1",
+		ClipPublicKey:   "contract-unprovision-clip-key-1",
+		ServiceOptions:  []string{"mqtt"},
+		ExpiresAt:       time.Now().UTC().Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	unprovisionClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": "contract-unprovision-claim-token",
+		"device_name": "Contract Unprovision Device",
+	}, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/claim/resolve", unprovisionClaimRes)
+	unprovisionClaim := decodeBody[claimResolveBody](t, unprovisionClaimRes)
+	unprovisionRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/"+unprovisionClaim.Device.ID+"/unprovision", map[string]any{
+		"reason": "contract resale",
+	}, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/"+unprovisionClaim.Device.ID+"/unprovision", unprovisionRes)
 
 	verifyToken := latestAuthToken(t, env.tokenSink, "contract-signup@example.com", "email_verification")
 	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
@@ -137,6 +160,29 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	}, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/admin/device-claim-tokens", adminClaimTokenRes)
 	adminClaimTokenBody := decodeBody[deviceClaimTokenAdminBody](t, adminClaimTokenRes)
+	if _, err := store.New(env.db).CreateDeviceClaimToken(context.Background(), store.DeviceClaimTokenCreateInput{
+		OrganizationID:  &registeredOrgID,
+		TokenHash:       auth.HashToken("contract-admin-unprovision-claim-token"),
+		Category:        model.DeviceCategoryIPCamera,
+		VideoCloudDevid: "contract-admin-unprovision-video-1",
+		ActivityID:      "contract-admin-unprovision-activity-1",
+		ClipPublicKey:   "contract-admin-unprovision-clip-key-1",
+		ServiceOptions:  []string{"video_streaming", "video_storage"},
+		ExpiresAt:       time.Now().UTC().Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	adminUnprovisionClaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": "contract-admin-unprovision-claim-token",
+		"device_name": "Contract Admin Unprovision Device",
+	}, registered.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/orgs/"+registered.Organization.ID+"/devices/claim/resolve", adminUnprovisionClaimRes)
+	adminUnprovisionClaim := decodeBody[claimResolveBody](t, adminUnprovisionClaimRes)
+	adminUnprovisionRes := performJSON(env.router, http.MethodPost, "/v1/admin/devices/"+adminUnprovisionClaim.Device.ID+"/unprovision", map[string]any{
+		"reason":   "contract support unprovision",
+		"evidence": map[string]any{"ticket": "CONTRACT-UNPROVISION"},
+	}, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/devices/"+adminUnprovisionClaim.Device.ID+"/unprovision", adminUnprovisionRes)
 	adminIDPCreateRes := performJSON(env.router, http.MethodPost, "/v1/admin/identity-providers", map[string]any{
 		"provider_id":       "contract-keycloak",
 		"name":              "Contract Keycloak",
@@ -188,12 +234,12 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	contract.validate(t, http.MethodGet, "/v1/admin/device-claim-tokens", adminClaimTokensRes)
 	adminClaimTokenGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID, nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodGet, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID, adminClaimTokenGetRes)
-	claimTransferRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claims/"+claimResolveBody.ClaimID+"/transfer", map[string]any{
+	claimTransferRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claims/"+claimResolved.ClaimID+"/transfer", map[string]any{
 		"target_organization_id": admin.Organization.ID,
 		"reason":                 "contract support transfer",
 		"evidence":               map[string]any{"ticket": "CONTRACT-131"},
 	}, admin.Tokens.AccessToken)
-	contract.validate(t, http.MethodPost, "/v1/admin/device-claims/"+claimResolveBody.ClaimID+"/transfer", claimTransferRes)
+	contract.validate(t, http.MethodPost, "/v1/admin/device-claims/"+claimResolved.ClaimID+"/transfer", claimTransferRes)
 	if adminClaimTokenBody.ClaimToken == nil {
 		t.Fatalf("expected generated claim token for reclaim contract")
 	}

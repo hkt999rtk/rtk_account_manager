@@ -212,7 +212,9 @@ func TestCreateOrGetDeviceOperationRejectsMismatchedDeviceOrganization(t *testin
 		RequestedBy:    &userID,
 		RequestPayload: map[string]any{"video_cloud_devid": "device-1"},
 	})
-	requirePGErrorCode(t, err, "23503")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected mismatched organization/device to return ErrNotFound, got %v", err)
+	}
 }
 
 func TestDeviceMessagePersistenceRejectsInvalidSchemaValues(t *testing.T) {

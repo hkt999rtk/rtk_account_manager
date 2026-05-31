@@ -553,6 +553,51 @@ func TestRunOnceProcessesFailureAndProjectionEvents(t *testing.T) {
 			},
 		},
 		{
+			name: "unprovision success updates operation without device projection",
+			message: eventMessage(t, "msg-unprovision-succeeded", channel.MessageTypeDeviceUnprovisionSucceeded, now, channel.DeviceUnprovisionSucceededPayload{
+				OrgID:           "00000000-0000-0000-0000-000000000001",
+				AccountDeviceID: "11111111-1111-1111-1111-111111111111",
+				VideoCloudDevid: "video-1",
+				UnprovisionedAt: now,
+			}),
+			assertion: func(t *testing.T, transition store.InboxProcessTransitionInput) {
+				t.Helper()
+				if transition.OperationStatus == nil || *transition.OperationStatus != model.DeviceOperationStatusSucceeded {
+					t.Fatalf("expected succeeded operation status, got %+v", transition.OperationStatus)
+				}
+				if transition.Projection != nil {
+					t.Fatalf("expected no device projection for deleted account binding, got %+v", transition.Projection)
+				}
+				if transition.OperationResult["video_cloud_devid"] != "video-1" {
+					t.Fatalf("expected video devid in operation result, got %+v", transition.OperationResult)
+				}
+			},
+		},
+		{
+			name: "unprovision failure updates operation without device projection",
+			message: eventMessage(t, "msg-unprovision-failed", channel.MessageTypeDeviceUnprovisionFailed, now, channel.DeviceUnprovisionFailedPayload{
+				OrgID:           "00000000-0000-0000-0000-000000000001",
+				AccountDeviceID: "11111111-1111-1111-1111-111111111111",
+				VideoCloudDevid: "video-1",
+				ErrorCode:       "unprovision_failed",
+				ErrorMessage:    "server error",
+				Retryable:       true,
+				FailedAt:        now,
+			}),
+			assertion: func(t *testing.T, transition store.InboxProcessTransitionInput) {
+				t.Helper()
+				if transition.OperationStatus == nil || *transition.OperationStatus != model.DeviceOperationStatusFailed {
+					t.Fatalf("expected failed operation status, got %+v", transition.OperationStatus)
+				}
+				if transition.Projection != nil {
+					t.Fatalf("expected no device projection for deleted account binding, got %+v", transition.Projection)
+				}
+				if transition.OperationRetryable == nil || !*transition.OperationRetryable {
+					t.Fatalf("expected retryable failure, got %+v", transition.OperationRetryable)
+				}
+			},
+		},
+		{
 			name: "online changed updates device status projection only",
 			message: eventMessage(t, "msg-online", channel.MessageTypeDeviceOnlineChanged, now, channel.DeviceOnlineChangedPayload{
 				OrgID:           "00000000-0000-0000-0000-000000000001",
@@ -980,6 +1025,10 @@ func payloadPartitionKey(payload any) string {
 	case channel.DeviceDeactivateSucceededPayload:
 		return typed.AccountDeviceID
 	case channel.DeviceDeactivateFailedPayload:
+		return typed.AccountDeviceID
+	case channel.DeviceUnprovisionSucceededPayload:
+		return typed.AccountDeviceID
+	case channel.DeviceUnprovisionFailedPayload:
 		return typed.AccountDeviceID
 	case channel.DeviceOnlineChangedPayload:
 		return typed.AccountDeviceID

@@ -3569,6 +3569,249 @@ func TestIntegrationAdminDeviceClaimOverrideWorkflow(t *testing.T) {
 	}
 }
 
+func TestIntegrationDeviceUserUnprovisionWorkflow(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+
+	owner := registerUser(t, env.router, "unprovision-owner@example.com", "Unprovision Owner Org")
+	member := registerUser(t, env.router, "unprovision-member@example.com", "Unprovision Member Org")
+	outsider := registerUser(t, env.router, "unprovision-outsider@example.com", "Unprovision Outsider Org")
+	fixtures := newAPIFixtureBuilder(t, env)
+	fixtures.addMember(owner, member, "member")
+
+	claims := store.New(env.db)
+	rawToken := "unprovision-raw-claim-token"
+	token, err := claims.CreateDeviceClaimToken(ctx, store.DeviceClaimTokenCreateInput{
+		OrganizationID:  &owner.Organization.ID,
+		TokenHash:       auth.HashToken(rawToken),
+		Category:        model.DeviceCategoryMQTT,
+		VideoCloudDevid: "unprovision-video-device",
+		ActivityID:      "unprovision-activity",
+		ClipPublicKey:   "unprovision-clip-key",
+		ServiceOptions:  []string{"mqtt"},
+		ExpiresAt:       time.Now().UTC().Add(time.Hour),
+		Now:             time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resolveRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": rawToken,
+		"device_name": "Resale MQTT Device",
+	}, owner.Tokens.AccessToken)
+	if resolveRes.Code != http.StatusCreated {
+		t.Fatalf("expected claim resolve 201, got %d: %s", resolveRes.Code, resolveRes.Body.String())
+	}
+	resolved := decodeBody[claimResolveBody](t, resolveRes)
+
+	outsiderRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+resolved.Device.ID+"/unprovision", map[string]any{
+		"reason": "not my device",
+	}, outsider.Tokens.AccessToken)
+	if outsiderRes.Code != http.StatusNotFound {
+		t.Fatalf("expected outsider unprovision 404, got %d: %s", outsiderRes.Code, outsiderRes.Body.String())
+	}
+
+	unprovisionRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+resolved.Device.ID+"/unprovision", map[string]any{
+		"reason": "user resale",
+	}, member.Tokens.AccessToken)
+	if unprovisionRes.Code != http.StatusOK {
+		t.Fatalf("expected member unprovision 200, got %d: %s", unprovisionRes.Code, unprovisionRes.Body.String())
+	}
+	unprovisioned := decodeBody[deviceUnprovisionTestBody](t, unprovisionRes)
+	if unprovisioned.Unprovision.DeviceID != resolved.Device.ID ||
+		unprovisioned.Unprovision.OrganizationID != owner.Organization.ID ||
+		unprovisioned.Unprovision.VideoCloudDevid != "unprovision-video-device" ||
+		unprovisioned.Unprovision.Status != "unprovisioned" {
+		t.Fatalf("unexpected unprovision response: %+v", unprovisioned)
+	}
+
+	var operationID string
+	var messageType string
+	var partitionKey string
+	var payload []byte
+	if err := env.db.QueryRow(ctx, `
+		SELECT o.operation_id, m.message_type, m.partition_key, m.payload
+		FROM device_operations o
+		JOIN device_message_outbox m ON m.operation_id = o.operation_id
+		WHERE o.device_id = $1 AND o.operation_type = 'unprovision'
+	`, resolved.Device.ID).Scan(&operationID, &messageType, &partitionKey, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if messageType != "DeviceUnprovisionRequested" {
+		t.Fatalf("expected unprovision outbox message type, got %s", messageType)
+	}
+	if partitionKey != resolved.Device.ID {
+		t.Fatalf("expected unprovision partition key %s, got %s", resolved.Device.ID, partitionKey)
+	}
+	var commandPayload map[string]any
+	if err := json.Unmarshal(payload, &commandPayload); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"org_id", "account_device_id", "video_cloud_devid", "requested_by", "reason", "platform_override", "unprovisioned_at"} {
+		if _, ok := commandPayload[field]; !ok {
+			t.Fatalf("expected unprovision command payload field %q, got %+v", field, commandPayload)
+		}
+	}
+	if commandPayload["video_cloud_devid"] != "unprovision-video-device" || commandPayload["reason"] != "user resale" {
+		t.Fatalf("unexpected unprovision command payload: %+v", commandPayload)
+	}
+	unprovisionMessage, err := store.New(env.db).GetLatestOutboxMessageByOperationID(ctx, operationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unprovisionPayload := validateAccountCommandEnvelope(t, unprovisionMessage)
+	unprovisionCommand, ok := unprovisionPayload.(*channel.DeviceUnprovisionRequestedPayload)
+	if !ok {
+		t.Fatalf("expected unprovision payload type, got %T", unprovisionPayload)
+	}
+	if unprovisionCommand.VideoCloudDevid != "unprovision-video-device" ||
+		unprovisionCommand.Reason != "user resale" ||
+		unprovisionCommand.RequestedBy != member.User.ID ||
+		unprovisionCommand.PlatformOverride {
+		t.Fatalf("unexpected unprovision command payload: %+v", unprovisionCommand)
+	}
+
+	getOldRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/"+resolved.Device.ID, nil, owner.Tokens.AccessToken)
+	if getOldRes.Code != http.StatusNotFound {
+		t.Fatalf("expected old device binding to be gone, got %d: %s", getOldRes.Code, getOldRes.Body.String())
+	}
+	deactivateOldRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+resolved.Device.ID+"/deactivate", map[string]any{
+		"operation_id": "unprovision-old-deactivate",
+	}, member.Tokens.AccessToken)
+	if deactivateOldRes.Code != http.StatusNotFound {
+		t.Fatalf("expected old device deactivate 404, got %d: %s", deactivateOldRes.Code, deactivateOldRes.Body.String())
+	}
+	resolveOldTokenRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": rawToken,
+		"device_name": "Old Token Reuse",
+	}, owner.Tokens.AccessToken)
+	assertErrorCode(t, resolveOldTokenRes, http.StatusConflict, "already_claimed")
+
+	var claimedAt *time.Time
+	if err := env.db.QueryRow(ctx, `SELECT claimed_at FROM device_claim_tokens WHERE id = $1`, token.ID).Scan(&claimedAt); err != nil {
+		t.Fatal(err)
+	}
+	if claimedAt == nil {
+		t.Fatal("unprovision must not make the original one-time Claim Token reusable")
+	}
+
+	rawReplacementToken := "unprovision-replacement-raw-claim-token"
+	if _, err := claims.CreateDeviceClaimToken(ctx, store.DeviceClaimTokenCreateInput{
+		OrganizationID:  &owner.Organization.ID,
+		TokenHash:       auth.HashToken(rawReplacementToken),
+		Category:        model.DeviceCategoryMQTT,
+		VideoCloudDevid: "unprovision-video-device",
+		ActivityID:      "unprovision-activity-2",
+		ClipPublicKey:   "unprovision-clip-key-2",
+		ServiceOptions:  []string{"mqtt"},
+		ExpiresAt:       time.Now().UTC().Add(time.Hour),
+		Now:             time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reclaimRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": rawReplacementToken,
+		"device_name": "Reclaimed Resale MQTT Device",
+	}, member.Tokens.AccessToken)
+	if reclaimRes.Code != http.StatusCreated {
+		t.Fatalf("expected replacement claim resolve 201 after unprovision, got %d: %s", reclaimRes.Code, reclaimRes.Body.String())
+	}
+	reclaimed := decodeBody[claimResolveBody](t, reclaimRes)
+	if reclaimed.Device.ID == resolved.Device.ID || reclaimed.ProvisionInput.VideoCloudDevid != "unprovision-video-device" {
+		t.Fatalf("expected new registry device for same factory identity, got %+v", reclaimed)
+	}
+
+	auditRes := performJSON(env.router, http.MethodGet, "/v1/admin/audit-events?subject_type=device", nil, owner.Tokens.AccessToken)
+	if auditRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-platform audit list 403, got %d", auditRes.Code)
+	}
+}
+
+func TestIntegrationAdminDeviceUnprovisionOverride(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+
+	platformAdmin := registerUser(t, env.router, "unprovision-platform-admin@example.com", "Unprovision Platform Admin Org")
+	owner := registerUser(t, env.router, "unprovision-override-owner@example.com", "Unprovision Override Owner Org")
+	nonAdmin := registerUser(t, env.router, "unprovision-override-non-admin@example.com", "Unprovision Override Non Admin Org")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, platformAdmin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	rawToken := "unprovision-override-raw-claim-token"
+	_, err := store.New(env.db).CreateDeviceClaimToken(ctx, store.DeviceClaimTokenCreateInput{
+		OrganizationID:  &owner.Organization.ID,
+		TokenHash:       auth.HashToken(rawToken),
+		Category:        model.DeviceCategoryIPCamera,
+		VideoCloudDevid: "unprovision-override-video-device",
+		ActivityID:      "unprovision-override-activity",
+		ClipPublicKey:   "unprovision-override-clip-key",
+		ServiceOptions:  []string{"video_streaming", "video_storage"},
+		ExpiresAt:       time.Now().UTC().Add(time.Hour),
+		Now:             time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolveRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/claim/resolve", map[string]any{
+		"claim_token": rawToken,
+		"device_name": "Override Camera",
+	}, owner.Tokens.AccessToken)
+	if resolveRes.Code != http.StatusCreated {
+		t.Fatalf("expected override seed resolve 201, got %d: %s", resolveRes.Code, resolveRes.Body.String())
+	}
+	resolved := decodeBody[claimResolveBody](t, resolveRes)
+
+	nonAdminRes := performJSON(env.router, http.MethodPost, "/v1/admin/devices/"+resolved.Device.ID+"/unprovision", map[string]any{
+		"reason":   "support request",
+		"evidence": map[string]any{"ticket": "SUP-UNPROVISION-1"},
+	}, nonAdmin.Tokens.AccessToken)
+	if nonAdminRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-platform admin override 403, got %d: %s", nonAdminRes.Code, nonAdminRes.Body.String())
+	}
+	missingEvidenceRes := performJSON(env.router, http.MethodPost, "/v1/admin/devices/"+resolved.Device.ID+"/unprovision", map[string]any{
+		"reason":   "support request",
+		"evidence": map[string]any{},
+	}, platformAdmin.Tokens.AccessToken)
+	assertErrorCode(t, missingEvidenceRes, http.StatusBadRequest, "operator_evidence_required")
+
+	overrideRes := performJSON(env.router, http.MethodPost, "/v1/admin/devices/"+resolved.Device.ID+"/unprovision", map[string]any{
+		"reason":   "support verified resale release",
+		"evidence": map[string]any{"ticket": "SUP-UNPROVISION-2"},
+	}, platformAdmin.Tokens.AccessToken)
+	if overrideRes.Code != http.StatusOK {
+		t.Fatalf("expected platform admin override 200, got %d: %s", overrideRes.Code, overrideRes.Body.String())
+	}
+	override := decodeBody[deviceUnprovisionTestBody](t, overrideRes)
+	if override.Unprovision.DeviceID != resolved.Device.ID ||
+		override.Unprovision.OrganizationID != owner.Organization.ID ||
+		override.Unprovision.Status != "unprovisioned" {
+		t.Fatalf("unexpected override response: %+v", override)
+	}
+	overrideMessage, err := store.New(env.db).GetLatestOutboxMessageByOperationID(ctx, "unprovision-"+resolved.Device.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overridePayload := validateAccountCommandEnvelope(t, overrideMessage)
+	overrideCommand, ok := overridePayload.(*channel.DeviceUnprovisionRequestedPayload)
+	if !ok {
+		t.Fatalf("expected override unprovision payload type, got %T", overridePayload)
+	}
+	if !overrideCommand.PlatformOverride || overrideCommand.RequestedBy != platformAdmin.User.ID || overrideCommand.Reason != "support verified resale release" {
+		t.Fatalf("unexpected override unprovision command payload: %+v", overrideCommand)
+	}
+
+	auditRes := performJSON(env.router, http.MethodGet, "/v1/admin/audit-events?subject_type=device&event_type=device_unprovisioned", nil, platformAdmin.Tokens.AccessToken)
+	if auditRes.Code != http.StatusOK {
+		t.Fatalf("expected audit list 200, got %d: %s", auditRes.Code, auditRes.Body.String())
+	}
+	audit := decodeBody[auditEventsBody](t, auditRes)
+	if audit.Pagination.Total != 1 || !hasAuditEventBody(audit.AuditEvents, "device_unprovisioned") {
+		t.Fatalf("expected device_unprovisioned audit event, got %+v", audit)
+	}
+}
+
 func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 	env := newIntegrationEnv(t)
 
@@ -3904,6 +4147,16 @@ type deviceClaimOverrideAdminBody struct {
 		ID             string `json:"id"`
 		OrganizationID string `json:"organization_id"`
 	} `json:"device"`
+}
+
+type deviceUnprovisionTestBody struct {
+	Unprovision struct {
+		DeviceID        string    `json:"device_id"`
+		OrganizationID  string    `json:"organization_id"`
+		VideoCloudDevid string    `json:"video_cloud_devid"`
+		Status          string    `json:"status"`
+		UnprovisionedAt time.Time `json:"unprovisioned_at"`
+	} `json:"unprovision"`
 }
 
 type registryOnlyProvisioningBody struct {

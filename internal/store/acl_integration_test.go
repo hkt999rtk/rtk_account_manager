@@ -249,6 +249,11 @@ func TestACLPlatformAssignmentsAuditAndErrorPaths(t *testing.T) {
 	} else if !allowed {
 		t.Fatal("platform_admin compatibility flag should grant platform permission")
 	}
+	if allowed, err := env.store.HasPermission(ctx, registered.User.ID, "", "device.unprovision_override"); err != nil {
+		t.Fatal(err)
+	} else if !allowed {
+		t.Fatal("platform_admin compatibility flag should grant unprovision override permission")
+	}
 	if allowed, err := env.store.HasPermission(ctx, registered.User.ID, registered.Organization.ID, ""); err != nil {
 		t.Fatal(err)
 	} else if allowed {

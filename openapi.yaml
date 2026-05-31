@@ -1336,6 +1336,42 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+  /v1/admin/devices/{deviceId}/unprovision:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Platform-admin override to unprovision a normal device.
+      description: >
+        Platform-admin only. Releases the current account-manager user/org
+        binding for a normal resale, return, repair, dispute, or customer-care
+        case after explicit operator reason and evidence. This is not
+        deactivation and does not revoke factory certificate material,
+        denylist the device, or expose raw Claim Token/private device material.
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminDeviceUnprovisionRequest"
+      responses:
+        "200":
+          description: Device user/org binding released.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceUnprovisionResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/members:
     get:
       security:
@@ -1984,6 +2020,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DeviceOperationResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/devices/{deviceId}/unprovision:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Unprovision a normal device for resale or re-onboarding.
+      description: >
+        Releases the current account-manager user/org binding for a normal
+        device so a later owner can onboard it through fresh possession proof.
+        This route is distinct from product deactivation and registry
+        soft-disable: it does not revoke the factory certificate, denylist the
+        device, or change canonical `service_options`.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceUnprovisionRequest"
+      responses:
+        "200":
+          description: Device user/org binding released.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceUnprovisionResponse"
         "400":
           $ref: "#/components/responses/Error"
         "401":
@@ -3004,6 +3077,50 @@ components:
           type: string
         reason:
           type: string
+    DeviceUnprovisionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          description: Optional user-facing reason for the resale or re-onboarding release.
+    AdminDeviceUnprovisionRequest:
+      type: object
+      required: [reason, evidence]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 1
+        evidence:
+          type: object
+          minProperties: 1
+          additionalProperties: true
+          description: Operator-controlled support evidence, for example a ticket id, RMA id, repair case, or dispute record.
+    DeviceUnprovisionResponse:
+      type: object
+      required: [unprovision]
+      properties:
+        unprovision:
+          $ref: "#/components/schemas/DeviceUnprovision"
+    DeviceUnprovision:
+      type: object
+      required: [device_id, organization_id, video_cloud_devid, status, unprovisioned_at]
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        video_cloud_devid:
+          type: string
+        status:
+          type: string
+          enum: [unprovisioned]
+        unprovisioned_at:
+          type: string
+          format: date-time
     QuotaRaiseRequestRequest:
       type: object
       required: [requested_quota, use_case, contact_info]

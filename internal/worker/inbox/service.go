@@ -366,6 +366,32 @@ func buildTransitionForPayload(envelope channel.Envelope, payload channel.Payloa
 			typed.ErrorMessage,
 			typed.Retryable,
 		), nil
+	case *channel.DeviceUnprovisionSucceededPayload:
+		return successTransitionWithoutProjection(
+			typed.OrgID,
+			typed.AccountDeviceID,
+			typed.UnprovisionedAt.UTC(),
+			map[string]any{
+				"video_cloud_devid": typed.VideoCloudDevid,
+				"unprovisioned_at":  typed.UnprovisionedAt.UTC(),
+			},
+		), nil
+	case *channel.DeviceUnprovisionFailedPayload:
+		return failureTransitionWithoutProjection(
+			typed.OrgID,
+			typed.AccountDeviceID,
+			typed.FailedAt.UTC(),
+			map[string]any{
+				"video_cloud_devid": typed.VideoCloudDevid,
+				"error_code":        typed.ErrorCode,
+				"error_message":     typed.ErrorMessage,
+				"retryable":         typed.Retryable,
+				"failed_at":         typed.FailedAt.UTC(),
+			},
+			typed.ErrorCode,
+			typed.ErrorMessage,
+			typed.Retryable,
+		), nil
 	case *channel.DeviceOnlineChangedPayload:
 		return store.InboxProcessTransitionInput{
 			OrganizationID: typed.OrgID,
@@ -395,6 +421,17 @@ func successTransition(orgID, deviceID string, completedAt time.Time, projection
 	}
 }
 
+func successTransitionWithoutProjection(orgID, deviceID string, completedAt time.Time, result map[string]any) store.InboxProcessTransitionInput {
+	status := model.DeviceOperationStatusSucceeded
+	return store.InboxProcessTransitionInput{
+		OperationStatus:      &status,
+		OperationResult:      result,
+		OperationCompletedAt: &completedAt,
+		OrganizationID:       orgID,
+		DeviceID:             deviceID,
+	}
+}
+
 func failureTransition(orgID, deviceID string, completedAt time.Time, projection store.DeviceProjectionInput, result map[string]any, errorCode, errorMessage string, retryable bool) store.InboxProcessTransitionInput {
 	status := model.DeviceOperationStatusFailed
 	return store.InboxProcessTransitionInput{
@@ -407,6 +444,20 @@ func failureTransition(orgID, deviceID string, completedAt time.Time, projection
 		OrganizationID:        orgID,
 		DeviceID:              deviceID,
 		Projection:            projectionPtr(projection),
+	}
+}
+
+func failureTransitionWithoutProjection(orgID, deviceID string, completedAt time.Time, result map[string]any, errorCode, errorMessage string, retryable bool) store.InboxProcessTransitionInput {
+	status := model.DeviceOperationStatusFailed
+	return store.InboxProcessTransitionInput{
+		OperationStatus:       &status,
+		OperationResult:       result,
+		OperationErrorCode:    stringPtr(errorCode),
+		OperationErrorMessage: stringPtr(errorMessage),
+		OperationRetryable:    boolPtr(retryable),
+		OperationCompletedAt:  &completedAt,
+		OrganizationID:        orgID,
+		DeviceID:              deviceID,
 	}
 }
 
@@ -456,7 +507,9 @@ func clonePayloadMap(payload map[string]any) map[string]any {
 func isCompletedLifecycleOperation(operation model.DeviceOperation) bool {
 	switch operation.Status {
 	case model.DeviceOperationStatusSucceeded, model.DeviceOperationStatusFailed:
-		return operation.OperationType == model.DeviceOperationTypeProvision || operation.OperationType == model.DeviceOperationTypeDeactivate
+		return operation.OperationType == model.DeviceOperationTypeProvision ||
+			operation.OperationType == model.DeviceOperationTypeDeactivate ||
+			operation.OperationType == model.DeviceOperationTypeUnprovision
 	default:
 		return false
 	}

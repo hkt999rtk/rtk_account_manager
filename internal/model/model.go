@@ -260,8 +260,9 @@ const (
 type DeviceOperationType string
 
 const (
-	DeviceOperationTypeProvision  DeviceOperationType = "provision"
-	DeviceOperationTypeDeactivate DeviceOperationType = "deactivate"
+	DeviceOperationTypeProvision   DeviceOperationType = "provision"
+	DeviceOperationTypeDeactivate  DeviceOperationType = "deactivate"
+	DeviceOperationTypeUnprovision DeviceOperationType = "unprovision"
 )
 
 type DeviceOperationStatus string
