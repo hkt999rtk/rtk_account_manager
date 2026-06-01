@@ -62,6 +62,7 @@ if [ -z "$node_exporter_listen_addr" ]; then
     node_exporter_listen_addr="127.0.0.1:9100"
   fi
 fi
+printf '[account-manager-deploy] node exporter listen address: %s\n' "$node_exporter_listen_addr" >&2
 [ -n "$certbot_email" ] || [ "$certbot_enable" = 0 ] || die "ACCOUNT_MANAGER_LINODE_CERTBOT_EMAIL is required when certbot is enabled"
 if [ -n "$cert_cache_dir" ]; then
   [ -s "$cert_cache_dir/fullchain.pem" ] || die "cached certificate fullchain not found: $cert_cache_dir/fullchain.pem"
@@ -88,7 +89,7 @@ else
   printf '[account-manager-deploy] building Linux release %s\n' "$release" >&2
   (
     cd "$root_dir"
-    GOOS=linux GOARCH=amd64 CGO_ENABLED=0 VERSION="$release" make release >/dev/null
+    GOWORK=off GOOS=linux GOARCH=amd64 CGO_ENABLED=0 VERSION="$release" make release >/dev/null
   )
   cp "$root_dir/dist/rtk_account_manager-${release}.tar.gz" "$bundle"
 fi
@@ -271,7 +272,17 @@ systemctl daemon-reload
 systemctl enable --now prometheus-node-exporter
 systemctl restart prometheus-node-exporter
 systemctl is-active prometheus-node-exporter
-ss -lnt | grep "$node_exporter_listen_addr"
+for _ in $(seq 1 10); do
+  if ss -lnt | grep -F "$node_exporter_listen_addr" >/dev/null; then
+    node_exporter_ready=1
+    break
+  fi
+  sleep 1
+done
+if [ "${node_exporter_ready:-0}" != "1" ]; then
+  ss -lnt >&2 || true
+  exit 1
+fi
 systemctl start rtk-account-manager-migrate.service
 systemctl enable --now rtk-account-manager-cleanup-tokens.timer
 systemctl enable --now rtk-account-manager.service
@@ -300,8 +311,7 @@ server {
 }
 NGINX
 ln -sf /etc/nginx/sites-available/rtk-account-manager.conf /etc/nginx/sites-enabled/rtk-account-manager.conf
-ln -sf /etc/nginx/sites-available/rtk-account-manager.conf /etc/nginx/conf.d/rtk-account-manager.conf
-rm -f /etc/nginx/sites-enabled/default /etc/nginx/conf.d/default.conf
+rm -f /etc/nginx/conf.d/rtk-account-manager.conf /etc/nginx/sites-enabled/default /etc/nginx/conf.d/default.conf
 nginx -t
 systemctl reload nginx
 
