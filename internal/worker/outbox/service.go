@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"time"
 
+	cloudlogger "github.com/hkt999rtk/rtk_cloud_logger"
+	"go.uber.org/zap"
+
 	"rtk_account_manager/internal/broker"
 	"rtk_account_manager/internal/channel"
 	"rtk_account_manager/internal/model"
@@ -27,6 +30,7 @@ type Options struct {
 	LeaseDuration time.Duration
 	BatchSize     int
 	Now           func() time.Time
+	Logger        *zap.Logger
 }
 
 type Service struct {
@@ -38,6 +42,7 @@ type Service struct {
 	leaseDuration time.Duration
 	batchSize     int
 	now           func() time.Time
+	logger        *zap.Logger
 }
 
 type Stats struct {
@@ -87,6 +92,7 @@ func NewService(store messageStore, publisher broker.Publisher, opts Options) *S
 		leaseDuration: leaseDuration,
 		batchSize:     batchSize,
 		now:           nowFn,
+		logger:        loggerOrNop(opts.Logger),
 	}
 }
 
@@ -113,6 +119,7 @@ func (s *Service) RunOnce(ctx context.Context) (Stats, error) {
 	now := s.currentTime()
 	claimed, err := s.store.ClaimOutboxMessagesReady(ctx, now, now.Add(s.leaseDuration), s.batchSize)
 	if err != nil {
+		s.logger.Error("outbox claim failed", zap.Error(err))
 		return Stats{}, err
 	}
 
@@ -124,16 +131,20 @@ func (s *Service) RunOnce(ctx context.Context) (Stats, error) {
 
 		outcome, err := s.publishMessage(ctx, message)
 		if err != nil {
+			s.logger.Error("outbox message failed", append(outboxLogFields(message), zap.Error(err))...)
 			return stats, err
 		}
 
 		switch outcome {
 		case model.DeviceMessageOutboxStatusPublished:
 			stats.Published++
+			s.logger.Info("outbox message published", outboxLogFields(message)...)
 		case model.DeviceMessageOutboxStatusRetrying:
 			stats.Retrying++
+			s.logger.Warn("outbox message retrying", outboxLogFields(message)...)
 		case model.DeviceMessageOutboxStatusDeadLettered:
 			stats.DeadLettered++
+			s.logger.Error("outbox message dead lettered", outboxLogFields(message)...)
 		}
 	}
 
@@ -283,4 +294,23 @@ func (s *Service) currentTime() time.Time {
 
 func stringPtr(value string) *string {
 	return &value
+}
+
+func loggerOrNop(logger *zap.Logger) *zap.Logger {
+	if logger == nil {
+		return cloudlogger.Nop()
+	}
+	return logger
+}
+
+func outboxLogFields(message model.DeviceMessageOutbox) []zap.Field {
+	return []zap.Field{
+		zap.String("message_id", message.MessageID),
+		zap.String("operation_id", message.OperationID),
+		zap.String("trace_id", message.CorrelationID),
+		zap.String("request_id", message.CorrelationID),
+		zap.String("stream", message.Stream),
+		zap.String("message_type", message.MessageType),
+		zap.Int("attempt_count", message.AttemptCount+1),
+	}
 }

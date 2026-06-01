@@ -10,6 +10,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	cloudlogger "github.com/hkt999rtk/rtk_cloud_logger"
+	"go.uber.org/zap"
+
 	"rtk_account_manager/internal/broker"
 	"rtk_account_manager/internal/channel"
 	"rtk_account_manager/internal/model"
@@ -29,6 +32,7 @@ type Options struct {
 	PollInterval  time.Duration
 	BatchSize     int
 	Now           func() time.Time
+	Logger        *zap.Logger
 }
 
 type Service struct {
@@ -40,6 +44,7 @@ type Service struct {
 	pollInterval  time.Duration
 	batchSize     int
 	now           func() time.Time
+	logger        *zap.Logger
 }
 
 type Stats struct {
@@ -94,6 +99,7 @@ func NewService(store messageStore, consumer broker.Consumer, opts Options) *Ser
 		pollInterval:  pollInterval,
 		batchSize:     batchSize,
 		now:           nowFn,
+		logger:        loggerOrNop(opts.Logger),
 	}
 }
 
@@ -121,6 +127,7 @@ func (s *Service) Run(ctx context.Context) error {
 func (s *Service) RunOnce(ctx context.Context) (Stats, error) {
 	records, err := s.consumer.Receive(ctx, s.batchSize)
 	if err != nil {
+		s.logger.Error("inbox receive failed", zap.Error(err))
 		return Stats{}, err
 	}
 
@@ -132,10 +139,12 @@ func (s *Service) RunOnce(ctx context.Context) (Stats, error) {
 
 		outcome, err := s.processMessage(ctx, record)
 		if err != nil {
+			s.logger.Error("inbox message failed", append(inboxLogFields(record), zap.Error(err))...)
 			return stats, err
 		}
 		if shouldAcknowledgeOutcome(outcome) {
 			if err := record.Acknowledge(ctx); err != nil {
+				s.logger.Error("inbox acknowledge failed", append(inboxLogFields(record), zap.Error(err))...)
 				return stats, err
 			}
 		}
@@ -143,12 +152,16 @@ func (s *Service) RunOnce(ctx context.Context) (Stats, error) {
 		switch outcome {
 		case model.DeviceMessageInboxStatusProcessed:
 			stats.Processed++
+			s.logger.Info("inbox message processed", inboxLogFields(record)...)
 		case model.DeviceMessageInboxStatusRetrying:
 			stats.Retrying++
+			s.logger.Warn("inbox message retrying", inboxLogFields(record)...)
 		case model.DeviceMessageInboxStatusDeadLettered:
 			stats.DeadLettered++
+			s.logger.Error("inbox message dead lettered", inboxLogFields(record)...)
 		case "":
 			stats.Skipped++
+			s.logger.Info("inbox message skipped", inboxLogFields(record)...)
 		}
 	}
 
@@ -525,6 +538,24 @@ func stringPtr(value string) *string {
 
 func boolPtr(value bool) *bool {
 	return &value
+}
+
+func loggerOrNop(logger *zap.Logger) *zap.Logger {
+	if logger == nil {
+		return cloudlogger.Nop()
+	}
+	return logger
+}
+
+func inboxLogFields(record broker.Message) []zap.Field {
+	return []zap.Field{
+		zap.String("message_id", record.Envelope.MessageID),
+		zap.String("operation_id", record.Envelope.OperationID),
+		zap.String("trace_id", record.Envelope.CorrelationID),
+		zap.String("request_id", record.Envelope.CorrelationID),
+		zap.String("stream", record.Stream),
+		zap.String("message_type", string(record.Envelope.MessageType)),
+	}
 }
 
 func causationIDPtr(value string) *string {

@@ -9,6 +9,7 @@ User=rtk-account-manager
 Group=rtk-account-manager
 EnvironmentFile=/etc/rtk-account-manager/account-manager.env
 ExecStart=/opt/rtk-account-manager/bin/rtk-account-manager
+SyslogIdentifier=rtk-account-manager
 Restart=on-failure
 RestartSec=5s
 NoNewPrivileges=true

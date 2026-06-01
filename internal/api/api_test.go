@@ -1,11 +1,10 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/smtp"
@@ -14,6 +13,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/model"
@@ -58,6 +60,87 @@ func TestHealthRoute(t *testing.T) {
 	}
 	if body.Status != "ok" {
 		t.Fatalf("expected ok status, got %q", body.Status)
+	}
+}
+
+func TestHealthRequestEmitsStructuredLog(t *testing.T) {
+	core, logs := observer.New(zapcore.InfoLevel)
+	logger := zap.New(core).With(
+		zap.String("service", "rtk_account_manager_api"),
+		zap.String("env", "staging"),
+		zap.String("version", "build-1"),
+	)
+	server := New(nil, nil)
+	server.SetLogger(logger)
+	router := server.Router()
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/health?token=secret-token", nil)
+	req.Header.Set("X-Request-Id", "req-123")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected health 200, got %d", res.Code)
+	}
+	entries := logs.FilterMessage("http request").All()
+	if len(entries) != 1 {
+		t.Fatalf("expected one request log, got %d", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	for key, want := range map[string]any{
+		"service":    "rtk_account_manager_api",
+		"env":        "staging",
+		"version":    "build-1",
+		"request_id": "req-123",
+		"status":     int64(http.StatusOK),
+	} {
+		if got := fields[key]; got != want {
+			t.Fatalf("expected %s=%v, got %v in %+v", key, want, got, fields)
+		}
+	}
+	if _, ok := fields["duration_ms"]; !ok {
+		t.Fatalf("expected duration_ms field in %+v", fields)
+	}
+	if got := fields["path"]; got != "/v1/health?token=[REDACTED]" {
+		t.Fatalf("expected redacted path, got %v", got)
+	}
+}
+
+func TestRecoveryLogDoesNotIncludeSensitiveHeaders(t *testing.T) {
+	core, logs := observer.New(zapcore.InfoLevel)
+	server := New(nil, nil)
+	server.SetLogger(zap.New(core))
+	router := server.Router()
+	router.GET("/panic", func(*gin.Context) {
+		panic("boom")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/panic?client_secret=top-secret", nil)
+	req.Header.Set("Authorization", "Bearer secret-token")
+	req.Header.Set("Cookie", "refresh_token=secret-refresh")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusInternalServerError {
+		t.Fatalf("expected panic recovery 500, got %d", res.Code)
+	}
+	entries := logs.FilterMessage("panic recovered").All()
+	if len(entries) != 1 {
+		t.Fatalf("expected one panic recovery log, got %d", len(entries))
+	}
+	got := entries[0].ContextMap()
+	serialized := entries[0].Message + strings.Join([]string{
+		fmt.Sprint(got["path"]),
+		fmt.Sprint(got["authorization"]),
+		fmt.Sprint(got["cookie"]),
+	}, " ")
+	for _, sensitive := range []string{"top-secret", "secret-token", "secret-refresh"} {
+		if strings.Contains(serialized, sensitive) {
+			t.Fatalf("recovery log exposed sensitive value %q in %+v", sensitive, got)
+		}
+	}
+	if got["path"] != "/panic?client_secret=[REDACTED]" {
+		t.Fatalf("expected redacted panic path, got %+v", got)
 	}
 }
 
@@ -138,8 +221,8 @@ func TestAuthTokenDeliveryHook(t *testing.T) {
 }
 
 func TestLogAuthTokenSinkWritesDelivery(t *testing.T) {
-	var buf bytes.Buffer
-	sink := NewLogAuthTokenSink(log.New(&buf, "", 0))
+	core, logs := observer.New(zapcore.InfoLevel)
+	sink := NewLogAuthTokenSink(zap.New(core))
 	expiresAt := time.Date(2026, 5, 4, 12, 30, 0, 0, time.UTC)
 
 	err := sink.DeliverAuthToken(context.Background(), AuthTokenDelivery{
@@ -152,22 +235,25 @@ func TestLogAuthTokenSinkWritesDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := buf.String()
-	for _, want := range []string{
-		"purpose=password_reset",
-		"email=user@example.com",
-		"token=reset-token",
-		"expires_at=2026-05-04T12:30:00Z",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("expected log output to contain %q, got %q", want, got)
-		}
+	entries := logs.FilterMessage("auth token delivery").All()
+	if len(entries) != 1 {
+		t.Fatalf("expected one auth token log, got %d", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if fields["purpose"] != "password_reset" || fields["email"] != "user@example.com" {
+		t.Fatalf("unexpected auth token log fields: %+v", fields)
+	}
+	if _, ok := fields["token"]; ok {
+		t.Fatalf("auth token log must not expose raw token: %+v", fields)
+	}
+	if fields["token_redacted"] != true {
+		t.Fatalf("expected token_redacted marker, got %+v", fields)
 	}
 }
 
 func TestLogQuotaRaiseNotificationSinkWritesDelivery(t *testing.T) {
-	var buf bytes.Buffer
-	sink := NewLogQuotaRaiseNotificationSink(log.New(&buf, "", 0))
+	core, logs := observer.New(zapcore.InfoLevel)
+	sink := NewLogQuotaRaiseNotificationSink(zap.New(core))
 
 	approvedQuota := 12
 	decisionReason := "approved for pilot"
@@ -186,17 +272,21 @@ func TestLogQuotaRaiseNotificationSinkWritesDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := buf.String()
-	for _, want := range []string{
-		"decision=approved",
-		"email=owner@example.com",
-		"org_id=org-1",
-		"org_name=Owner Org",
-		"requested_quota=8",
-		"approved_quota=",
+	entries := logs.FilterMessage("quota raise notification").All()
+	if len(entries) != 1 {
+		t.Fatalf("expected one quota notification log, got %d", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	for key, want := range map[string]any{
+		"decision":        "approved",
+		"email":           "owner@example.com",
+		"org_id":          "org-1",
+		"org_name":        "Owner Org",
+		"requested_quota": int64(8),
+		"approved_quota":  int64(12),
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("expected log output to contain %q, got %q", want, got)
+		if got := fields[key]; got != want {
+			t.Fatalf("expected %s=%v, got %v in %+v", key, want, got, fields)
 		}
 	}
 }

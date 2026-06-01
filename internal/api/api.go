@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/smtp"
 	"strconv"
@@ -15,6 +14,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	cloudlogger "github.com/hkt999rtk/rtk_cloud_logger"
+	"go.uber.org/zap"
 
 	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/model"
@@ -32,6 +33,7 @@ type Server struct {
 	oidcClient                 auth.OIDCClient
 	oidcStateTTL               time.Duration
 	oidcEnvClientSecretRef     string
+	logger                     *zap.Logger
 }
 
 var ErrAuthTokenSinkUnavailable = errors.New("auth token sink unavailable")
@@ -43,6 +45,7 @@ func newServer(store *store.Store, authService *auth.Service, sink AuthTokenSink
 		authTokenSink: sink,
 		signupLimiter: newSignupLimiter(5, time.Hour),
 		signupPolicy:  loadSignupPolicy(),
+		logger:        cloudlogger.Nop(),
 	}
 }
 
@@ -92,24 +95,24 @@ type AuthTokenSink interface {
 }
 
 type LogAuthTokenSink struct {
-	logger *log.Logger
+	logger *zap.Logger
 }
 
-func NewLogAuthTokenSink(logger *log.Logger) LogAuthTokenSink {
+func NewLogAuthTokenSink(logger *zap.Logger) LogAuthTokenSink {
 	return LogAuthTokenSink{logger: logger}
 }
 
 func (s LogAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthTokenDelivery) error {
 	logger := s.logger
 	if logger == nil {
-		logger = log.Default()
+		logger = cloudlogger.Nop()
 	}
-	logger.Printf(
-		"auth token delivery purpose=%s email=%s token=%s expires_at=%s",
-		delivery.Purpose,
-		delivery.Email,
-		delivery.Token,
-		delivery.ExpiresAt.Format(time.RFC3339),
+	logger.Info(
+		"auth token delivery",
+		zap.String("purpose", delivery.Purpose),
+		zap.String("email", delivery.Email),
+		zap.Time("expires_at", delivery.ExpiresAt.UTC()),
+		zap.Bool("token_redacted", strings.TrimSpace(delivery.Token) != ""),
 	)
 	return nil
 }
@@ -134,26 +137,31 @@ type QuotaRaiseNotificationSink interface {
 }
 
 type LogQuotaRaiseNotificationSink struct {
-	logger *log.Logger
+	logger *zap.Logger
 }
 
-func NewLogQuotaRaiseNotificationSink(logger *log.Logger) LogQuotaRaiseNotificationSink {
+func NewLogQuotaRaiseNotificationSink(logger *zap.Logger) LogQuotaRaiseNotificationSink {
 	return LogQuotaRaiseNotificationSink{logger: logger}
 }
 
 func (s LogQuotaRaiseNotificationSink) DeliverQuotaRaiseNotification(_ context.Context, delivery QuotaRaiseNotificationDelivery) error {
 	logger := s.logger
 	if logger == nil {
-		logger = log.Default()
+		logger = cloudlogger.Nop()
 	}
-	logger.Printf(
-		"quota raise notification decision=%s email=%s org_id=%s org_name=%s requested_quota=%d approved_quota=%v",
-		delivery.Decision,
-		delivery.RecipientEmail,
-		delivery.OrganizationID,
-		delivery.OrganizationName,
-		delivery.RequestedQuota,
-		delivery.ApprovedQuota,
+	fields := []zap.Field{
+		zap.String("decision", delivery.Decision),
+		zap.String("email", delivery.RecipientEmail),
+		zap.String("org_id", delivery.OrganizationID),
+		zap.String("org_name", delivery.OrganizationName),
+		zap.Int("requested_quota", delivery.RequestedQuota),
+	}
+	if delivery.ApprovedQuota != nil {
+		fields = append(fields, zap.Int("approved_quota", *delivery.ApprovedQuota))
+	}
+	logger.Info(
+		"quota raise notification",
+		fields...,
 	)
 	return nil
 }
@@ -221,9 +229,67 @@ func NewWithAuthTokenAndNotificationSink(store *store.Store, authService *auth.S
 	return server
 }
 
+func (s *Server) SetLogger(logger *zap.Logger) {
+	if logger == nil {
+		logger = cloudlogger.Nop()
+	}
+	s.logger = logger
+}
+
+func (s *Server) requestLogger() gin.HandlerFunc {
+	logger := s.logger
+	if logger == nil {
+		logger = cloudlogger.Nop()
+	}
+	return func(c *gin.Context) {
+		start := time.Now()
+		c.Next()
+
+		status := c.Writer.Status()
+		if status == 0 {
+			status = http.StatusOK
+		}
+		fields := []zap.Field{
+			zap.String("method", c.Request.Method),
+			zap.String("path", cloudlogger.SanitizePath(c.Request.URL.RequestURI())),
+			zap.Int("status", status),
+			zap.Float64("duration_ms", float64(time.Since(start).Microseconds())/1000.0),
+			zap.String("remote_addr", c.ClientIP()),
+		}
+		if requestID := strings.TrimSpace(c.Request.Header.Get("X-Request-Id")); requestID != "" {
+			fields = append(fields, zap.String("request_id", requestID))
+		}
+		logger.Info("http request", fields...)
+	}
+}
+
+func (s *Server) recoveryLogger() gin.HandlerFunc {
+	logger := s.logger
+	if logger == nil {
+		logger = cloudlogger.Nop()
+	}
+	return func(c *gin.Context) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				fields := []zap.Field{
+					zap.String("method", c.Request.Method),
+					zap.String("path", cloudlogger.SanitizePath(c.Request.URL.RequestURI())),
+					zap.Any("panic", recovered),
+				}
+				if requestID := strings.TrimSpace(c.Request.Header.Get("X-Request-Id")); requestID != "" {
+					fields = append(fields, zap.String("request_id", requestID))
+				}
+				logger.Error("panic recovered", fields...)
+				c.AbortWithStatus(http.StatusInternalServerError)
+			}
+		}()
+		c.Next()
+	}
+}
+
 func (s *Server) Router() *gin.Engine {
 	r := gin.New()
-	r.Use(gin.Logger(), gin.Recovery())
+	r.Use(s.requestLogger(), s.recoveryLogger())
 
 	v1 := r.Group("/v1")
 	v1.GET("/health", func(c *gin.Context) {

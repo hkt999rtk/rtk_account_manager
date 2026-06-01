@@ -2,27 +2,38 @@ package main
 
 import (
 	"context"
-	"log"
+	"net/http"
 	"net/smtp"
+	"os"
 	"strings"
 
 	"rtk_account_manager/internal/api"
 	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/config"
 	"rtk_account_manager/internal/database"
+	"rtk_account_manager/internal/logging"
 	"rtk_account_manager/internal/store"
+
+	"go.uber.org/zap"
 )
 
 func main() {
+	earlyLogger := logging.NewFromEnv(logging.ServiceAPI)
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatal(err)
+		fatal(earlyLogger, "load config failed", err)
 	}
+	logging.Sync(earlyLogger)
+	logger, err := logging.New(logging.ServiceAPI, cfg)
+	if err != nil {
+		fatal(earlyLogger, "create logger failed", err)
+	}
+	defer logging.Sync(logger)
 
 	ctx := context.Background()
 	db, err := database.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
-		log.Fatal(err)
+		fatal(logger, "database connection failed", err)
 	}
 	defer db.Close()
 
@@ -30,28 +41,29 @@ func main() {
 	var authTokenSink api.AuthTokenSink
 	switch cfg.AuthTokenDelivery {
 	case "log":
-		authTokenSink = api.NewLogAuthTokenSink(log.Default())
+		authTokenSink = api.NewLogAuthTokenSink(logger)
 	default:
-		log.Fatalf("unsupported AUTH_TOKEN_DELIVERY %q", cfg.AuthTokenDelivery)
+		fatal(logger, "unsupported auth token delivery", nil, zap.String("delivery", cfg.AuthTokenDelivery))
 	}
-	notificationSink := quotaRaiseNotificationSink(cfg)
+	notificationSink := quotaRaiseNotificationSink(cfg, logger)
 	accountStore := store.New(db)
 	if cfg.BootstrapPlatformAdminEmail != "" || cfg.BootstrapPlatformAdminPassword != "" {
 		if cfg.BootstrapPlatformAdminEmail == "" || cfg.BootstrapPlatformAdminPassword == "" {
-			log.Fatal("both ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL and ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD are required when bootstrapping platform admin")
+			fatal(logger, "bootstrap platform admin config incomplete", nil)
 		}
 		hash, err := auth.HashPassword(cfg.BootstrapPlatformAdminPassword)
 		if err != nil {
-			log.Fatal(err)
+			fatal(logger, "hash bootstrap platform admin password failed", err)
 		}
 		displayName := "Realtek Platform Admin"
 		admin, err := accountStore.EnsurePlatformAdmin(ctx, cfg.BootstrapPlatformAdminEmail, hash, &displayName)
 		if err != nil {
-			log.Fatal(err)
+			fatal(logger, "ensure platform admin failed", err)
 		}
-		log.Printf("ensured account-manager platform admin email=%s user_id=%s", admin.Email, admin.ID)
+		logger.Info("platform admin ensured", zap.String("email", admin.Email), zap.String("user_id", admin.ID))
 	}
 	server := api.NewWithAuthTokenAndNotificationSink(accountStore, authService, authTokenSink, notificationSink)
+	server.SetLogger(logger)
 	server.ConfigureOIDC(api.OIDCOptions{
 		Env: auth.OIDCEnvConfig{
 			Enabled:       cfg.OIDCEnabled,
@@ -66,13 +78,18 @@ func main() {
 		},
 	})
 
-	log.Printf("listening on :%s", cfg.Port)
-	if err := server.Router().Run(":" + cfg.Port); err != nil {
-		log.Fatal(err)
+	addr := ":" + cfg.Port
+	logger.Info("server listening", zap.String("addr", addr))
+	httpServer := &http.Server{
+		Addr:    addr,
+		Handler: server.Router(),
+	}
+	if err := httpServer.ListenAndServe(); err != nil {
+		fatal(logger, "server stopped", err)
 	}
 }
 
-func quotaRaiseNotificationSink(cfg config.Config) api.QuotaRaiseNotificationSink {
+func quotaRaiseNotificationSink(cfg config.Config, logger *zap.Logger) api.QuotaRaiseNotificationSink {
 	if cfg.SMTPHost != "" && cfg.SMTPFrom != "" {
 		addr := cfg.SMTPHost
 		if cfg.SMTPPort != "" && !strings.Contains(addr, ":") {
@@ -88,5 +105,14 @@ func quotaRaiseNotificationSink(cfg config.Config) api.QuotaRaiseNotificationSin
 		}
 		return api.NewSMTPQuotaRaiseNotificationSink(addr, cfg.SMTPFrom, auth)
 	}
-	return api.NewLogQuotaRaiseNotificationSink(log.Default())
+	return api.NewLogQuotaRaiseNotificationSink(logger)
+}
+
+func fatal(logger *zap.Logger, message string, err error, fields ...zap.Field) {
+	if err != nil {
+		fields = append(fields, zap.Error(err))
+	}
+	logger.Error(message, fields...)
+	logging.Sync(logger)
+	os.Exit(1)
 }

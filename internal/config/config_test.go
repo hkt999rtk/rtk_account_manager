@@ -65,6 +65,10 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	t.Setenv("OIDC_REDIRECT_URL", "https://api.example.test/v1/auth/oidc/corp-keycloak/callback")
 	t.Setenv("OIDC_SCOPES", "openid email profile offline_access")
 	t.Setenv("OIDC_AUTO_LINK_EMAIL", "true")
+	t.Setenv("ACCOUNT_MANAGER_ENV", "staging")
+	t.Setenv("ACCOUNT_MANAGER_VERSION", "2026.06.01+test")
+	t.Setenv("ACCOUNT_MANAGER_LOG_LEVEL", "debug")
+	t.Setenv("ACCOUNT_MANAGER_LOG_DEVELOPMENT", "true")
 
 	cfg, err := Load()
 	if err != nil {
@@ -132,6 +136,9 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	}
 	if !cfg.OIDCAutoLinkEmail {
 		t.Fatal("expected OIDC auto-link to be enabled")
+	}
+	if cfg.LogEnv != "staging" || cfg.LogVersion != "2026.06.01+test" || cfg.LogLevel != "debug" || !cfg.LogDevelopment {
+		t.Fatalf("unexpected logging config: %+v", cfg)
 	}
 }
 
