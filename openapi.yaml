@@ -12,11 +12,52 @@ info:
     dashboard experiences belong to client or console repositories such as
     `rtk_cloud_admin`; those clients consume this OpenAPI contract instead of
     being implemented in this server.
+tags:
+  - name: System
+    description: Health and service-level probes.
+  - name: Auth
+    description: Email/password authentication, signup, token refresh, and logout.
+  - name: OIDC
+    description: OpenID Connect discovery and login callback flow.
+  - name: Current User
+    description: Current-user profile, password, and linked identity management.
+  - name: Organizations
+    description: Organization creation, listing, retrieval, and profile updates.
+  - name: Members
+    description: Organization membership and member lifecycle management.
+  - name: Devices
+    description: Account-side device registry operations.
+  - name: Device Tags
+    description: Device tag assignment and removal.
+  - name: Device Groups
+    description: Device group management and assignment.
+  - name: Device Claims
+    description: Claim token resolution and ownership transfer.
+  - name: Device Claim Tokens
+    description: Platform-admin claim token lifecycle operations.
+  - name: Provisioning
+    description: Provision, deactivation, unprovision, and readiness operations.
+  - name: Quota
+    description: Evaluation quota raise request workflows.
+  - name: Admin Metrics
+    description: Platform-admin operational metrics.
+  - name: Brand Clouds
+    description: Platform-admin brand cloud and scoped user management.
+  - name: Identity Providers
+    description: Platform-admin OIDC provider configuration.
+  - name: ACL
+    description: Platform-admin role, permission, assignment, mapping, and ACL audit operations.
+  - name: Audit
+    description: Platform-admin audit event listing.
 servers:
   - url: http://localhost:8080
 paths:
   /v1/health:
     get:
+      tags:
+        - System
+      operationId: getHealth
+      summary: Check service health.
       responses:
         "200":
           description: Service health.
@@ -26,6 +67,9 @@ paths:
                 $ref: "#/components/schemas/HealthResponse"
   /v1/auth/register:
     post:
+      tags:
+        - Auth
+      operationId: registerUser
       summary: Register a user and initial organization.
       requestBody:
         required: true
@@ -46,6 +90,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/auth/signup:
     post:
+      tags:
+        - Auth
+      operationId: signupUser
       summary: Create a public evaluation-tier account.
       requestBody:
         required: true
@@ -68,6 +115,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/auth/login:
     post:
+      tags:
+        - Auth
+      operationId: loginUser
       summary: Login with email and password.
       requestBody:
         required: true
@@ -88,6 +138,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/auth/refresh:
     post:
+      tags:
+        - Auth
+      operationId: refreshToken
       summary: Exchange a refresh token for new tokens.
       requestBody:
         required: true
@@ -108,6 +161,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/auth/verify-email:
     post:
+      tags:
+        - Auth
+      operationId: verifyEmail
       summary: Verify a user's email with an OTP token.
       requestBody:
         required: true
@@ -126,6 +182,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/auth/resend-verification:
     post:
+      tags:
+        - Auth
+      operationId: resendEmailVerification
       summary: Issue a replacement email verification token.
       description: Returns the same status for unknown, already verified, disabled, or throttled users to avoid account enumeration. Token delivery is owned by the configured server-side AuthTokenSink adapter, not by the HTTP response body.
       requestBody:
@@ -141,6 +200,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/auth/forgot-password:
     post:
+      tags:
+        - Auth
+      operationId: requestPasswordReset
       summary: Issue a self-service password reset token.
       description: Returns the same status for unknown, disabled, or throttled users to avoid account enumeration. Token delivery is owned by the configured server-side AuthTokenSink adapter, not by the HTTP response body.
       requestBody:
@@ -156,6 +218,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/auth/reset-password:
     post:
+      tags:
+        - Auth
+      operationId: resetPassword
       summary: Reset a user's password with a reset token.
       requestBody:
         required: true
@@ -170,6 +235,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/auth/oidc/providers:
     get:
+      tags:
+        - OIDC
+      operationId: listOIDCProviders
       summary: List enabled public OIDC providers.
       description: Returns public provider metadata only. Client secrets and secret references are never exposed by this endpoint.
       responses:
@@ -183,6 +251,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/auth/oidc/{providerId}/login:
     get:
+      tags:
+        - OIDC
+      operationId: startOIDCLogin
       summary: Start an OIDC authorization-code login.
       description: Creates a short-lived hashed state/nonce record and redirects the browser to the provider authorization endpoint.
       parameters:
@@ -204,6 +275,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/auth/oidc/{providerId}/callback:
     get:
+      tags:
+        - OIDC
+      operationId: handleOIDCCallback
       summary: Handle OIDC authorization-code callback.
       description: Validates state, nonce, issuer, audience, signature, expiry, and verified email before returning the normal account-manager token response shape.
       parameters:
@@ -245,6 +319,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/auth/logout:
     post:
+      tags:
+        - Auth
+      operationId: logoutUser
       security:
         - bearerAuth: []
       summary: Revoke a refresh token.
@@ -263,6 +340,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/me:
     get:
+      tags:
+        - Current User
+      operationId: getCurrentUser
       security:
         - bearerAuth: []
       summary: Get current user and organization memberships.
@@ -276,6 +356,9 @@ paths:
         "401":
           $ref: "#/components/responses/Error"
     delete:
+      tags:
+        - Current User
+      operationId: deleteCurrentUser
       security:
         - bearerAuth: []
       summary: Disable the current user account.
@@ -289,6 +372,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/me/password:
     patch:
+      tags:
+        - Current User
+      operationId: changeCurrentUserPassword
       security:
         - bearerAuth: []
       summary: Change the current user's password.
@@ -307,6 +393,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/me/identities:
     get:
+      tags:
+        - Current User
+      operationId: listCurrentUserIdentities
       security:
         - bearerAuth: []
       summary: List current user's external identities.
@@ -321,6 +410,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/me/identities/{identityId}:
     delete:
+      tags:
+        - Current User
+      operationId: deleteCurrentUserIdentity
       security:
         - bearerAuth: []
       summary: Unlink a current-user external identity.
@@ -335,6 +427,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs:
     get:
+      tags:
+        - Organizations
+      operationId: listOrganizations
       security:
         - bearerAuth: []
       summary: List current user's organizations.
@@ -351,6 +446,9 @@ paths:
         "401":
           $ref: "#/components/responses/Error"
     post:
+      tags:
+        - Organizations
+      operationId: createOrganization
       security:
         - bearerAuth: []
       summary: Create an organization.
@@ -373,6 +471,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}:
     get:
+      tags:
+        - Organizations
+      operationId: getOrganization
       security:
         - bearerAuth: []
       summary: Get organization details.
@@ -390,6 +491,9 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
     patch:
+      tags:
+        - Organizations
+      operationId: updateOrganization
       security:
         - bearerAuth: []
       summary: Update organization details.
@@ -418,6 +522,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/quota-raise-requests:
     post:
+      tags:
+        - Quota
+      operationId: createQuotaRaiseRequest
       security:
         - bearerAuth: []
       summary: Request an evaluation quota increase.
@@ -448,6 +555,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/quota-raise-requests:
     get:
+      tags:
+        - Quota
+      operationId: listAdminQuotaRaiseRequests
       security:
         - bearerAuth: []
       summary: List quota-raise requests.
@@ -474,6 +584,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/quota-raise-requests/{requestId}:
     get:
+      tags:
+        - Quota
+      operationId: getAdminQuotaRaiseRequest
       security:
         - bearerAuth: []
       summary: Get a quota-raise request.
@@ -494,6 +607,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/quota-raise-requests/{requestId}/approve:
     post:
+      tags:
+        - Quota
+      operationId: approveQuotaRaiseRequest
       security:
         - bearerAuth: []
       summary: Approve a pending quota-raise request.
@@ -524,6 +640,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/quota-raise-requests/{requestId}/decline:
     post:
+      tags:
+        - Quota
+      operationId: declineQuotaRaiseRequest
       security:
         - bearerAuth: []
       summary: Decline a pending quota-raise request.
@@ -554,6 +673,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/metrics:
     get:
+      tags:
+        - Admin Metrics
+      operationId: getAdminMetrics
       security:
         - bearerAuth: []
       summary: Get evaluation-tier, quota, and lifecycle metrics.
@@ -570,6 +692,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/brand-clouds:
     post:
+      tags:
+        - Brand Clouds
+      operationId: createBrandCloud
       security:
         - bearerAuth: []
       summary: Create a platform-managed brand cloud.
@@ -593,6 +718,9 @@ paths:
         "403":
           $ref: "#/components/responses/Error"
     get:
+      tags:
+        - Brand Clouds
+      operationId: listBrandClouds
       security:
         - bearerAuth: []
       summary: List platform-managed brand clouds.
@@ -612,6 +740,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/brand-clouds/{brandCloudId}:
     get:
+      tags:
+        - Brand Clouds
+      operationId: getBrandCloud
       security:
         - bearerAuth: []
       summary: Get a platform-managed brand cloud.
@@ -631,6 +762,9 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
     patch:
+      tags:
+        - Brand Clouds
+      operationId: updateBrandCloud
       security:
         - bearerAuth: []
       summary: Update a platform-managed brand cloud.
@@ -659,6 +793,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/brand-clouds/{brandCloudId}/members:
     post:
+      tags:
+        - Brand Clouds
+      operationId: assignBrandCloudMember
       security:
         - bearerAuth: []
       summary: Assign an existing user to a brand cloud.
@@ -687,6 +824,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/brand-clouds/{brandCloudId}/users:
     post:
+      tags:
+        - Brand Clouds
+      operationId: createBrandCloudUser
       security:
         - bearerAuth: []
       summary: Create or activate a user and assign them to a brand cloud.
@@ -721,6 +861,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/audit-events:
     get:
+      tags:
+        - Audit
+      operationId: listAdminAuditEvents
       security:
         - bearerAuth: []
       summary: List audit events.
@@ -750,6 +893,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/acl/permissions:
     get:
+      tags:
+        - ACL
+      operationId: listACLPermissions
       security:
         - bearerAuth: []
       summary: List product authorization permissions.
@@ -766,6 +912,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/acl/roles:
     get:
+      tags:
+        - ACL
+      operationId: listACLRoles
       security:
         - bearerAuth: []
       summary: List product authorization roles.
@@ -781,6 +930,9 @@ paths:
         "403":
           $ref: "#/components/responses/Error"
     post:
+      tags:
+        - ACL
+      operationId: createACLRole
       security:
         - bearerAuth: []
       summary: Create a product authorization role.
@@ -807,6 +959,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/acl/roles/{roleName}:
     get:
+      tags:
+        - ACL
+      operationId: getACLRole
       security:
         - bearerAuth: []
       summary: Show a product authorization role.
@@ -830,6 +985,9 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
     patch:
+      tags:
+        - ACL
+      operationId: updateACLRole
       security:
         - bearerAuth: []
       summary: Update a product authorization role.
@@ -861,6 +1019,9 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
     delete:
+      tags:
+        - ACL
+      operationId: deleteACLRole
       security:
         - bearerAuth: []
       summary: Disable a product authorization role.
@@ -885,6 +1046,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/acl/roles/{roleName}/permissions/{permissionName}:
     post:
+      tags:
+        - ACL
+      operationId: bindACLRolePermission
       security:
         - bearerAuth: []
       summary: Bind a permission to a product authorization role.
@@ -914,6 +1078,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/acl/role-assignments:
     get:
+      tags:
+        - ACL
+      operationId: listACLRoleAssignments
       security:
         - bearerAuth: []
       summary: List product authorization role assignments.
@@ -929,6 +1096,9 @@ paths:
         "403":
           $ref: "#/components/responses/Error"
     post:
+      tags:
+        - ACL
+      operationId: createACLRoleAssignment
       security:
         - bearerAuth: []
       summary: Assign a product authorization role to an actor and scope.
@@ -955,6 +1125,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/acl/role-assignments/{assignmentId}:
     delete:
+      tags:
+        - ACL
+      operationId: deleteACLRoleAssignment
       security:
         - bearerAuth: []
       summary: Disable a product authorization role assignment.
@@ -980,6 +1153,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/acl/external-group-mappings:
     get:
+      tags:
+        - ACL
+      operationId: listACLExternalGroupMappings
       security:
         - bearerAuth: []
       summary: List external group mappings.
@@ -995,6 +1171,9 @@ paths:
         "403":
           $ref: "#/components/responses/Error"
     post:
+      tags:
+        - ACL
+      operationId: createACLExternalGroupMapping
       security:
         - bearerAuth: []
       summary: Map an external IdP group to a product authorization role assignment template.
@@ -1021,6 +1200,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/acl/external-group-mappings/{mappingId}:
     delete:
+      tags:
+        - ACL
+      operationId: deleteACLExternalGroupMapping
       security:
         - bearerAuth: []
       summary: Disable an external group mapping.
@@ -1046,6 +1228,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/acl/audit-events:
     get:
+      tags:
+        - ACL
+      operationId: listACLAuditEvents
       security:
         - bearerAuth: []
       summary: List ACL audit events.
@@ -1081,6 +1266,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/identity-providers:
     post:
+      tags:
+        - Identity Providers
+      operationId: createIdentityProvider
       security:
         - bearerAuth: []
       summary: Create an OIDC identity provider.
@@ -1107,6 +1295,9 @@ paths:
         "409":
           $ref: "#/components/responses/Error"
     get:
+      tags:
+        - Identity Providers
+      operationId: listIdentityProviders
       security:
         - bearerAuth: []
       summary: List OIDC identity providers.
@@ -1126,6 +1317,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/identity-providers/{providerId}:
     get:
+      tags:
+        - Identity Providers
+      operationId: getIdentityProvider
       security:
         - bearerAuth: []
       summary: Get an OIDC identity provider.
@@ -1145,6 +1339,9 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
     patch:
+      tags:
+        - Identity Providers
+      operationId: updateIdentityProvider
       security:
         - bearerAuth: []
       summary: Update an OIDC identity provider.
@@ -1175,6 +1372,9 @@ paths:
         "409":
           $ref: "#/components/responses/Error"
     delete:
+      tags:
+        - Identity Providers
+      operationId: deleteIdentityProvider
       security:
         - bearerAuth: []
       summary: Disable or remove an OIDC identity provider.
@@ -1191,6 +1391,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/device-claim-tokens:
     post:
+      tags:
+        - Device Claim Tokens
+      operationId: createDeviceClaimToken
       security:
         - bearerAuth: []
       summary: Create or import a device Claim Token.
@@ -1221,6 +1424,9 @@ paths:
         "409":
           $ref: "#/components/responses/Error"
     get:
+      tags:
+        - Device Claim Tokens
+      operationId: listDeviceClaimTokens
       security:
         - bearerAuth: []
       summary: List device Claim Tokens.
@@ -1240,6 +1446,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/device-claim-tokens/{tokenId}:
     get:
+      tags:
+        - Device Claim Tokens
+      operationId: getDeviceClaimToken
       security:
         - bearerAuth: []
       summary: Get a device Claim Token.
@@ -1260,6 +1469,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/device-claim-tokens/{tokenId}/revoke:
     post:
+      tags:
+        - Device Claim Tokens
+      operationId: revokeDeviceClaimToken
       security:
         - bearerAuth: []
       summary: Revoke a device Claim Token.
@@ -1280,6 +1492,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/device-claim-tokens/{tokenId}/reclaim:
     post:
+      tags:
+        - Device Claim Tokens
+      operationId: reclaimDeviceClaimToken
       security:
         - bearerAuth: []
       summary: Reclaim a claimed device Claim Token.
@@ -1314,6 +1529,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/device-claims/{claimId}/transfer:
     post:
+      tags:
+        - Device Claims
+      operationId: transferDeviceClaim
       security:
         - bearerAuth: []
       summary: Transfer a resolved device claim.
@@ -1348,6 +1566,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/admin/devices/{deviceId}/unprovision:
     post:
+      tags:
+        - Provisioning
+      operationId: adminUnprovisionDevice
       security:
         - bearerAuth: []
       summary: Platform-admin override to unprovision a normal device.
@@ -1384,6 +1605,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/members:
     get:
+      tags:
+        - Members
+      operationId: listMembers
       security:
         - bearerAuth: []
       summary: List organization members.
@@ -1405,6 +1629,9 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
     post:
+      tags:
+        - Members
+      operationId: addMember
       security:
         - bearerAuth: []
       summary: Add an existing user to an organization.
@@ -1435,6 +1662,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/members/{userId}:
     patch:
+      tags:
+        - Members
+      operationId: updateMemberRole
       security:
         - bearerAuth: []
       summary: Update member role.
@@ -1466,6 +1696,9 @@ paths:
         "409":
           $ref: "#/components/responses/Error"
     delete:
+      tags:
+        - Members
+      operationId: removeMember
       security:
         - bearerAuth: []
       summary: Remove member from organization.
@@ -1486,6 +1719,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/members/{userId}/disable:
     patch:
+      tags:
+        - Members
+      operationId: disableMemberUser
       security:
         - bearerAuth: []
       summary: Disable a member user account.
@@ -1509,6 +1745,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/members/{userId}/enable:
     patch:
+      tags:
+        - Members
+      operationId: enableMemberUser
       security:
         - bearerAuth: []
       summary: Enable a disabled member user account.
@@ -1530,6 +1769,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/device-groups:
     get:
+      tags:
+        - Device Groups
+      operationId: listDeviceGroups
       security:
         - bearerAuth: []
       summary: List organization device groups.
@@ -1551,6 +1793,9 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
     post:
+      tags:
+        - Device Groups
+      operationId: createDeviceGroup
       security:
         - bearerAuth: []
       summary: Create device group.
@@ -1581,6 +1826,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/device-groups/{groupId}:
     get:
+      tags:
+        - Device Groups
+      operationId: getDeviceGroup
       security:
         - bearerAuth: []
       summary: Get device group.
@@ -1601,6 +1849,9 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
     patch:
+      tags:
+        - Device Groups
+      operationId: updateDeviceGroup
       security:
         - bearerAuth: []
       summary: Update device group.
@@ -1631,6 +1882,9 @@ paths:
         "409":
           $ref: "#/components/responses/Error"
     delete:
+      tags:
+        - Device Groups
+      operationId: deleteDeviceGroup
       security:
         - bearerAuth: []
       summary: Delete device group.
@@ -1648,6 +1902,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/device-groups/{groupId}/devices:
     get:
+      tags:
+        - Device Groups
+      operationId: listDeviceGroupDevices
       security:
         - bearerAuth: []
       summary: List devices assigned to a group.
@@ -1671,6 +1928,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/device-groups/{groupId}/devices/{deviceId}:
     put:
+      tags:
+        - Device Groups
+      operationId: addDeviceToGroup
       security:
         - bearerAuth: []
       summary: Add device to group.
@@ -1689,6 +1949,9 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
     delete:
+      tags:
+        - Device Groups
+      operationId: removeDeviceFromGroup
       security:
         - bearerAuth: []
       summary: Remove device from group.
@@ -1707,6 +1970,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/devices:
     get:
+      tags:
+        - Devices
+      operationId: listDevices
       security:
         - bearerAuth: []
       summary: List organization devices.
@@ -1728,6 +1994,9 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
     post:
+      tags:
+        - Devices
+      operationId: createDevice
       security:
         - bearerAuth: []
       summary: Create device.
@@ -1758,6 +2027,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/devices/claim/resolve:
     post:
+      tags:
+        - Device Claims
+      operationId: resolveDeviceClaim
       security:
         - bearerAuth: []
       summary: Resolve a device Claim Token.
@@ -1800,6 +2072,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/devices/{deviceId}:
     get:
+      tags:
+        - Devices
+      operationId: getDevice
       security:
         - bearerAuth: []
       summary: Get device details.
@@ -1820,6 +2095,9 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
     patch:
+      tags:
+        - Devices
+      operationId: updateDevice
       security:
         - bearerAuth: []
       summary: Update device.
@@ -1850,6 +2128,9 @@ paths:
         "409":
           $ref: "#/components/responses/Error"
     delete:
+      tags:
+        - Devices
+      operationId: deleteDevice
       security:
         - bearerAuth: []
       summary: Delete device.
@@ -1868,6 +2149,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/devices/{deviceId}/tags:
     get:
+      tags:
+        - Device Tags
+      operationId: listDeviceTags
       security:
         - bearerAuth: []
       summary: List device tags.
@@ -1891,6 +2175,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/devices/{deviceId}/tags/{tag}:
     put:
+      tags:
+        - Device Tags
+      operationId: addDeviceTag
       security:
         - bearerAuth: []
       summary: Add device tag.
@@ -1915,6 +2202,9 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
     delete:
+      tags:
+        - Device Tags
+      operationId: deleteDeviceTag
       security:
         - bearerAuth: []
       summary: Remove device tag.
@@ -1935,6 +2225,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/devices/{deviceId}/provision:
     post:
+      tags:
+        - Provisioning
+      operationId: provisionDevice
       security:
         - bearerAuth: []
       summary: Create or reuse a provisioning operation.
@@ -1983,6 +2276,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/devices/{deviceId}/provisioning:
     get:
+      tags:
+        - Provisioning
+      operationId: getProvisioningState
       security:
         - bearerAuth: []
       summary: Get latest provisioning state, account-side readiness, and projected video metadata.
@@ -2004,6 +2300,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/devices/{deviceId}/deactivate:
     post:
+      tags:
+        - Provisioning
+      operationId: deactivateDevice
       security:
         - bearerAuth: []
       summary: Create or reuse a deactivation operation.
@@ -2042,6 +2341,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/devices/{deviceId}/unprovision:
     post:
+      tags:
+        - Provisioning
+      operationId: unprovisionDevice
       security:
         - bearerAuth: []
       summary: Unprovision a normal device for resale or re-onboarding.
@@ -2079,6 +2381,9 @@ paths:
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/devices/{deviceId}/status:
     patch:
+      tags:
+        - Devices
+      operationId: updateDeviceStatus
       security:
         - bearerAuth: []
       summary: Update device status.
