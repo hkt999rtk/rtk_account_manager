@@ -423,6 +423,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/logging`: `TestNewFromEnvReadsLoggingConfigWithFallbacks`
 - `rtk_account_manager/internal/logging`: `TestSyncHandlesNilLogger`
 - `rtk_account_manager/internal/openapi`: `TestOpenAPIContractIsValid`
+- `rtk_account_manager/internal/openapi`: `TestOpenAPIOperationsHaveCompleteMetadata`
 - `rtk_account_manager/internal/readiness`: `TestOptionsFromEnvReadsSmokeSettings`
 - `rtk_account_manager/internal/readiness`: `TestReadinessFallbackLookupsAndSuccessPaths`
 - `rtk_account_manager/internal/readiness`: `TestReadinessSkipAndFailurePaths`
