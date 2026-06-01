@@ -63,7 +63,7 @@ Required platform services:
 | Reverse proxy/TLS | Operator-owned HTTPS termination, access logs, request limits, and CORS policy. |
 | Secrets storage | Operator-owned secret manager or root-owned environment file outside git. |
 | Broker | Azure Event Hubs or approved equivalent when account/video lifecycle channel is enabled. |
-| Observability | Service logs, health checks, worker exit status, DB backup status, and dead-letter evidence. |
+| Observability | `rtk_cloud_logger` zap service logs through journald/forwarder, health checks, worker exit status, DB backup status, and dead-letter evidence. |
 | Backup target | Storage independent from the primary runtime host. |
 
 Production-like acceptance:
