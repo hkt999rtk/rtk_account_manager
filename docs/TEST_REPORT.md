@@ -26,7 +26,7 @@ Generated: ci-candidate
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 27 |
+| Go packages | 28 |
 | Test cases started | recorded in reports/test-events.json |
 | JSON pass events | recorded in reports/test-events.json |
 | JSON fail events | recorded in reports/test-events.json |
@@ -157,6 +157,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestAuthTokenDeliveryHook`
 - `rtk_account_manager/internal/api`: `TestBindStrictRejectsUnknownFields`
 - `rtk_account_manager/internal/api`: `TestFailureFromMetadataUsesProjectedErrorFacts`
+- `rtk_account_manager/internal/api`: `TestHealthRequestEmitsStructuredLog`
 - `rtk_account_manager/internal/api`: `TestHealthRoute`
 - `rtk_account_manager/internal/api`: `TestIntegrationACLAdminWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminDeviceClaimOverrideWorkflow`
@@ -253,6 +254,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/deactivation_success_is_deactivated`
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/registry_disabled_stays_account-side_only`
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates`
+- `rtk_account_manager/internal/api`: `TestRecoveryLogDoesNotIncludeSensitiveHeaders`
 - `rtk_account_manager/internal/api`: `TestRejectUnsupportedClaimMaterial/activation_code`
 - `rtk_account_manager/internal/api`: `TestRejectUnsupportedClaimMaterial/factory_identity`
 - `rtk_account_manager/internal/api`: `TestRejectUnsupportedClaimMaterial/mac_address`
@@ -327,6 +329,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/broker`: `TestClassifyAzureReceiveErrorLeavesUnauthorizedPermanent`
 - `rtk_account_manager/internal/broker`: `TestLogConsumerReadsEnvelopeJSON`
 - `rtk_account_manager/internal/broker`: `TestLogPublisherWritesEnvelopeJSON`
+- `rtk_account_manager/internal/broker`: `TestNATSBrokerRequiresURL`
+- `rtk_account_manager/internal/broker`: `TestNATSPublisherConsumerRoundTripAndAck`
 - `rtk_account_manager/internal/broker`: `TestNewAzureEventHubsConstructorsRequireConfig`
 - `rtk_account_manager/internal/broker`: `TestNewAzureEventHubsConsumerClosesClientWhenPartitionOpenFails`
 - `rtk_account_manager/internal/broker`: `TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds`
@@ -415,6 +419,9 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/config`: `TestLoadWorkerAllowsMissingJWTSecrets`
 - `rtk_account_manager/internal/config`: `TestLoadWorkerFallsBackForInvalidMaxAttempts`
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirMissing`
+- `rtk_account_manager/internal/logging`: `TestNewBuildsServiceLoggerFromConfig`
+- `rtk_account_manager/internal/logging`: `TestNewFromEnvReadsLoggingConfigWithFallbacks`
+- `rtk_account_manager/internal/logging`: `TestSyncHandlesNilLogger`
 - `rtk_account_manager/internal/openapi`: `TestOpenAPIContractIsValid`
 - `rtk_account_manager/internal/readiness`: `TestOptionsFromEnvReadsSmokeSettings`
 - `rtk_account_manager/internal/readiness`: `TestReadinessFallbackLookupsAndSuccessPaths`
@@ -496,6 +503,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersTransientProjectionFailureAtAttemptLimit`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDoesNotAcknowledgeRetryingMessages`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDoesNotAcknowledgeWhenTransitionFails`
+- `rtk_account_manager/internal/worker/inbox`: `TestRunOnceLogsInboxMessageTraceFields`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents/deactivate_failure_records_retryable_error`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents/deactivate_success_keeps_deactivation_projection`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceProcessesFailureAndProjectionEvents/metadata_changed_filters_non_video-cloud_keys`
@@ -516,8 +524,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceDeadLettersInvalidOutboxPayload`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceIgnoresConflictWhenRetryLosesToPublished`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceIgnoresStaleLeaseTransitionConflict`
+- `rtk_account_manager/internal/worker/outbox`: `TestRunOnceLogsOutboxMessageTraceFields`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceMarksSuccessfulPublishes`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceSchedulesTransientRetry`
+- `rtk_account_manager/internal/worker/outbox`: `TestRunReturnsWhenContextIsCanceled`
 - `rtk_account_manager/linode_deploy/internal/artifact`: `TestValidateManifestRejectsWrongArtifactName`
 - `rtk_account_manager/linode_deploy/internal/artifact`: `TestVerifyLocalRequiresAccountManagerBundleContract`
 - `rtk_account_manager/linode_deploy/internal/artifact`: `TestVerifyManifestAndChecksum`
@@ -530,6 +540,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/linode_deploy/internal/planner`: `TestPlanIncludesAccountManagerDeploymentGates`
 - `rtk_account_manager/linode_deploy/internal/planner`: `TestPlanShowsWorkersWhenEnabled`
 - `rtk_account_manager/linode_deploy/internal/render`: `TestRuntimeEnvRendersDefaultsAndSecretsWithoutLeakingRawValuesInReport`
+- `rtk_account_manager/linode_deploy/internal/render`: `TestRuntimeEnvRendersNATSWhenWorkersAreEnabled`
 - `rtk_account_manager/linode_deploy/internal/secrets`: `TestLoadRequiredSecretsAndRedact`
 - `rtk_account_manager/linode_deploy/internal/secrets`: `TestRequireReportsMissingKeys`
 

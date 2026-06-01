@@ -9,6 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
+
 	"rtk_account_manager/internal/broker"
 	"rtk_account_manager/internal/channel"
 	"rtk_account_manager/internal/model"
@@ -139,6 +143,37 @@ func TestRunOnceProcessesProvisionSuccess(t *testing.T) {
 	}
 	if transition.Projection == nil {
 		t.Fatal("expected device projection")
+	}
+}
+
+func TestRunOnceLogsInboxMessageTraceFields(t *testing.T) {
+	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	core, logs := observer.New(zapcore.InfoLevel)
+	inboxStore := &fakeStore{created: true}
+	service := NewService(inboxStore, fakeConsumer{
+		messages: []broker.Message{validProvisionSucceededMessage(now)},
+	}, Options{
+		Now:    func() time.Time { return now },
+		Logger: zap.New(core),
+	})
+
+	if _, err := service.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	entries := logs.FilterMessage("inbox message processed").All()
+	if len(entries) != 1 {
+		t.Fatalf("expected one inbox processed log, got %d", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	for key, want := range map[string]any{
+		"operation_id": "op-1",
+		"trace_id":     "corr-1",
+		"request_id":   "corr-1",
+		"message_id":   "msg-1",
+	} {
+		if got := fields[key]; got != want {
+			t.Fatalf("expected %s=%v, got %v in %+v", key, want, got, fields)
+		}
 	}
 }
 

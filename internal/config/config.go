@@ -48,6 +48,10 @@ type Config struct {
 	OIDCAutoLinkEmail              bool
 	BootstrapPlatformAdminEmail    string
 	BootstrapPlatformAdminPassword string
+	LogEnv                         string
+	LogVersion                     string
+	LogLevel                       string
+	LogDevelopment                 bool
 }
 
 func Load() (Config, error) {
@@ -111,6 +115,10 @@ func load() (Config, error) {
 		OIDCAutoLinkEmail:              boolValue("OIDC_AUTO_LINK_EMAIL", false),
 		BootstrapPlatformAdminEmail:    os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL"),
 		BootstrapPlatformAdminPassword: os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD"),
+		LogEnv:                         getenv("ACCOUNT_MANAGER_ENV", "local"),
+		LogVersion:                     getenv("ACCOUNT_MANAGER_VERSION", "dev"),
+		LogLevel:                       getenv("ACCOUNT_MANAGER_LOG_LEVEL", "info"),
+		LogDevelopment:                 boolValue("ACCOUNT_MANAGER_LOG_DEVELOPMENT", false),
 	}
 	return cfg, nil
 }

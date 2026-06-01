@@ -9,6 +9,7 @@ User=rtk-account-manager
 Group=rtk-account-manager
 EnvironmentFile=/etc/rtk-account-manager/account-manager.env
 ExecStart=/opt/rtk-account-manager/bin/rtk-account-manager-inbox-worker
+SyslogIdentifier=rtk-account-manager-inbox-worker
 Restart=on-failure
 RestartSec=5s
 NoNewPrivileges=true

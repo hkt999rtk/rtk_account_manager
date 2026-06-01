@@ -9,6 +9,7 @@ User=rtk-account-manager
 Group=rtk-account-manager
 EnvironmentFile=/etc/rtk-account-manager/account-manager.env
 ExecStart=/opt/rtk-account-manager/bin/rtk-account-manager-outbox-worker
+SyslogIdentifier=rtk-account-manager-outbox-worker
 Restart=on-failure
 RestartSec=5s
 NoNewPrivileges=true

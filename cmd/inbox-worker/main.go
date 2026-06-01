@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,22 +9,32 @@ import (
 	"rtk_account_manager/internal/broker"
 	"rtk_account_manager/internal/config"
 	"rtk_account_manager/internal/database"
+	"rtk_account_manager/internal/logging"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/worker/inbox"
+
+	"go.uber.org/zap"
 )
 
 func main() {
+	earlyLogger := logging.NewFromEnv(logging.ServiceInboxWorker)
 	cfg, err := config.LoadWorker()
 	if err != nil {
-		log.Fatal(err)
+		fatal(earlyLogger, "load worker config failed", err)
 	}
+	logging.Sync(earlyLogger)
+	logger, err := logging.New(logging.ServiceInboxWorker, cfg)
+	if err != nil {
+		fatal(earlyLogger, "create logger failed", err)
+	}
+	defer logging.Sync(logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	db, err := database.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
-		log.Fatal(err)
+		fatal(logger, "database connection failed", err)
 	}
 	defer db.Close()
 
@@ -41,11 +50,11 @@ func main() {
 		PartitionCount:                 cfg.CrossServicePartitionCount,
 	})
 	if err != nil {
-		log.Fatal(err)
+		fatal(logger, "consumer creation failed", err)
 	}
 	defer func() {
 		if err := consumer.Close(context.Background()); err != nil {
-			log.Printf("close consumer: %v", err)
+			logger.Warn("consumer close failed", zap.Error(err))
 		}
 	}()
 
@@ -54,10 +63,20 @@ func main() {
 		ConsumerGroup: cfg.CrossServiceConsumerGroup,
 		MaxAttempts:   cfg.CrossServiceMaxAttempts,
 		PollInterval:  cfg.CrossServicePollInterval,
+		Logger:        logger,
 	})
 
-	log.Printf("starting inbox worker with broker=%s stream=%s consumer_group=%s poll_interval=%s", cfg.CrossServiceBroker, cfg.VideoAccountEventsStream, cfg.CrossServiceConsumerGroup, cfg.CrossServicePollInterval)
+	logger.Info("starting inbox worker", zap.String("broker", cfg.CrossServiceBroker), zap.String("stream", cfg.VideoAccountEventsStream), zap.String("consumer_group", cfg.CrossServiceConsumerGroup), zap.Duration("poll_interval", cfg.CrossServicePollInterval))
 	if err := service.Run(ctx); err != nil {
-		log.Fatal(err)
+		fatal(logger, "inbox worker stopped", err)
 	}
+}
+
+func fatal(logger *zap.Logger, message string, err error, fields ...zap.Field) {
+	if err != nil {
+		fields = append(fields, zap.Error(err))
+	}
+	logger.Error(message, fields...)
+	logging.Sync(logger)
+	os.Exit(1)
 }

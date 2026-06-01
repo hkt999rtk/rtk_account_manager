@@ -6,6 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
+
 	"rtk_account_manager/internal/broker"
 	"rtk_account_manager/internal/channel"
 	"rtk_account_manager/internal/model"
@@ -81,6 +85,51 @@ func TestRunOnceMarksSuccessfulPublishes(t *testing.T) {
 	}
 	if transition.PublishedAt == nil || !transition.PublishedAt.Equal(now) {
 		t.Fatalf("expected published_at to match worker clock, got %+v", transition.PublishedAt)
+	}
+}
+
+func TestRunReturnsWhenContextIsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	service := NewService(&fakeStore{}, fakePublisher{}, Options{
+		PollInterval: time.Hour,
+	})
+
+	if err := service.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunOnceLogsOutboxMessageTraceFields(t *testing.T) {
+	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	core, logs := observer.New(zapcore.InfoLevel)
+	outboxStore := &fakeStore{
+		claimed: []model.DeviceMessageOutbox{validMessage(now)},
+	}
+
+	service := NewService(outboxStore, fakePublisher{}, Options{
+		Now:    func() time.Time { return now },
+		Logger: zap.New(core),
+	})
+
+	if _, err := service.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	entries := logs.FilterMessage("outbox message published").All()
+	if len(entries) != 1 {
+		t.Fatalf("expected one outbox publish log, got %d", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	for key, want := range map[string]any{
+		"operation_id": "op-1",
+		"trace_id":     "corr-1",
+		"request_id":   "corr-1",
+		"message_id":   "msg-1",
+	} {
+		if got := fields[key]; got != want {
+			t.Fatalf("expected %s=%v, got %v in %+v", key, want, got, fields)
+		}
 	}
 }
 
