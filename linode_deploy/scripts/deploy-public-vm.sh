@@ -26,6 +26,7 @@ certbot_email="${ACCOUNT_MANAGER_LINODE_CERTBOT_EMAIL:-}"
 ssh_user="${ACCOUNT_MANAGER_LINODE_SSH_USER:-root}"
 ssh_key="${ACCOUNT_MANAGER_LINODE_SSH_KEY:-$HOME/.ssh/id_ed25519_rtkcloud}"
 host="${ACCOUNT_MANAGER_LINODE_HOST:-${ACCOUNT_MANAGER_LINODE_PUBLIC_IPV4:-}}"
+node_exporter_listen_addr="${ACCOUNT_MANAGER_PROMETHEUS_NODE_EXPORTER_LISTEN_ADDR:-}"
 remote_bundle="${ACCOUNT_MANAGER_LINODE_REMOTE_BUNDLE:-/tmp/rtk-account-manager-${release}.tar.gz}"
 artifact_dir="${ACCOUNT_MANAGER_LINODE_ARTIFACT_DIR:-$root_dir/.artifacts/linode-account-manager-deploy/$release}"
 release_bundle="${ACCOUNT_MANAGER_LINODE_RELEASE_BUNDLE:-}"
@@ -54,6 +55,13 @@ need tar
 need openssl
 [ -n "$host" ] || die "ACCOUNT_MANAGER_LINODE_HOST or ACCOUNT_MANAGER_LINODE_PUBLIC_IPV4 is required"
 [ -s "$ssh_key" ] || die "SSH key not found: $ssh_key"
+if [ -z "$node_exporter_listen_addr" ]; then
+  if [ -n "${ACCOUNT_MANAGER_LINODE_PRIVATE_IPV4:-}" ]; then
+    node_exporter_listen_addr="$ACCOUNT_MANAGER_LINODE_PRIVATE_IPV4:9100"
+  else
+    node_exporter_listen_addr="127.0.0.1:9100"
+  fi
+fi
 [ -n "$certbot_email" ] || [ "$certbot_enable" = 0 ] || die "ACCOUNT_MANAGER_LINODE_CERTBOT_EMAIL is required when certbot is enabled"
 if [ -n "$cert_cache_dir" ]; then
   [ -s "$cert_cache_dir/fullchain.pem" ] || die "cached certificate fullchain not found: $cert_cache_dir/fullchain.pem"
@@ -142,7 +150,7 @@ if [ -n "$cert_cache_dir" ]; then
 fi
 
 printf '[account-manager-deploy] installing runtime on %s\n' "$remote" >&2
-ssh "${ssh_opts[@]}" "$remote" bash -s -- "$remote_bundle" "$release" "$domain" "$certbot_email" "$certbot_enable" "$http_only" "$port" "$db_name" "$db_user" "$db_password" "$cert_cache_dir" <<'REMOTE'
+ssh "${ssh_opts[@]}" "$remote" bash -s -- "$remote_bundle" "$release" "$domain" "$certbot_email" "$certbot_enable" "$http_only" "$port" "$db_name" "$db_user" "$db_password" "$cert_cache_dir" "$node_exporter_listen_addr" <<'REMOTE'
 set -euo pipefail
 remote_bundle="$1"
 release="$2"
@@ -155,10 +163,12 @@ db_name="$8"
 db_user="$9"
 db_password="${10}"
 cert_cache_dir="${11:-}"
+node_exporter_listen_addr="${12:-127.0.0.1:9100}"
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y ca-certificates curl gnupg2 lsb-release ubuntu-keyring postgresql postgresql-contrib systemd tar
+apt-get install -y ca-certificates curl gnupg2 lsb-release ubuntu-keyring postgresql postgresql-contrib systemd tar prometheus-node-exporter
+printf 'ARGS="--web.listen-address=%s"\n' "$node_exporter_listen_addr" > /etc/default/prometheus-node-exporter
 curl -fsS https://nginx.org/keys/nginx_signing.key | gpg --dearmor -o /usr/share/keyrings/nginx-archive-keyring.gpg.tmp
 mv /usr/share/keyrings/nginx-archive-keyring.gpg.tmp /usr/share/keyrings/nginx-archive-keyring.gpg
 printf 'deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/ubuntu %s nginx\n' "$(lsb_release -cs)" > /etc/apt/sources.list.d/nginx-org.list
@@ -255,6 +265,10 @@ cp /tmp/rtk-account-manager-deploy/account-manager.env /tmp/rtk-account-manager-
 install -m 0600 -o root -g root /tmp/rtk-account-manager-deploy/account-manager.env /etc/rtk-account-manager/account-manager.env
 
 systemctl daemon-reload
+systemctl enable --now prometheus-node-exporter
+systemctl restart prometheus-node-exporter
+systemctl is-active prometheus-node-exporter
+ss -lnt | grep "$node_exporter_listen_addr"
 systemctl start rtk-account-manager-migrate.service
 systemctl enable --now rtk-account-manager-cleanup-tokens.timer
 systemctl enable --now rtk-account-manager.service
