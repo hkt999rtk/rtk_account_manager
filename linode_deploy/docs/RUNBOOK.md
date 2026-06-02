@@ -36,7 +36,8 @@ Remote VM target:
 - install prefix: `/opt/rtk-account-manager`
 - env file: `/etc/rtk-account-manager/account-manager.env`
 - state dir: `/var/lib/rtk-account-manager`
-- API bind: `127.0.0.1:18081` behind nginx
+- API bind: `:18081`; public nginx proxies through loopback and central
+  Prometheus scrapes `/metrics/prometheus` over the private VPC IP
 - PostgreSQL: local database `rtk_account_manager`
 
 ## Deploy
@@ -87,6 +88,14 @@ verifier reads `ACCOUNT_MANAGER_VERIFY_PLATFORM_ADMIN_EMAIL` and
 `ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL` and
 `ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD` when those are already
 loaded for deployment bootstrap.
+
+## Observability
+
+The API serves Prometheus text metrics at `GET /metrics/prometheus`. This
+endpoint is intended for private Prometheus scraping by the central Video Cloud
+observability stack on the private VPC IP and app port. Public nginx returns
+404 for this path; public verification should continue to use `GET /v1/health`
+and authenticated API smoke checks.
 
 ```sh
 set -a

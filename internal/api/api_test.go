@@ -63,6 +63,64 @@ func TestHealthRoute(t *testing.T) {
 	}
 }
 
+func TestPrometheusMetricsRoute(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := New(nil, nil).Router()
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics/prometheus", nil)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected metrics 200, got %d: %s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Content-Type"); !strings.Contains(got, "text/plain") {
+		t.Fatalf("expected text/plain content type, got %q", got)
+	}
+	if !strings.Contains(res.Body.String(), "rtk_account_manager_up 1") {
+		t.Fatalf("expected up metric, got:\n%s", res.Body.String())
+	}
+}
+
+func TestPrometheusMetricHelpersFormatLabelsDeterministically(t *testing.T) {
+	var b strings.Builder
+
+	writeMetricHelp(&b, "rtk_account_manager_test_total", "Test metric.")
+	writeMetricType(&b, "rtk_account_manager_test_total", "counter")
+	writeMetric(&b, "rtk_account_manager_test_total", map[string]string{
+		"status": "quoted \"value\"",
+		"queue":  "line\\one\nline two",
+	}, 42)
+
+	want := strings.Join([]string{
+		"# HELP rtk_account_manager_test_total Test metric.",
+		"# TYPE rtk_account_manager_test_total counter",
+		`rtk_account_manager_test_total{queue="line\\one\nline two",status="quoted \"value\""} 42`,
+		"",
+	}, "\n")
+	if got := b.String(); got != want {
+		t.Fatalf("unexpected metric output:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestWriteStatusMetricsSortsStatuses(t *testing.T) {
+	var b strings.Builder
+
+	writeStatusMetrics(&b, "rtk_account_manager_lifecycle_messages", "outbox", map[string]int64{
+		"published": 2,
+		"pending":   1,
+	})
+
+	want := strings.Join([]string{
+		`rtk_account_manager_lifecycle_messages{queue="outbox",status="pending"} 1`,
+		`rtk_account_manager_lifecycle_messages{queue="outbox",status="published"} 2`,
+		"",
+	}, "\n")
+	if got := b.String(); got != want {
+		t.Fatalf("unexpected status metric output:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestHealthRequestEmitsStructuredLog(t *testing.T) {
 	core, logs := observer.New(zapcore.InfoLevel)
 	logger := zap.New(core).With(

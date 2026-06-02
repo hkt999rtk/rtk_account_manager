@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -954,6 +955,35 @@ func TestIntegrationAdminMetricsReportsEmptySnapshot(t *testing.T) {
 	}
 	if metricsBody.Lifecycle.Outbox.ByStatus == nil || metricsBody.Lifecycle.Inbox.ByStatus == nil || metricsBody.Lifecycle.Operations.ByStatus == nil {
 		t.Fatalf("expected lifecycle maps in empty metrics response, got %+v", metricsBody.Lifecycle)
+	}
+}
+
+func TestIntegrationPrometheusMetricsReportsEmptySnapshot(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics/prometheus", nil)
+	res := httptest.NewRecorder()
+	env.router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected prometheus metrics 200, got %d: %s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Content-Type"); !strings.Contains(got, "text/plain") {
+		t.Fatalf("expected text/plain content type, got %q", got)
+	}
+	body := res.Body.String()
+	for _, want := range []string{
+		"rtk_account_manager_up 1\n",
+		`rtk_account_manager_eval_signups_total{tier="evaluation"} 0` + "\n",
+		`rtk_account_manager_eval_signups_total{tier="commercial"} 0` + "\n",
+		"rtk_account_manager_email_verification_completed_total 0\n",
+		`rtk_account_manager_quota_raise_requests{status="pending"} 0` + "\n",
+		`rtk_account_manager_quota_raise_requests{status="approved"} 0` + "\n",
+		`rtk_account_manager_quota_raise_requests{status="declined"} 0` + "\n",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected prometheus body to contain %q, got:\n%s", want, body)
+		}
 	}
 }
 

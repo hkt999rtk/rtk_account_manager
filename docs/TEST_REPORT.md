@@ -221,6 +221,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanUpdateOrganization`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminBrandCloudLifecycle`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminCreatesActiveBrandCloudUser`
+- `rtk_account_manager/internal/api`: `TestIntegrationPrometheusMetricsReportsEmptySnapshot`
 - `rtk_account_manager/internal/api`: `TestIntegrationProvisioningEndpoints`
 - `rtk_account_manager/internal/api`: `TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness`
 - `rtk_account_manager/internal/api`: `TestIntegrationQuotaRaiseValidationAndDefaultApproval`
@@ -245,6 +246,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes/unsupported`
 - `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes`
 - `rtk_account_manager/internal/api`: `TestPaginationClampsAndDefaultsValues`
+- `rtk_account_manager/internal/api`: `TestPrometheusMetricHelpersFormatLabelsDeterministically`
+- `rtk_account_manager/internal/api`: `TestPrometheusMetricsRoute`
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/accepted_provisioning_waits_for_activation`
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/activation_failure_stays_visible`
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/activation_succeeded_and_online_is_ready`
@@ -273,6 +276,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability/quota_exceeded`
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability/service_unavailable`
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability`
+- `rtk_account_manager/internal/api`: `TestWriteStatusMetricsSortsStatuses`
 - `rtk_account_manager/internal/auth`: `TestExpiredAndWrongSecretTokensFailParsing`
 - `rtk_account_manager/internal/auth`: `TestOIDCClientAuthorizationURL`
 - `rtk_account_manager/internal/auth`: `TestOIDCClientDiscoverRejectsBadDiscoveryResponses/bad_json`
