@@ -117,7 +117,22 @@ Account-manager-owned video metadata keys:
 - `video_cloud_deactivated_at`
 - `video_cloud_last_error`
 
-## 2.2 Keycloak / OIDC Authentication
+## 2.2 Persistence Boundary Refactor Direction
+
+Account Manager is the highest-priority repository for the workspace
+persistence/cache refactor because API handlers and workers currently depend on
+the concrete Postgres-backed `internal/store.Store`. Future Redis-compatible
+cache support should first introduce narrow persistence ports for auth/session,
+user, organization, device, lifecycle, and metrics reads while keeping
+`internal/store.Store` as the durable Postgres adapter. This refactor must not
+change public HTTP APIs or move correctness-critical write transactions, ACL
+permission decisions, quota mutation, or provisioning lifecycle transitions out
+of Postgres.
+
+The cross-repository roadmap is maintained in
+`../../docs/persistence-cache-refactor-roadmap.md`.
+
+## 2.3 Keycloak / OIDC Authentication
 
 Keycloak/OIDC SSO is supported as an external authentication capability.
 Keycloak is an external identity provider; account manager remains the
