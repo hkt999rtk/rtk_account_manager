@@ -290,6 +290,7 @@ func (s *Server) recoveryLogger() gin.HandlerFunc {
 func (s *Server) Router() *gin.Engine {
 	r := gin.New()
 	r.Use(s.requestLogger(), s.recoveryLogger())
+	r.GET("/metrics/prometheus", s.prometheusMetrics)
 
 	v1 := r.Group("/v1")
 	v1.GET("/health", func(c *gin.Context) {

@@ -63,6 +63,25 @@ func TestHealthRoute(t *testing.T) {
 	}
 }
 
+func TestPrometheusMetricsRoute(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := New(nil, nil).Router()
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics/prometheus", nil)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected metrics 200, got %d: %s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Content-Type"); !strings.Contains(got, "text/plain") {
+		t.Fatalf("expected text/plain content type, got %q", got)
+	}
+	if !strings.Contains(res.Body.String(), "rtk_account_manager_up 1") {
+		t.Fatalf("expected up metric, got:\n%s", res.Body.String())
+	}
+}
+
 func TestHealthRequestEmitsStructuredLog(t *testing.T) {
 	core, logs := observer.New(zapcore.InfoLevel)
 	logger := zap.New(core).With(

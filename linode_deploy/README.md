@@ -20,13 +20,17 @@ See [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 internet
   -> account-manager.video-cloud-staging.realtekconnect.com:443
   -> nginx on Account Manager VM
-  -> rtk_account_manager on 127.0.0.1:18081
+  -> rtk_account_manager on :18081
   -> local PostgreSQL on 127.0.0.1:5432
+
+Video Cloud Prometheus
+  -> account-manager private VPC IP :18081 /metrics/prometheus
 ```
 
-The Account Manager VM is independent from the `rtk_video_cloud` VPC. It does
-not join the Video Cloud private network and does not use the Video Cloud edge
-VM as a gateway. Other services should call it through public HTTPS.
+The Account Manager VM remains an independently deployed public service for API
+traffic. It also exposes the app port on its private VPC interface for central
+Prometheus scraping; other services should continue to call it through public
+HTTPS unless a specific private integration is documented.
 
 ## Public VM Files
 
