@@ -246,6 +246,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes/unsupported`
 - `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes`
 - `rtk_account_manager/internal/api`: `TestPaginationClampsAndDefaultsValues`
+- `rtk_account_manager/internal/api`: `TestPostgresStoreSatisfiesAPIPersistenceBoundaries`
 - `rtk_account_manager/internal/api`: `TestPrometheusMetricHelpersFormatLabelsDeterministically`
 - `rtk_account_manager/internal/api`: `TestPrometheusMetricsRoute`
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/accepted_provisioning_waits_for_activation`
@@ -496,6 +497,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestStartDeviceLifecycleOperationPersistsPendingProvisionMetadata`
 - `rtk_account_manager/internal/store`: `TestUserIdentityStoreEnforcesUniquenessAndListsByUser`
 - `rtk_account_manager/internal/store`: `TestValidatePartitionKeyMatchesOperationSkipsBlankValues`
+- `rtk_account_manager/internal/worker/inbox`: `TestPostgresStoreSatisfiesInboxMessageStore`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidMessages`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidPartitionKeysAfterPersistingInboxRow/blank_partition_key_is_normalized_for_storage_and_dead-lettered`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidPartitionKeysAfterPersistingInboxRow/nonblank_mismatched_partition_key_dead-letters`
@@ -525,6 +527,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceSkipsPreviouslyProcessedDuplicates`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceUsesWorkerClockWhenEnvelopeTimeIsMissing`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunRetriesTransientReceiveErrors`
+- `rtk_account_manager/internal/worker/outbox`: `TestPostgresStoreSatisfiesOutboxMessageStore`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceDeadLettersExhaustedPublishFailures`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceDeadLettersInvalidOutboxPayload`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceIgnoresConflictWhenRetryLosesToPublished`
