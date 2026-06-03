@@ -26,6 +26,8 @@ set -euo pipefail
 method="GET"
 data=""
 url=""
+output=""
+write_out=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -X)
@@ -39,6 +41,14 @@ while [ "$#" -gt 0 ]; do
       data="$2"
       shift 2
       ;;
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    -w)
+      write_out="$2"
+      shift 2
+      ;;
     -*)
       shift
       ;;
@@ -50,30 +60,40 @@ while [ "$#" -gt 0 ]; do
 done
 
 mkdir -p "$RTK_TEST_CAPTURE_DIR"
+body=""
+status="200"
 case "$url" in
   */linode/instances?page_size=500)
-    printf '{"data":[]}'
+    body='{"data":[]}'
     ;;
   */networking/firewalls?page_size=500)
-    printf '{"data":[]}'
+    body='{"data":[]}'
     ;;
   */linode/instances)
     printf '%s' "$data" > "$RTK_TEST_CAPTURE_DIR/linode-create.json"
-    printf '{"id":12345,"ipv4":["203.0.113.20"]}'
+    body='{"id":12345,"ipv4":["203.0.113.20"]}'
     ;;
   */networking/firewalls)
     printf '%s' "$data" > "$RTK_TEST_CAPTURE_DIR/firewall-create.json"
-    printf '{"id":67890}'
+    body='{"id":67890}'
     ;;
   */networking/firewalls/67890/devices)
     printf '%s' "$data" > "$RTK_TEST_CAPTURE_DIR/firewall-device.json"
-    printf '{"id":67890}'
+    body='{"id":67890}'
     ;;
   *)
     printf 'unexpected curl url: %s\n' "$url" >&2
     exit 22
     ;;
 esac
+if [ -n "$output" ]; then
+  printf '%s' "$body" > "$output"
+else
+  printf '%s' "$body"
+fi
+if [ -n "$write_out" ]; then
+  printf '%s' "${write_out//\%\{http_code\}/$status}"
+fi
 FAKE_CURL
 chmod +x "$fake_bin/curl"
 

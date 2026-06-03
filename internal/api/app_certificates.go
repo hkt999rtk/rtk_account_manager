@@ -30,15 +30,15 @@ type AppCertificateIssueRequest struct {
 }
 
 type AppCertificateIssueResponse struct {
-	RequestID           string
-	UserID              string
-	Subject             string
-	SerialNumber        string
-	NotBefore           time.Time
-	NotAfter            time.Time
-	CertificatePEM      string
-	CertificateChainPEM string
-	IssuedAt            time.Time
+	RequestID           string    `json:"request_id"`
+	UserID              string    `json:"user_id"`
+	Subject             string    `json:"subject"`
+	SerialNumber        string    `json:"serial_number"`
+	NotBefore           time.Time `json:"not_before"`
+	NotAfter            time.Time `json:"not_after"`
+	CertificatePEM      string    `json:"certificate_pem"`
+	CertificateChainPEM string    `json:"certificate_chain_pem"`
+	IssuedAt            time.Time `json:"issued_at"`
 }
 
 type appCertificateResponse struct {

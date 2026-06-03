@@ -429,16 +429,16 @@ func TestHTTPAppCertificateIssuerIssuesAndReportsErrors(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "issuer_down"}})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(AppCertificateIssueResponse{
-			RequestID:           req["request_id"].(string),
-			UserID:              req["user_id"].(string),
-			Subject:             "app-user:" + req["user_id"].(string),
-			SerialNumber:        "42",
-			NotBefore:           now,
-			NotAfter:            now.Add(time.Hour),
-			CertificatePEM:      generateTestCertificate("app-user:"+req["user_id"].(string), now, now.Add(time.Hour)),
-			CertificateChainPEM: "chain",
-			IssuedAt:            now,
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"request_id":            req["request_id"].(string),
+			"user_id":               req["user_id"].(string),
+			"subject":               "app-user:" + req["user_id"].(string),
+			"serial_number":         "42",
+			"not_before":            now,
+			"not_after":             now.Add(time.Hour),
+			"certificate_pem":       generateTestCertificate("app-user:"+req["user_id"].(string), now, now.Add(time.Hour)),
+			"certificate_chain_pem": "chain",
+			"issued_at":             now,
 		})
 	}))
 	defer server.Close()
