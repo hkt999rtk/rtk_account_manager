@@ -117,6 +117,8 @@ trap cleanup EXIT
   write_env JWT_ACCESS_SECRET
   write_env JWT_REFRESH_SECRET
   printf 'PORT=%s\n' "$port"
+  printf 'ACCOUNT_MANAGER_LOG_LEVEL=%s\n' "${ACCOUNT_MANAGER_LOG_LEVEL:-info}"
+  printf 'ACCOUNT_MANAGER_LOG_DEVELOPMENT=%s\n' "${ACCOUNT_MANAGER_LOG_DEVELOPMENT:-false}"
   printf 'ACCESS_TOKEN_TTL=%s\n' "${ACCESS_TOKEN_TTL:-15m}"
   printf 'REFRESH_TOKEN_TTL=%s\n' "${REFRESH_TOKEN_TTL:-720h}"
   printf 'AUTH_TOKEN_DELIVERY=%s\n' "${AUTH_TOKEN_DELIVERY:-log}"
