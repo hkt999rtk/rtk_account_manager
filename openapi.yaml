@@ -2592,6 +2592,9 @@ components:
           format: email
         password:
           type: string
+        app_csr_pem:
+          type: string
+          description: Optional app-generated CSR PEM for first-login app certificate bootstrap. The CSR private key stays on the app.
           minLength: 8
         display_name:
           type: string
@@ -3479,12 +3482,40 @@ components:
           $ref: "#/components/schemas/Organization"
     LoginResponse:
       type: object
-      required: [user, tokens]
+      required: [user, tokens, app_certificate]
       properties:
         user:
           $ref: "#/components/schemas/User"
         tokens:
           $ref: "#/components/schemas/Tokens"
+        app_certificate:
+          $ref: "#/components/schemas/AppCertificateBootstrap"
+    AppCertificateBootstrap:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [csr_required, issued]
+        subject:
+          type: string
+          example: app-user:0f0475fb-4c8d-4f78-8b6f-3b9e76c5b34b
+        certificate_pem:
+          type: string
+        certificate_chain_pem:
+          type: string
+        fingerprint_sha256:
+          type: string
+        serial_number:
+          type: string
+        issuer_request_id:
+          type: string
+        not_before:
+          type: string
+          format: date-time
+        not_after:
+          type: string
+          format: date-time
     RefreshResponse:
       type: object
       required: [tokens]

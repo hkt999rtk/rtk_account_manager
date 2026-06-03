@@ -16,6 +16,7 @@ type Store interface {
 	devicePersistence
 	deviceGroupPersistence
 	deviceTagPersistence
+	appCertificatePersistence
 	provisioningPersistence
 	deviceClaimPersistence
 	metricsPersistence
@@ -91,6 +92,11 @@ type deviceTagPersistence interface {
 	ListDeviceTags(ctx context.Context, orgID, deviceID string, limit, offset int) (store.DeviceTagPage, error)
 }
 
+type appCertificatePersistence interface {
+	GetValidAppCertificateForUser(ctx context.Context, userID string, now time.Time) (model.AppCertificate, error)
+	CreateAppCertificate(ctx context.Context, in store.AppCertificateCreateInput) (model.AppCertificate, error)
+}
+
 type provisioningPersistence interface {
 	StartDeviceLifecycleOperation(ctx context.Context, in store.DeviceLifecycleOperationInput) (store.DeviceLifecycleOperationResult, error)
 	StartDeviceDeactivationOperation(ctx context.Context, in store.DeviceDeactivationOperationInput) (store.DeviceLifecycleOperationResult, error)
@@ -108,6 +114,7 @@ type deviceClaimPersistence interface {
 	ResolveDeviceClaimToken(ctx context.Context, in store.DeviceClaimResolveInput) (store.DeviceClaimResolveResult, error)
 	TransferDeviceClaim(ctx context.Context, in store.DeviceClaimTransferInput) (store.DeviceClaimOverrideResult, error)
 	ReclaimDeviceClaimToken(ctx context.Context, in store.DeviceClaimReclaimInput) (store.DeviceClaimOverrideResult, error)
+	AuthorizeUserForVideoDevice(ctx context.Context, userID, videoCloudDevid string) error
 }
 
 type metricsPersistence interface {

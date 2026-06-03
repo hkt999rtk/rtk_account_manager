@@ -14,8 +14,8 @@ Source inputs:
 - `rtk_cloud_workspace/docs/implementation-gap-backlog.md`
 - `rtk_cloud_workspace/docs/core-platform-gap-roadmap.md`
 - `docs/SPEC.md`
-- `contracts/PROVISION.md`
-- `contracts/CROSS_SERVICE_CHANNEL.md`
+- `docs/rtk_cloud_contracts_doc/PROVISION.md`
+- `docs/rtk_cloud_contracts_doc/CROSS_SERVICE_CHANNEL.md`
 
 ## Deployment Profiles
 

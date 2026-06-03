@@ -146,6 +146,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#5`
 - `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape`
 - `rtk_account_manager/internal/api`: `TestAllowSignupEnforcesCaptchaDisposableAndRateLimit`
+- `rtk_account_manager/internal/api`: `TestAppCertificateValidationAndErrors`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsBlankTokens/reset_password_blank_token`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsBlankTokens/verify_email_blank_token`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsBlankTokens`
@@ -157,6 +158,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestAuthTokenDeliveryHook`
 - `rtk_account_manager/internal/api`: `TestBindStrictRejectsUnknownFields`
 - `rtk_account_manager/internal/api`: `TestFailureFromMetadataUsesProjectedErrorFacts`
+- `rtk_account_manager/internal/api`: `TestHTTPAppCertificateIssuerIssuesAndReportsErrors`
 - `rtk_account_manager/internal/api`: `TestHealthRequestEmitsStructuredLog`
 - `rtk_account_manager/internal/api`: `TestHealthRoute`
 - `rtk_account_manager/internal/api`: `TestIntegrationACLAdminWorkflow`
@@ -207,8 +209,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationDisabledUserCannotUseExistingTokens`
 - `rtk_account_manager/internal/api`: `TestIntegrationEmailVerificationAndPasswordRecovery`
 - `rtk_account_manager/internal/api`: `TestIntegrationFleetGroupsAndTags`
+- `rtk_account_manager/internal/api`: `TestIntegrationInternalAppTokenAuthorization`
 - `rtk_account_manager/internal/api`: `TestIntegrationLastOwnerCannotBeRemovedOrDowngraded`
 - `rtk_account_manager/internal/api`: `TestIntegrationListPaginationMetadata`
+- `rtk_account_manager/internal/api`: `TestIntegrationLoginAppCertificateCSRRequired`
+- `rtk_account_manager/internal/api`: `TestIntegrationLoginAppCertificateRejectsUnavailableIssuerAndInvalidCSR`
+- `rtk_account_manager/internal/api`: `TestIntegrationLoginWithAppCSRStoresCertificateAndReusesIt`
 - `rtk_account_manager/internal/api`: `TestIntegrationMigrationsAreIdempotent`
 - `rtk_account_manager/internal/api`: `TestIntegrationOIDCCallbackRejectsUnknownDisabledAndUnverifiedUsers/disabled_linked_user`
 - `rtk_account_manager/internal/api`: `TestIntegrationOIDCCallbackRejectsUnknownDisabledAndUnverifiedUsers/unknown_without_auto_link`
@@ -239,6 +245,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestMatchExistingDeactivateOperation`
 - `rtk_account_manager/internal/api`: `TestMatchExistingProvisionOperation`
 - `rtk_account_manager/internal/api`: `TestNewAuthTokenAndUnsupportedPurpose`
+- `rtk_account_manager/internal/api`: `TestNewHTTPAppCertificateIssuerValidatesConfig`
 - `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes/array`
 - `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes/missing`
 - `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes/single_group`
@@ -444,6 +451,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestACLPlatformAssignmentsAuditAndErrorPaths`
 - `rtk_account_manager/internal/store`: `TestACLRoleAssignmentsAuthorizeInsideScopeOnly`
 - `rtk_account_manager/internal/store`: `TestACLSeedPermissionCatalogAndSystemRoles`
+- `rtk_account_manager/internal/store`: `TestAppCertificateCreateRotatesActiveCertificate`
 - `rtk_account_manager/internal/store`: `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`
 - `rtk_account_manager/internal/store`: `TestClaimOutboxMessagesReadyLeasesRows`
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshotWithLossyUTF8`
@@ -495,6 +503,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationRejectsMissingProjectedMetadata`
 - `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationUsesProjectedMetadata`
 - `rtk_account_manager/internal/store`: `TestStartDeviceLifecycleOperationPersistsPendingProvisionMetadata`
+- `rtk_account_manager/internal/store`: `TestUnprovisionDeviceRetainsClaimHistoryAndAllowsReplacementClaim`
 - `rtk_account_manager/internal/store`: `TestUserIdentityStoreEnforcesUniquenessAndListsByUser`
 - `rtk_account_manager/internal/store`: `TestValidatePartitionKeyMatchesOperationSkipsBlankValues`
 - `rtk_account_manager/internal/worker/inbox`: `TestPostgresStoreSatisfiesInboxMessageStore`

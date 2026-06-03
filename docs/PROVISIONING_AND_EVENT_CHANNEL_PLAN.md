@@ -6,11 +6,11 @@ Living milestone tracker for the v2 provisioning and event-channel rollout.
 
 This plan is derived from:
 
-- `contracts/PROVISION.md`
-- `contracts/CROSS_SERVICE_CHANNEL.md`
-- `contracts/CONTRACT_OVERVIEW.md`
-- `contracts/PRODUCT_ONBOARDING.md`
-- `contracts/PRODUCT_READINESS.md`
+- `docs/rtk_cloud_contracts_doc/PROVISION.md`
+- `docs/rtk_cloud_contracts_doc/CROSS_SERVICE_CHANNEL.md`
+- `docs/rtk_cloud_contracts_doc/CONTRACT_OVERVIEW.md`
+- `docs/rtk_cloud_contracts_doc/PRODUCT_ONBOARDING.md`
+- `docs/rtk_cloud_contracts_doc/PRODUCT_READINESS.md`
 - `docs/SPEC.md`
 
 As of May 2026, `origin/main` includes the merged persistence, API, worker, broker, test-report, runbook, pending-metadata, lifecycle-admin, delete-policy, readiness-contract, private-cloud readiness, Claim Token resolution, registry-only readiness, and corresponding test-report slices for the v2 lifecycle milestone. The video-side lifecycle hardening previously tracked in `hkt999rtk/rtk_video_cloud#128`, `hkt999rtk/rtk_video_cloud#129`, `hkt999rtk/rtk_video_cloud#131`, and PR `hkt999rtk/rtk_video_cloud#146` is closed or merged.
@@ -76,7 +76,7 @@ These issues were follow-ups to the merged account-manager v2 implementation. Th
 | Issue | Status | Evidence | Deliverable |
 | --- | --- | --- | --- |
 | `#87 [API/DB] Add Claim Token resolve persistence and policy model` | verified | PR #92, `openapi.yaml`, `docs/TEST_REPORT.md` | Hashed Claim Token persistence, claim/bind policy state, registry-device create/match behavior, and provisioning input projection. |
-| `#88 [API] Implement POST /v1/orgs/:orgId/devices/claim/resolve` | verified | PR #93, `openapi.yaml`, `docs/SPEC.md` | App-facing Claim Token resolve endpoint defined by `contracts/PROVISION.md` and `contracts/PRODUCT_ONBOARDING.md`. |
+| `#88 [API] Implement POST /v1/orgs/:orgId/devices/claim/resolve` | verified | PR #93, `openapi.yaml`, `docs/SPEC.md` | App-facing Claim Token resolve endpoint defined by `docs/rtk_cloud_contracts_doc/PROVISION.md` and `docs/rtk_cloud_contracts_doc/PRODUCT_ONBOARDING.md`. |
 | `#89 [API] Return registry-only readiness from GET /provisioning` | verified | PR #94, `docs/TEST_REPORT.md` | Account-side readiness for existing registry devices that have no provisioning operation yet. |
 | `#90 [Testing] Extend report for Claim Token and readiness gaps` | verified | PR #95, `make test-report`, `docs/TESTING.md`, `docs/TEST_REPORT.md` | Maintained evidence for Claim Token and registry-only readiness correctness. |
 | `#97 [API/DB] Add platform-admin Claim Token issuance/import workflow` | verified | PR #104, `openapi.yaml`, `docs/TEST_REPORT.md` | Platform-admin token create/import/list/show/revoke workflow with hashed token storage and raw generated token one-time return. |
