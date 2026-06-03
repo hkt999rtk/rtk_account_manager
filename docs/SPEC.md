@@ -12,7 +12,7 @@ to `rtk_cloud_admin`. This service remains the authoritative backend control
 plane for identity, tenant context, authorization, entitlement, device registry,
 and provisioning intent.
 
-Provisioning and account/video event-channel integration are the v2 surface implemented by this repository. [PROVISIONING_AND_EVENT_CHANNEL_PLAN.md](PROVISIONING_AND_EVENT_CHANNEL_PLAN.md) tracks rollout history and verification status, and this spec must stay aligned with the shared contracts in `contracts/PROVISION.md` and `contracts/CROSS_SERVICE_CHANNEL.md`.
+Provisioning and account/video event-channel integration are the v2 surface implemented by this repository. [PROVISIONING_AND_EVENT_CHANNEL_PLAN.md](PROVISIONING_AND_EVENT_CHANNEL_PLAN.md) tracks rollout history and verification status, and this spec must stay aligned with the shared contracts in `docs/rtk_cloud_contracts_doc/PROVISION.md` and `docs/rtk_cloud_contracts_doc/CROSS_SERVICE_CHANNEL.md`.
 
 ## 2. V1 Scope
 
@@ -59,7 +59,7 @@ Provisioning and account/video event-channel integration are the v2 surface impl
 
 ## 2.1 V2 Scope: Provisioning And Cross-Service Channel
 
-The shared contracts in `contracts/` define the product-level integration boundary between account manager, Realtek video server, and an independent cross-service channel runtime.
+The shared contracts in `docs/rtk_cloud_contracts_doc/` define the product-level integration boundary between account manager, Realtek video server, and an independent cross-service channel runtime.
 
 V2 adds:
 
@@ -400,7 +400,7 @@ The SSO data model is defined in
 ### Product ACL Tables
 
 Product authorization state is persisted in Account Manager and follows
-`contracts/AUTHORIZATION.md`.
+`docs/rtk_cloud_contracts_doc/AUTHORIZATION.md`.
 
 - `permissions` stores stable `<domain>.<action>` permission names.
 - `roles` stores system and custom product roles.
