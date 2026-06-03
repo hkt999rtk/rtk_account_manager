@@ -23,7 +23,7 @@ import (
 )
 
 type Server struct {
-	store                      *store.Store
+	store                      Store
 	auth                       *auth.Service
 	authTokenSink              AuthTokenSink
 	quotaRaiseNotificationSink QuotaRaiseNotificationSink
@@ -40,7 +40,7 @@ type Server struct {
 
 var ErrAuthTokenSinkUnavailable = errors.New("auth token sink unavailable")
 
-func newServer(store *store.Store, authService *auth.Service, sink AuthTokenSink) *Server {
+func newServer(store Store, authService *auth.Service, sink AuthTokenSink) *Server {
 	return &Server{
 		store:         store,
 		auth:          authService,
@@ -51,7 +51,7 @@ func newServer(store *store.Store, authService *auth.Service, sink AuthTokenSink
 	}
 }
 
-func New(store *store.Store, authService *auth.Service) *Server {
+func New(store Store, authService *auth.Service) *Server {
 	return newServer(store, authService, nil)
 }
 
@@ -119,7 +119,7 @@ func (s LogAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthToken
 	return nil
 }
 
-func NewWithAuthTokenSink(store *store.Store, authService *auth.Service, sink AuthTokenSink) *Server {
+func NewWithAuthTokenSink(store Store, authService *auth.Service, sink AuthTokenSink) *Server {
 	return newServer(store, authService, sink)
 }
 
@@ -233,7 +233,7 @@ func buildSMTPMessage(from, to, subject, body string) []byte {
 	return b.Bytes()
 }
 
-func NewWithAuthTokenAndNotificationSink(store *store.Store, authService *auth.Service, authSink AuthTokenSink, notificationSink QuotaRaiseNotificationSink) *Server {
+func NewWithAuthTokenAndNotificationSink(store Store, authService *auth.Service, authSink AuthTokenSink, notificationSink QuotaRaiseNotificationSink) *Server {
 	server := newServer(store, authService, authSink)
 	server.quotaRaiseNotificationSink = notificationSink
 	return server
