@@ -151,6 +151,23 @@ type UserIdentity struct {
 	UpdatedAt     time.Time      `json:"updated_at"`
 }
 
+type AppCertificate struct {
+	ID                  string     `json:"id"`
+	UserID              string     `json:"user_id"`
+	Subject             string     `json:"subject"`
+	CSRSHA256           string     `json:"csr_sha256"`
+	CertificatePEM      string     `json:"certificate_pem"`
+	CertificateChainPEM string     `json:"certificate_chain_pem"`
+	FingerprintSHA256   string     `json:"fingerprint_sha256"`
+	SerialNumber        string     `json:"serial_number"`
+	IssuerRequestID     string     `json:"issuer_request_id"`
+	NotBefore           time.Time  `json:"not_before"`
+	NotAfter            time.Time  `json:"not_after"`
+	RevokedAt           *time.Time `json:"revoked_at,omitempty"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+}
+
 type OIDCLoginState struct {
 	ID                   string     `json:"id"`
 	ProviderID           string     `json:"provider_id"`

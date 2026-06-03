@@ -64,6 +64,7 @@ func main() {
 	}
 	server := api.NewWithAuthTokenAndNotificationSink(accountStore, authService, authTokenSink, notificationSink)
 	server.SetLogger(logger)
+	server.ConfigureInternalAuthToken(cfg.InternalAuthToken)
 	server.ConfigureOIDC(api.OIDCOptions{
 		Env: auth.OIDCEnvConfig{
 			Enabled:       cfg.OIDCEnabled,
@@ -77,6 +78,19 @@ func main() {
 			AutoLinkEmail: cfg.OIDCAutoLinkEmail,
 		},
 	})
+	if strings.TrimSpace(cfg.AppCertIssuerBaseURL) != "" {
+		issuer, err := api.NewHTTPAppCertificateIssuer(api.HTTPAppCertificateIssuerConfig{
+			BaseURL:    cfg.AppCertIssuerBaseURL,
+			ClientCert: cfg.AppCertIssuerClientCert,
+			ClientKey:  cfg.AppCertIssuerClientKey,
+			CAFile:     cfg.AppCertIssuerCAFile,
+			Timeout:    cfg.AppCertIssuerTimeout,
+		})
+		if err != nil {
+			fatal(logger, "configure app certificate issuer failed", err)
+		}
+		server.ConfigureAppCertificateIssuer(issuer)
+	}
 
 	addr := ":" + cfg.Port
 	logger.Info("server listening", zap.String("addr", addr))

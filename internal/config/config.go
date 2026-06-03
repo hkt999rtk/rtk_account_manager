@@ -46,6 +46,12 @@ type Config struct {
 	OIDCRedirectURL                string
 	OIDCScopes                     []string
 	OIDCAutoLinkEmail              bool
+	AppCertIssuerBaseURL           string
+	AppCertIssuerClientCert        string
+	AppCertIssuerClientKey         string
+	AppCertIssuerCAFile            string
+	AppCertIssuerTimeout           time.Duration
+	InternalAuthToken              string
 	BootstrapPlatformAdminEmail    string
 	BootstrapPlatformAdminPassword string
 	LogEnv                         string
@@ -113,6 +119,12 @@ func load() (Config, error) {
 		OIDCRedirectURL:                os.Getenv("OIDC_REDIRECT_URL"),
 		OIDCScopes:                     stringList("OIDC_SCOPES", []string{"openid", "email", "profile"}),
 		OIDCAutoLinkEmail:              boolValue("OIDC_AUTO_LINK_EMAIL", false),
+		AppCertIssuerBaseURL:           os.Getenv("APP_CERT_ISSUER_BASE_URL"),
+		AppCertIssuerClientCert:        os.Getenv("APP_CERT_ISSUER_CLIENT_CERT"),
+		AppCertIssuerClientKey:         os.Getenv("APP_CERT_ISSUER_CLIENT_KEY"),
+		AppCertIssuerCAFile:            os.Getenv("APP_CERT_ISSUER_CA_FILE"),
+		AppCertIssuerTimeout:           duration("APP_CERT_ISSUER_TIMEOUT", 10*time.Second),
+		InternalAuthToken:              os.Getenv("ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN"),
 		BootstrapPlatformAdminEmail:    os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL"),
 		BootstrapPlatformAdminPassword: os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD"),
 		LogEnv:                         getenv("ACCOUNT_MANAGER_ENV", "local"),

@@ -25,6 +25,7 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"role_assignments",
 		"external_group_mappings",
 		"acl_audit_events",
+		"app_certificates",
 		"quota_raise_requests",
 		"user_identities",
 	}
@@ -49,6 +50,8 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"external_group_mappings": {"provider_id", "external_group", "role_id", "scope_type", "scope_id", "organization_id",
 			"created_by", "disabled_at"},
 		"acl_audit_events": {"event_type", "subject_type", "subject_id", "actor_user_id", "organization_id", "payload"},
+		"app_certificates": {"user_id", "subject", "csr_sha256", "certificate_pem", "certificate_chain_pem", "fingerprint_sha256",
+			"serial_number", "issuer_request_id", "not_before", "not_after", "revoked_at"},
 		"quota_raise_requests": {"organization_id", "requested_by", "requested_quota", "status", "contact_info",
 			"decision_reason"},
 		"user_identities":   {"user_id", "provider_id", "issuer_url", "subject", "email", "email_verified", "claims", "linked_at", "last_login_at"},
@@ -141,6 +144,8 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"acl_audit_events_event_type_idx",
 		"acl_audit_events_subject_idx",
 		"acl_audit_events_org_idx",
+		"app_certificates_user_active_unique",
+		"app_certificates_user_validity_idx",
 		"quota_raise_requests_org_status_idx",
 		"user_identities_user_idx",
 	}

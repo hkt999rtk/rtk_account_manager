@@ -33,6 +33,8 @@ type Server struct {
 	oidcClient                 auth.OIDCClient
 	oidcStateTTL               time.Duration
 	oidcEnvClientSecretRef     string
+	appCertificateIssuer       AppCertificateIssuer
+	internalAuthToken          string
 	logger                     *zap.Logger
 }
 
@@ -119,6 +121,14 @@ func (s LogAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthToken
 
 func NewWithAuthTokenSink(store *store.Store, authService *auth.Service, sink AuthTokenSink) *Server {
 	return newServer(store, authService, sink)
+}
+
+func (s *Server) ConfigureAppCertificateIssuer(issuer AppCertificateIssuer) {
+	s.appCertificateIssuer = issuer
+}
+
+func (s *Server) ConfigureInternalAuthToken(token string) {
+	s.internalAuthToken = strings.TrimSpace(token)
 }
 
 type QuotaRaiseNotificationDelivery struct {
@@ -307,6 +317,7 @@ func (s *Server) Router() *gin.Engine {
 	v1.GET("/auth/oidc/providers", s.listOIDCProviders)
 	v1.GET("/auth/oidc/:providerId/login", s.startOIDCLogin)
 	v1.GET("/auth/oidc/:providerId/callback", s.handleOIDCCallback)
+	v1.POST("/internal/app-token-authorizations", s.handleInternalAppTokenAuthorization)
 
 	protected := v1.Group("")
 	protected.Use(s.requireAuth())
@@ -446,8 +457,9 @@ func (s *Server) register(c *gin.Context) {
 }
 
 type loginRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required"`
+	Email     string `json:"email" binding:"required,email"`
+	Password  string `json:"password" binding:"required"`
+	AppCSRPem string `json:"app_csr_pem,omitempty"`
 }
 
 func (s *Server) login(c *gin.Context) {
@@ -469,7 +481,12 @@ func (s *Server) login(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"user": user, "tokens": tokens})
+	response, err := s.loginResponse(c.Request.Context(), user, tokens, req.AppCSRPem)
+	if err != nil {
+		writeAppCertificateError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func (s *Server) listOIDCProviders(c *gin.Context) {
@@ -573,7 +590,12 @@ func (s *Server) handleOIDCCallback(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"user": user, "tokens": tokens})
+	response, err := s.loginResponse(c.Request.Context(), user, tokens, "")
+	if err != nil {
+		writeAppCertificateError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func (s *Server) resolveOIDCUser(c *gin.Context, provider auth.OIDCProvider, oidcIdentity auth.OIDCIdentity) (model.User, error) {

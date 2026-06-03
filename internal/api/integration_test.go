@@ -5,8 +5,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"math/big"
@@ -78,7 +81,7 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		TRUNCATE acl_audit_events, external_group_mappings, role_assignments, oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_claims, device_claim_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
+		TRUNCATE acl_audit_events, external_group_mappings, role_assignments, oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_claims, device_claim_tokens, app_certificates, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatal(err)
@@ -166,6 +169,171 @@ func TestIntegrationRegisterLoginRefreshAndLogout(t *testing.T) {
 	}, "")
 	if invalidRefreshRes.Code != http.StatusUnauthorized {
 		t.Fatalf("expected invalid refresh token 401, got %d", invalidRefreshRes.Code)
+	}
+}
+
+func TestIntegrationLoginAppCertificateCSRRequired(t *testing.T) {
+	env := newIntegrationEnv(t)
+	registerUser(t, env.router, "app-cert-required@example.com", "App Cert Required Org")
+
+	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "app-cert-required@example.com",
+		"password": "password123",
+	}, "")
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("expected login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
+	}
+	body := decodeBody[tokenBody](t, loginRes)
+	if body.AppCertificate.Status != "csr_required" {
+		t.Fatalf("app certificate status = %q", body.AppCertificate.Status)
+	}
+	if body.AppCertificate.CertificatePEM != "" {
+		t.Fatal("csr_required response must not include certificate material")
+	}
+}
+
+func TestIntegrationLoginWithAppCSRStoresCertificateAndReusesIt(t *testing.T) {
+	env := newIntegrationEnv(t)
+	registered := registerUser(t, env.router, "app-cert-issued@example.com", "App Cert Issued Org")
+	issuer := &fakeAppCertificateIssuer{}
+	env.server.ConfigureAppCertificateIssuer(issuer)
+
+	subject := "app-user:" + registered.User.ID
+	csrPEM := generateTestCSR(t, subject)
+	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":       "app-cert-issued@example.com",
+		"password":    "password123",
+		"app_csr_pem": csrPEM,
+	}, "")
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("expected login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
+	}
+	body := decodeBody[tokenBody](t, loginRes)
+	if body.AppCertificate.Status != "issued" || body.AppCertificate.Subject != subject {
+		t.Fatalf("app certificate response = %+v", body.AppCertificate)
+	}
+	if body.AppCertificate.CertificatePEM == "" || body.AppCertificate.FingerprintSHA256 == "" {
+		t.Fatalf("missing certificate material: %+v", body.AppCertificate)
+	}
+	if len(issuer.calls) != 1 {
+		t.Fatalf("issuer calls = %d", len(issuer.calls))
+	}
+	if issuer.calls[0].UserID != registered.User.ID || strings.TrimSpace(issuer.calls[0].CSRPem) == "" {
+		t.Fatalf("issuer request = %+v", issuer.calls[0])
+	}
+
+	reuseRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "app-cert-issued@example.com",
+		"password": "password123",
+	}, "")
+	if reuseRes.Code != http.StatusOK {
+		t.Fatalf("expected reuse login 200, got %d: %s", reuseRes.Code, reuseRes.Body.String())
+	}
+	reuseBody := decodeBody[tokenBody](t, reuseRes)
+	if reuseBody.AppCertificate.FingerprintSHA256 != body.AppCertificate.FingerprintSHA256 {
+		t.Fatalf("reuse fingerprint = %q, want %q", reuseBody.AppCertificate.FingerprintSHA256, body.AppCertificate.FingerprintSHA256)
+	}
+	if len(issuer.calls) != 1 {
+		t.Fatalf("issuer should not be called for valid existing cert, calls = %d", len(issuer.calls))
+	}
+
+	if _, err := env.db.Exec(context.Background(), `
+		UPDATE app_certificates
+		SET not_after = now() - interval '1 hour'
+		WHERE user_id = $1
+	`, registered.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	expiredCSR := generateTestCSR(t, subject)
+	expiredRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":       "app-cert-issued@example.com",
+		"password":    "password123",
+		"app_csr_pem": expiredCSR,
+	}, "")
+	if expiredRes.Code != http.StatusOK {
+		t.Fatalf("expected expired cert reissue login 200, got %d: %s", expiredRes.Code, expiredRes.Body.String())
+	}
+	expiredBody := decodeBody[tokenBody](t, expiredRes)
+	if expiredBody.AppCertificate.FingerprintSHA256 == body.AppCertificate.FingerprintSHA256 {
+		t.Fatal("expired cert reissue reused the old certificate fingerprint")
+	}
+	if len(issuer.calls) != 2 {
+		t.Fatalf("issuer should be called for expired cert reissue, calls = %d", len(issuer.calls))
+	}
+
+	if _, err := env.db.Exec(context.Background(), `
+		UPDATE app_certificates
+		SET revoked_at = now()
+		WHERE user_id = $1 AND revoked_at IS NULL
+	`, registered.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	revokedCSR := generateTestCSR(t, subject)
+	revokedRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":       "app-cert-issued@example.com",
+		"password":    "password123",
+		"app_csr_pem": revokedCSR,
+	}, "")
+	if revokedRes.Code != http.StatusOK {
+		t.Fatalf("expected revoked cert reissue login 200, got %d: %s", revokedRes.Code, revokedRes.Body.String())
+	}
+	revokedBody := decodeBody[tokenBody](t, revokedRes)
+	if revokedBody.AppCertificate.FingerprintSHA256 == expiredBody.AppCertificate.FingerprintSHA256 {
+		t.Fatal("revoked cert reissue reused the revoked certificate fingerprint")
+	}
+	if len(issuer.calls) != 3 {
+		t.Fatalf("issuer should be called for revoked cert reissue, calls = %d", len(issuer.calls))
+	}
+}
+
+func TestIntegrationInternalAppTokenAuthorization(t *testing.T) {
+	env := newIntegrationEnv(t)
+	env.server.ConfigureInternalAuthToken("internal-authz-token")
+	owner := registerUser(t, env.router, "app-authz-owner@example.com", "App Authz Owner Org")
+	outsider := registerUser(t, env.router, "app-authz-outsider@example.com", "App Authz Outsider Org")
+
+	createRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", map[string]any{
+		"name":          "app-authz-camera",
+		"category":      "ip_camera",
+		"serial_number": "APP-AUTHZ-001",
+		"metadata": map[string]any{
+			model.DeviceMetadataVideoCloudDevid: "video-app-authz-1",
+		},
+	}, owner.Tokens.AccessToken)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected device create 201, got %d: %s", createRes.Code, createRes.Body.String())
+	}
+
+	allowedRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
+		"user_id": owner.User.ID,
+		"devid":   "video-app-authz-1",
+	}, "internal-authz-token")
+	if allowedRes.Code != http.StatusOK {
+		t.Fatalf("expected owner authorization 200, got %d: %s", allowedRes.Code, allowedRes.Body.String())
+	}
+
+	outsiderRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
+		"user_id": outsider.User.ID,
+		"devid":   "video-app-authz-1",
+	}, "internal-authz-token")
+	if outsiderRes.Code != http.StatusForbidden {
+		t.Fatalf("expected outsider authorization 403, got %d: %s", outsiderRes.Code, outsiderRes.Body.String())
+	}
+
+	missingDeviceRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
+		"user_id": owner.User.ID,
+		"devid":   "missing-video-device",
+	}, "internal-authz-token")
+	if missingDeviceRes.Code != http.StatusForbidden {
+		t.Fatalf("expected missing device authorization 403, got %d: %s", missingDeviceRes.Code, missingDeviceRes.Body.String())
+	}
+
+	wrongTokenRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
+		"user_id": owner.User.ID,
+		"devid":   "video-app-authz-1",
+	}, "wrong-token")
+	if wrongTokenRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected wrong internal token 401, got %d: %s", wrongTokenRes.Code, wrongTokenRes.Body.String())
 	}
 }
 
@@ -4092,6 +4260,15 @@ type tokenBody struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
 	} `json:"tokens"`
+	AppCertificate struct {
+		Status              string `json:"status"`
+		Subject             string `json:"subject"`
+		CertificatePEM      string `json:"certificate_pem"`
+		CertificateChainPEM string `json:"certificate_chain_pem"`
+		FingerprintSHA256   string `json:"fingerprint_sha256"`
+		SerialNumber        string `json:"serial_number"`
+		IssuerRequestID     string `json:"issuer_request_id"`
+	} `json:"app_certificate"`
 }
 
 type meBody struct {
@@ -4785,6 +4962,65 @@ func performRaw(router *gin.Engine, method, path string, payload []byte, accessT
 	res := httptest.NewRecorder()
 	router.ServeHTTP(res, req)
 	return res
+}
+
+type fakeAppCertificateIssuer struct {
+	calls []AppCertificateIssueRequest
+}
+
+func (f *fakeAppCertificateIssuer) IssueAppCertificate(_ context.Context, req AppCertificateIssueRequest) (AppCertificateIssueResponse, error) {
+	f.calls = append(f.calls, req)
+	subject := "app-user:" + req.UserID
+	now := time.Now().UTC().Truncate(time.Second)
+	certPEM := generateTestCertificate(subject, now, now.Add(365*24*time.Hour))
+	return AppCertificateIssueResponse{
+		RequestID:           req.RequestID,
+		UserID:              req.UserID,
+		Subject:             subject,
+		SerialNumber:        "1",
+		NotBefore:           now,
+		NotAfter:            now.Add(365 * 24 * time.Hour),
+		CertificatePEM:      certPEM,
+		CertificateChainPEM: certPEM,
+		IssuedAt:            now,
+	}, nil
+}
+
+func generateTestCSR(t *testing.T, subject string) string {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	der, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
+		Subject: pkix.Name{CommonName: subject},
+	}, key)
+	if err != nil {
+		t.Fatalf("CreateCertificateRequest() error = %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}))
+}
+
+func generateTestCertificate(subject string, notBefore, notAfter time.Time) string {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		panic(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: subject},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  false,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		panic(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }
 
 func decodeBody[T any](t *testing.T, res *httptest.ResponseRecorder) T {
