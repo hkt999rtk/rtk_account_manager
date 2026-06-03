@@ -192,6 +192,26 @@ func TestIntegrationLoginAppCertificateCSRRequired(t *testing.T) {
 	}
 }
 
+func TestIntegrationLoginAppCertificateRejectsUnavailableIssuerAndInvalidCSR(t *testing.T) {
+	env := newIntegrationEnv(t)
+	registered := registerUser(t, env.router, "app-cert-invalid@example.com", "App Cert Invalid Org")
+
+	csrRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":       "app-cert-invalid@example.com",
+		"password":    "password123",
+		"app_csr_pem": generateTestCSR(t, "app-user:"+registered.User.ID),
+	}, "")
+	assertErrorCode(t, csrRes, http.StatusServiceUnavailable, "app_certificate_issuer_unavailable")
+
+	env.server.ConfigureAppCertificateIssuer(&fakeAppCertificateIssuer{})
+	wrongSubjectRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":       "app-cert-invalid@example.com",
+		"password":    "password123",
+		"app_csr_pem": generateTestCSR(t, "app-user:someone-else"),
+	}, "")
+	assertErrorCode(t, wrongSubjectRes, http.StatusBadRequest, "app_certificate_csr_invalid")
+}
+
 func TestIntegrationLoginWithAppCSRStoresCertificateAndReusesIt(t *testing.T) {
 	env := newIntegrationEnv(t)
 	registered := registerUser(t, env.router, "app-cert-issued@example.com", "App Cert Issued Org")

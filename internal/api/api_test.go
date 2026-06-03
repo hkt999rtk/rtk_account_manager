@@ -2,12 +2,20 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/smtp"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -401,6 +409,204 @@ func TestSMTPQuotaRaiseNotificationSinkWritesDelivery(t *testing.T) {
 			t.Fatalf("expected SMTP message to contain %q, got %q", want, string(gotMsg))
 		}
 	}
+}
+
+func TestHTTPAppCertificateIssuerIssuesAndReportsErrors(t *testing.T) {
+	now := time.Date(2026, 6, 3, 10, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/issuer/v1/certificates/app/issue" {
+			t.Fatalf("unexpected issuer path %s", r.URL.Path)
+		}
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Fatalf("unexpected content type %q", r.Header.Get("Content-Type"))
+		}
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if req["request_id"] == "fail" {
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "issuer_down"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(AppCertificateIssueResponse{
+			RequestID:           req["request_id"].(string),
+			UserID:              req["user_id"].(string),
+			Subject:             "app-user:" + req["user_id"].(string),
+			SerialNumber:        "42",
+			NotBefore:           now,
+			NotAfter:            now.Add(time.Hour),
+			CertificatePEM:      generateTestCertificate("app-user:"+req["user_id"].(string), now, now.Add(time.Hour)),
+			CertificateChainPEM: "chain",
+			IssuedAt:            now,
+		})
+	}))
+	defer server.Close()
+
+	baseURL, err := url.Parse(server.URL + "/issuer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuer := &HTTPAppCertificateIssuer{baseURL: baseURL, client: server.Client()}
+	out, err := issuer.IssueAppCertificate(context.Background(), AppCertificateIssueRequest{
+		RequestID: "req-1",
+		UserID:    "user-1",
+		CSRPem:    "csr",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.RequestID != "req-1" || out.UserID != "user-1" || out.SerialNumber != "42" {
+		t.Fatalf("unexpected issuer response: %+v", out)
+	}
+
+	if _, err := issuer.IssueAppCertificate(context.Background(), AppCertificateIssueRequest{RequestID: "fail"}); err == nil {
+		t.Fatal("expected issuer status error")
+	}
+	badJSONServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("{"))
+	}))
+	defer badJSONServer.Close()
+	badJSONURL, err := url.Parse(badJSONServer.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badJSONIssuer := &HTTPAppCertificateIssuer{baseURL: badJSONURL, client: badJSONServer.Client()}
+	if _, err := badJSONIssuer.IssueAppCertificate(context.Background(), AppCertificateIssueRequest{RequestID: "bad-json"}); err == nil {
+		t.Fatal("expected issuer decode error")
+	}
+	if _, err := (*HTTPAppCertificateIssuer)(nil).IssueAppCertificate(context.Background(), AppCertificateIssueRequest{}); err == nil {
+		t.Fatal("expected unconfigured issuer error")
+	}
+}
+
+func TestNewHTTPAppCertificateIssuerValidatesConfig(t *testing.T) {
+	if _, err := NewHTTPAppCertificateIssuer(HTTPAppCertificateIssuerConfig{BaseURL: "://bad"}); err == nil {
+		t.Fatal("expected invalid base URL error")
+	}
+
+	certFile, keyFile, caFile := writeAppIssuerTLSFiles(t)
+	issuer, err := NewHTTPAppCertificateIssuer(HTTPAppCertificateIssuerConfig{
+		BaseURL:    "https://issuer.example",
+		ClientCert: certFile,
+		ClientKey:  keyFile,
+		CAFile:     caFile,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issuer.client == nil || issuer.baseURL.Host != "issuer.example" {
+		t.Fatalf("unexpected issuer: %+v", issuer)
+	}
+}
+
+func TestAppCertificateValidationAndErrors(t *testing.T) {
+	subject := "app-user:user-1"
+	csrPEM := generateTestCSR(t, subject)
+	if der, err := validateAppCSRSubject(csrPEM, subject); err != nil || len(der) == 0 {
+		t.Fatalf("expected valid CSR, der=%d err=%v", len(der), err)
+	}
+	if _, err := validateAppCSRSubject(csrPEM, "app-user:other"); !errors.Is(err, errAppCertificateCSRInvalid) {
+		t.Fatalf("expected CSR subject error, got %v", err)
+	}
+	if _, err := validateAppCSRSubject("not pem", subject); !errors.Is(err, errAppCertificateCSRInvalid) {
+		t.Fatalf("expected CSR PEM error, got %v", err)
+	}
+
+	certPEM := generateTestCertificate(subject, time.Now().Add(-time.Minute), time.Now().Add(time.Hour))
+	cert, fingerprint, err := certificateFingerprint(certPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cert.Subject.CommonName != subject || fingerprint == "" {
+		t.Fatalf("unexpected fingerprint result: subject=%s fingerprint=%q", cert.Subject.CommonName, fingerprint)
+	}
+	if _, _, err := certificateFingerprint("not a cert"); !errors.Is(err, errAppCertificateCSRInvalid) {
+		t.Fatalf("expected certificate parse error, got %v", err)
+	}
+
+	tests := []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{err: errAppCertificateIssuerUnavailable, status: http.StatusServiceUnavailable, code: "app_certificate_issuer_unavailable"},
+		{err: errAppCertificateCSRInvalid, status: http.StatusBadRequest, code: "app_certificate_csr_invalid"},
+	}
+	for _, tt := range tests {
+		res := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(res)
+		writeAppCertificateError(c, tt.err)
+		if res.Code != tt.status {
+			t.Fatalf("expected status %d, got %d: %s", tt.status, res.Code, res.Body.String())
+		}
+		var body struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Error.Code != tt.code {
+			t.Fatalf("expected code %q, got %+v", tt.code, body.Error)
+		}
+	}
+}
+
+func writeAppIssuerTLSFiles(t *testing.T) (string, string, string) {
+	t.Helper()
+
+	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "test-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clientKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(2),
+		Subject:               pkix.Name{CommonName: "client"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+	}
+	clientDER, err := x509.CreateCertificate(rand.Reader, clientTemplate, caTemplate, &clientKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	certFile := dir + "/client.crt"
+	keyFile := dir + "/client.key"
+	caFile := dir + "/ca.crt"
+	if err := os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: clientDER}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(clientKey)}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return certFile, keyFile, caFile
 }
 
 func TestRequireAuthRejectsInvalidToken(t *testing.T) {
