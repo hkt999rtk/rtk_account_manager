@@ -38,6 +38,13 @@ port="${ACCOUNT_MANAGER_PORT:-18081}"
 db_name="${ACCOUNT_MANAGER_POSTGRES_DB:-rtk_account_manager}"
 db_user="${ACCOUNT_MANAGER_POSTGRES_USER:-rtk_account_manager}"
 db_password="${ACCOUNT_MANAGER_POSTGRES_PASSWORD:-}"
+app_cert_issuer_base_url="${APP_CERT_ISSUER_BASE_URL:-}"
+app_cert_issuer_client_cert="${APP_CERT_ISSUER_CLIENT_CERT:-/etc/rtk-account-manager/certissuer-client.pem}"
+app_cert_issuer_client_key="${APP_CERT_ISSUER_CLIENT_KEY:-/etc/rtk-account-manager/certissuer-client-key.pem}"
+app_cert_issuer_ca_file="${APP_CERT_ISSUER_CA_FILE:-/etc/rtk-account-manager/certissuer-ca.pem}"
+app_cert_issuer_client_cert_source="${APP_CERT_ISSUER_CLIENT_CERT_SOURCE:-}"
+app_cert_issuer_client_key_source="${APP_CERT_ISSUER_CLIENT_KEY_SOURCE:-}"
+app_cert_issuer_ca_source="${APP_CERT_ISSUER_CA_SOURCE:-}"
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required"; }
@@ -77,6 +84,11 @@ fi
 if [ -z "$db_password" ]; then
   db_password="$(openssl rand -hex 32)"
   printf '[account-manager-deploy] generated local PostgreSQL password for this deploy\n' >&2
+fi
+if [ -n "$app_cert_issuer_base_url" ]; then
+  [ -s "$app_cert_issuer_client_cert_source" ] || die "APP_CERT_ISSUER_CLIENT_CERT_SOURCE is required when APP_CERT_ISSUER_BASE_URL is set"
+  [ -s "$app_cert_issuer_client_key_source" ] || die "APP_CERT_ISSUER_CLIENT_KEY_SOURCE is required when APP_CERT_ISSUER_BASE_URL is set"
+  [ -s "$app_cert_issuer_ca_source" ] || die "APP_CERT_ISSUER_CA_SOURCE is required when APP_CERT_ISSUER_BASE_URL is set"
 fi
 
 database_url="postgres://${db_user}:${db_password}@127.0.0.1:5432/${db_name}?sslmode=disable"
@@ -139,6 +151,11 @@ trap cleanup EXIT
   printf 'CROSS_SERVICE_POLL_INTERVAL=%s\n' "${CROSS_SERVICE_POLL_INTERVAL:-5s}"
   printf 'AZURE_EVENTHUB_CONNECTION_STRING=%s\n' "${AZURE_EVENTHUB_CONNECTION_STRING:-}"
   printf 'AZURE_EVENTHUB_CHECKPOINT_FILE=%s\n' "${AZURE_EVENTHUB_CHECKPOINT_FILE:-/var/lib/rtk-account-manager/azure_eventhubs_checkpoint.json}"
+  printf 'APP_CERT_ISSUER_BASE_URL=%s\n' "$app_cert_issuer_base_url"
+  printf 'APP_CERT_ISSUER_CLIENT_CERT=%s\n' "$app_cert_issuer_client_cert"
+  printf 'APP_CERT_ISSUER_CLIENT_KEY=%s\n' "$app_cert_issuer_client_key"
+  printf 'APP_CERT_ISSUER_CA_FILE=%s\n' "$app_cert_issuer_ca_file"
+  printf 'APP_CERT_ISSUER_TIMEOUT=%s\n' "${APP_CERT_ISSUER_TIMEOUT:-10s}"
 } > "$tmp_env"
 chmod 0600 "$tmp_env"
 
@@ -151,6 +168,13 @@ if [ -n "$cert_cache_dir" ]; then
   ssh "${ssh_opts[@]}" "$remote" "mkdir -p /tmp/rtk-account-manager-deploy/cert-cache"
   scp "${ssh_opts[@]}" "$cert_cache_dir/fullchain.pem" "$remote:/tmp/rtk-account-manager-deploy/cert-cache/fullchain.pem"
   scp "${ssh_opts[@]}" "$cert_cache_dir/privkey.pem" "$remote:/tmp/rtk-account-manager-deploy/cert-cache/privkey.pem"
+fi
+if [ -n "$app_cert_issuer_base_url" ]; then
+  printf '[account-manager-deploy] uploading app certissuer client credentials\n' >&2
+  ssh "${ssh_opts[@]}" "$remote" "mkdir -p /tmp/rtk-account-manager-deploy/app-cert-issuer"
+  scp "${ssh_opts[@]}" "$app_cert_issuer_client_cert_source" "$remote:/tmp/rtk-account-manager-deploy/app-cert-issuer/client.pem"
+  scp "${ssh_opts[@]}" "$app_cert_issuer_client_key_source" "$remote:/tmp/rtk-account-manager-deploy/app-cert-issuer/client-key.pem"
+  scp "${ssh_opts[@]}" "$app_cert_issuer_ca_source" "$remote:/tmp/rtk-account-manager-deploy/app-cert-issuer/ca.pem"
 fi
 
 printf '[account-manager-deploy] installing runtime on %s\n' "$remote" >&2
@@ -267,6 +291,13 @@ tar --warning=no-unknown-keyword -xzf "$remote_bundle" -C /tmp/rtk-account-manag
 cp /tmp/rtk-account-manager-deploy/account-manager.env /tmp/rtk-account-manager-release/deploy/account-manager.env.example
 (cd /tmp/rtk-account-manager-release && ./deploy/install.sh)
 install -m 0600 -o root -g root /tmp/rtk-account-manager-deploy/account-manager.env /etc/rtk-account-manager/account-manager.env
+if [ -d /tmp/rtk-account-manager-deploy/app-cert-issuer ]; then
+  chgrp rtk-account-manager /etc/rtk-account-manager
+  chmod 0750 /etc/rtk-account-manager
+  install -m 0644 -o root -g root /tmp/rtk-account-manager-deploy/app-cert-issuer/client.pem /etc/rtk-account-manager/certissuer-client.pem
+  install -m 0640 -o root -g rtk-account-manager /tmp/rtk-account-manager-deploy/app-cert-issuer/client-key.pem /etc/rtk-account-manager/certissuer-client-key.pem
+  install -m 0644 -o root -g root /tmp/rtk-account-manager-deploy/app-cert-issuer/ca.pem /etc/rtk-account-manager/certissuer-ca.pem
+fi
 
 systemctl daemon-reload
 systemctl enable --now prometheus-node-exporter

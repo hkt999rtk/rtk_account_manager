@@ -34,16 +34,28 @@ die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required"; }
 api() {
   local method="$1" path="$2" data="${3:-}"
+  local body status tmp
+  tmp="$(mktemp)"
   if [ -n "$data" ]; then
-    curl -fsS -X "$method" "$api_base$path" \
+    status="$(curl -sS -o "$tmp" -w '%{http_code}' -X "$method" "$api_base$path" \
       -H "Authorization: Bearer $LINODE_TOKEN" \
       -H 'Content-Type: application/json' \
-      --data-binary "$data"
+      --data-binary "$data")"
   else
-    curl -fsS -X "$method" "$api_base$path" \
+    status="$(curl -sS -o "$tmp" -w '%{http_code}' -X "$method" "$api_base$path" \
       -H "Authorization: Bearer $LINODE_TOKEN" \
-      -H 'Content-Type: application/json'
+      -H 'Content-Type: application/json')"
   fi
+  body="$(cat "$tmp")"
+  rm -f "$tmp"
+  case "$status" in
+    2*) printf '%s' "$body" ;;
+    *)
+      printf 'linode api %s %s failed with HTTP %s\n' "$method" "$path" "$status" >&2
+      printf '%s\n' "$body" >&2
+      return 22
+      ;;
+  esac
 }
 
 need curl
