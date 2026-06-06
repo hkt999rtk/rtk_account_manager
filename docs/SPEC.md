@@ -214,6 +214,22 @@ An organization member links a user to an organization and assigns a role.
 
 A device is a registry entry owned by an organization. The server assigns each device a UUID. External identity fields such as serial number and MAC address are stored as optional metadata and must not replace the server UUID as the primary identifier.
 
+### Device Item Profile
+
+A device item profile, also called a product profile, is the brand-cloud or
+factory policy vocabulary for one device item, SKU, or equivalent product line.
+It may define inventory defaults such as `category`, `manufacturer`, `model`,
+and metadata shape, plus the device certificate `ca_profile` or
+`issuer_profile`, canonical `service_options`, and claim/provisioning policy
+references. The current account-manager implementation does not expose a
+dedicated product-catalog API; concrete values may arrive through existing
+registry fields, Claim Token metadata, provisioning input, or external factory
+policy.
+
+All profile fields are independent settings. Account-manager registry fields are
+inventory facts, and neither `category`, `device_type`, `manufacturer`, `model`,
+nor metadata may be treated as service ACL input.
+
 ### Device Group
 
 A device group is an organization-scoped registry target set. Groups contain existing account-manager device UUIDs and do not execute device commands by themselves.
@@ -841,7 +857,10 @@ Account-manager device categories (`ip_camera`, `mqtt_device`, and `generic`)
 are product registry categories. They are not device service ACLs and they must
 not be used to infer whether MQTT, WebRTC/video streaming, or video storage is
 available. Service access is controlled by canonical `service_options` such as
-`mqtt`, `video_streaming`, and `video_storage`.
+`mqtt`, `video_streaming`, and `video_storage`. Those options are an explicit
+device item profile, factory policy, Claim Token, or provisioning setting; they
+are not derived from registry category, `device_type`, manufacturer, model, or
+metadata.
 
 Device activation is one lifecycle operation for the mapped device identity.
 There is no separate MQTT activation, WebRTC activation, or video-storage
@@ -1321,8 +1340,13 @@ Required configuration:
 | Variable | Description |
 | --- | --- |
 | `DATABASE_URL` | Postgres connection string. |
-| `JWT_ACCESS_SECRET` | Secret for signing access tokens. |
-| `JWT_REFRESH_SECRET` | Secret for signing or validating refresh tokens if applicable. |
+| `JWT_SIGNER_PROVIDER` | Token signer backend. Supported values are `hs256`, `pem`, and `pkcs11`; default is `hs256`. |
+| `JWT_ACCESS_SECRET` | Secret for signing access tokens when `JWT_SIGNER_PROVIDER=hs256`. |
+| `JWT_REFRESH_SECRET` | Secret for signing or validating refresh tokens when `JWT_SIGNER_PROVIDER=hs256`. |
+| `JWT_ACCESS_PRIVATE_KEY_PATH`, `JWT_ACCESS_PUBLIC_KEY_PATH` | Access token PEM signer key paths when `JWT_SIGNER_PROVIDER=pem`. |
+| `JWT_REFRESH_PRIVATE_KEY_PATH`, `JWT_REFRESH_PUBLIC_KEY_PATH` | Refresh token PEM signer key paths when `JWT_SIGNER_PROVIDER=pem`. |
+| `JWT_ACCESS_PKCS11_MODULE_PATH`, `JWT_ACCESS_PKCS11_TOKEN_LABEL` or `JWT_ACCESS_PKCS11_SLOT_ID`, `JWT_ACCESS_PKCS11_PIN`, `JWT_ACCESS_PKCS11_KEY_LABEL` | Access token PKCS#11 signer selection when `JWT_SIGNER_PROVIDER=pkcs11`. |
+| `JWT_REFRESH_PKCS11_MODULE_PATH`, `JWT_REFRESH_PKCS11_TOKEN_LABEL` or `JWT_REFRESH_PKCS11_SLOT_ID`, `JWT_REFRESH_PKCS11_PIN`, `JWT_REFRESH_PKCS11_KEY_LABEL` | Refresh token PKCS#11 signer selection when `JWT_SIGNER_PROVIDER=pkcs11`. |
 | `ACCESS_TOKEN_TTL` | Access token lifetime. |
 | `REFRESH_TOKEN_TTL` | Refresh token lifetime. |
 | `PORT` | HTTP server port. |

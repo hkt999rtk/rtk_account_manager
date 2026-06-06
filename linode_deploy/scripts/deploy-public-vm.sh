@@ -142,6 +142,7 @@ trap cleanup EXIT
   printf 'OIDC_REDIRECT_URL=%s\n' "${OIDC_REDIRECT_URL:-}"
   printf 'OIDC_SCOPES=%s\n' "${OIDC_SCOPES:-openid email profile}"
   printf 'OIDC_AUTO_LINK_EMAIL=%s\n' "${OIDC_AUTO_LINK_EMAIL:-false}"
+  printf 'ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN=%s\n' "${ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN:-}"
   printf 'CROSS_SERVICE_BROKER=%s\n' "${CROSS_SERVICE_BROKER:-log}"
   printf 'CROSS_SERVICE_NATS_URL=%s\n' "${CROSS_SERVICE_NATS_URL:-}"
   printf 'CROSS_SERVICE_NATS_NAME=%s\n' "${CROSS_SERVICE_NATS_NAME:-$label}"

@@ -175,6 +175,11 @@ type brandCloudPersistence interface {
 	UpdateBrandCloud(ctx context.Context, actorUserID, orgID string, in store.BrandCloudInput) (model.Organization, error)
 	AssignBrandCloudMember(ctx context.Context, actorUserID, orgID, userID string, role model.Role) (model.Member, error)
 	CreateBrandCloudUser(ctx context.Context, actorUserID, orgID string, in store.BrandCloudUserInput) (store.BrandCloudUserResult, error)
+	CreateDeviceItemProfile(ctx context.Context, in store.DeviceItemProfileCreateInput) (model.DeviceItemProfile, error)
+	ListDeviceItemProfiles(ctx context.Context, in store.DeviceItemProfileListFilter) (store.DeviceItemProfilePage, error)
+	GetDeviceItemProfile(ctx context.Context, brandCloudID, profileID string) (model.DeviceItemProfile, error)
+	UpdateDeviceItemProfile(ctx context.Context, in store.DeviceItemProfileUpdateInput) (model.DeviceItemProfile, error)
+	DisableDeviceItemProfile(ctx context.Context, brandCloudID, profileID string, actorUserID *string) (model.DeviceItemProfile, error)
 }
 
 type auditPersistence interface {

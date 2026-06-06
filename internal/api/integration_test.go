@@ -81,7 +81,7 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		TRUNCATE acl_audit_events, external_group_mappings, role_assignments, oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_claims, device_claim_tokens, app_certificates, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
+		TRUNCATE acl_audit_events, external_group_mappings, role_assignments, oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_claims, device_claim_tokens, device_item_profiles, app_certificates, refresh_tokens, device_tags, device_group_members, device_groups, devices, organization_members, organizations, users
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatal(err)
@@ -1241,6 +1241,121 @@ func TestIntegrationPlatformAdminBrandCloudLifecycle(t *testing.T) {
 	audit := decodeBody[auditEventsBody](t, auditRes)
 	if len(audit.AuditEvents) < 3 {
 		t.Fatalf("expected create/update/member audit events, got %+v", audit.AuditEvents)
+	}
+}
+
+func TestIntegrationPlatformAdminDeviceItemProfileLifecycle(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+
+	admin := registerUser(t, env.router, "profile-api-root@example.com", "Profile API Root")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	nonAdmin := registerUser(t, env.router, "profile-api-user@example.com", "Profile API User")
+	owner := registerUser(t, env.router, "profile-api-owner@example.com", "Profile API Owner")
+
+	brandRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
+		"name": "Profile API Brand",
+	}, admin.Tokens.AccessToken)
+	if brandRes.Code != http.StatusCreated {
+		t.Fatalf("expected brand cloud create 201, got %d: %s", brandRes.Code, brandRes.Body.String())
+	}
+	brand := decodeBody[brandCloudBody](t, brandRes)
+
+	nonAdminRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/device-item-profiles", map[string]any{
+		"profile_key":     "api-cam-v1",
+		"display_name":    "API Camera V1",
+		"category":        "ip_camera",
+		"ca_profile":      "brand-ca",
+		"issuer_profile":  "issuer-a",
+		"service_options": []string{"video_streaming", "video_storage"},
+	}, nonAdmin.Tokens.AccessToken)
+	if nonAdminRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-admin profile create 403, got %d", nonAdminRes.Code)
+	}
+
+	createRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/device-item-profiles", map[string]any{
+		"profile_key":       "api-cam-v1",
+		"display_name":      "API Camera V1",
+		"category":          "ip_camera",
+		"manufacturer":      "Realtek",
+		"model":             "API-100",
+		"metadata_defaults": map[string]any{"region": "tw"},
+		"metadata_schema":   map[string]any{"type": "object"},
+		"ca_profile":        "brand-ca",
+		"issuer_profile":    "issuer-a",
+		"service_options":   []string{"video_streaming", "video_storage"},
+	}, admin.Tokens.AccessToken)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected profile create 201, got %d: %s", createRes.Code, createRes.Body.String())
+	}
+	created := decodeBody[deviceItemProfileBody](t, createRes)
+	if created.DeviceItemProfile.ProfileKey != "api-cam-v1" || created.DeviceItemProfile.CAProfile != "brand-ca" {
+		t.Fatalf("unexpected created profile: %+v", created.DeviceItemProfile)
+	}
+
+	listRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/device-item-profiles", nil, admin.Tokens.AccessToken)
+	if listRes.Code != http.StatusOK {
+		t.Fatalf("expected profile list 200, got %d: %s", listRes.Code, listRes.Body.String())
+	}
+	list := decodeBody[deviceItemProfilesBody](t, listRes)
+	if list.Pagination.Total != 1 || list.DeviceItemProfiles[0].ID != created.DeviceItemProfile.ID {
+		t.Fatalf("unexpected profile list: %+v", list)
+	}
+
+	patchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/device-item-profiles/"+created.DeviceItemProfile.ID, map[string]any{
+		"display_name": "API Camera V1 Rev B",
+		"model":        "API-100B",
+	}, admin.Tokens.AccessToken)
+	if patchRes.Code != http.StatusOK {
+		t.Fatalf("expected profile patch 200, got %d: %s", patchRes.Code, patchRes.Body.String())
+	}
+	patched := decodeBody[deviceItemProfileBody](t, patchRes)
+	if patched.DeviceItemProfile.DisplayName != "API Camera V1 Rev B" || patched.DeviceItemProfile.Model == nil || *patched.DeviceItemProfile.Model != "API-100B" {
+		t.Fatalf("unexpected patched profile: %+v", patched.DeviceItemProfile)
+	}
+
+	tokenRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claim-tokens", map[string]any{
+		"organization_id":        owner.Organization.ID,
+		"claim_token":            "profile-api-claim",
+		"device_item_profile_id": created.DeviceItemProfile.ID,
+		"video_cloud_devid":      "profile-api-video",
+		"activity_id":            "profile-api-activity",
+		"clip_public_key":        "profile-api-clip",
+		"expires_at":             time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+		"metadata":               map[string]any{"batch": "api"},
+	}, admin.Tokens.AccessToken)
+	if tokenRes.Code != http.StatusCreated {
+		t.Fatalf("expected profile-backed claim token 201, got %d: %s", tokenRes.Code, tokenRes.Body.String())
+	}
+	token := decodeBody[deviceClaimTokenAdminBody](t, tokenRes)
+	if token.DeviceClaimToken.DeviceItemProfileID == nil || *token.DeviceClaimToken.DeviceItemProfileID != created.DeviceItemProfile.ID ||
+		!equalStringSlices(token.DeviceClaimToken.ServiceOptions, []string{"video_streaming", "video_storage"}) ||
+		token.DeviceClaimToken.Metadata["profile_key"] != "api-cam-v1" {
+		t.Fatalf("unexpected profile-backed token: %+v", token.DeviceClaimToken)
+	}
+
+	mismatchRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claim-tokens", map[string]any{
+		"claim_token":            "profile-api-mismatch",
+		"device_item_profile_id": created.DeviceItemProfile.ID,
+		"video_cloud_devid":      "profile-api-video-mismatch",
+		"activity_id":            "profile-api-activity-mismatch",
+		"clip_public_key":        "profile-api-clip-mismatch",
+		"service_options":        []string{"mqtt"},
+		"expires_at":             time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+	}, admin.Tokens.AccessToken)
+	if mismatchRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected service_options mismatch 400, got %d: %s", mismatchRes.Code, mismatchRes.Body.String())
+	}
+
+	disableRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/device-item-profiles/"+created.DeviceItemProfile.ID+"/disable", nil, admin.Tokens.AccessToken)
+	if disableRes.Code != http.StatusOK {
+		t.Fatalf("expected profile disable 200, got %d: %s", disableRes.Code, disableRes.Body.String())
+	}
+	disabled := decodeBody[deviceItemProfileBody](t, disableRes)
+	if disabled.DeviceItemProfile.Status != model.DeviceItemProfileStatusDisabled {
+		t.Fatalf("expected disabled profile, got %+v", disabled.DeviceItemProfile)
 	}
 }
 
@@ -4326,12 +4441,14 @@ type claimResolveBody struct {
 
 type deviceClaimTokenAdminBody struct {
 	DeviceClaimToken struct {
-		ID              string     `json:"id"`
-		OrganizationID  *string    `json:"organization_id"`
-		CreatedBy       *string    `json:"created_by"`
-		VideoCloudDevid string     `json:"video_cloud_devid"`
-		ServiceOptions  []string   `json:"service_options"`
-		RevokedAt       *time.Time `json:"revoked_at"`
+		ID                  string         `json:"id"`
+		OrganizationID      *string        `json:"organization_id"`
+		CreatedBy           *string        `json:"created_by"`
+		DeviceItemProfileID *string        `json:"device_item_profile_id"`
+		VideoCloudDevid     string         `json:"video_cloud_devid"`
+		ServiceOptions      []string       `json:"service_options"`
+		Metadata            map[string]any `json:"metadata"`
+		RevokedAt           *time.Time     `json:"revoked_at"`
 	} `json:"device_claim_token"`
 	ClaimToken *string `json:"claim_token"`
 }
@@ -4466,6 +4583,15 @@ type brandCloudsBody struct {
 		Status           string `json:"status"`
 	} `json:"brand_clouds"`
 	Pagination paginationBody `json:"pagination"`
+}
+
+type deviceItemProfileBody struct {
+	DeviceItemProfile model.DeviceItemProfile `json:"device_item_profile"`
+}
+
+type deviceItemProfilesBody struct {
+	DeviceItemProfiles []model.DeviceItemProfile `json:"device_item_profiles"`
+	Pagination         paginationBody            `json:"pagination"`
 }
 
 type brandCloudUserBody struct {

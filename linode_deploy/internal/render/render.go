@@ -24,6 +24,21 @@ func RuntimeEnv(m manifest.Manifest, vals secrets.Values, opts Options) (string,
 		"DATABASE_URL=" + dsn,
 		"JWT_ACCESS_SECRET=" + accessSecret,
 		"JWT_REFRESH_SECRET=" + refreshSecret,
+		"JWT_SIGNER_PROVIDER=" + vals.Get("JWT_SIGNER_PROVIDER"),
+		"JWT_ACCESS_PRIVATE_KEY_PATH=" + vals.Get("JWT_ACCESS_PRIVATE_KEY_PATH"),
+		"JWT_ACCESS_PUBLIC_KEY_PATH=" + vals.Get("JWT_ACCESS_PUBLIC_KEY_PATH"),
+		"JWT_REFRESH_PRIVATE_KEY_PATH=" + vals.Get("JWT_REFRESH_PRIVATE_KEY_PATH"),
+		"JWT_REFRESH_PUBLIC_KEY_PATH=" + vals.Get("JWT_REFRESH_PUBLIC_KEY_PATH"),
+		"JWT_ACCESS_PKCS11_MODULE_PATH=" + vals.Get("JWT_ACCESS_PKCS11_MODULE_PATH"),
+		"JWT_ACCESS_PKCS11_TOKEN_LABEL=" + vals.Get("JWT_ACCESS_PKCS11_TOKEN_LABEL"),
+		"JWT_ACCESS_PKCS11_SLOT_ID=" + vals.Get("JWT_ACCESS_PKCS11_SLOT_ID"),
+		"JWT_ACCESS_PKCS11_PIN=" + vals.Get("JWT_ACCESS_PKCS11_PIN"),
+		"JWT_ACCESS_PKCS11_KEY_LABEL=" + vals.Get("JWT_ACCESS_PKCS11_KEY_LABEL"),
+		"JWT_REFRESH_PKCS11_MODULE_PATH=" + vals.Get("JWT_REFRESH_PKCS11_MODULE_PATH"),
+		"JWT_REFRESH_PKCS11_TOKEN_LABEL=" + vals.Get("JWT_REFRESH_PKCS11_TOKEN_LABEL"),
+		"JWT_REFRESH_PKCS11_SLOT_ID=" + vals.Get("JWT_REFRESH_PKCS11_SLOT_ID"),
+		"JWT_REFRESH_PKCS11_PIN=" + vals.Get("JWT_REFRESH_PKCS11_PIN"),
+		"JWT_REFRESH_PKCS11_KEY_LABEL=" + vals.Get("JWT_REFRESH_PKCS11_KEY_LABEL"),
 		fmt.Sprintf("PORT=%d", m.Deploy.APIPort),
 		"ACCESS_TOKEN_TTL=15m",
 		"REFRESH_TOKEN_TTL=720h",
@@ -39,6 +54,7 @@ func RuntimeEnv(m manifest.Manifest, vals secrets.Values, opts Options) (string,
 		"SMTP_USERNAME=" + vals.Get("SMTP_USERNAME"),
 		"SMTP_PASSWORD=" + vals.Get("SMTP_PASSWORD"),
 		"SMTP_FROM=" + vals.Get("SMTP_FROM"),
+		"ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN=" + vals.Get("ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN"),
 	}
 	lines = append(lines, crossServiceLines(m, vals, opts)...)
 	if opts.SkipOIDC {
@@ -92,6 +108,7 @@ func crossServiceLines(m manifest.Manifest, vals secrets.Values, opts Options) [
 func secretKey(key string) bool {
 	key = strings.ToUpper(key)
 	return strings.Contains(key, "PASSWORD") ||
+		strings.Contains(key, "PIN") ||
 		strings.Contains(key, "SECRET") ||
 		strings.Contains(key, "TOKEN") ||
 		key == "DATABASE_URL" ||

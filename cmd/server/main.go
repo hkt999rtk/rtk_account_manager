@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/smtp"
 	"os"
@@ -37,7 +38,10 @@ func main() {
 	}
 	defer db.Close()
 
-	authService := auth.NewService(cfg.AccessSecret, cfg.RefreshSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
+	authService, err := newAuthService(cfg)
+	if err != nil {
+		fatal(logger, "configure auth token signer failed", err)
+	}
 	var authTokenSink api.AuthTokenSink
 	switch cfg.AuthTokenDelivery {
 	case "log":
@@ -100,6 +104,47 @@ func main() {
 	}
 	if err := httpServer.ListenAndServe(); err != nil {
 		fatal(logger, "server stopped", err)
+	}
+}
+
+func newAuthService(cfg config.Config) (*auth.Service, error) {
+	switch strings.ToLower(strings.TrimSpace(cfg.JWTSignerProvider)) {
+	case "", "hs256":
+		return auth.NewService(cfg.AccessSecret, cfg.RefreshSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL), nil
+	case "pem":
+		accessSigner, err := auth.LoadPEMTokenSigner(cfg.JWTAccessPrivateKeyPath, cfg.JWTAccessPublicKeyPath)
+		if err != nil {
+			return nil, err
+		}
+		refreshSigner, err := auth.LoadPEMTokenSigner(cfg.JWTRefreshPrivateKeyPath, cfg.JWTRefreshPublicKeyPath)
+		if err != nil {
+			return nil, err
+		}
+		return auth.NewServiceWithSigners(accessSigner, refreshSigner, cfg.AccessTokenTTL, cfg.RefreshTokenTTL), nil
+	case "pkcs11":
+		accessSigner, err := auth.LoadPKCS11TokenSigner(auth.PKCS11TokenSignerConfig{
+			ModulePath: cfg.JWTAccessPKCS11ModulePath,
+			TokenLabel: cfg.JWTAccessPKCS11TokenLabel,
+			SlotID:     cfg.JWTAccessPKCS11SlotID,
+			PIN:        cfg.JWTAccessPKCS11PIN,
+			KeyLabel:   cfg.JWTAccessPKCS11KeyLabel,
+		})
+		if err != nil {
+			return nil, err
+		}
+		refreshSigner, err := auth.LoadPKCS11TokenSigner(auth.PKCS11TokenSignerConfig{
+			ModulePath: cfg.JWTRefreshPKCS11ModulePath,
+			TokenLabel: cfg.JWTRefreshPKCS11TokenLabel,
+			SlotID:     cfg.JWTRefreshPKCS11SlotID,
+			PIN:        cfg.JWTRefreshPKCS11PIN,
+			KeyLabel:   cfg.JWTRefreshPKCS11KeyLabel,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return auth.NewServiceWithSigners(accessSigner, refreshSigner, cfg.AccessTokenTTL, cfg.RefreshTokenTTL), nil
+	default:
+		return nil, fmt.Errorf("unsupported JWT signer provider %q", cfg.JWTSignerProvider)
 	}
 }
 

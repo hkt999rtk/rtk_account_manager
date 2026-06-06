@@ -9,6 +9,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/hkt999rtk/rtk_cloud_logger v0.0.0-20260601023548-aa4fcf007af9
 	github.com/jackc/pgx/v5 v5.7.6
+	github.com/miekg/pkcs11 v1.1.2
 	github.com/nats-io/nats-server/v2 v2.11.9
 	github.com/nats-io/nats.go v1.46.0
 	go.uber.org/zap v1.27.0

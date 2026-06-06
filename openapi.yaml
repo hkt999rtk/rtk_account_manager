@@ -791,6 +791,144 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/admin/brand-clouds/{brandCloudId}/device-item-profiles:
+    post:
+      tags:
+        - Brand Clouds
+      operationId: createDeviceItemProfile
+      security:
+        - bearerAuth: []
+      summary: Create a brand-cloud device item profile.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceItemProfileRequest"
+      responses:
+        "201":
+          description: Device item profile created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceItemProfileResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    get:
+      tags:
+        - Brand Clouds
+      operationId: listDeviceItemProfiles
+      security:
+        - bearerAuth: []
+      summary: List brand-cloud device item profiles.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/DeviceItemProfileStatus"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Device item profile list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceItemProfilesResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/admin/brand-clouds/{brandCloudId}/device-item-profiles/{profileId}:
+    get:
+      tags:
+        - Brand Clouds
+      operationId: getDeviceItemProfile
+      security:
+        - bearerAuth: []
+      summary: Get a brand-cloud device item profile.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/ProfileId"
+      responses:
+        "200":
+          description: Device item profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceItemProfileResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      tags:
+        - Brand Clouds
+      operationId: updateDeviceItemProfile
+      security:
+        - bearerAuth: []
+      summary: Update a brand-cloud device item profile.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/ProfileId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceItemProfileRequest"
+      responses:
+        "200":
+          description: Device item profile updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceItemProfileResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/admin/brand-clouds/{brandCloudId}/device-item-profiles/{profileId}/disable:
+    post:
+      tags:
+        - Brand Clouds
+      operationId: disableDeviceItemProfile
+      security:
+        - bearerAuth: []
+      summary: Disable a brand-cloud device item profile.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/ProfileId"
+      responses:
+        "200":
+          description: Device item profile disabled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceItemProfileResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
   /v1/admin/brand-clouds/{brandCloudId}/members:
     post:
       tags:
@@ -2434,6 +2572,13 @@ components:
       schema:
         type: string
         format: uuid
+    ProfileId:
+      name: profileId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     UserId:
       name: userId
       in: path
@@ -3190,6 +3335,44 @@ components:
         rotate_password:
           type: boolean
           default: false
+    DeviceItemProfileRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        profile_key:
+          type: string
+          minLength: 1
+        display_name:
+          type: string
+          minLength: 1
+        status:
+          $ref: "#/components/schemas/DeviceItemProfileStatus"
+        category:
+          $ref: "#/components/schemas/DeviceCategory"
+        manufacturer:
+          type: string
+        model:
+          type: string
+        metadata_defaults:
+          type: object
+          additionalProperties: true
+        metadata_schema:
+          type: object
+          additionalProperties: true
+        ca_profile:
+          type: string
+          minLength: 1
+        issuer_profile:
+          type: string
+          minLength: 1
+        service_options:
+          $ref: "#/components/schemas/NonEmptyServiceOptions"
+        claim_policy:
+          type: object
+          additionalProperties: true
+        provisioning_policy:
+          type: object
+          additionalProperties: true
     AddMemberRequest:
       type: object
       required: [email, role]
@@ -3311,7 +3494,7 @@ components:
           $ref: "#/components/schemas/ClaimProvisionInput"
     AdminDeviceClaimTokenCreateRequest:
       type: object
-      required: [category, video_cloud_devid, activity_id, clip_public_key, service_options, expires_at]
+      required: [video_cloud_devid, activity_id, clip_public_key, expires_at]
       additionalProperties: false
       properties:
         organization_id:
@@ -3322,6 +3505,10 @@ components:
           type: string
           minLength: 1
           description: Optional imported raw Claim Token. Stored as a hash and never echoed.
+        device_item_profile_id:
+          type: string
+          format: uuid
+          description: Optional Device Item Profile to snapshot. When set, category and service_options may be supplied explicitly but must match the profile policy.
         category:
           $ref: "#/components/schemas/DeviceCategory"
         video_cloud_devid:
@@ -3579,6 +3766,22 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Organization"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+    DeviceItemProfileResponse:
+      type: object
+      required: [device_item_profile]
+      properties:
+        device_item_profile:
+          $ref: "#/components/schemas/DeviceItemProfile"
+    DeviceItemProfilesResponse:
+      type: object
+      required: [device_item_profiles, pagination]
+      properties:
+        device_item_profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeviceItemProfile"
         pagination:
           $ref: "#/components/schemas/Pagination"
     QuotaRaiseRequestResponse:
@@ -3974,6 +4177,55 @@ components:
         disabled_at:
           type: string
           format: date-time
+    DeviceItemProfile:
+      type: object
+      required: [id, brand_cloud_id, profile_key, display_name, status, category, metadata_defaults, metadata_schema, ca_profile, issuer_profile, service_options, claim_policy, provisioning_policy, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        brand_cloud_id:
+          type: string
+          format: uuid
+        profile_key:
+          type: string
+        display_name:
+          type: string
+        status:
+          $ref: "#/components/schemas/DeviceItemProfileStatus"
+        category:
+          $ref: "#/components/schemas/DeviceCategory"
+        manufacturer:
+          type: string
+        model:
+          type: string
+        metadata_defaults:
+          type: object
+          additionalProperties: true
+        metadata_schema:
+          type: object
+          additionalProperties: true
+        ca_profile:
+          type: string
+        issuer_profile:
+          type: string
+        service_options:
+          $ref: "#/components/schemas/ServiceOptions"
+        claim_policy:
+          type: object
+          additionalProperties: true
+        provisioning_policy:
+          type: object
+          additionalProperties: true
+        disabled_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     Device:
       type: object
       required: [id, organization_id, name, category, status, metadata, created_at, updated_at]
@@ -4146,6 +4398,9 @@ components:
         created_by:
           type: string
           format: uuid
+        device_item_profile_id:
+          type: string
+          format: uuid
         category:
           $ref: "#/components/schemas/DeviceCategory"
         video_cloud_devid:
@@ -4271,6 +4526,9 @@ components:
     DeviceCategory:
       type: string
       enum: [ip_camera, mqtt_device, generic]
+    DeviceItemProfileStatus:
+      type: string
+      enum: [active, disabled]
     ServiceOptions:
       type: array
       uniqueItems: true

@@ -247,3 +247,51 @@ func TestLoadRequiresJWTSecrets(t *testing.T) {
 		t.Fatal("expected missing refresh secret error")
 	}
 }
+
+func TestLoadAcceptsPEMJWTSignerWithoutSharedSecrets(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("JWT_SIGNER_PROVIDER", "pem")
+	t.Setenv("JWT_ACCESS_PRIVATE_KEY_PATH", "/tmp/access.key")
+	t.Setenv("JWT_ACCESS_PUBLIC_KEY_PATH", "/tmp/access.pub")
+	t.Setenv("JWT_REFRESH_PRIVATE_KEY_PATH", "/tmp/refresh.key")
+	t.Setenv("JWT_REFRESH_PUBLIC_KEY_PATH", "/tmp/refresh.pub")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.JWTSignerProvider != "pem" || cfg.JWTAccessPrivateKeyPath != "/tmp/access.key" || cfg.JWTRefreshPublicKeyPath != "/tmp/refresh.pub" {
+		t.Fatalf("unexpected jwt signer config: %+v", cfg)
+	}
+}
+
+func TestLoadRejectsIncompletePEMJWTSigner(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("JWT_SIGNER_PROVIDER", "pem")
+	t.Setenv("JWT_ACCESS_PRIVATE_KEY_PATH", "/tmp/access.key")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected incomplete PEM signer config error")
+	}
+}
+
+func TestLoadAcceptsPKCS11JWTSignerWithoutSharedSecrets(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("JWT_SIGNER_PROVIDER", "pkcs11")
+	t.Setenv("JWT_ACCESS_PKCS11_MODULE_PATH", "/usr/lib/softhsm/libsofthsm2.so")
+	t.Setenv("JWT_ACCESS_PKCS11_TOKEN_LABEL", "access-token")
+	t.Setenv("JWT_ACCESS_PKCS11_PIN", "1234")
+	t.Setenv("JWT_ACCESS_PKCS11_KEY_LABEL", "access-key")
+	t.Setenv("JWT_REFRESH_PKCS11_MODULE_PATH", "/usr/lib/softhsm/libsofthsm2.so")
+	t.Setenv("JWT_REFRESH_PKCS11_SLOT_ID", "2")
+	t.Setenv("JWT_REFRESH_PKCS11_PIN", "5678")
+	t.Setenv("JWT_REFRESH_PKCS11_KEY_LABEL", "refresh-key")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.JWTSignerProvider != "pkcs11" || cfg.JWTAccessPKCS11TokenLabel != "access-token" || cfg.JWTRefreshPKCS11SlotID != "2" {
+		t.Fatalf("unexpected jwt pkcs11 config: %+v", cfg)
+	}
+}

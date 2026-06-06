@@ -14,23 +14,25 @@ import (
 )
 
 var (
-	ErrNotFound                 = errors.New("not found")
-	ErrLastOwner                = errors.New("last owner cannot be removed or downgraded")
-	ErrDisabled                 = errors.New("resource is disabled")
-	ErrConflict                 = errors.New("conflict")
-	ErrNotProvisioned           = errors.New("device is not provisioned")
-	ErrRateLimited              = errors.New("rate limited")
-	ErrEvaluationQuotaExceeded  = errors.New("evaluation device quota exceeded")
-	ErrClaimExpired             = errors.New("claim token expired")
-	ErrClaimAlreadyClaimed      = errors.New("claim token already claimed")
-	ErrClaimRevoked             = errors.New("claim token revoked")
-	ErrClaimCrossOrganization   = errors.New("claim token belongs to another organization")
-	ErrClaimUnsupportedCategory = errors.New("claim token category is unsupported")
-	ErrClaimUnsupportedService  = errors.New("claim token service option is unsupported")
-	ErrClaimInvalidState        = errors.New("claim token state does not allow this operation")
-	ErrClaimEvidenceRequired    = errors.New("claim override requires operator evidence")
-	ErrOIDCStateInvalid         = errors.New("oidc login state is invalid")
-	ErrOIDCStateExpired         = errors.New("oidc login state is expired")
+	ErrNotFound                    = errors.New("not found")
+	ErrLastOwner                   = errors.New("last owner cannot be removed or downgraded")
+	ErrDisabled                    = errors.New("resource is disabled")
+	ErrConflict                    = errors.New("conflict")
+	ErrNotProvisioned              = errors.New("device is not provisioned")
+	ErrRateLimited                 = errors.New("rate limited")
+	ErrEvaluationQuotaExceeded     = errors.New("evaluation device quota exceeded")
+	ErrClaimExpired                = errors.New("claim token expired")
+	ErrClaimAlreadyClaimed         = errors.New("claim token already claimed")
+	ErrClaimRevoked                = errors.New("claim token revoked")
+	ErrClaimCrossOrganization      = errors.New("claim token belongs to another organization")
+	ErrClaimUnsupportedCategory    = errors.New("claim token category is unsupported")
+	ErrClaimUnsupportedService     = errors.New("claim token service option is unsupported")
+	ErrClaimServiceOptionsMismatch = errors.New("claim token service options do not match device item profile")
+	ErrDeviceItemProfileDisabled   = errors.New("device item profile is disabled")
+	ErrClaimInvalidState           = errors.New("claim token state does not allow this operation")
+	ErrClaimEvidenceRequired       = errors.New("claim override requires operator evidence")
+	ErrOIDCStateInvalid            = errors.New("oidc login state is invalid")
+	ErrOIDCStateExpired            = errors.New("oidc login state is expired")
 )
 
 type Store struct {
@@ -95,6 +97,11 @@ type DeviceTagPage struct {
 type DeviceClaimTokenPage struct {
 	Tokens []model.DeviceClaimToken
 	Page   Page
+}
+
+type DeviceItemProfilePage struct {
+	Profiles []model.DeviceItemProfile
+	Page     Page
 }
 
 type QuotaRaiseRequestPage struct {
