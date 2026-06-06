@@ -371,6 +371,11 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/admin/brand-clouds", s.requirePlatformAdmin(), s.listBrandClouds)
 	protected.GET("/admin/brand-clouds/:brandCloudId", s.requirePlatformAdmin(), s.getBrandCloud)
 	protected.PATCH("/admin/brand-clouds/:brandCloudId", s.requirePlatformAdmin(), s.updateBrandCloud)
+	protected.POST("/admin/brand-clouds/:brandCloudId/device-item-profiles", s.requirePlatformAdmin(), s.createDeviceItemProfile)
+	protected.GET("/admin/brand-clouds/:brandCloudId/device-item-profiles", s.requirePlatformAdmin(), s.listDeviceItemProfiles)
+	protected.GET("/admin/brand-clouds/:brandCloudId/device-item-profiles/:profileId", s.requirePlatformAdmin(), s.getDeviceItemProfile)
+	protected.PATCH("/admin/brand-clouds/:brandCloudId/device-item-profiles/:profileId", s.requirePlatformAdmin(), s.updateDeviceItemProfile)
+	protected.POST("/admin/brand-clouds/:brandCloudId/device-item-profiles/:profileId/disable", s.requirePlatformAdmin(), s.disableDeviceItemProfile)
 	protected.POST("/admin/brand-clouds/:brandCloudId/members", s.requirePlatformAdmin(), s.assignBrandCloudMember)
 	protected.POST("/admin/brand-clouds/:brandCloudId/users", s.requirePlatformAdmin(), s.createBrandCloudUser)
 	protected.POST("/admin/device-claim-tokens", s.requirePlatformAdmin(), s.createDeviceClaimToken)
@@ -1598,6 +1603,14 @@ func writeStoreError(c *gin.Context, err error) {
 		writeError(c, http.StatusConflict, "device_not_provisioned", "Device is missing projected video metadata")
 	case errors.Is(err, store.ErrConflict):
 		writeError(c, http.StatusConflict, "conflict", "Resource already exists with conflicting data")
+	case errors.Is(err, store.ErrClaimUnsupportedCategory):
+		writeError(c, http.StatusBadRequest, "unsupported_device_category", "Device category is not supported")
+	case errors.Is(err, store.ErrClaimUnsupportedService):
+		writeError(c, http.StatusBadRequest, "unsupported_service_option", "service_options may contain only mqtt, video_streaming, or video_storage")
+	case errors.Is(err, store.ErrClaimServiceOptionsMismatch):
+		writeError(c, http.StatusBadRequest, "service_options_mismatch", "service_options must match the selected device item profile")
+	case errors.Is(err, store.ErrDeviceItemProfileDisabled):
+		writeError(c, http.StatusConflict, "device_item_profile_disabled", "Device item profile is disabled")
 	case errors.Is(err, store.ErrRateLimited):
 		writeError(c, http.StatusTooManyRequests, "rate_limited", "Too many token requests")
 	case errors.Is(err, store.ErrEvaluationQuotaExceeded):

@@ -13,16 +13,17 @@ import (
 )
 
 type deviceClaimTokenAdminCreateRequest struct {
-	OrganizationID  *string        `json:"organization_id"`
-	ClaimToken      *string        `json:"claim_token"`
-	Category        string         `json:"category" binding:"required"`
-	VideoCloudDevid string         `json:"video_cloud_devid" binding:"required"`
-	ActivityID      string         `json:"activity_id" binding:"required"`
-	ClipPublicKey   string         `json:"clip_public_key" binding:"required"`
-	ServiceOptions  []string       `json:"service_options" binding:"required"`
-	ExpiresAt       time.Time      `json:"expires_at" binding:"required"`
-	Metadata        map[string]any `json:"metadata"`
-	Notes           *string        `json:"notes"`
+	OrganizationID      *string        `json:"organization_id"`
+	ClaimToken          *string        `json:"claim_token"`
+	DeviceItemProfileID *string        `json:"device_item_profile_id"`
+	Category            string         `json:"category"`
+	VideoCloudDevid     string         `json:"video_cloud_devid" binding:"required"`
+	ActivityID          string         `json:"activity_id" binding:"required"`
+	ClipPublicKey       string         `json:"clip_public_key" binding:"required"`
+	ServiceOptions      []string       `json:"service_options"`
+	ExpiresAt           time.Time      `json:"expires_at" binding:"required"`
+	Metadata            map[string]any `json:"metadata"`
+	Notes               *string        `json:"notes"`
 }
 
 type deviceClaimTokenResponse struct {
@@ -53,8 +54,15 @@ func (s *Server) createDeviceClaimToken(c *gin.Context) {
 		return
 	}
 
-	category, ok := parseDeviceClaimTokenCategory(c, req.Category)
-	if !ok {
+	var category model.DeviceCategory
+	if strings.TrimSpace(req.Category) != "" {
+		parsed, ok := parseDeviceClaimTokenCategory(c, req.Category)
+		if !ok {
+			return
+		}
+		category = parsed
+	} else if req.DeviceItemProfileID == nil || strings.TrimSpace(*req.DeviceItemProfileID) == "" {
+		writeError(c, http.StatusBadRequest, "invalid_request", "category is required unless device_item_profile_id is provided")
 		return
 	}
 	videoCloudDevid := strings.TrimSpace(req.VideoCloudDevid)
@@ -69,8 +77,12 @@ func (s *Server) createDeviceClaimToken(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "invalid_request", "expires_at must be in the future")
 		return
 	}
-	serviceOptions, ok := canonicalServiceOptions(c, req.ServiceOptions)
+	serviceOptions, ok := canonicalOptionalServiceOptions(c, req.ServiceOptions)
 	if !ok {
+		return
+	}
+	if len(serviceOptions) == 0 && (req.DeviceItemProfileID == nil || strings.TrimSpace(*req.DeviceItemProfileID) == "") {
+		writeError(c, http.StatusBadRequest, "invalid_request", "service_options must include at least one option unless device_item_profile_id is provided")
 		return
 	}
 
@@ -84,18 +96,19 @@ func (s *Server) createDeviceClaimToken(c *gin.Context) {
 	}
 
 	token, err := s.store.CreateDeviceClaimToken(c.Request.Context(), store.DeviceClaimTokenCreateInput{
-		OrganizationID:  trimPtr(req.OrganizationID),
-		CreatedBy:       stringPtr(currentUserID(c)),
-		TokenHash:       auth.HashToken(rawToken),
-		Category:        category,
-		VideoCloudDevid: videoCloudDevid,
-		ActivityID:      activityID,
-		ClipPublicKey:   clipPublicKey,
-		ServiceOptions:  serviceOptions,
-		Metadata:        req.Metadata,
-		Notes:           trimPtr(req.Notes),
-		ExpiresAt:       req.ExpiresAt,
-		Now:             time.Now().UTC(),
+		OrganizationID:      trimPtr(req.OrganizationID),
+		CreatedBy:           stringPtr(currentUserID(c)),
+		DeviceItemProfileID: trimPtr(req.DeviceItemProfileID),
+		TokenHash:           auth.HashToken(rawToken),
+		Category:            category,
+		VideoCloudDevid:     videoCloudDevid,
+		ActivityID:          activityID,
+		ClipPublicKey:       clipPublicKey,
+		ServiceOptions:      serviceOptions,
+		Metadata:            req.Metadata,
+		Notes:               trimPtr(req.Notes),
+		ExpiresAt:           req.ExpiresAt,
+		Now:                 time.Now().UTC(),
 	})
 	if err != nil {
 		writeStoreError(c, err)

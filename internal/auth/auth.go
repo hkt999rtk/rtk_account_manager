@@ -1,10 +1,15 @@
 package auth
 
 import (
+	"crypto"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -27,14 +32,36 @@ type Claims struct {
 type Service struct {
 	accessSecret  []byte
 	refreshSecret []byte
+	accessSigner  TokenSigner
+	refreshSigner TokenSigner
 	accessTTL     time.Duration
 	refreshTTL    time.Duration
+}
+
+type TokenSigner interface {
+	SignToken(signingString string) (string, error)
+	Keyfunc(token *jwt.Token) (any, error)
+	Alg() string
+}
+
+type RS256TokenSigner struct {
+	Signer    crypto.Signer
+	PublicKey *rsa.PublicKey
 }
 
 func NewService(accessSecret, refreshSecret string, accessTTL, refreshTTL time.Duration) *Service {
 	return &Service{
 		accessSecret:  []byte(accessSecret),
 		refreshSecret: []byte(refreshSecret),
+		accessTTL:     accessTTL,
+		refreshTTL:    refreshTTL,
+	}
+}
+
+func NewServiceWithSigners(accessSigner, refreshSigner TokenSigner, accessTTL, refreshTTL time.Duration) *Service {
+	return &Service{
+		accessSigner:  accessSigner,
+		refreshSigner: refreshSigner,
 		accessTTL:     accessTTL,
 		refreshTTL:    refreshTTL,
 	}
@@ -63,22 +90,22 @@ func RandomToken() (string, error) {
 }
 
 func (s *Service) IssueAccessToken(userID string) (string, time.Time, error) {
-	return s.issue(userID, TokenKindAccess, s.accessSecret, s.accessTTL)
+	return s.issue(userID, TokenKindAccess, s.accessSecret, s.accessSigner, s.accessTTL)
 }
 
 func (s *Service) IssueRefreshToken(userID string) (string, time.Time, error) {
-	return s.issue(userID, TokenKindRefresh, s.refreshSecret, s.refreshTTL)
+	return s.issue(userID, TokenKindRefresh, s.refreshSecret, s.refreshSigner, s.refreshTTL)
 }
 
 func (s *Service) ParseAccessToken(tokenString string) (*Claims, error) {
-	return s.parse(tokenString, TokenKindAccess, s.accessSecret)
+	return s.parse(tokenString, TokenKindAccess, s.accessSecret, s.accessSigner)
 }
 
 func (s *Service) ParseRefreshToken(tokenString string) (*Claims, error) {
-	return s.parse(tokenString, TokenKindRefresh, s.refreshSecret)
+	return s.parse(tokenString, TokenKindRefresh, s.refreshSecret, s.refreshSigner)
 }
 
-func (s *Service) issue(userID string, kind TokenKind, secret []byte, ttl time.Duration) (string, time.Time, error) {
+func (s *Service) issue(userID string, kind TokenKind, secret []byte, signer TokenSigner, ttl time.Duration) (string, time.Time, error) {
 	expiresAt := time.Now().UTC().Add(ttl)
 	tokenID, err := randomTokenID()
 	if err != nil {
@@ -94,12 +121,21 @@ func (s *Service) issue(userID string, kind TokenKind, secret []byte, ttl time.D
 			ID:        tokenID,
 		},
 	}
+	if signer != nil {
+		return signClaimsWithSigner(claims, signer, expiresAt)
+	}
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(secret)
 	return token, expiresAt, err
 }
 
-func (s *Service) parse(tokenString string, expectedKind TokenKind, secret []byte) (*Claims, error) {
+func (s *Service) parse(tokenString string, expectedKind TokenKind, secret []byte, signer TokenSigner) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (any, error) {
+		if signer != nil {
+			if token.Method.Alg() != signer.Alg() {
+				return nil, fmt.Errorf("unexpected signing method")
+			}
+			return signer.Keyfunc(token)
+		}
 		if token.Method != jwt.SigningMethodHS256 {
 			return nil, fmt.Errorf("unexpected signing method")
 		}
@@ -116,6 +152,54 @@ func (s *Service) parse(tokenString string, expectedKind TokenKind, secret []byt
 		return nil, fmt.Errorf("invalid token kind")
 	}
 	return claims, nil
+}
+
+func signClaimsWithSigner(claims Claims, signer TokenSigner, expiresAt time.Time) (string, time.Time, error) {
+	header, err := json.Marshal(map[string]string{"alg": signer.Alg(), "typ": "JWT"})
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	signingString := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(payload)
+	signature, err := signer.SignToken(signingString)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return signingString + "." + signature, expiresAt, nil
+}
+
+func (s RS256TokenSigner) Alg() string {
+	return jwt.SigningMethodRS256.Alg()
+}
+
+func (s RS256TokenSigner) SignToken(signingString string) (string, error) {
+	if s.Signer == nil {
+		return "", fmt.Errorf("rsa token signer is required")
+	}
+	digest := sha256.Sum256([]byte(signingString))
+	signature, err := s.Signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(signature), nil
+}
+
+func (s RS256TokenSigner) Keyfunc(token *jwt.Token) (any, error) {
+	if token == nil || !strings.EqualFold(token.Method.Alg(), s.Alg()) {
+		return nil, fmt.Errorf("unexpected signing method")
+	}
+	if s.PublicKey != nil {
+		return s.PublicKey, nil
+	}
+	if s.Signer != nil {
+		if publicKey, ok := s.Signer.Public().(*rsa.PublicKey); ok {
+			return publicKey, nil
+		}
+	}
+	return nil, fmt.Errorf("rsa token public key is required")
 }
 
 func randomTokenID() (string, error) {

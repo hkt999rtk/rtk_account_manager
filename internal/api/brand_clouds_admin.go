@@ -30,6 +30,31 @@ type brandCloudUserRequest struct {
 	RotatePassword bool    `json:"rotate_password"`
 }
 
+type deviceItemProfileRequest struct {
+	ProfileKey         string         `json:"profile_key,omitempty"`
+	DisplayName        string         `json:"display_name,omitempty"`
+	Status             string         `json:"status,omitempty"`
+	Category           string         `json:"category,omitempty"`
+	Manufacturer       *string        `json:"manufacturer"`
+	Model              *string        `json:"model"`
+	MetadataDefaults   map[string]any `json:"metadata_defaults"`
+	MetadataSchema     map[string]any `json:"metadata_schema"`
+	CAProfile          string         `json:"ca_profile,omitempty"`
+	IssuerProfile      string         `json:"issuer_profile,omitempty"`
+	ServiceOptions     []string       `json:"service_options"`
+	ClaimPolicy        map[string]any `json:"claim_policy"`
+	ProvisioningPolicy map[string]any `json:"provisioning_policy"`
+}
+
+type deviceItemProfileResponse struct {
+	DeviceItemProfile model.DeviceItemProfile `json:"device_item_profile"`
+}
+
+type deviceItemProfilesResponse struct {
+	DeviceItemProfiles []model.DeviceItemProfile `json:"device_item_profiles"`
+	Pagination         store.Page                `json:"pagination"`
+}
+
 func (s *Server) createBrandCloud(c *gin.Context) {
 	var req brandCloudRequest
 	if !bind(c, &req) {
@@ -88,6 +113,152 @@ func (s *Server) updateBrandCloud(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"brand_cloud": org})
+}
+
+func (s *Server) createDeviceItemProfile(c *gin.Context) {
+	var req deviceItemProfileRequest
+	if !bindStrict(c, &req) {
+		return
+	}
+	if !requireNonBlank(c, "profile_key", req.ProfileKey) ||
+		!requireNonBlank(c, "display_name", req.DisplayName) ||
+		!requireNonBlank(c, "ca_profile", req.CAProfile) ||
+		!requireNonBlank(c, "issuer_profile", req.IssuerProfile) {
+		return
+	}
+	category, ok := parseDeviceClaimTokenCategory(c, req.Category)
+	if !ok {
+		return
+	}
+	serviceOptions, ok := canonicalServiceOptions(c, req.ServiceOptions)
+	if !ok {
+		return
+	}
+	profile, err := s.store.CreateDeviceItemProfile(c.Request.Context(), store.DeviceItemProfileCreateInput{
+		ActorUserID:        stringPtr(currentUserID(c)),
+		BrandCloudID:       c.Param("brandCloudId"),
+		ProfileKey:         req.ProfileKey,
+		DisplayName:        req.DisplayName,
+		Category:           category,
+		Manufacturer:       trimPtr(req.Manufacturer),
+		Model:              trimPtr(req.Model),
+		MetadataDefaults:   req.MetadataDefaults,
+		MetadataSchema:     req.MetadataSchema,
+		CAProfile:          req.CAProfile,
+		IssuerProfile:      req.IssuerProfile,
+		ServiceOptions:     serviceOptions,
+		ClaimPolicy:        req.ClaimPolicy,
+		ProvisioningPolicy: req.ProvisioningPolicy,
+	})
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, deviceItemProfileResponse{DeviceItemProfile: profile})
+}
+
+func (s *Server) listDeviceItemProfiles(c *gin.Context) {
+	limit, offset := pagination(c)
+	status := model.DeviceItemProfileStatus(strings.TrimSpace(c.Query("status")))
+	if status != "" && status != model.DeviceItemProfileStatusActive && status != model.DeviceItemProfileStatusDisabled {
+		writeError(c, http.StatusBadRequest, "invalid_status", "status must be active or disabled")
+		return
+	}
+	page, err := s.store.ListDeviceItemProfiles(c.Request.Context(), store.DeviceItemProfileListFilter{
+		BrandCloudID: c.Param("brandCloudId"),
+		Status:       status,
+		Limit:        limit,
+		Offset:       offset,
+	})
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, deviceItemProfilesResponse{DeviceItemProfiles: page.Profiles, Pagination: page.Page})
+}
+
+func (s *Server) getDeviceItemProfile(c *gin.Context) {
+	profile, err := s.store.GetDeviceItemProfile(c.Request.Context(), c.Param("brandCloudId"), c.Param("profileId"))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, deviceItemProfileResponse{DeviceItemProfile: profile})
+}
+
+func (s *Server) updateDeviceItemProfile(c *gin.Context) {
+	var req deviceItemProfileRequest
+	if !bindStrict(c, &req) {
+		return
+	}
+	var status *model.DeviceItemProfileStatus
+	if strings.TrimSpace(req.Status) != "" {
+		parsed := model.DeviceItemProfileStatus(strings.TrimSpace(req.Status))
+		if parsed != model.DeviceItemProfileStatusActive && parsed != model.DeviceItemProfileStatusDisabled {
+			writeError(c, http.StatusBadRequest, "invalid_status", "status must be active or disabled")
+			return
+		}
+		status = &parsed
+	}
+	var category *model.DeviceCategory
+	if strings.TrimSpace(req.Category) != "" {
+		parsed, ok := parseDeviceClaimTokenCategory(c, req.Category)
+		if !ok {
+			return
+		}
+		category = &parsed
+	}
+	var serviceOptions []string
+	if req.ServiceOptions != nil {
+		parsed, ok := canonicalServiceOptions(c, req.ServiceOptions)
+		if !ok {
+			return
+		}
+		serviceOptions = parsed
+	}
+	var displayName *string
+	if strings.TrimSpace(req.DisplayName) != "" {
+		displayName = &req.DisplayName
+	}
+	var caProfile *string
+	if strings.TrimSpace(req.CAProfile) != "" {
+		caProfile = &req.CAProfile
+	}
+	var issuerProfile *string
+	if strings.TrimSpace(req.IssuerProfile) != "" {
+		issuerProfile = &req.IssuerProfile
+	}
+	profile, err := s.store.UpdateDeviceItemProfile(c.Request.Context(), store.DeviceItemProfileUpdateInput{
+		ActorUserID:        stringPtr(currentUserID(c)),
+		BrandCloudID:       c.Param("brandCloudId"),
+		ProfileID:          c.Param("profileId"),
+		DisplayName:        displayName,
+		Status:             status,
+		Category:           category,
+		Manufacturer:       trimPtr(req.Manufacturer),
+		Model:              trimPtr(req.Model),
+		MetadataDefaults:   req.MetadataDefaults,
+		MetadataSchema:     req.MetadataSchema,
+		CAProfile:          caProfile,
+		IssuerProfile:      issuerProfile,
+		ServiceOptions:     serviceOptions,
+		ClaimPolicy:        req.ClaimPolicy,
+		ProvisioningPolicy: req.ProvisioningPolicy,
+	})
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, deviceItemProfileResponse{DeviceItemProfile: profile})
+}
+
+func (s *Server) disableDeviceItemProfile(c *gin.Context) {
+	profile, err := s.store.DisableDeviceItemProfile(c.Request.Context(), c.Param("brandCloudId"), c.Param("profileId"), stringPtr(currentUserID(c)))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, deviceItemProfileResponse{DeviceItemProfile: profile})
 }
 
 func (s *Server) assignBrandCloudMember(c *gin.Context) {

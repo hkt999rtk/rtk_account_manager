@@ -13,6 +13,21 @@ type Config struct {
 	DatabaseURL                    string
 	AccessSecret                   string
 	RefreshSecret                  string
+	JWTSignerProvider              string
+	JWTAccessPrivateKeyPath        string
+	JWTAccessPublicKeyPath         string
+	JWTRefreshPrivateKeyPath       string
+	JWTRefreshPublicKeyPath        string
+	JWTAccessPKCS11ModulePath      string
+	JWTAccessPKCS11TokenLabel      string
+	JWTAccessPKCS11SlotID          string
+	JWTAccessPKCS11PIN             string
+	JWTAccessPKCS11KeyLabel        string
+	JWTRefreshPKCS11ModulePath     string
+	JWTRefreshPKCS11TokenLabel     string
+	JWTRefreshPKCS11SlotID         string
+	JWTRefreshPKCS11PIN            string
+	JWTRefreshPKCS11KeyLabel       string
 	AccessTokenTTL                 time.Duration
 	RefreshTokenTTL                time.Duration
 	Port                           string
@@ -65,17 +80,52 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if cfg.AccessSecret == "" {
-		return Config{}, fmt.Errorf("JWT_ACCESS_SECRET is required")
-	}
-	if cfg.RefreshSecret == "" {
-		return Config{}, fmt.Errorf("JWT_REFRESH_SECRET is required")
+	switch strings.ToLower(strings.TrimSpace(cfg.JWTSignerProvider)) {
+	case "", "hs256":
+		if cfg.AccessSecret == "" {
+			return Config{}, fmt.Errorf("JWT_ACCESS_SECRET is required")
+		}
+		if cfg.RefreshSecret == "" {
+			return Config{}, fmt.Errorf("JWT_REFRESH_SECRET is required")
+		}
+	case "pem":
+		if strings.TrimSpace(cfg.JWTAccessPrivateKeyPath) == "" || strings.TrimSpace(cfg.JWTAccessPublicKeyPath) == "" {
+			return Config{}, fmt.Errorf("JWT access PEM signer paths are required")
+		}
+		if strings.TrimSpace(cfg.JWTRefreshPrivateKeyPath) == "" || strings.TrimSpace(cfg.JWTRefreshPublicKeyPath) == "" {
+			return Config{}, fmt.Errorf("JWT refresh PEM signer paths are required")
+		}
+	case "pkcs11":
+		if err := validatePKCS11JWTSigner("JWT_ACCESS", cfg.JWTAccessPKCS11ModulePath, cfg.JWTAccessPKCS11TokenLabel, cfg.JWTAccessPKCS11SlotID, cfg.JWTAccessPKCS11PIN, cfg.JWTAccessPKCS11KeyLabel); err != nil {
+			return Config{}, err
+		}
+		if err := validatePKCS11JWTSigner("JWT_REFRESH", cfg.JWTRefreshPKCS11ModulePath, cfg.JWTRefreshPKCS11TokenLabel, cfg.JWTRefreshPKCS11SlotID, cfg.JWTRefreshPKCS11PIN, cfg.JWTRefreshPKCS11KeyLabel); err != nil {
+			return Config{}, err
+		}
+	default:
+		return Config{}, fmt.Errorf("JWT_SIGNER_PROVIDER must be hs256, pem, or pkcs11")
 	}
 	return cfg, nil
 }
 
 func LoadWorker() (Config, error) {
 	return load()
+}
+
+func validatePKCS11JWTSigner(prefix, modulePath, tokenLabel, slotID, pin, keyLabel string) error {
+	if strings.TrimSpace(modulePath) == "" {
+		return fmt.Errorf("%s_PKCS11_MODULE_PATH is required", prefix)
+	}
+	if strings.TrimSpace(tokenLabel) == "" && strings.TrimSpace(slotID) == "" {
+		return fmt.Errorf("%s_PKCS11_TOKEN_LABEL or %s_PKCS11_SLOT_ID is required", prefix, prefix)
+	}
+	if strings.TrimSpace(pin) == "" {
+		return fmt.Errorf("%s_PKCS11_PIN is required", prefix)
+	}
+	if strings.TrimSpace(keyLabel) == "" {
+		return fmt.Errorf("%s_PKCS11_KEY_LABEL is required", prefix)
+	}
+	return nil
 }
 
 func load() (Config, error) {
@@ -86,6 +136,21 @@ func load() (Config, error) {
 		DatabaseURL:                    getenv("DATABASE_URL", "postgres://rtk:rtk_password@localhost:5432/rtk_account_manager?sslmode=disable"),
 		AccessSecret:                   os.Getenv("JWT_ACCESS_SECRET"),
 		RefreshSecret:                  os.Getenv("JWT_REFRESH_SECRET"),
+		JWTSignerProvider:              getenv("JWT_SIGNER_PROVIDER", "hs256"),
+		JWTAccessPrivateKeyPath:        os.Getenv("JWT_ACCESS_PRIVATE_KEY_PATH"),
+		JWTAccessPublicKeyPath:         os.Getenv("JWT_ACCESS_PUBLIC_KEY_PATH"),
+		JWTRefreshPrivateKeyPath:       os.Getenv("JWT_REFRESH_PRIVATE_KEY_PATH"),
+		JWTRefreshPublicKeyPath:        os.Getenv("JWT_REFRESH_PUBLIC_KEY_PATH"),
+		JWTAccessPKCS11ModulePath:      os.Getenv("JWT_ACCESS_PKCS11_MODULE_PATH"),
+		JWTAccessPKCS11TokenLabel:      os.Getenv("JWT_ACCESS_PKCS11_TOKEN_LABEL"),
+		JWTAccessPKCS11SlotID:          os.Getenv("JWT_ACCESS_PKCS11_SLOT_ID"),
+		JWTAccessPKCS11PIN:             os.Getenv("JWT_ACCESS_PKCS11_PIN"),
+		JWTAccessPKCS11KeyLabel:        os.Getenv("JWT_ACCESS_PKCS11_KEY_LABEL"),
+		JWTRefreshPKCS11ModulePath:     os.Getenv("JWT_REFRESH_PKCS11_MODULE_PATH"),
+		JWTRefreshPKCS11TokenLabel:     os.Getenv("JWT_REFRESH_PKCS11_TOKEN_LABEL"),
+		JWTRefreshPKCS11SlotID:         os.Getenv("JWT_REFRESH_PKCS11_SLOT_ID"),
+		JWTRefreshPKCS11PIN:            os.Getenv("JWT_REFRESH_PKCS11_PIN"),
+		JWTRefreshPKCS11KeyLabel:       os.Getenv("JWT_REFRESH_PKCS11_KEY_LABEL"),
 		AccessTokenTTL:                 duration("ACCESS_TOKEN_TTL", 15*time.Minute),
 		RefreshTokenTTL:                duration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
 		Port:                           getenv("PORT", "8080"),

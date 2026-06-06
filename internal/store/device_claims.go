@@ -13,18 +13,19 @@ import (
 )
 
 type DeviceClaimTokenCreateInput struct {
-	OrganizationID  *string
-	CreatedBy       *string
-	TokenHash       string
-	Category        model.DeviceCategory
-	VideoCloudDevid string
-	ActivityID      string
-	ClipPublicKey   string
-	ServiceOptions  []string
-	Metadata        map[string]any
-	Notes           *string
-	ExpiresAt       time.Time
-	Now             time.Time
+	OrganizationID      *string
+	CreatedBy           *string
+	DeviceItemProfileID *string
+	TokenHash           string
+	Category            model.DeviceCategory
+	VideoCloudDevid     string
+	ActivityID          string
+	ClipPublicKey       string
+	ServiceOptions      []string
+	Metadata            map[string]any
+	Notes               *string
+	ExpiresAt           time.Time
+	Now                 time.Time
 }
 
 type DeviceClaimTokenListFilter struct {
@@ -78,11 +79,52 @@ type DeviceClaimOverrideResult struct {
 }
 
 func (s *Store) CreateDeviceClaimToken(ctx context.Context, in DeviceClaimTokenCreateInput) (model.DeviceClaimToken, error) {
-	metadata, err := json.Marshal(defaultMetadata(in.Metadata))
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return model.DeviceClaimToken{}, err
 	}
+	defer tx.Rollback(ctx)
+
+	metadataValue := defaultMetadata(in.Metadata)
+	category := in.Category
 	serviceOptionValues := in.ServiceOptions
+	if in.DeviceItemProfileID != nil && strings.TrimSpace(*in.DeviceItemProfileID) != "" {
+		profile, err := getDeviceItemProfileByID(ctx, tx, *in.DeviceItemProfileID)
+		if err != nil {
+			return model.DeviceClaimToken{}, err
+		}
+		if profile.Status == model.DeviceItemProfileStatusDisabled {
+			return model.DeviceClaimToken{}, ErrDeviceItemProfileDisabled
+		}
+		if category == "" {
+			category = profile.Category
+		}
+		if category != profile.Category {
+			return model.DeviceClaimToken{}, ErrConflict
+		}
+		if serviceOptionValues == nil || len(serviceOptionValues) == 0 {
+			serviceOptionValues = profile.ServiceOptions
+		} else if err := validateClaimServiceOptions(serviceOptionValues); err != nil {
+			return model.DeviceClaimToken{}, err
+		} else if !serviceOptionSetsEqual(serviceOptionValues, profile.ServiceOptions) {
+			return model.DeviceClaimToken{}, ErrClaimServiceOptionsMismatch
+		}
+		metadataValue["device_item_profile_id"] = profile.ID
+		metadataValue["profile_key"] = profile.ProfileKey
+		metadataValue["ca_profile"] = profile.CAProfile
+		metadataValue["issuer_profile"] = profile.IssuerProfile
+		if profile.Manufacturer != nil {
+			metadataValue["manufacturer"] = *profile.Manufacturer
+		}
+		if profile.Model != nil {
+			metadataValue["model"] = *profile.Model
+		}
+		metadataValue["metadata_defaults"] = profile.MetadataDefaults
+	}
+	metadata, err := json.Marshal(metadataValue)
+	if err != nil {
+		return model.DeviceClaimToken{}, err
+	}
 	if serviceOptionValues == nil {
 		serviceOptionValues = []string{}
 	}
@@ -97,10 +139,11 @@ func (s *Store) CreateDeviceClaimToken(ctx context.Context, in DeviceClaimTokenC
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	token, err := scanDeviceClaimToken(s.db.QueryRow(ctx, `
+	token, err := scanDeviceClaimToken(tx.QueryRow(ctx, `
 		INSERT INTO device_claim_tokens (
 			organization_id,
 			created_by,
+			device_item_profile_id,
 			token_hash,
 			category,
 			video_cloud_devid,
@@ -113,10 +156,13 @@ func (s *Store) CreateDeviceClaimToken(ctx context.Context, in DeviceClaimTokenC
 			created_at,
 			updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
-		RETURNING id::text, organization_id::text, created_by::text, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
-	`, in.OrganizationID, in.CreatedBy, in.TokenHash, in.Category, in.VideoCloudDevid, in.ActivityID, in.ClipPublicKey, serviceOptions, metadata, in.Notes, in.ExpiresAt, now))
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
+		RETURNING id::text, organization_id::text, created_by::text, device_item_profile_id::text, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
+	`, in.OrganizationID, in.CreatedBy, in.DeviceItemProfileID, in.TokenHash, category, in.VideoCloudDevid, in.ActivityID, in.ClipPublicKey, serviceOptions, metadata, in.Notes, in.ExpiresAt, now))
 	if err != nil {
+		return model.DeviceClaimToken{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return model.DeviceClaimToken{}, err
 	}
 	return token, nil
@@ -128,7 +174,7 @@ func (s *Store) ListDeviceClaimTokens(ctx context.Context, in DeviceClaimTokenLi
 		return DeviceClaimTokenPage{}, err
 	}
 	rows, err := s.db.Query(ctx, `
-		SELECT id::text, organization_id::text, created_by::text, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
+		SELECT id::text, organization_id::text, created_by::text, device_item_profile_id::text, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
 		FROM device_claim_tokens
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2
@@ -154,7 +200,7 @@ func (s *Store) ListDeviceClaimTokens(ctx context.Context, in DeviceClaimTokenLi
 
 func (s *Store) GetDeviceClaimToken(ctx context.Context, tokenID string) (model.DeviceClaimToken, error) {
 	token, err := scanDeviceClaimToken(s.db.QueryRow(ctx, `
-		SELECT id::text, organization_id::text, created_by::text, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
+		SELECT id::text, organization_id::text, created_by::text, device_item_profile_id::text, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
 		FROM device_claim_tokens
 		WHERE id = $1
 	`, tokenID))
@@ -172,7 +218,7 @@ func (s *Store) RevokeDeviceClaimToken(ctx context.Context, tokenID string, now 
 		UPDATE device_claim_tokens
 		SET revoked_at = COALESCE(revoked_at, $2), updated_at = $2
 		WHERE id = $1
-		RETURNING id::text, organization_id::text, created_by::text, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
+		RETURNING id::text, organization_id::text, created_by::text, device_item_profile_id::text, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
 	`, tokenID, now))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.DeviceClaimToken{}, ErrNotFound
@@ -193,7 +239,7 @@ func (s *Store) ResolveDeviceClaimToken(ctx context.Context, in DeviceClaimResol
 	}
 
 	token, err := scanDeviceClaimToken(tx.QueryRow(ctx, `
-		SELECT id::text, organization_id::text, created_by::text, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
+		SELECT id::text, organization_id::text, created_by::text, device_item_profile_id::text, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
 		FROM device_claim_tokens
 		WHERE token_hash = $1
 		FOR UPDATE
@@ -437,7 +483,7 @@ func (s *Store) overrideDeviceClaim(ctx context.Context, in claimOverrideInput) 
 		UPDATE device_claim_tokens
 		SET organization_id = $2, updated_at = $3
 		WHERE id = $1
-		RETURNING id::text, organization_id::text, created_by::text, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
+		RETURNING id::text, organization_id::text, created_by::text, device_item_profile_id::text, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
 	`, claim.TokenID, in.TargetOrganizationID, now))
 	if err != nil {
 		return DeviceClaimOverrideResult{}, err
@@ -530,7 +576,7 @@ func getClaimForOverrideTx(ctx context.Context, tx pgx.Tx, claimID, tokenID stri
 
 func getClaimTokenForUpdateTx(ctx context.Context, tx pgx.Tx, tokenID string) (model.DeviceClaimToken, error) {
 	token, err := scanDeviceClaimToken(tx.QueryRow(ctx, `
-		SELECT id::text, organization_id::text, created_by::text, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
+		SELECT id::text, organization_id::text, created_by::text, device_item_profile_id::text, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
 		FROM device_claim_tokens
 		WHERE id = $1
 		FOR UPDATE
@@ -571,21 +617,28 @@ func getClaimedDeviceByVideoDevidTx(ctx context.Context, tx pgx.Tx, orgID, video
 }
 
 func createClaimedDeviceTx(ctx context.Context, tx pgx.Tx, orgID, name string, token model.DeviceClaimToken) (model.Device, error) {
-	metadata := map[string]any{
-		model.DeviceMetadataVideoCloudDevid:         token.VideoCloudDevid,
-		model.DeviceMetadataVideoCloudActivityID:    token.ActivityID,
-		model.DeviceMetadataVideoCloudClipPublicKey: token.ClipPublicKey,
-		model.DeviceMetadataServiceOptions:          token.ServiceOptions,
+	metadata := metadataDefaultsFromToken(token.Metadata)
+	for key, value := range token.Metadata {
+		if key == "metadata_defaults" {
+			continue
+		}
+		metadata[key] = value
 	}
+	metadata[model.DeviceMetadataVideoCloudDevid] = token.VideoCloudDevid
+	metadata[model.DeviceMetadataVideoCloudActivityID] = token.ActivityID
+	metadata[model.DeviceMetadataVideoCloudClipPublicKey] = token.ClipPublicKey
+	metadata[model.DeviceMetadataServiceOptions] = token.ServiceOptions
+	manufacturer := metadataString(token.Metadata, "manufacturer")
+	deviceModel := metadataString(token.Metadata, "model")
 	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {
 		return model.Device{}, err
 	}
 	return scanDevice(tx.QueryRow(ctx, `
-		INSERT INTO devices (organization_id, name, category, metadata)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO devices (organization_id, name, category, manufacturer, model, metadata)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
-	`, orgID, name, token.Category, metadataJSON))
+	`, orgID, name, token.Category, manufacturer, deviceModel, metadataJSON))
 }
 
 func validateClaimServiceOptions(options []string) error {
@@ -612,6 +665,7 @@ func scanDeviceClaimToken(row rowScanner) (model.DeviceClaimToken, error) {
 		&token.ID,
 		&token.OrganizationID,
 		&token.CreatedBy,
+		&token.DeviceItemProfileID,
 		&token.Category,
 		&token.VideoCloudDevid,
 		&token.ActivityID,
@@ -641,6 +695,50 @@ func scanDeviceClaimToken(row rowScanner) (model.DeviceClaimToken, error) {
 		return model.DeviceClaimToken{}, err
 	}
 	return token, nil
+}
+
+func serviceOptionSetsEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	seen := map[string]int{}
+	for _, option := range left {
+		seen[option]++
+	}
+	for _, option := range right {
+		if seen[option] == 0 {
+			return false
+		}
+		seen[option]--
+	}
+	return true
+}
+
+func metadataDefaultsFromToken(metadata map[string]any) map[string]any {
+	defaults := map[string]any{}
+	raw, ok := metadata["metadata_defaults"]
+	if !ok {
+		return defaults
+	}
+	switch typed := raw.(type) {
+	case map[string]any:
+		for key, value := range typed {
+			defaults[key] = value
+		}
+	case map[string]string:
+		for key, value := range typed {
+			defaults[key] = value
+		}
+	}
+	return defaults
+}
+
+func metadataString(metadata map[string]any, key string) *string {
+	value, ok := metadata[key].(string)
+	if !ok || strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return &value
 }
 
 func scanDeviceClaim(row rowScanner) (model.DeviceClaim, error) {

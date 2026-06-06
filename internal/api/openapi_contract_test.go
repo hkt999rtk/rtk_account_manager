@@ -214,6 +214,30 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	contract.validate(t, http.MethodGet, "/v1/admin/brand-clouds", brandCloudListRes)
 	brandCloudGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID, nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID, brandCloudGetRes)
+	deviceItemProfileCreateRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles", map[string]any{
+		"profile_key":       "contract-cam-v1",
+		"display_name":      "Contract Camera V1",
+		"category":          "ip_camera",
+		"manufacturer":      "Realtek",
+		"model":             "CONTRACT-100",
+		"metadata_defaults": map[string]any{"region": "tw"},
+		"metadata_schema":   map[string]any{"type": "object"},
+		"ca_profile":        "contract-ca",
+		"issuer_profile":    "contract-issuer",
+		"service_options":   []string{"video_streaming", "video_storage"},
+	}, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles", deviceItemProfileCreateRes)
+	deviceItemProfileBody := decodeBody[deviceItemProfileBody](t, deviceItemProfileCreateRes)
+	deviceItemProfilesRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles", deviceItemProfilesRes)
+	deviceItemProfileGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID, nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID, deviceItemProfileGetRes)
+	deviceItemProfilePatchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID, map[string]any{
+		"display_name": "Contract Camera V1 Rev B",
+	}, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID, deviceItemProfilePatchRes)
+	deviceItemProfileDisableRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID+"/disable", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID+"/disable", deviceItemProfileDisableRes)
 	brandCloudPatchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID, map[string]any{
 		"status": "disabled",
 	}, admin.Tokens.AccessToken)

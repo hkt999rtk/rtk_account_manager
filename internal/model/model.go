@@ -181,21 +181,50 @@ type OIDCLoginState struct {
 }
 
 type DeviceClaimToken struct {
-	ID              string         `json:"id"`
-	OrganizationID  *string        `json:"organization_id,omitempty"`
-	CreatedBy       *string        `json:"created_by,omitempty"`
-	Category        DeviceCategory `json:"category"`
-	VideoCloudDevid string         `json:"video_cloud_devid"`
-	ActivityID      string         `json:"activity_id"`
-	ClipPublicKey   string         `json:"clip_public_key"`
-	ServiceOptions  []string       `json:"service_options"`
-	Metadata        map[string]any `json:"metadata"`
-	Notes           *string        `json:"notes,omitempty"`
-	ExpiresAt       time.Time      `json:"expires_at"`
-	ClaimedAt       *time.Time     `json:"claimed_at,omitempty"`
-	RevokedAt       *time.Time     `json:"revoked_at,omitempty"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at"`
+	ID                  string         `json:"id"`
+	OrganizationID      *string        `json:"organization_id,omitempty"`
+	CreatedBy           *string        `json:"created_by,omitempty"`
+	DeviceItemProfileID *string        `json:"device_item_profile_id,omitempty"`
+	Category            DeviceCategory `json:"category"`
+	VideoCloudDevid     string         `json:"video_cloud_devid"`
+	ActivityID          string         `json:"activity_id"`
+	ClipPublicKey       string         `json:"clip_public_key"`
+	ServiceOptions      []string       `json:"service_options"`
+	Metadata            map[string]any `json:"metadata"`
+	Notes               *string        `json:"notes,omitempty"`
+	ExpiresAt           time.Time      `json:"expires_at"`
+	ClaimedAt           *time.Time     `json:"claimed_at,omitempty"`
+	RevokedAt           *time.Time     `json:"revoked_at,omitempty"`
+	CreatedAt           time.Time      `json:"created_at"`
+	UpdatedAt           time.Time      `json:"updated_at"`
+}
+
+type DeviceItemProfileStatus string
+
+const (
+	DeviceItemProfileStatusActive   DeviceItemProfileStatus = "active"
+	DeviceItemProfileStatusDisabled DeviceItemProfileStatus = "disabled"
+)
+
+type DeviceItemProfile struct {
+	ID                 string                  `json:"id"`
+	BrandCloudID       string                  `json:"brand_cloud_id"`
+	ProfileKey         string                  `json:"profile_key"`
+	DisplayName        string                  `json:"display_name"`
+	Status             DeviceItemProfileStatus `json:"status"`
+	Category           DeviceCategory          `json:"category"`
+	Manufacturer       *string                 `json:"manufacturer,omitempty"`
+	Model              *string                 `json:"model,omitempty"`
+	MetadataDefaults   map[string]any          `json:"metadata_defaults"`
+	MetadataSchema     map[string]any          `json:"metadata_schema"`
+	CAProfile          string                  `json:"ca_profile"`
+	IssuerProfile      string                  `json:"issuer_profile"`
+	ServiceOptions     []string                `json:"service_options"`
+	ClaimPolicy        map[string]any          `json:"claim_policy"`
+	ProvisioningPolicy map[string]any          `json:"provisioning_policy"`
+	DisabledAt         *time.Time              `json:"disabled_at,omitempty"`
+	CreatedAt          time.Time               `json:"created_at"`
+	UpdatedAt          time.Time               `json:"updated_at"`
 }
 
 type DeviceClaim struct {
