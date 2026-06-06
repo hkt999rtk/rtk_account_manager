@@ -1,6 +1,6 @@
 # Test Report
 
-Generated: 2026-06-06T04:48:34Z
+Generated: ci-candidate
 
 ## Summary
 
