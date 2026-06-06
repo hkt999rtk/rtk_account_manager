@@ -275,6 +275,15 @@ func TestLoadRejectsIncompletePEMJWTSigner(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsUnknownJWTSignerProvider(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("JWT_SIGNER_PROVIDER", "hsm-direct")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected unknown JWT signer provider error")
+	}
+}
+
 func TestLoadAcceptsPKCS11JWTSignerWithoutSharedSecrets(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("JWT_SIGNER_PROVIDER", "pkcs11")
@@ -294,4 +303,47 @@ func TestLoadAcceptsPKCS11JWTSignerWithoutSharedSecrets(t *testing.T) {
 	if cfg.JWTSignerProvider != "pkcs11" || cfg.JWTAccessPKCS11TokenLabel != "access-token" || cfg.JWTRefreshPKCS11SlotID != "2" {
 		t.Fatalf("unexpected jwt pkcs11 config: %+v", cfg)
 	}
+}
+
+func TestLoadRejectsIncompletePKCS11JWTSigner(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("JWT_SIGNER_PROVIDER", "pkcs11")
+	setCompletePKCS11JWTSignerEnv(t)
+
+	for _, tc := range []struct {
+		name string
+		key  string
+	}{
+		{name: "missing module", key: "JWT_ACCESS_PKCS11_MODULE_PATH"},
+		{name: "missing token and slot", key: "JWT_ACCESS_PKCS11_TOKEN_LABEL"},
+		{name: "missing pin", key: "JWT_ACCESS_PKCS11_PIN"},
+		{name: "missing key label", key: "JWT_ACCESS_PKCS11_KEY_LABEL"},
+		{name: "missing refresh key label", key: "JWT_REFRESH_PKCS11_KEY_LABEL"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			t.Setenv("JWT_SIGNER_PROVIDER", "pkcs11")
+			setCompletePKCS11JWTSignerEnv(t)
+			t.Setenv(tc.key, "")
+			if tc.key == "JWT_ACCESS_PKCS11_TOKEN_LABEL" {
+				t.Setenv("JWT_ACCESS_PKCS11_SLOT_ID", "")
+			}
+
+			if _, err := Load(); err == nil {
+				t.Fatal("expected incomplete PKCS#11 signer config error")
+			}
+		})
+	}
+}
+
+func setCompletePKCS11JWTSignerEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("JWT_ACCESS_PKCS11_MODULE_PATH", "/usr/lib/softhsm/libsofthsm2.so")
+	t.Setenv("JWT_ACCESS_PKCS11_TOKEN_LABEL", "access-token")
+	t.Setenv("JWT_ACCESS_PKCS11_PIN", "1234")
+	t.Setenv("JWT_ACCESS_PKCS11_KEY_LABEL", "access-key")
+	t.Setenv("JWT_REFRESH_PKCS11_MODULE_PATH", "/usr/lib/softhsm/libsofthsm2.so")
+	t.Setenv("JWT_REFRESH_PKCS11_SLOT_ID", "2")
+	t.Setenv("JWT_REFRESH_PKCS11_PIN", "5678")
+	t.Setenv("JWT_REFRESH_PKCS11_KEY_LABEL", "refresh-key")
 }

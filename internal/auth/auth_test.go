@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func TestPasswordHashAndCheck(t *testing.T) {
@@ -109,6 +111,100 @@ func TestLoadPEMTokenSigner(t *testing.T) {
 	}
 	if _, err := svc.ParseAccessToken(token); err != nil {
 		t.Fatalf("expected token to parse: %v", err)
+	}
+}
+
+func TestLoadPEMTokenSignerSupportsPKCS8(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	privatePath := filepath.Join(dir, "token.key")
+	publicPath := filepath.Join(dir, "token.pub")
+	privateDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(privatePath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateDER}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	publicDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(publicPath, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicDER}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadPEMTokenSigner(privatePath, publicPath); err != nil {
+		t.Fatalf("LoadPEMTokenSigner() error = %v", err)
+	}
+}
+
+func TestLoadPEMTokenSignerRejectsInvalidMaterial(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	privatePath := filepath.Join(dir, "token.key")
+	publicPath := filepath.Join(dir, "token.pub")
+	if err := os.WriteFile(privatePath, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	publicDER, err := x509.MarshalPKIXPublicKey(&otherKey.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(publicPath, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicDER}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadPEMTokenSigner(privatePath, publicPath); err == nil {
+		t.Fatal("expected mismatched public key to fail")
+	}
+
+	if err := os.WriteFile(privatePath, []byte("not pem"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadPEMTokenSigner(privatePath, publicPath); err == nil {
+		t.Fatal("expected invalid private key PEM to fail")
+	}
+
+	if err := os.WriteFile(privatePath, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(publicPath, []byte("not pem"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadPEMTokenSigner(privatePath, publicPath); err == nil {
+		t.Fatal("expected invalid public key PEM to fail")
+	}
+}
+
+func TestRS256TokenSignerErrorPaths(t *testing.T) {
+	if _, err := (RS256TokenSigner{}).SignToken("payload"); err == nil {
+		t.Fatal("expected missing signer to fail")
+	}
+	if _, err := (RS256TokenSigner{}).Keyfunc(jwt.New(jwt.SigningMethodRS256)); err == nil {
+		t.Fatal("expected missing public key to fail")
+	}
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := RS256TokenSigner{Signer: key, PublicKey: &key.PublicKey}
+	if _, err := signer.Keyfunc(jwt.New(jwt.SigningMethodHS256)); err == nil {
+		t.Fatal("expected wrong signing method to fail")
+	}
+	svc := NewServiceWithSigners(RS256TokenSigner{}, signer, time.Minute, time.Hour)
+	if _, _, err := svc.IssueAccessToken("user-1"); err == nil {
+		t.Fatal("expected issuing with missing signer to fail")
 	}
 }
 

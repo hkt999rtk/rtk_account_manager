@@ -9,6 +9,84 @@ import (
 	"rtk_account_manager/internal/model"
 )
 
+func TestValidateDeviceItemProfileRejectsInvalidFields(t *testing.T) {
+	valid := model.DeviceItemProfile{
+		BrandCloudID:   "brand-cloud-id",
+		ProfileKey:     "cam-v1",
+		DisplayName:    "Camera V1",
+		Status:         model.DeviceItemProfileStatusActive,
+		Category:       model.DeviceCategoryIPCamera,
+		CAProfile:      "brand-ca",
+		IssuerProfile:  "issuer-a",
+		ServiceOptions: []string{"video_streaming"},
+	}
+	if err := validateDeviceItemProfile(valid); err != nil {
+		t.Fatalf("valid profile failed validation: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		mutate  func(*model.DeviceItemProfile)
+		wantErr error
+	}{
+		{
+			name:    "missing brand cloud",
+			mutate:  func(profile *model.DeviceItemProfile) { profile.BrandCloudID = " " },
+			wantErr: ErrNotFound,
+		},
+		{
+			name:    "missing key",
+			mutate:  func(profile *model.DeviceItemProfile) { profile.ProfileKey = "" },
+			wantErr: ErrNotFound,
+		},
+		{
+			name:    "invalid status",
+			mutate:  func(profile *model.DeviceItemProfile) { profile.Status = "retired" },
+			wantErr: ErrConflict,
+		},
+		{
+			name:    "invalid category",
+			mutate:  func(profile *model.DeviceItemProfile) { profile.Category = "thermostat" },
+			wantErr: ErrClaimUnsupportedCategory,
+		},
+		{
+			name:    "unsupported service",
+			mutate:  func(profile *model.DeviceItemProfile) { profile.ServiceOptions = []string{"category_acl"} },
+			wantErr: ErrClaimUnsupportedService,
+		},
+		{
+			name:    "duplicate service",
+			mutate:  func(profile *model.DeviceItemProfile) { profile.ServiceOptions = []string{"mqtt", "mqtt"} },
+			wantErr: ErrClaimUnsupportedService,
+		},
+		{
+			name:    "empty service options",
+			mutate:  func(profile *model.DeviceItemProfile) { profile.ServiceOptions = nil },
+			wantErr: ErrClaimUnsupportedService,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			profile := valid
+			tc.mutate(&profile)
+			if err := validateDeviceItemProfile(profile); !errors.Is(err, tc.wantErr) {
+				t.Fatalf("expected %v, got %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestServiceOptionSetsEqual(t *testing.T) {
+	if !serviceOptionSetsEqual([]string{"video_storage", "mqtt"}, []string{"mqtt", "video_storage"}) {
+		t.Fatal("expected service option sets to match regardless of order")
+	}
+	if serviceOptionSetsEqual([]string{"mqtt"}, []string{"mqtt", "video_storage"}) {
+		t.Fatal("expected sets with different lengths to differ")
+	}
+	if serviceOptionSetsEqual([]string{"mqtt", "video_storage"}, []string{"mqtt", "video_streaming"}) {
+		t.Fatal("expected sets with different values to differ")
+	}
+}
+
 func TestDeviceItemProfileCRUDAndAudit(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()

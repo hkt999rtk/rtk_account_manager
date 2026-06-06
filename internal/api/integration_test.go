@@ -1295,6 +1295,30 @@ func TestIntegrationPlatformAdminDeviceItemProfileLifecycle(t *testing.T) {
 		t.Fatalf("unexpected created profile: %+v", created.DeviceItemProfile)
 	}
 
+	invalidCreateRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/device-item-profiles", map[string]any{
+		"profile_key":     "api-cam-invalid",
+		"display_name":    "API Camera Invalid",
+		"category":        "thermostat",
+		"ca_profile":      "brand-ca",
+		"issuer_profile":  "issuer-a",
+		"service_options": []string{"video_streaming"},
+	}, admin.Tokens.AccessToken)
+	if invalidCreateRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid category 400, got %d: %s", invalidCreateRes.Code, invalidCreateRes.Body.String())
+	}
+
+	invalidServiceRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/device-item-profiles", map[string]any{
+		"profile_key":     "api-cam-invalid-service",
+		"display_name":    "API Camera Invalid Service",
+		"category":        "ip_camera",
+		"ca_profile":      "brand-ca",
+		"issuer_profile":  "issuer-a",
+		"service_options": []string{"category-derived-acl"},
+	}, admin.Tokens.AccessToken)
+	if invalidServiceRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid service_options 400, got %d: %s", invalidServiceRes.Code, invalidServiceRes.Body.String())
+	}
+
 	listRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/device-item-profiles", nil, admin.Tokens.AccessToken)
 	if listRes.Code != http.StatusOK {
 		t.Fatalf("expected profile list 200, got %d: %s", listRes.Code, listRes.Body.String())
@@ -1304,16 +1328,65 @@ func TestIntegrationPlatformAdminDeviceItemProfileLifecycle(t *testing.T) {
 		t.Fatalf("unexpected profile list: %+v", list)
 	}
 
+	filterRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/device-item-profiles?status=active", nil, admin.Tokens.AccessToken)
+	if filterRes.Code != http.StatusOK {
+		t.Fatalf("expected active profile list 200, got %d: %s", filterRes.Code, filterRes.Body.String())
+	}
+	filtered := decodeBody[deviceItemProfilesBody](t, filterRes)
+	if filtered.Pagination.Total != 1 || filtered.DeviceItemProfiles[0].Status != model.DeviceItemProfileStatusActive {
+		t.Fatalf("unexpected active profile list: %+v", filtered)
+	}
+
+	invalidStatusListRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/device-item-profiles?status=retired", nil, admin.Tokens.AccessToken)
+	if invalidStatusListRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid list status 400, got %d: %s", invalidStatusListRes.Code, invalidStatusListRes.Body.String())
+	}
+
+	getRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/device-item-profiles/"+created.DeviceItemProfile.ID, nil, admin.Tokens.AccessToken)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("expected profile get 200, got %d: %s", getRes.Code, getRes.Body.String())
+	}
+	got := decodeBody[deviceItemProfileBody](t, getRes)
+	if got.DeviceItemProfile.ID != created.DeviceItemProfile.ID {
+		t.Fatalf("unexpected profile get: %+v", got.DeviceItemProfile)
+	}
+
+	missingGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/device-item-profiles/00000000-0000-4000-8000-000000000001", nil, admin.Tokens.AccessToken)
+	if missingGetRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing profile 404, got %d: %s", missingGetRes.Code, missingGetRes.Body.String())
+	}
+
 	patchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/device-item-profiles/"+created.DeviceItemProfile.ID, map[string]any{
-		"display_name": "API Camera V1 Rev B",
-		"model":        "API-100B",
+		"display_name":      "API Camera V1 Rev B",
+		"status":            "active",
+		"category":          "generic",
+		"manufacturer":      "Realtek Semiconductor",
+		"model":             "API-100B",
+		"metadata_defaults": map[string]any{"region": "tw", "sku": "api-100b"},
+		"metadata_schema":   map[string]any{"type": "object", "additionalProperties": true},
+		"ca_profile":        "brand-ca-b",
+		"issuer_profile":    "issuer-b",
+		"service_options":   []string{"mqtt", "video_streaming"},
 	}, admin.Tokens.AccessToken)
 	if patchRes.Code != http.StatusOK {
 		t.Fatalf("expected profile patch 200, got %d: %s", patchRes.Code, patchRes.Body.String())
 	}
 	patched := decodeBody[deviceItemProfileBody](t, patchRes)
-	if patched.DeviceItemProfile.DisplayName != "API Camera V1 Rev B" || patched.DeviceItemProfile.Model == nil || *patched.DeviceItemProfile.Model != "API-100B" {
+	if patched.DeviceItemProfile.DisplayName != "API Camera V1 Rev B" ||
+		patched.DeviceItemProfile.Category != model.DeviceCategoryGeneric ||
+		patched.DeviceItemProfile.CAProfile != "brand-ca-b" ||
+		patched.DeviceItemProfile.IssuerProfile != "issuer-b" ||
+		patched.DeviceItemProfile.Model == nil ||
+		*patched.DeviceItemProfile.Model != "API-100B" ||
+		!equalStringSlices(patched.DeviceItemProfile.ServiceOptions, []string{"mqtt", "video_streaming"}) {
 		t.Fatalf("unexpected patched profile: %+v", patched.DeviceItemProfile)
+	}
+
+	invalidPatchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/device-item-profiles/"+created.DeviceItemProfile.ID, map[string]any{
+		"status": "retired",
+	}, admin.Tokens.AccessToken)
+	if invalidPatchRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid patch status 400, got %d: %s", invalidPatchRes.Code, invalidPatchRes.Body.String())
 	}
 
 	tokenRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claim-tokens", map[string]any{
@@ -1331,7 +1404,7 @@ func TestIntegrationPlatformAdminDeviceItemProfileLifecycle(t *testing.T) {
 	}
 	token := decodeBody[deviceClaimTokenAdminBody](t, tokenRes)
 	if token.DeviceClaimToken.DeviceItemProfileID == nil || *token.DeviceClaimToken.DeviceItemProfileID != created.DeviceItemProfile.ID ||
-		!equalStringSlices(token.DeviceClaimToken.ServiceOptions, []string{"video_streaming", "video_storage"}) ||
+		!equalStringSlices(token.DeviceClaimToken.ServiceOptions, []string{"mqtt", "video_streaming"}) ||
 		token.DeviceClaimToken.Metadata["profile_key"] != "api-cam-v1" {
 		t.Fatalf("unexpected profile-backed token: %+v", token.DeviceClaimToken)
 	}
