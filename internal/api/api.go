@@ -317,11 +317,15 @@ func (s *Server) Router() *gin.Engine {
 	v1.GET("/auth/oidc/providers", s.listOIDCProviders)
 	v1.GET("/auth/oidc/:providerId/login", s.startOIDCLogin)
 	v1.GET("/auth/oidc/:providerId/callback", s.handleOIDCCallback)
+	v1.POST("/brand-clouds/:tenantSlug/auth/login", s.brandCloudLogin)
+	v1.POST("/brand-clouds/:tenantSlug/auth/refresh", s.brandCloudRefresh)
 	v1.POST("/internal/app-token-authorizations", s.handleInternalAppTokenAuthorization)
 
 	protected := v1.Group("")
 	protected.Use(s.requireAuth())
 	protected.POST("/auth/logout", s.logout)
+	protected.POST("/brand-clouds/:tenantSlug/auth/logout", s.brandCloudLogout)
+	protected.GET("/brand-clouds/:tenantSlug/me", s.brandCloudMe)
 	protected.GET("/me", s.me)
 	protected.DELETE("/me", s.deleteCurrentUser)
 	protected.PATCH("/me/password", s.changePassword)
@@ -816,6 +820,10 @@ func (s *Server) refresh(c *gin.Context) {
 	}
 	claims, err := s.auth.ParseRefreshToken(req.RefreshToken)
 	if err != nil {
+		writeError(c, http.StatusUnauthorized, "invalid_refresh_token", "Invalid refresh token")
+		return
+	}
+	if claims.SubjectType != auth.SubjectTypePlatformUser || claims.UserID == "" {
 		writeError(c, http.StatusUnauthorized, "invalid_refresh_token", "Invalid refresh token")
 		return
 	}
@@ -1450,19 +1458,58 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 			return
 		}
 		if s.store != nil {
-			if _, err := s.store.GetUser(c.Request.Context(), claims.UserID); err != nil {
+			switch claims.SubjectType {
+			case "", auth.SubjectTypePlatformUser:
+				if _, err := s.store.GetUser(c.Request.Context(), claims.UserID); err != nil {
+					writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
+					c.Abort()
+					return
+				}
+			case auth.SubjectTypeBrandCloudUser:
+				if _, err := s.store.GetBrandCloudUser(c.Request.Context(), claims.BrandCloudUserID); err != nil {
+					writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
+					c.Abort()
+					return
+				}
+			default:
 				writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
 				c.Abort()
 				return
 			}
 		}
+		c.Set("subjectType", claims.SubjectType)
 		c.Set("userID", claims.UserID)
+		c.Set("brandCloudUserID", claims.BrandCloudUserID)
+		c.Set("brandCloudID", claims.BrandCloudID)
+		c.Set("tenantSlug", claims.TenantSlug)
 		c.Next()
 	}
 }
 
 func (s *Server) requirePermission(permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
+			orgID := c.Param("orgId")
+			if orgID == "" || orgID != currentBrandCloudID(c) {
+				writeError(c, http.StatusNotFound, "not_found", "Resource not found")
+				c.Abort()
+				return
+			}
+			allowed, err := s.store.HasBrandCloudPermission(c.Request.Context(), currentBrandCloudUserID(c), orgID, permission)
+			if err != nil {
+				writeError(c, http.StatusNotFound, "not_found", "Resource not found")
+				c.Abort()
+				return
+			}
+			if !allowed {
+				writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
+				c.Abort()
+				return
+			}
+			c.Set("permission", permission)
+			c.Next()
+			return
+		}
 		if orgID := c.Param("orgId"); orgID != "" {
 			if _, err := s.store.GetRole(c.Request.Context(), orgID, currentUserID(c)); err != nil {
 				writeError(c, http.StatusNotFound, "not_found", "Resource not found")
@@ -1490,6 +1537,33 @@ func currentUserID(c *gin.Context) string {
 	value, _ := c.Get("userID")
 	userID, _ := value.(string)
 	return userID
+}
+
+func currentSubjectType(c *gin.Context) auth.SubjectType {
+	value, _ := c.Get("subjectType")
+	subjectType, _ := value.(auth.SubjectType)
+	if subjectType == "" {
+		return auth.SubjectTypePlatformUser
+	}
+	return subjectType
+}
+
+func currentBrandCloudUserID(c *gin.Context) string {
+	value, _ := c.Get("brandCloudUserID")
+	id, _ := value.(string)
+	return id
+}
+
+func currentBrandCloudID(c *gin.Context) string {
+	value, _ := c.Get("brandCloudID")
+	id, _ := value.(string)
+	return id
+}
+
+func currentTenantSlug(c *gin.Context) string {
+	value, _ := c.Get("tenantSlug")
+	slug, _ := value.(string)
+	return slug
 }
 
 func bind(c *gin.Context, dst any) bool {

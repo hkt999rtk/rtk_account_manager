@@ -43,6 +43,8 @@ tags:
     description: Platform-admin operational metrics.
   - name: Brand Clouds
     description: Platform-admin brand cloud and scoped user management.
+  - name: Brand Cloud Auth
+    description: Brand-cloud scoped authentication and current account endpoints.
   - name: Identity Providers
     description: Platform-admin OIDC provider configuration.
   - name: ACL
@@ -316,6 +318,102 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
         "503":
+          $ref: "#/components/responses/Error"
+  /v1/brand-clouds/{tenantSlug}/auth/login:
+    post:
+      tags:
+        - Brand Cloud Auth
+      operationId: loginBrandCloudUser
+      summary: Login to one brand cloud namespace with email and password.
+      parameters:
+        - $ref: "#/components/parameters/TenantSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Brand-cloud login succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandCloudLoginResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/brand-clouds/{tenantSlug}/auth/refresh:
+    post:
+      tags:
+        - Brand Cloud Auth
+      operationId: refreshBrandCloudToken
+      summary: Exchange a brand-cloud refresh token for new brand-cloud tokens.
+      parameters:
+        - $ref: "#/components/parameters/TenantSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Brand-cloud token refreshed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/brand-clouds/{tenantSlug}/auth/logout:
+    post:
+      tags:
+        - Brand Cloud Auth
+      operationId: logoutBrandCloudUser
+      security:
+        - bearerAuth: []
+      summary: Revoke one brand-cloud refresh token.
+      parameters:
+        - $ref: "#/components/parameters/TenantSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Brand-cloud refresh token revoked.
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/brand-clouds/{tenantSlug}/me:
+    get:
+      tags:
+        - Brand Cloud Auth
+      operationId: getBrandCloudMe
+      security:
+        - bearerAuth: []
+      summary: Get the current brand-cloud account subject.
+      parameters:
+        - $ref: "#/components/parameters/TenantSlug"
+      responses:
+        "200":
+          description: Current brand-cloud account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandCloudMeResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
           $ref: "#/components/responses/Error"
   /v1/auth/logout:
     post:
@@ -2572,6 +2670,14 @@ components:
       schema:
         type: string
         format: uuid
+    TenantSlug:
+      name: tenantSlug
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
     ProfileId:
       name: profileId
       in: path
@@ -3304,6 +3410,10 @@ components:
         name:
           type: string
           minLength: 1
+        tenant_slug:
+          type: string
+          minLength: 1
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
         status:
           $ref: "#/components/schemas/OrganizationStatus"
         metadata:
@@ -3311,11 +3421,16 @@ components:
           additionalProperties: true
     BrandCloudMemberRequest:
       type: object
-      required: [user_id, role]
+      required: [role]
       properties:
         user_id:
           type: string
           format: uuid
+          description: Legacy platform user id accepted during migration.
+        brand_cloud_user_id:
+          type: string
+          format: uuid
+          description: Brand-scoped user id.
         role:
           $ref: "#/components/schemas/Role"
     BrandCloudUserRequest:
@@ -3749,7 +3864,7 @@ components:
           $ref: "#/components/schemas/Organization"
     BrandCloudUserResponse:
       type: object
-      required: [action, user, member]
+      required: [action, user, member, brand_cloud_user, brand_cloud_member]
       properties:
         action:
           type: string
@@ -3758,6 +3873,32 @@ components:
           $ref: "#/components/schemas/User"
         member:
           $ref: "#/components/schemas/Member"
+        brand_cloud_user:
+          $ref: "#/components/schemas/BrandCloudUser"
+        brand_cloud_member:
+          $ref: "#/components/schemas/BrandCloudMember"
+    BrandCloudLoginResponse:
+      type: object
+      required: [brand_cloud, brand_cloud_user, brand_cloud_member, tokens]
+      properties:
+        brand_cloud:
+          $ref: "#/components/schemas/Organization"
+        brand_cloud_user:
+          $ref: "#/components/schemas/BrandCloudUser"
+        brand_cloud_member:
+          $ref: "#/components/schemas/BrandCloudMember"
+        tokens:
+          $ref: "#/components/schemas/Tokens"
+    BrandCloudMeResponse:
+      type: object
+      required: [brand_cloud, brand_cloud_user, brand_cloud_member]
+      properties:
+        brand_cloud:
+          $ref: "#/components/schemas/Organization"
+        brand_cloud_user:
+          $ref: "#/components/schemas/BrandCloudUser"
+        brand_cloud_member:
+          $ref: "#/components/schemas/BrandCloudMember"
     BrandCloudsResponse:
       type: object
       required: [brand_clouds, pagination]
@@ -4112,6 +4253,60 @@ components:
         disabled_at:
           type: string
           format: date-time
+    BrandCloudUser:
+      type: object
+      required: [id, brand_cloud_id, email, email_verified, signup_pending_verification, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        brand_cloud_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        email_verified:
+          type: boolean
+        email_verified_at:
+          type: string
+          format: date-time
+        signup_pending_verification:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        disabled_at:
+          type: string
+          format: date-time
+    BrandCloudMember:
+      type: object
+      required: [brand_cloud_id, brand_cloud_user_id, role, created_at, updated_at]
+      properties:
+        brand_cloud_id:
+          type: string
+          format: uuid
+        brand_cloud_user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     Organization:
       type: object
       required: [id, name, organization_kind, status, tier, evaluation_device_quota, created_at, updated_at]
@@ -4121,6 +4316,10 @@ components:
           format: uuid
         name:
           type: string
+        tenant_slug:
+          type: string
+          nullable: true
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
         role:
           $ref: "#/components/schemas/Role"
         organization_kind:

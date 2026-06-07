@@ -55,9 +55,10 @@ type OrganizationPage struct {
 }
 
 type BrandCloudInput struct {
-	Name     string
-	Status   model.OrganizationStatus
-	Metadata map[string]any
+	Name       string
+	TenantSlug string
+	Status     model.OrganizationStatus
+	Metadata   map[string]any
 }
 
 type BrandCloudUserInput struct {
@@ -69,9 +70,18 @@ type BrandCloudUserInput struct {
 }
 
 type BrandCloudUserResult struct {
-	Action string       `json:"action"`
-	User   model.User   `json:"user"`
-	Member model.Member `json:"member"`
+	Action           string                 `json:"action"`
+	User             model.User             `json:"user"`
+	Member           model.Member           `json:"member"`
+	BrandCloudUser   model.BrandCloudUser   `json:"brand_cloud_user"`
+	BrandCloudMember model.BrandCloudMember `json:"brand_cloud_member"`
+}
+
+type BrandCloudLoginResult struct {
+	BrandCloud     model.Organization     `json:"brand_cloud"`
+	BrandCloudUser model.BrandCloudUser   `json:"brand_cloud_user"`
+	Member         model.BrandCloudMember `json:"brand_cloud_member"`
+	PasswordHash   string                 `json:"-"`
 }
 
 type MemberPage struct {
@@ -164,8 +174,8 @@ func (s *Store) Register(ctx context.Context, in RegisterInput) (RegisterResult,
 	err = tx.QueryRow(ctx, `
 		INSERT INTO organizations (name, tier, evaluation_device_quota, organization_kind, status, metadata)
 		VALUES ($1, $2, $3, 'customer_org', 'active', '{}'::jsonb)
-		RETURNING id::text, name, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at
-	`, in.OrganizationName, tier, quota).Scan(&org.ID, &org.Name, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &orgMetadata, &org.CreatedAt, &org.UpdatedAt)
+		RETURNING id::text, name, tenant_slug, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at
+	`, in.OrganizationName, tier, quota).Scan(&org.ID, &org.Name, &org.TenantSlug, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &orgMetadata, &org.CreatedAt, &org.UpdatedAt)
 	if err != nil {
 		return RegisterResult{}, err
 	}
@@ -212,7 +222,25 @@ func (s *Store) GetUserPassword(ctx context.Context, email string) (model.User, 
 	err := s.db.QueryRow(ctx, `
 		SELECT id::text, email, password_hash, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
 		FROM users
-		WHERE email = $1 AND disabled_at IS NULL
+		WHERE email = $1
+		  AND disabled_at IS NULL
+		  AND (
+		      platform_admin = true
+		      OR EXISTS (
+		          SELECT 1
+		          FROM organization_members m
+		          JOIN organizations o ON o.id = m.organization_id
+		          WHERE m.user_id = users.id
+		            AND o.organization_kind = 'customer_org'
+		      )
+		      OR NOT EXISTS (
+		      SELECT 1
+		      FROM organization_members m
+		      JOIN organizations o ON o.id = m.organization_id
+		      WHERE m.user_id = users.id
+		        AND o.organization_kind = 'brand_cloud'
+		      )
+		  )
 	`, email).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, "", ErrNotFound
@@ -669,7 +697,7 @@ func (s *Store) ListOrganizations(ctx context.Context, userID string, limit, off
 		return OrganizationPage{}, err
 	}
 	rows, err := s.db.Query(ctx, `
-		SELECT o.id::text, o.name, m.role, o.organization_kind, o.status, o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at
+		SELECT o.id::text, o.name, o.tenant_slug, m.role, o.organization_kind, o.status, o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at
 		FROM organizations o
 		JOIN organization_members m ON m.organization_id = o.id
 		JOIN users u ON u.id = m.user_id
@@ -686,7 +714,7 @@ func (s *Store) ListOrganizations(ctx context.Context, userID string, limit, off
 	for rows.Next() {
 		var org model.Organization
 		var rawMetadata []byte
-		if err := rows.Scan(&org.ID, &org.Name, &org.Role, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &rawMetadata, &org.CreatedAt, &org.UpdatedAt); err != nil {
+		if err := rows.Scan(&org.ID, &org.Name, &org.TenantSlug, &org.Role, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &rawMetadata, &org.CreatedAt, &org.UpdatedAt); err != nil {
 			return OrganizationPage{}, err
 		}
 		if err := json.Unmarshal(rawMetadata, &org.Metadata); err != nil {
@@ -712,8 +740,8 @@ func (s *Store) CreateOrganization(ctx context.Context, userID, name string) (mo
 	err = tx.QueryRow(ctx, `
 		INSERT INTO organizations (name, tier, evaluation_device_quota, organization_kind, status, metadata)
 		VALUES ($1, 'commercial', 5, 'customer_org', 'active', '{}'::jsonb)
-		RETURNING id::text, name, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at
-	`, name).Scan(&org.ID, &org.Name, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &rawMetadata, &org.CreatedAt, &org.UpdatedAt)
+		RETURNING id::text, name, tenant_slug, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at
+	`, name).Scan(&org.ID, &org.Name, &org.TenantSlug, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &rawMetadata, &org.CreatedAt, &org.UpdatedAt)
 	if err != nil {
 		return model.Organization{}, err
 	}
@@ -738,11 +766,11 @@ func (s *Store) GetOrganization(ctx context.Context, orgID, userID string) (mode
 	var org model.Organization
 	var rawMetadata []byte
 	err := s.db.QueryRow(ctx, `
-		SELECT o.id::text, o.name, m.role, o.organization_kind, o.status, o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at
+		SELECT o.id::text, o.name, o.tenant_slug, m.role, o.organization_kind, o.status, o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at
 		FROM organizations o
 		JOIN organization_members m ON m.organization_id = o.id
 		WHERE o.id = $1 AND m.user_id = $2
-	`, orgID, userID).Scan(&org.ID, &org.Name, &org.Role, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &rawMetadata, &org.CreatedAt, &org.UpdatedAt)
+	`, orgID, userID).Scan(&org.ID, &org.Name, &org.TenantSlug, &org.Role, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &rawMetadata, &org.CreatedAt, &org.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Organization{}, ErrNotFound
 	}
@@ -765,8 +793,8 @@ func (s *Store) UpdateOrganization(ctx context.Context, orgID, userID, name stri
 		WHERE o.id = $1
 		  AND m.organization_id = o.id
 		  AND m.user_id = $2
-		RETURNING o.id::text, o.name, m.role, o.organization_kind, o.status, o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at
-	`, orgID, userID, name).Scan(&org.ID, &org.Name, &org.Role, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &rawMetadata, &org.CreatedAt, &org.UpdatedAt)
+		RETURNING o.id::text, o.name, o.tenant_slug, m.role, o.organization_kind, o.status, o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at
+	`, orgID, userID, name).Scan(&org.ID, &org.Name, &org.TenantSlug, &org.Role, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &rawMetadata, &org.CreatedAt, &org.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Organization{}, ErrNotFound
 	}
