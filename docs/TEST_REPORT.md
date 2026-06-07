@@ -348,8 +348,6 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/broker`: `TestClassifyAzureReceiveErrorLeavesUnauthorizedPermanent`
 - `rtk_account_manager/internal/broker`: `TestLogConsumerReadsEnvelopeJSON`
 - `rtk_account_manager/internal/broker`: `TestLogPublisherWritesEnvelopeJSON`
-- `rtk_account_manager/internal/broker`: `TestNATSBrokerRequiresURL`
-- `rtk_account_manager/internal/broker`: `TestNATSPublisherConsumerRoundTripAndAck`
 - `rtk_account_manager/internal/broker`: `TestNewAzureEventHubsConstructorsRequireConfig`
 - `rtk_account_manager/internal/broker`: `TestNewAzureEventHubsConsumerClosesClientWhenPartitionOpenFails`
 - `rtk_account_manager/internal/broker`: `TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds`
@@ -584,8 +582,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/linode_deploy/internal/manifest`: `TestManifestRequiresNoLatestRelease`
 - `rtk_account_manager/linode_deploy/internal/planner`: `TestPlanIncludesAccountManagerDeploymentGates`
 - `rtk_account_manager/linode_deploy/internal/planner`: `TestPlanShowsWorkersWhenEnabled`
+- `rtk_account_manager/linode_deploy/internal/render`: `TestRuntimeEnvKeepsLogBrokerWhenWorkersAreEnabled`
 - `rtk_account_manager/linode_deploy/internal/render`: `TestRuntimeEnvRendersDefaultsAndSecretsWithoutLeakingRawValuesInReport`
-- `rtk_account_manager/linode_deploy/internal/render`: `TestRuntimeEnvRendersNATSWhenWorkersAreEnabled`
 - `rtk_account_manager/linode_deploy/internal/secrets`: `TestLoadRequiredSecretsAndRedact`
 - `rtk_account_manager/linode_deploy/internal/secrets`: `TestRequireReportsMissingKeys`
 

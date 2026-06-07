@@ -58,7 +58,7 @@ func TestRuntimeEnvRendersDefaultsAndSecretsWithoutLeakingRawValuesInReport(t *t
 	}
 }
 
-func TestRuntimeEnvRendersNATSWhenWorkersAreEnabled(t *testing.T) {
+func TestRuntimeEnvKeepsLogBrokerWhenWorkersAreEnabled(t *testing.T) {
 	m, err := manifest.Load("../../configs/account-manager-staging.yaml")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -70,15 +70,17 @@ func TestRuntimeEnvRendersNATSWhenWorkersAreEnabled(t *testing.T) {
 	}
 	env, _ := RuntimeEnv(m, vals, Options{SkipOIDC: true, EnableWorkers: true})
 	for _, want := range []string{
-		"CROSS_SERVICE_BROKER=nats",
-		"CROSS_SERVICE_NATS_URL=nats://10.42.1.30:4222",
-		"CROSS_SERVICE_NATS_NAME=account-manager-staging-account-manager",
-		"CROSS_SERVICE_PARTITION_COUNT=4",
+		"CROSS_SERVICE_BROKER=log",
 		"ACCOUNT_VIDEO_COMMANDS_STREAM=account.video.commands",
 		"VIDEO_ACCOUNT_EVENTS_STREAM=video.account.events",
 	} {
 		if !strings.Contains(env, want) {
 			t.Fatalf("worker env missing %q:\n%s", want, env)
+		}
+	}
+	for _, removed := range []string{"CROSS_SERVICE_NATS_URL", "CROSS_SERVICE_NATS_NAME", "CROSS_SERVICE_PARTITION_COUNT"} {
+		if strings.Contains(env, removed) {
+			t.Fatalf("worker env still contains removed %q:\n%s", removed, env)
 		}
 	}
 }

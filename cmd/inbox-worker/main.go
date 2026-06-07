@@ -45,9 +45,6 @@ func main() {
 		ConsumerGroup:                  cfg.CrossServiceConsumerGroup,
 		ReceiveTimeout:                 cfg.CrossServicePollInterval,
 		CheckpointFile:                 cfg.AzureEventHubCheckpointFile,
-		NATSURL:                        cfg.CrossServiceNATSURL,
-		NATSName:                       cfg.CrossServiceNATSName,
-		PartitionCount:                 cfg.CrossServicePartitionCount,
 	})
 	if err != nil {
 		fatal(logger, "consumer creation failed", err)
