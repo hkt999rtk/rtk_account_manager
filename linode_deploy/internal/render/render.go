@@ -97,12 +97,7 @@ func crossServiceLines(m manifest.Manifest, vals secrets.Values, opts Options) [
 	if !opts.EnableWorkers {
 		return append([]string{"CROSS_SERVICE_BROKER=log"}, lines...)
 	}
-	return append([]string{
-		"CROSS_SERVICE_BROKER=nats",
-		"CROSS_SERVICE_NATS_URL=nats://" + m.Infra().PrivateIP + ":4222",
-		"CROSS_SERVICE_NATS_NAME=" + m.AccountManager().Label,
-		"CROSS_SERVICE_PARTITION_COUNT=4",
-	}, lines...)
+	return append([]string{"CROSS_SERVICE_BROKER=log"}, lines...)
 }
 
 func secretKey(key string) bool {

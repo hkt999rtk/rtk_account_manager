@@ -1503,7 +1503,7 @@ The account-manager implementation owns the account-side API, persistence, outbo
 
 Current external dependency:
 
-- The video-side lifecycle integration worker lives in the separate `rtk_video_cloud` `cmd/crossservice` runtime. Account manager depends on that external service to consume `account.video.commands`, call compatibility routes such as `POST /activate_camera` and `POST /deactivate_camera`, enforce canonical `service_options`, and publish `video.account.events`. The previously tracked video-side worker hardening in `hkt999rtk/rtk_video_cloud#128`, `hkt999rtk/rtk_video_cloud#129`, `hkt999rtk/rtk_video_cloud#131`, and PR `hkt999rtk/rtk_video_cloud#146` is closed or merged as of this spec update.
+- The previous video-side lifecycle integration runtime has been retired from the supported cloud deployment. Account manager keeps the account-side outbox/inbox vocabulary for compatibility and local tests, but product-level account/video coordination should use explicit service APIs plus DB-backed outbox/retry until a new cross-service runtime is deliberately designed.
 
 Current verified behavior:
 

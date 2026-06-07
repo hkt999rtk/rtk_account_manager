@@ -1,12 +1,14 @@
 # Local Provisioning And Worker Runbook
 
-This runbook covers the current v2 local flow on `main` without Azure Event Hubs.
+This runbook covers the current v2 local flow on `main` without an external
+cross-service runtime.
 
 The local `log` broker adapter is intentionally simple:
 
 - `cmd/outbox-worker` writes `account.video.commands` records to `stdout` as JSON lines.
 - `cmd/inbox-worker` reads `video.account.events` records from `stdin` as JSON lines.
-- The deployed video-side lifecycle worker lives in `rtk_video_cloud` `cmd/crossservice`, not in this repository.
+- The previous deployed video-side lifecycle worker has been retired from the
+  supported cloud deployment.
 - No local process in this repo simulates the Realtek video server. For local end-to-end testing, you create API requests here, observe the outbox command, then inject a matching video-side event back into the inbox worker.
 
 ## Prerequisites

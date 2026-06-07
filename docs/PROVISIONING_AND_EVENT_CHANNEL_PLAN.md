@@ -120,7 +120,7 @@ Implementation rules:
 - The API writes operations and outbox rows transactionally with account-manager state.
 - The outbox worker publishes pending commands and records publish attempts.
 - The inbox worker consumes events, deduplicates them, and projects results into account-manager state.
-- The video-side integration worker is a separate runtime outside this repository, currently implemented in `rtk_video_cloud` `cmd/crossservice`.
+- The previous video-side integration worker runtime has been retired from the supported cloud deployment; a replacement would need a new explicit design.
 - Broker-specific code must sit behind an adapter.
 - The local implementation uses the `log` adapter; production-like lifecycle deployments may use the Azure Event Hubs adapter.
 

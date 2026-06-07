@@ -42,9 +42,6 @@ func main() {
 		LogWriter:                      os.Stdout,
 		AzureEventHubsConnectionString: cfg.AzureEventHubConnectionString,
 		Stream:                         cfg.AccountVideoCommandsStream,
-		NATSURL:                        cfg.CrossServiceNATSURL,
-		NATSName:                       cfg.CrossServiceNATSName,
-		PartitionCount:                 cfg.CrossServicePartitionCount,
 	})
 	if err != nil {
 		fatal(logger, "publisher creation failed", err)
