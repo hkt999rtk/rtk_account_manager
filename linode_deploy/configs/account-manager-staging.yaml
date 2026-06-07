@@ -49,11 +49,10 @@ firewalls:
     public_tcp: ["22", "80", "443"]
     private_tcp: ["18081"]
   infra:
-    private_tcp: ["22", "5432", "4222"]
+    private_tcp: ["22", "5432"]
   account-manager:
     private_tcp: ["22", "18081"]
     private_egress_tcp: ["5432"]
-    optional_private_egress_tcp: ["4222"]
 
 deploy:
   release: v0.1.0
