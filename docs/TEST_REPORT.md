@@ -68,6 +68,7 @@ Generated: ci-candidate
 | Broker adapters | `TestAzureEventHubsPublisherPublishesJSONRecord` | PASS |
 | Database invariants | `TestIntegrationDatabaseSchemaInvariants` | PASS |
 | OpenAPI contract | `TestIntegrationResponsesMatchOpenAPIContract` | PASS |
+| Brand-cloud scoped user namespace | `TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug` | PASS |
 | OIDC provider persistence | `TestIdentityProviderStoreCRUDAndEnabledInvariant` | PASS |
 | OIDC provider admin CRUD | `TestIntegrationAdminIdentityProviderWorkflow` | PASS |
 | OIDC state and nonce replay guards | `TestOIDCLoginStateStoresHashesAndRejectsReplay` | PASS |
@@ -125,6 +126,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Broker adapters | `TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds`, `TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds`, `TestLogPublisherWritesEnvelopeJSON`, `TestLogConsumerReadsEnvelopeJSON`, `TestAzureEventHubsPublisherPublishesJSONRecord`, `TestAzureEventHubsConsumerReadsAcrossPartitions`, `TestAzureEventHubsConsumerAcknowledgesAndResumesFromCheckpoint`, and `TestOpenAzurePartitionsUsesStoredCheckpointWhenPresent` cover the deterministic local default adapter plus Azure Event Hubs publish/consume and durable checkpoint resume behavior without requiring live Azure. |
 | Database invariants | `TestIntegrationDatabaseSchemaInvariants` plus existing migration tests verify idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, critical tables/columns/constraints/indexes, and automatic `updated_at` triggers. |
 | OpenAPI contract | `TestIntegrationResponsesMatchOpenAPIContract` plus OpenAPI schema validation cover representative Claim Token resolve/admin, registry-only provisioning-state with nullable `operation`, provisioned/failed provisioning-state, provisioning, deactivation, quota visibility, audit visibility, public OIDC, current-user identity, and admin identity-provider responses against `openapi.yaml`. |
+| Brand-cloud scoped user namespace | `TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug`, `TestIntegrationPlatformAdminBrandCloudLifecycle`, `TestIntegrationPlatformAdminCreatesActiveBrandCloudUser`, `TestIntegrationDatabaseSchemaInvariants`, and brand-cloud token/helper unit tests verify tenant slug uniqueness, brand-scoped user storage, same-email cross-brand login isolation, brand-only refresh/logout handling, platform-login rejection for brand users, and brand-cloud membership authorization. |
 | OIDC provider persistence | `TestIdentityProviderStoreCRUDAndEnabledInvariant`, `TestIdentityProviderRejectsRawClientSecretRef`, and `TestIntegrationDatabaseSchemaInvariants` verify provider CRUD, the one-enabled-provider invariant, secret-reference-only storage, identity link uniqueness, and OIDC schema/index presence. |
 | OIDC provider admin CRUD | `TestIntegrationAdminIdentityProviderWorkflow` verifies platform-admin-only create/list/show/update/disable, pagination, second-enabled-provider conflict handling, audit events, `env:VAR_NAME` secret references, and raw-secret non-persistence/non-response behavior. |
 | OIDC state and nonce replay guards | `TestOIDCLoginStateStoresHashesAndRejectsReplay`, `TestOIDCLoginStateRejectsExpiredState`, and `TestIntegrationOIDCProviderLoginAndCallback` verify raw state/nonce non-persistence, one-time state consumption, replay rejection, and callback nonce validation through hashed state records. |
@@ -157,6 +159,9 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests`
 - `rtk_account_manager/internal/api`: `TestAuthTokenDeliveryHook`
 - `rtk_account_manager/internal/api`: `TestBindStrictRejectsUnknownFields`
+- `rtk_account_manager/internal/api`: `TestBrandCloudContextHelpers`
+- `rtk_account_manager/internal/api`: `TestBrandCloudLogoutAndMeRejectMismatchedSubject`
+- `rtk_account_manager/internal/api`: `TestBrandCloudRefreshRejectsPlatformAndWrongTenantTokens`
 - `rtk_account_manager/internal/api`: `TestFailureFromMetadataUsesProjectedErrorFacts`
 - `rtk_account_manager/internal/api`: `TestHTTPAppCertificateIssuerIssuesAndReportsErrors`
 - `rtk_account_manager/internal/api`: `TestHealthRequestEmitsStructuredLog`
@@ -196,6 +201,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/platform_admin_can_list_quota_requests`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/platform_admin_can_show_quota_request`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix`
+- `rtk_account_manager/internal/api`: `TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug`
 - `rtk_account_manager/internal/api`: `TestIntegrationClaimResolveEndpoint`
 - `rtk_account_manager/internal/api`: `TestIntegrationCleanupRefreshTokensRemovesExpiredAndRevokedRows`
 - `rtk_account_manager/internal/api`: `TestIntegrationCurrentUserCanChangePassword`
@@ -281,11 +287,13 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestSMTPQuotaRaiseNotificationSinkWritesDelivery`
 - `rtk_account_manager/internal/api`: `TestTrimPtrNormalizesOptionalStrings`
 - `rtk_account_manager/internal/api`: `TestValidationHelpersWriteErrors`
+- `rtk_account_manager/internal/api`: `TestValueOrEmpty`
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability/invalid_token`
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability/quota_exceeded`
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability/service_unavailable`
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability`
 - `rtk_account_manager/internal/api`: `TestWriteStatusMetricsSortsStatuses`
+- `rtk_account_manager/internal/auth`: `TestBrandCloudTokenClaimsCarryScopedSubject`
 - `rtk_account_manager/internal/auth`: `TestExpiredAndWrongSecretTokensFailParsing`
 - `rtk_account_manager/internal/auth`: `TestLoadPEMTokenSignerRejectsInvalidMaterial`
 - `rtk_account_manager/internal/auth`: `TestLoadPEMTokenSignerSupportsPKCS8`
@@ -315,6 +323,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/auth`: `TestOIDCProviderValidateRejectsMalformedURLs`
 - `rtk_account_manager/internal/auth`: `TestOIDCTokenErrorsDoNotContainProviderTokens`
 - `rtk_account_manager/internal/auth`: `TestPasswordHashAndCheck`
+- `rtk_account_manager/internal/auth`: `TestPlatformTokenClaimsDefaultToPlatformSubject`
 - `rtk_account_manager/internal/auth`: `TestProviderResolverFallsBackToEnvProviderWhenDBProviderMissing`
 - `rtk_account_manager/internal/auth`: `TestProviderResolverPrefersEnabledDBProvider`
 - `rtk_account_manager/internal/auth`: `TestProviderResolverRejectsDisabledOrMisconfiguredProvider`
@@ -485,6 +494,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
 - `rtk_account_manager/internal/store`: `TestEnsurePlatformAdminCreatesAndReenablesUser`
 - `rtk_account_manager/internal/store`: `TestEvaluationQuotaUsageUtilizationHandlesZeroAndNonZeroQuotas`
+- `rtk_account_manager/internal/store`: `TestGeneratedTenantSlugUsesNameAndEightCharSuffix`
 - `rtk_account_manager/internal/store`: `TestGetOutboxMessageDetailIncludesOperation`
 - `rtk_account_manager/internal/store`: `TestIdentityProviderRejectsRawClientSecretRef`
 - `rtk_account_manager/internal/store`: `TestIdentityProviderStoreCRUDAndEnabledInvariant`
@@ -496,12 +506,18 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestListOutboxMessagesByStatusFiltersLifecycleRows`
 - `rtk_account_manager/internal/store`: `TestMergeDeviceMetadataPreservesUnrelatedFields`
 - `rtk_account_manager/internal/store`: `TestMetadataChangedProjectionFiltersNonVideoCloudKeys`
+- `rtk_account_manager/internal/store`: `TestNormalizeTenantSlug/empty_after_normalization`
+- `rtk_account_manager/internal/store`: `TestNormalizeTenantSlug/lowercase`
+- `rtk_account_manager/internal/store`: `TestNormalizeTenantSlug/punctuation`
+- `rtk_account_manager/internal/store`: `TestNormalizeTenantSlug/trim_and_collapse`
+- `rtk_account_manager/internal/store`: `TestNormalizeTenantSlug`
 - `rtk_account_manager/internal/store`: `TestOIDCLoginStateRejectsExpiredState`
 - `rtk_account_manager/internal/store`: `TestOIDCLoginStateStoresHashesAndRejectsReplay`
 - `rtk_account_manager/internal/store`: `TestOnlineChangedProjectionSetsStatusAndLastSeenAt`
 - `rtk_account_manager/internal/store`: `TestOutboxMessagePersistenceAndReadyList`
 - `rtk_account_manager/internal/store`: `TestProjectDeviceProvisioningAndOnlineRules`
 - `rtk_account_manager/internal/store`: `TestProjectDeviceRejectsDisabledDevicesExceptDeactivateResults`
+- `rtk_account_manager/internal/store`: `TestRandomTenantSlugSuffixIsHexEightChars`
 - `rtk_account_manager/internal/store`: `TestRecordInboxProcessTransitionUpdatesOperationAndProjection`
 - `rtk_account_manager/internal/store`: `TestRecordOutboxPublishTransitionLetsPublishedOutcomeOverrideLaterFailure`
 - `rtk_account_manager/internal/store`: `TestRecordOutboxPublishTransitionPreservesInboxCompletedOperation`

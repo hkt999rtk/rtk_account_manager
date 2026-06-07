@@ -23,9 +23,20 @@ const (
 	TokenKindRefresh TokenKind = "refresh"
 )
 
+type SubjectType string
+
+const (
+	SubjectTypePlatformUser   SubjectType = "platform_user"
+	SubjectTypeBrandCloudUser SubjectType = "brand_cloud_user"
+)
+
 type Claims struct {
-	UserID string    `json:"user_id"`
-	Kind   TokenKind `json:"kind"`
+	UserID           string      `json:"user_id,omitempty"`
+	SubjectType      SubjectType `json:"subject_type"`
+	BrandCloudUserID string      `json:"brand_cloud_user_id,omitempty"`
+	BrandCloudID     string      `json:"brand_cloud_id,omitempty"`
+	TenantSlug       string      `json:"tenant_slug,omitempty"`
+	Kind             TokenKind   `json:"kind"`
 	jwt.RegisteredClaims
 }
 
@@ -90,11 +101,19 @@ func RandomToken() (string, error) {
 }
 
 func (s *Service) IssueAccessToken(userID string) (string, time.Time, error) {
-	return s.issue(userID, TokenKindAccess, s.accessSecret, s.accessSigner, s.accessTTL)
+	return s.issuePlatformUser(userID, TokenKindAccess, s.accessSecret, s.accessSigner, s.accessTTL)
 }
 
 func (s *Service) IssueRefreshToken(userID string) (string, time.Time, error) {
-	return s.issue(userID, TokenKindRefresh, s.refreshSecret, s.refreshSigner, s.refreshTTL)
+	return s.issuePlatformUser(userID, TokenKindRefresh, s.refreshSecret, s.refreshSigner, s.refreshTTL)
+}
+
+func (s *Service) IssueBrandCloudAccessToken(brandCloudUserID, brandCloudID, tenantSlug string) (string, time.Time, error) {
+	return s.issueBrandCloudUser(brandCloudUserID, brandCloudID, tenantSlug, TokenKindAccess, s.accessSecret, s.accessSigner, s.accessTTL)
+}
+
+func (s *Service) IssueBrandCloudRefreshToken(brandCloudUserID, brandCloudID, tenantSlug string) (string, time.Time, error) {
+	return s.issueBrandCloudUser(brandCloudUserID, brandCloudID, tenantSlug, TokenKindRefresh, s.refreshSecret, s.refreshSigner, s.refreshTTL)
 }
 
 func (s *Service) ParseAccessToken(tokenString string) (*Claims, error) {
@@ -105,21 +124,37 @@ func (s *Service) ParseRefreshToken(tokenString string) (*Claims, error) {
 	return s.parse(tokenString, TokenKindRefresh, s.refreshSecret, s.refreshSigner)
 }
 
-func (s *Service) issue(userID string, kind TokenKind, secret []byte, signer TokenSigner, ttl time.Duration) (string, time.Time, error) {
+func (s *Service) issuePlatformUser(userID string, kind TokenKind, secret []byte, signer TokenSigner, ttl time.Duration) (string, time.Time, error) {
+	return s.issue(Claims{
+		UserID:      userID,
+		SubjectType: SubjectTypePlatformUser,
+	}, userID, kind, secret, signer, ttl)
+}
+
+func (s *Service) issueBrandCloudUser(brandCloudUserID, brandCloudID, tenantSlug string, kind TokenKind, secret []byte, signer TokenSigner, ttl time.Duration) (string, time.Time, error) {
+	return s.issue(Claims{
+		SubjectType:      SubjectTypeBrandCloudUser,
+		BrandCloudUserID: brandCloudUserID,
+		BrandCloudID:     brandCloudID,
+		TenantSlug:       tenantSlug,
+	}, "brand_cloud_user:"+brandCloudUserID, kind, secret, signer, ttl)
+}
+
+func (s *Service) issue(claims Claims, subject string, kind TokenKind, secret []byte, signer TokenSigner, ttl time.Duration) (string, time.Time, error) {
 	expiresAt := time.Now().UTC().Add(ttl)
 	tokenID, err := randomTokenID()
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	claims := Claims{
-		UserID: userID,
-		Kind:   kind,
-		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   userID,
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
-			ID:        tokenID,
-		},
+	if claims.SubjectType == "" {
+		claims.SubjectType = SubjectTypePlatformUser
+	}
+	claims.Kind = kind
+	claims.RegisteredClaims = jwt.RegisteredClaims{
+		Subject:   subject,
+		ExpiresAt: jwt.NewNumericDate(expiresAt),
+		IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
+		ID:        tokenID,
 	}
 	if signer != nil {
 		return signClaimsWithSigner(claims, signer, expiresAt)
@@ -150,6 +185,9 @@ func (s *Service) parse(tokenString string, expectedKind TokenKind, secret []byt
 	}
 	if claims.Kind != expectedKind {
 		return nil, fmt.Errorf("invalid token kind")
+	}
+	if claims.SubjectType == "" {
+		claims.SubjectType = SubjectTypePlatformUser
 	}
 	return claims, nil
 }

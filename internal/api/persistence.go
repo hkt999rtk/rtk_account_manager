@@ -41,6 +41,12 @@ type authPersistence interface {
 	SaveRefreshToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
 	RotateRefreshToken(ctx context.Context, oldTokenHash, newTokenHash, userID string, newExpiresAt time.Time) error
 	RevokeRefreshToken(ctx context.Context, tokenHash string) error
+	GetBrandCloudUserPassword(ctx context.Context, tenantSlug, email string) (store.BrandCloudLoginResult, error)
+	GetBrandCloudUser(ctx context.Context, brandCloudUserID string) (model.BrandCloudUser, error)
+	GetBrandCloudMember(ctx context.Context, brandCloudID, brandCloudUserID string) (model.BrandCloudMember, error)
+	SaveBrandCloudRefreshToken(ctx context.Context, brandCloudUserID, brandCloudID, tokenHash string, expiresAt time.Time) error
+	RotateBrandCloudRefreshToken(ctx context.Context, oldTokenHash, newTokenHash, brandCloudUserID, brandCloudID string, newExpiresAt time.Time) error
+	RevokeBrandCloudRefreshToken(ctx context.Context, tokenHash string) error
 }
 
 type userPersistence interface {
@@ -135,6 +141,7 @@ type evaluationPersistence interface {
 
 type aclPersistence interface {
 	HasPermission(ctx context.Context, userID, orgID, permission string) (bool, error)
+	HasBrandCloudPermission(ctx context.Context, brandCloudUserID, orgID, permission string) (bool, error)
 	ListPermissions(ctx context.Context, limit, offset int) (store.PermissionPage, error)
 	GetRoleByName(ctx context.Context, name string) (model.ProductRole, error)
 	UpdateRole(ctx context.Context, in store.RoleUpdateInput) (model.ProductRole, error)
@@ -172,6 +179,7 @@ type brandCloudPersistence interface {
 	CreateBrandCloud(ctx context.Context, actorUserID string, in store.BrandCloudInput) (model.Organization, error)
 	ListBrandClouds(ctx context.Context, limit, offset int) (store.OrganizationPage, error)
 	GetBrandCloud(ctx context.Context, orgID string) (model.Organization, error)
+	GetBrandCloudByTenantSlug(ctx context.Context, tenantSlug string) (model.Organization, error)
 	UpdateBrandCloud(ctx context.Context, actorUserID, orgID string, in store.BrandCloudInput) (model.Organization, error)
 	AssignBrandCloudMember(ctx context.Context, actorUserID, orgID, userID string, role model.Role) (model.Member, error)
 	CreateBrandCloudUser(ctx context.Context, actorUserID, orgID string, in store.BrandCloudUserInput) (store.BrandCloudUserResult, error)

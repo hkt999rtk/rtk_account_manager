@@ -12,14 +12,16 @@ import (
 )
 
 type brandCloudRequest struct {
-	Name     string         `json:"name,omitempty"`
-	Status   string         `json:"status,omitempty"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	Name       string         `json:"name,omitempty"`
+	TenantSlug string         `json:"tenant_slug,omitempty"`
+	Status     string         `json:"status,omitempty"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
 type brandCloudMemberRequest struct {
-	UserID string `json:"user_id" binding:"required"`
-	Role   string `json:"role" binding:"required"`
+	UserID           string `json:"user_id,omitempty"`
+	BrandCloudUserID string `json:"brand_cloud_user_id,omitempty"`
+	Role             string `json:"role" binding:"required"`
 }
 
 type brandCloudUserRequest struct {
@@ -64,8 +66,9 @@ func (s *Server) createBrandCloud(c *gin.Context) {
 		return
 	}
 	org, err := s.store.CreateBrandCloud(c.Request.Context(), currentUserID(c), store.BrandCloudInput{
-		Name:     strings.TrimSpace(req.Name),
-		Metadata: req.Metadata,
+		Name:       strings.TrimSpace(req.Name),
+		TenantSlug: strings.TrimSpace(req.TenantSlug),
+		Metadata:   req.Metadata,
 	})
 	if err != nil {
 		writeStoreError(c, err)
@@ -104,9 +107,10 @@ func (s *Server) updateBrandCloud(c *gin.Context) {
 		return
 	}
 	org, err := s.store.UpdateBrandCloud(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), store.BrandCloudInput{
-		Name:     strings.TrimSpace(req.Name),
-		Status:   status,
-		Metadata: req.Metadata,
+		Name:       strings.TrimSpace(req.Name),
+		TenantSlug: strings.TrimSpace(req.TenantSlug),
+		Status:     status,
+		Metadata:   req.Metadata,
 	})
 	if err != nil {
 		writeStoreError(c, err)
@@ -271,7 +275,15 @@ func (s *Server) assignBrandCloudMember(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "invalid_role", "Invalid role")
 		return
 	}
-	member, err := s.store.AssignBrandCloudMember(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), strings.TrimSpace(req.UserID), role)
+	userID := strings.TrimSpace(req.UserID)
+	if userID == "" {
+		userID = strings.TrimSpace(req.BrandCloudUserID)
+	}
+	if userID == "" {
+		writeError(c, http.StatusBadRequest, "missing_user", "user_id or brand_cloud_user_id is required")
+		return
+	}
+	member, err := s.store.AssignBrandCloudMember(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), userID, role)
 	if err != nil {
 		writeStoreError(c, err)
 		return

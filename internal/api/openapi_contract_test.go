@@ -209,12 +209,12 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 		"metadata": map[string]any{"contract": true},
 	}, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds", brandCloudCreateRes)
-	brandCloudBody := decodeBody[brandCloudBody](t, brandCloudCreateRes)
+	brandCloudResp := decodeBody[brandCloudBody](t, brandCloudCreateRes)
 	brandCloudListRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds", nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodGet, "/v1/admin/brand-clouds", brandCloudListRes)
-	brandCloudGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID, nil, admin.Tokens.AccessToken)
-	contract.validate(t, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID, brandCloudGetRes)
-	deviceItemProfileCreateRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles", map[string]any{
+	brandCloudGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID, nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID, brandCloudGetRes)
+	deviceItemProfileCreateRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles", map[string]any{
 		"profile_key":       "contract-cam-v1",
 		"display_name":      "Contract Camera V1",
 		"category":          "ip_camera",
@@ -226,34 +226,58 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 		"issuer_profile":    "contract-issuer",
 		"service_options":   []string{"video_streaming", "video_storage"},
 	}, admin.Tokens.AccessToken)
-	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles", deviceItemProfileCreateRes)
+	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles", deviceItemProfileCreateRes)
 	deviceItemProfileBody := decodeBody[deviceItemProfileBody](t, deviceItemProfileCreateRes)
-	deviceItemProfilesRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles", nil, admin.Tokens.AccessToken)
-	contract.validate(t, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles", deviceItemProfilesRes)
-	deviceItemProfileGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID, nil, admin.Tokens.AccessToken)
-	contract.validate(t, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID, deviceItemProfileGetRes)
-	deviceItemProfilePatchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID, map[string]any{
+	deviceItemProfilesRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles", deviceItemProfilesRes)
+	deviceItemProfileGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID, nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID, deviceItemProfileGetRes)
+	deviceItemProfilePatchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID, map[string]any{
 		"display_name": "Contract Camera V1 Rev B",
 	}, admin.Tokens.AccessToken)
-	contract.validate(t, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID, deviceItemProfilePatchRes)
-	deviceItemProfileDisableRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID+"/disable", nil, admin.Tokens.AccessToken)
-	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID+"/disable", deviceItemProfileDisableRes)
-	brandCloudPatchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID, map[string]any{
+	contract.validate(t, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID, deviceItemProfilePatchRes)
+	deviceItemProfileDisableRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID+"/disable", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID+"/disable", deviceItemProfileDisableRes)
+	brandCloudPatchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID, map[string]any{
 		"status": "disabled",
 	}, admin.Tokens.AccessToken)
-	contract.validate(t, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID, brandCloudPatchRes)
-	brandCloudMemberRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/members", map[string]any{
+	contract.validate(t, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID, brandCloudPatchRes)
+	brandCloudMemberRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/members", map[string]any{
 		"user_id": registered.User.ID,
 		"role":    "owner",
 	}, admin.Tokens.AccessToken)
-	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/members", brandCloudMemberRes)
-	brandCloudUserRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/users", map[string]any{
+	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/members", brandCloudMemberRes)
+	brandCloudUserRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users", map[string]any{
 		"email":        "contract-brand-user@example.com",
 		"password":     "password123",
 		"display_name": "Contract Brand User",
 		"role":         "member",
 	}, admin.Tokens.AccessToken)
-	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudBody.BrandCloud.ID+"/users", brandCloudUserRes)
+	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users", brandCloudUserRes)
+	brandCloudReactivateRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID, map[string]any{
+		"status": "active",
+	}, admin.Tokens.AccessToken)
+	if brandCloudReactivateRes.Code != http.StatusOK {
+		t.Fatalf("expected brand cloud reactivate 200, got %d: %s", brandCloudReactivateRes.Code, brandCloudReactivateRes.Body.String())
+	}
+	brandCloudResp = decodeBody[brandCloudBody](t, brandCloudReactivateRes)
+	brandLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/"+brandCloudResp.BrandCloud.TenantSlug+"/auth/login", map[string]any{
+		"email":    "contract-brand-user@example.com",
+		"password": "password123",
+	}, "")
+	contract.validate(t, http.MethodPost, "/v1/brand-clouds/"+brandCloudResp.BrandCloud.TenantSlug+"/auth/login", brandLoginRes)
+	brandLoginBody := decodeBody[brandCloudLoginBody](t, brandLoginRes)
+	brandMeRes := performJSON(env.router, http.MethodGet, "/v1/brand-clouds/"+brandCloudResp.BrandCloud.TenantSlug+"/me", nil, brandLoginBody.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/brand-clouds/"+brandCloudResp.BrandCloud.TenantSlug+"/me", brandMeRes)
+	brandRefreshRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/"+brandCloudResp.BrandCloud.TenantSlug+"/auth/refresh", map[string]any{
+		"refresh_token": brandLoginBody.Tokens.RefreshToken,
+	}, "")
+	contract.validate(t, http.MethodPost, "/v1/brand-clouds/"+brandCloudResp.BrandCloud.TenantSlug+"/auth/refresh", brandRefreshRes)
+	brandRefreshBody := decodeBody[brandCloudLoginBody](t, brandRefreshRes)
+	brandLogoutRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/"+brandCloudResp.BrandCloud.TenantSlug+"/auth/logout", map[string]any{
+		"refresh_token": brandRefreshBody.Tokens.RefreshToken,
+	}, brandRefreshBody.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/brand-clouds/"+brandCloudResp.BrandCloud.TenantSlug+"/auth/logout", brandLogoutRes)
 	adminClaimTokensRes := performJSON(env.router, http.MethodGet, "/v1/admin/device-claim-tokens", nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodGet, "/v1/admin/device-claim-tokens", adminClaimTokensRes)
 	adminClaimTokenGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID, nil, admin.Tokens.AccessToken)

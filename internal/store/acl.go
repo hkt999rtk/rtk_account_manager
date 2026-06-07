@@ -14,12 +14,13 @@ import (
 )
 
 const (
-	ActorTypeUser          = "user"
-	ScopeTypePlatform      = "platform"
-	ScopeTypeOrganization  = "organization"
-	PermissionACLRead      = "acl.read"
-	PermissionACLManage    = "acl.manage"
-	PermissionPlatformRead = "platform_metrics.read"
+	ActorTypeUser           = "user"
+	ActorTypeBrandCloudUser = "brand_cloud_user"
+	ScopeTypePlatform       = "platform"
+	ScopeTypeOrganization   = "organization"
+	PermissionACLRead       = "acl.read"
+	PermissionACLManage     = "acl.manage"
+	PermissionPlatformRead  = "platform_metrics.read"
 )
 
 type PermissionPage struct {
@@ -135,6 +136,37 @@ func (s *Store) HasPermission(ctx context.Context, userID, orgID, permission str
 			  )
 		)
 	`, userID, permission, orgID).Scan(&allowed)
+	return allowed, err
+}
+
+func (s *Store) HasBrandCloudPermission(ctx context.Context, brandCloudUserID, orgID, permission string) (bool, error) {
+	permission = strings.TrimSpace(permission)
+	orgID = strings.TrimSpace(orgID)
+	if permission == "" || orgID == "" {
+		return false, nil
+	}
+	if isPlatformPermission(permission) {
+		return false, nil
+	}
+
+	var allowed bool
+	err := s.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM role_assignments ra
+			JOIN roles r ON r.id = ra.role_id AND r.disabled_at IS NULL
+			JOIN role_permissions rp ON rp.role_id = r.id
+			JOIN permissions p ON p.id = rp.permission_id
+			JOIN brand_cloud_users bcu ON bcu.id::text = ra.actor_id AND bcu.disabled_at IS NULL
+			WHERE ra.actor_type = 'brand_cloud_user'
+			  AND ra.actor_id = $1
+			  AND ra.disabled_at IS NULL
+			  AND p.name = $2
+			  AND ra.scope_type = 'organization'
+			  AND ra.scope_id = $3
+			  AND bcu.brand_cloud_id::text = $3
+		)
+	`, brandCloudUserID, permission, orgID).Scan(&allowed)
 	return allowed, err
 }
 
