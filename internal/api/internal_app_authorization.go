@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"errors"
 	"net/http"
 	"strings"
@@ -16,12 +17,7 @@ type internalAppTokenAuthorizationRequest struct {
 }
 
 func (s *Server) handleInternalAppTokenAuthorization(c *gin.Context) {
-	if s.internalAuthToken == "" {
-		writeError(c, http.StatusServiceUnavailable, "internal_auth_unconfigured", "Internal authorization is not configured")
-		return
-	}
-	if !strings.EqualFold(strings.TrimSpace(c.GetHeader("Authorization")), "Bearer "+s.internalAuthToken) {
-		writeError(c, http.StatusUnauthorized, "unauthorized", "Unauthorized")
+	if !s.requireInternalAuthToken(c) {
 		return
 	}
 	var req internalAppTokenAuthorizationRequest
@@ -38,4 +34,18 @@ func (s *Server) handleInternalAppTokenAuthorization(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"authorized": true})
+}
+
+func (s *Server) requireInternalAuthToken(c *gin.Context) bool {
+	if s.internalAuthToken == "" {
+		writeError(c, http.StatusServiceUnavailable, "internal_auth_unconfigured", "Internal authorization is not configured")
+		return false
+	}
+	header := strings.TrimSpace(c.GetHeader("Authorization"))
+	expected := "Bearer " + s.internalAuthToken
+	if subtle.ConstantTimeCompare([]byte(header), []byte(expected)) != 1 {
+		writeError(c, http.StatusUnauthorized, "unauthorized", "Unauthorized")
+		return false
+	}
+	return true
 }

@@ -216,6 +216,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationEmailVerificationAndPasswordRecovery`
 - `rtk_account_manager/internal/api`: `TestIntegrationFleetGroupsAndTags`
 - `rtk_account_manager/internal/api`: `TestIntegrationInternalAppTokenAuthorization`
+- `rtk_account_manager/internal/api`: `TestIntegrationInternalDeviceProvisioningResult`
 - `rtk_account_manager/internal/api`: `TestIntegrationLastOwnerCannotBeRemovedOrDowngraded`
 - `rtk_account_manager/internal/api`: `TestIntegrationListPaginationMetadata`
 - `rtk_account_manager/internal/api`: `TestIntegrationLoginAppCertificateCSRRequired`

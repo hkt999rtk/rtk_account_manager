@@ -108,7 +108,7 @@ else
   cp "$root_dir/dist/rtk_account_manager-${release}.tar.gz" "$bundle"
 fi
 
-ssh_opts=(-i "$ssh_key" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+ssh_opts=(-i "$ssh_key" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null)
 remote="$ssh_user@$host"
 
 tmp_env="$(mktemp)"

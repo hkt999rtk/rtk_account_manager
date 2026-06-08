@@ -320,6 +320,7 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/brand-clouds/:tenantSlug/auth/login", s.brandCloudLogin)
 	v1.POST("/brand-clouds/:tenantSlug/auth/refresh", s.brandCloudRefresh)
 	v1.POST("/internal/app-token-authorizations", s.handleInternalAppTokenAuthorization)
+	v1.POST("/internal/device-provisioning-results", s.handleInternalDeviceProvisioningResult)
 
 	protected := v1.Group("")
 	protected.Use(s.requireAuth())

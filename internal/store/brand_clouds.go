@@ -392,15 +392,18 @@ func (s *Store) GetBrandCloudUserPassword(ctx context.Context, tenantSlug, email
 		SELECT
 		    o.id::text, o.name, o.tenant_slug, ''::text, o.organization_kind, o.status, o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at,
 		    bcu.id::text, bcu.brand_cloud_id::text, bcu.email, bcu.password_hash, bcu.display_name, bcu.email_verified, bcu.email_verified_at, bcu.signup_pending_verification, bcu.created_at, bcu.updated_at, bcu.disabled_at,
-		    bcm.role, bcm.created_at, bcm.updated_at
+		    bcm.role, bcm.created_at, bcm.updated_at,
+		    u.id::text, u.email, u.display_name, u.email_verified, u.email_verified_at, u.signup_pending_verification, u.created_at, u.updated_at, u.disabled_at
 		FROM organizations o
 		JOIN brand_cloud_users bcu ON bcu.brand_cloud_id = o.id
 		JOIN brand_cloud_memberships bcm ON bcm.brand_cloud_id = o.id AND bcm.brand_cloud_user_id = bcu.id
+		JOIN users u ON u.email = bcu.email
 		WHERE o.organization_kind = 'brand_cloud'
 		  AND o.status = 'active'
 		  AND o.tenant_slug = $1
 		  AND bcu.email = $2
 		  AND bcu.disabled_at IS NULL
+		  AND u.disabled_at IS NULL
 	`, normalizeTenantSlug(tenantSlug), strings.ToLower(strings.TrimSpace(email))).Scan(
 		&result.BrandCloud.ID,
 		&result.BrandCloud.Name,
@@ -427,6 +430,15 @@ func (s *Store) GetBrandCloudUserPassword(ctx context.Context, tenantSlug, email
 		&result.Member.Role,
 		&result.Member.CreatedAt,
 		&result.Member.UpdatedAt,
+		&result.User.ID,
+		&result.User.Email,
+		&result.User.DisplayName,
+		&result.User.EmailVerified,
+		&result.User.EmailVerifiedAt,
+		&result.User.SignupPendingVerification,
+		&result.User.CreatedAt,
+		&result.User.UpdatedAt,
+		&result.User.DisabledAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return BrandCloudLoginResult{}, ErrNotFound

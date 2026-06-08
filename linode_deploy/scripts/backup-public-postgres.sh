@@ -29,7 +29,7 @@ local_archive="$backup_dir/rtk-account-manager-db-$stamp.dump"
 [ -n "$host" ] || { echo "ACCOUNT_MANAGER_LINODE_HOST or ACCOUNT_MANAGER_LINODE_PUBLIC_IPV4 is required" >&2; exit 1; }
 [ -s "$ssh_key" ] || { echo "SSH key not found: $ssh_key" >&2; exit 1; }
 mkdir -p "$backup_dir"
-ssh_opts=(-i "$ssh_key" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+ssh_opts=(-i "$ssh_key" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null)
 remote="$ssh_user@$host"
 
 ssh "${ssh_opts[@]}" "$remote" "sudo -u postgres pg_dump -Fc '$db_name' > '$remote_archive'"

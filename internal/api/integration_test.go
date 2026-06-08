@@ -357,6 +357,99 @@ func TestIntegrationInternalAppTokenAuthorization(t *testing.T) {
 	}
 }
 
+func TestIntegrationInternalDeviceProvisioningResult(t *testing.T) {
+	env := newIntegrationEnv(t)
+	env.server.ConfigureInternalAuthToken("internal-provision-token")
+	owner := registerUser(t, env.router, "internal-provision-owner@example.com", "Internal Provision Org")
+
+	deviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("internal-provision-device", "INTERNAL-PROVISION-001"), owner.Tokens.AccessToken)
+	if deviceRes.Code != http.StatusCreated {
+		t.Fatalf("expected device create 201, got %d: %s", deviceRes.Code, deviceRes.Body.String())
+	}
+	device := decodeBody[deviceBody](t, deviceRes)
+
+	provisionRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provision", map[string]any{
+		"video_cloud_devid": "video-internal-provision-1",
+		"activity_id":       "activity-internal-provision-1",
+		"clip_public_key":   "clip-internal-provision-1",
+		"operation_id":      "internal-provision-op-1",
+	}, owner.Tokens.AccessToken)
+	if provisionRes.Code != http.StatusCreated {
+		t.Fatalf("expected provision 201, got %d: %s", provisionRes.Code, provisionRes.Body.String())
+	}
+
+	activatedAt := time.Now().UTC().Truncate(time.Second)
+	resultRes := performJSON(env.router, http.MethodPost, "/v1/internal/device-provisioning-results", map[string]any{
+		"operation_id":      "internal-provision-op-1",
+		"org_id":            owner.Organization.ID,
+		"account_device_id": device.Device.ID,
+		"video_cloud_devid": "video-internal-provision-1",
+		"activity_id":       "activity-internal-provision-1",
+		"activated_at":      activatedAt.Format(time.RFC3339),
+	}, "internal-provision-token")
+	if resultRes.Code != http.StatusOK {
+		t.Fatalf("expected internal provisioning result 200, got %d: %s", resultRes.Code, resultRes.Body.String())
+	}
+
+	stateRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provisioning", nil, owner.Tokens.AccessToken)
+	if stateRes.Code != http.StatusOK {
+		t.Fatalf("expected provisioning state 200, got %d: %s", stateRes.Code, stateRes.Body.String())
+	}
+	state := decodeBody[provisioningBody](t, stateRes)
+	if state.Operation == nil || state.Operation.Status != model.DeviceOperationStatusSucceeded {
+		t.Fatalf("expected succeeded operation, got %+v", state.Operation)
+	}
+	if state.Readiness.State != model.DeviceReadinessStateTransportPending || state.Readiness.ProductState != model.ProductReadinessStateActivated {
+		t.Fatalf("expected transport-pending activated state, got %+v", state.Readiness)
+	}
+	if got := state.VideoMetadata[model.DeviceMetadataVideoCloudActivationStatus]; got != string(model.VideoCloudActivationStatusActivated) {
+		t.Fatalf("expected activated metadata, got %+v", state.VideoMetadata)
+	}
+
+	unauthorizedRes := performJSON(env.router, http.MethodPost, "/v1/internal/device-provisioning-results", map[string]any{
+		"operation_id":      "internal-provision-op-1",
+		"org_id":            owner.Organization.ID,
+		"account_device_id": device.Device.ID,
+		"video_cloud_devid": "video-internal-provision-1",
+		"activity_id":       "activity-internal-provision-1",
+	}, "wrong-token")
+	if unauthorizedRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected wrong token 401, got %d: %s", unauthorizedRes.Code, unauthorizedRes.Body.String())
+	}
+
+	mismatchRes := performJSON(env.router, http.MethodPost, "/v1/internal/device-provisioning-results", map[string]any{
+		"operation_id":      "internal-provision-op-1",
+		"org_id":            owner.Organization.ID,
+		"account_device_id": "00000000-0000-0000-0000-000000000000",
+		"video_cloud_devid": "video-internal-provision-1",
+		"activity_id":       "activity-internal-provision-1",
+	}, "internal-provision-token")
+	if mismatchRes.Code != http.StatusConflict {
+		t.Fatalf("expected mismatch 409, got %d: %s", mismatchRes.Code, mismatchRes.Body.String())
+	}
+
+	missingOperationRes := performJSON(env.router, http.MethodPost, "/v1/internal/device-provisioning-results", map[string]any{
+		"operation_id":      "missing-internal-provision-op",
+		"org_id":            owner.Organization.ID,
+		"account_device_id": device.Device.ID,
+		"video_cloud_devid": "video-internal-provision-1",
+		"activity_id":       "activity-internal-provision-1",
+	}, "internal-provision-token")
+	if missingOperationRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing operation 404, got %d: %s", missingOperationRes.Code, missingOperationRes.Body.String())
+	}
+
+	invalidRes := performJSON(env.router, http.MethodPost, "/v1/internal/device-provisioning-results", map[string]any{
+		"operation_id":      "internal-provision-op-1",
+		"org_id":            owner.Organization.ID,
+		"account_device_id": device.Device.ID,
+		"video_cloud_devid": "video-internal-provision-1",
+	}, "internal-provision-token")
+	if invalidRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid payload 400, got %d: %s", invalidRes.Code, invalidRes.Body.String())
+	}
+}
+
 func TestIntegrationOIDCProviderLoginAndCallback(t *testing.T) {
 	env := newIntegrationEnv(t)
 	fake := newAPIOIDCTestServer(t)
@@ -1488,6 +1581,24 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 	if brandLoginRes.Code != http.StatusOK {
 		t.Fatalf("expected brand-cloud login 200, got %d: %s", brandLoginRes.Code, brandLoginRes.Body.String())
 	}
+	brandLogin := decodeBody[tokenBody](t, brandLoginRes)
+	if brandLogin.AppCertificate.Status != "csr_required" {
+		t.Fatalf("brand-cloud app certificate status = %q", brandLogin.AppCertificate.Status)
+	}
+	issuer := &fakeAppCertificateIssuer{}
+	env.server.ConfigureAppCertificateIssuer(issuer)
+	brandCSRRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/rtk-brand/auth/login", map[string]any{
+		"email":       "rtk+001@users.example.com",
+		"password":    "initial-password123",
+		"app_csr_pem": generateTestCSR(t, "app-user:"+created.User.ID),
+	}, "")
+	if brandCSRRes.Code != http.StatusOK {
+		t.Fatalf("expected brand-cloud csr login 200, got %d: %s", brandCSRRes.Code, brandCSRRes.Body.String())
+	}
+	brandCSR := decodeBody[tokenBody](t, brandCSRRes)
+	if brandCSR.AppCertificate.Status != "issued" || brandCSR.AppCertificate.FingerprintSHA256 == "" {
+		t.Fatalf("brand-cloud app certificate response = %+v", brandCSR.AppCertificate)
+	}
 
 	if _, err := env.db.Exec(ctx, `UPDATE users SET disabled_at = now() WHERE id = $1`, created.User.ID); err != nil {
 		t.Fatal(err)
@@ -1614,7 +1725,7 @@ func TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if acmeClaims.SubjectType != auth.SubjectTypeBrandCloudUser || acmeClaims.BrandCloudID != acme.BrandCloud.ID || acmeClaims.TenantSlug != "acme" || acmeClaims.BrandCloudUserID == "" {
+	if acmeClaims.SubjectType != auth.SubjectTypeBrandCloudUser || acmeClaims.UserID != acmeLogin.User.ID || acmeClaims.BrandCloudID != acme.BrandCloud.ID || acmeClaims.TenantSlug != "acme" || acmeClaims.BrandCloudUserID == "" {
 		t.Fatalf("unexpected acme access token claims: %+v", acmeClaims)
 	}
 
@@ -1630,7 +1741,7 @@ func TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if contosoClaims.BrandCloudUserID == acmeClaims.BrandCloudUserID || contosoClaims.BrandCloudID != contoso.BrandCloud.ID || contosoClaims.TenantSlug != "contoso" {
+	if contosoClaims.UserID != contosoLogin.User.ID || contosoClaims.BrandCloudUserID == acmeClaims.BrandCloudUserID || contosoClaims.BrandCloudID != contoso.BrandCloud.ID || contosoClaims.TenantSlug != "contoso" {
 		t.Fatalf("expected distinct contoso subject, acme=%+v contoso=%+v", acmeClaims, contosoClaims)
 	}
 
@@ -4842,6 +4953,9 @@ type brandCloudUserBody struct {
 }
 
 type brandCloudLoginBody struct {
+	User struct {
+		ID string `json:"id"`
+	} `json:"user"`
 	BrandCloudUser struct {
 		ID                        string     `json:"id"`
 		BrandCloudID              string     `json:"brand_cloud_id"`

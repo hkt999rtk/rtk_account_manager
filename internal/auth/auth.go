@@ -108,12 +108,12 @@ func (s *Service) IssueRefreshToken(userID string) (string, time.Time, error) {
 	return s.issuePlatformUser(userID, TokenKindRefresh, s.refreshSecret, s.refreshSigner, s.refreshTTL)
 }
 
-func (s *Service) IssueBrandCloudAccessToken(brandCloudUserID, brandCloudID, tenantSlug string) (string, time.Time, error) {
-	return s.issueBrandCloudUser(brandCloudUserID, brandCloudID, tenantSlug, TokenKindAccess, s.accessSecret, s.accessSigner, s.accessTTL)
+func (s *Service) IssueBrandCloudAccessToken(userID, brandCloudUserID, brandCloudID, tenantSlug string) (string, time.Time, error) {
+	return s.issueBrandCloudUser(userID, brandCloudUserID, brandCloudID, tenantSlug, TokenKindAccess, s.accessSecret, s.accessSigner, s.accessTTL)
 }
 
-func (s *Service) IssueBrandCloudRefreshToken(brandCloudUserID, brandCloudID, tenantSlug string) (string, time.Time, error) {
-	return s.issueBrandCloudUser(brandCloudUserID, brandCloudID, tenantSlug, TokenKindRefresh, s.refreshSecret, s.refreshSigner, s.refreshTTL)
+func (s *Service) IssueBrandCloudRefreshToken(userID, brandCloudUserID, brandCloudID, tenantSlug string) (string, time.Time, error) {
+	return s.issueBrandCloudUser(userID, brandCloudUserID, brandCloudID, tenantSlug, TokenKindRefresh, s.refreshSecret, s.refreshSigner, s.refreshTTL)
 }
 
 func (s *Service) ParseAccessToken(tokenString string) (*Claims, error) {
@@ -131,8 +131,9 @@ func (s *Service) issuePlatformUser(userID string, kind TokenKind, secret []byte
 	}, userID, kind, secret, signer, ttl)
 }
 
-func (s *Service) issueBrandCloudUser(brandCloudUserID, brandCloudID, tenantSlug string, kind TokenKind, secret []byte, signer TokenSigner, ttl time.Duration) (string, time.Time, error) {
+func (s *Service) issueBrandCloudUser(userID, brandCloudUserID, brandCloudID, tenantSlug string, kind TokenKind, secret []byte, signer TokenSigner, ttl time.Duration) (string, time.Time, error) {
 	return s.issue(Claims{
+		UserID:           userID,
 		SubjectType:      SubjectTypeBrandCloudUser,
 		BrandCloudUserID: brandCloudUserID,
 		BrandCloudID:     brandCloudID,
