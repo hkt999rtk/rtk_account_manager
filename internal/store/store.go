@@ -79,6 +79,7 @@ type BrandCloudUserResult struct {
 
 type BrandCloudLoginResult struct {
 	BrandCloud     model.Organization     `json:"brand_cloud"`
+	User           model.User             `json:"user"`
 	BrandCloudUser model.BrandCloudUser   `json:"brand_cloud_user"`
 	Member         model.BrandCloudMember `json:"brand_cloud_member"`
 	PasswordHash   string                 `json:"-"`

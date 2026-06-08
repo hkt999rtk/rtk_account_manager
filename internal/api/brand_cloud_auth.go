@@ -24,11 +24,18 @@ func (s *Server) brandCloudLogin(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
 		return
 	}
+	appCert, err := s.appCertificateForLogin(c.Request.Context(), result.User.ID, req.AppCSRPem)
+	if err != nil {
+		writeAppCertificateError(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"brand_cloud":        result.BrandCloud,
 		"brand_cloud_user":   result.BrandCloudUser,
 		"brand_cloud_member": result.Member,
+		"user":               result.User,
 		"tokens":             tokens,
+		"app_certificate":    appCert,
 	})
 }
 

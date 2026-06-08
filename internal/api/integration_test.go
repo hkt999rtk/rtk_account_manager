@@ -1488,6 +1488,24 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 	if brandLoginRes.Code != http.StatusOK {
 		t.Fatalf("expected brand-cloud login 200, got %d: %s", brandLoginRes.Code, brandLoginRes.Body.String())
 	}
+	brandLogin := decodeBody[tokenBody](t, brandLoginRes)
+	if brandLogin.AppCertificate.Status != "csr_required" {
+		t.Fatalf("brand-cloud app certificate status = %q", brandLogin.AppCertificate.Status)
+	}
+	issuer := &fakeAppCertificateIssuer{}
+	env.server.ConfigureAppCertificateIssuer(issuer)
+	brandCSRRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/rtk-brand/auth/login", map[string]any{
+		"email":       "rtk+001@users.example.com",
+		"password":    "initial-password123",
+		"app_csr_pem": generateTestCSR(t, "app-user:"+created.User.ID),
+	}, "")
+	if brandCSRRes.Code != http.StatusOK {
+		t.Fatalf("expected brand-cloud csr login 200, got %d: %s", brandCSRRes.Code, brandCSRRes.Body.String())
+	}
+	brandCSR := decodeBody[tokenBody](t, brandCSRRes)
+	if brandCSR.AppCertificate.Status != "issued" || brandCSR.AppCertificate.FingerprintSHA256 == "" {
+		t.Fatalf("brand-cloud app certificate response = %+v", brandCSR.AppCertificate)
+	}
 
 	if _, err := env.db.Exec(ctx, `UPDATE users SET disabled_at = now() WHERE id = $1`, created.User.ID); err != nil {
 		t.Fatal(err)
