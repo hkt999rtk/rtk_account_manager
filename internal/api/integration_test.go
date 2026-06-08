@@ -399,8 +399,8 @@ func TestIntegrationInternalDeviceProvisioningResult(t *testing.T) {
 	if state.Operation == nil || state.Operation.Status != model.DeviceOperationStatusSucceeded {
 		t.Fatalf("expected succeeded operation, got %+v", state.Operation)
 	}
-	if state.Readiness.State != model.DeviceReadinessStateReady || state.Readiness.ProductState != model.ProductReadinessStateActivated {
-		t.Fatalf("expected ready activated state, got %+v", state.Readiness)
+	if state.Readiness.State != model.DeviceReadinessStateTransportPending || state.Readiness.ProductState != model.ProductReadinessStateActivated {
+		t.Fatalf("expected transport-pending activated state, got %+v", state.Readiness)
 	}
 	if got := state.VideoMetadata[model.DeviceMetadataVideoCloudActivationStatus]; got != string(model.VideoCloudActivationStatusActivated) {
 		t.Fatalf("expected activated metadata, got %+v", state.VideoMetadata)
@@ -415,6 +415,38 @@ func TestIntegrationInternalDeviceProvisioningResult(t *testing.T) {
 	}, "wrong-token")
 	if unauthorizedRes.Code != http.StatusUnauthorized {
 		t.Fatalf("expected wrong token 401, got %d: %s", unauthorizedRes.Code, unauthorizedRes.Body.String())
+	}
+
+	mismatchRes := performJSON(env.router, http.MethodPost, "/v1/internal/device-provisioning-results", map[string]any{
+		"operation_id":      "internal-provision-op-1",
+		"org_id":            owner.Organization.ID,
+		"account_device_id": "00000000-0000-0000-0000-000000000000",
+		"video_cloud_devid": "video-internal-provision-1",
+		"activity_id":       "activity-internal-provision-1",
+	}, "internal-provision-token")
+	if mismatchRes.Code != http.StatusConflict {
+		t.Fatalf("expected mismatch 409, got %d: %s", mismatchRes.Code, mismatchRes.Body.String())
+	}
+
+	missingOperationRes := performJSON(env.router, http.MethodPost, "/v1/internal/device-provisioning-results", map[string]any{
+		"operation_id":      "missing-internal-provision-op",
+		"org_id":            owner.Organization.ID,
+		"account_device_id": device.Device.ID,
+		"video_cloud_devid": "video-internal-provision-1",
+		"activity_id":       "activity-internal-provision-1",
+	}, "internal-provision-token")
+	if missingOperationRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing operation 404, got %d: %s", missingOperationRes.Code, missingOperationRes.Body.String())
+	}
+
+	invalidRes := performJSON(env.router, http.MethodPost, "/v1/internal/device-provisioning-results", map[string]any{
+		"operation_id":      "internal-provision-op-1",
+		"org_id":            owner.Organization.ID,
+		"account_device_id": device.Device.ID,
+		"video_cloud_devid": "video-internal-provision-1",
+	}, "internal-provision-token")
+	if invalidRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid payload 400, got %d: %s", invalidRes.Code, invalidRes.Body.String())
 	}
 }
 
