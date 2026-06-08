@@ -1632,7 +1632,7 @@ func TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if acmeClaims.SubjectType != auth.SubjectTypeBrandCloudUser || acmeClaims.BrandCloudID != acme.BrandCloud.ID || acmeClaims.TenantSlug != "acme" || acmeClaims.BrandCloudUserID == "" {
+	if acmeClaims.SubjectType != auth.SubjectTypeBrandCloudUser || acmeClaims.UserID != acmeLogin.User.ID || acmeClaims.BrandCloudID != acme.BrandCloud.ID || acmeClaims.TenantSlug != "acme" || acmeClaims.BrandCloudUserID == "" {
 		t.Fatalf("unexpected acme access token claims: %+v", acmeClaims)
 	}
 
@@ -1648,7 +1648,7 @@ func TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if contosoClaims.BrandCloudUserID == acmeClaims.BrandCloudUserID || contosoClaims.BrandCloudID != contoso.BrandCloud.ID || contosoClaims.TenantSlug != "contoso" {
+	if contosoClaims.UserID != contosoLogin.User.ID || contosoClaims.BrandCloudUserID == acmeClaims.BrandCloudUserID || contosoClaims.BrandCloudID != contoso.BrandCloud.ID || contosoClaims.TenantSlug != "contoso" {
 		t.Fatalf("expected distinct contoso subject, acme=%+v contoso=%+v", acmeClaims, contosoClaims)
 	}
 
@@ -4860,6 +4860,9 @@ type brandCloudUserBody struct {
 }
 
 type brandCloudLoginBody struct {
+	User struct {
+		ID string `json:"id"`
+	} `json:"user"`
 	BrandCloudUser struct {
 		ID                        string     `json:"id"`
 		BrandCloudID              string     `json:"brand_cloud_id"`

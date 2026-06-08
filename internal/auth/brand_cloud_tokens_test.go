@@ -8,7 +8,7 @@ import (
 func TestBrandCloudTokenClaimsCarryScopedSubject(t *testing.T) {
 	service := NewService("access-secret", "refresh-secret", time.Minute, time.Hour)
 
-	accessToken, accessExpiresAt, err := service.IssueBrandCloudAccessToken("brand-user-1", "brand-cloud-1", "acme")
+	accessToken, accessExpiresAt, err := service.IssueBrandCloudAccessToken("user-1", "brand-user-1", "brand-cloud-1", "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,12 +23,12 @@ func TestBrandCloudTokenClaimsCarryScopedSubject(t *testing.T) {
 		accessClaims.BrandCloudUserID != "brand-user-1" ||
 		accessClaims.BrandCloudID != "brand-cloud-1" ||
 		accessClaims.TenantSlug != "acme" ||
-		accessClaims.UserID != "" ||
+		accessClaims.UserID != "user-1" ||
 		accessClaims.Subject != "brand_cloud_user:brand-user-1" {
 		t.Fatalf("unexpected access claims: %+v", accessClaims)
 	}
 
-	refreshToken, refreshExpiresAt, err := service.IssueBrandCloudRefreshToken("brand-user-1", "brand-cloud-1", "acme")
+	refreshToken, refreshExpiresAt, err := service.IssueBrandCloudRefreshToken("user-1", "brand-user-1", "brand-cloud-1", "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestBrandCloudTokenClaimsCarryScopedSubject(t *testing.T) {
 		refreshClaims.BrandCloudUserID != "brand-user-1" ||
 		refreshClaims.BrandCloudID != "brand-cloud-1" ||
 		refreshClaims.TenantSlug != "acme" ||
-		refreshClaims.UserID != "" ||
+		refreshClaims.UserID != "user-1" ||
 		refreshClaims.Subject != "brand_cloud_user:brand-user-1" {
 		t.Fatalf("unexpected refresh claims: %+v", refreshClaims)
 	}

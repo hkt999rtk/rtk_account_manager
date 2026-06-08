@@ -77,7 +77,7 @@ func TestBrandCloudRefreshRejectsPlatformAndWrongTenantTokens(t *testing.T) {
 		t.Fatalf("expected platform refresh token to be rejected with 401, got %d", recorder.Code)
 	}
 
-	brandRefresh, _, err := authService.IssueBrandCloudRefreshToken("brand-user-1", "brand-cloud-1", "other")
+	brandRefresh, _, err := authService.IssueBrandCloudRefreshToken("user-1", "brand-user-1", "brand-cloud-1", "other")
 	if err != nil {
 		t.Fatal(err)
 	}

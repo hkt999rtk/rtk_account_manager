@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/channel"
@@ -234,6 +235,13 @@ func (s *Server) resolveDeviceClaim(c *gin.Context) {
 		Now:            time.Now().UTC(),
 	})
 	if err != nil {
+		s.logger.Error("device claim resolve failed",
+			zap.String("org_id", c.Param("orgId")),
+			zap.String("actor_user_id", currentUserID(c)),
+			zap.String("brand_cloud_user_id", currentBrandCloudUserID(c)),
+			zap.String("subject_type", string(currentSubjectType(c))),
+			zap.Error(err),
+		)
 		writeClaimResolveError(c, err)
 		return
 	}

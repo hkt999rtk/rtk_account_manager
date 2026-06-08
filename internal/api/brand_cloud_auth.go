@@ -19,7 +19,7 @@ func (s *Server) brandCloudLogin(c *gin.Context) {
 		writeError(c, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
 		return
 	}
-	tokens, err := s.issueBrandCloudTokens(c, result.BrandCloudUser.ID, result.BrandCloud.ID, valueOrEmpty(result.BrandCloud.TenantSlug))
+	tokens, err := s.issueBrandCloudTokens(c, result.User.ID, result.BrandCloudUser.ID, result.BrandCloud.ID, valueOrEmpty(result.BrandCloud.TenantSlug))
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
 		return
@@ -48,7 +48,7 @@ func (s *Server) brandCloudRefresh(c *gin.Context) {
 		return
 	}
 	claims, err := s.auth.ParseRefreshToken(req.RefreshToken)
-	if err != nil || claims.SubjectType != auth.SubjectTypeBrandCloudUser || claims.BrandCloudUserID == "" || claims.BrandCloudID == "" {
+	if err != nil || claims.SubjectType != auth.SubjectTypeBrandCloudUser || claims.UserID == "" || claims.BrandCloudUserID == "" || claims.BrandCloudID == "" {
 		writeError(c, http.StatusUnauthorized, "invalid_refresh_token", "Invalid refresh token")
 		return
 	}
@@ -56,12 +56,12 @@ func (s *Server) brandCloudRefresh(c *gin.Context) {
 		writeError(c, http.StatusUnauthorized, "invalid_refresh_token", "Invalid refresh token")
 		return
 	}
-	accessToken, accessExpiresAt, err := s.auth.IssueBrandCloudAccessToken(claims.BrandCloudUserID, claims.BrandCloudID, claims.TenantSlug)
+	accessToken, accessExpiresAt, err := s.auth.IssueBrandCloudAccessToken(claims.UserID, claims.BrandCloudUserID, claims.BrandCloudID, claims.TenantSlug)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
 		return
 	}
-	refreshToken, refreshExpiresAt, err := s.auth.IssueBrandCloudRefreshToken(claims.BrandCloudUserID, claims.BrandCloudID, claims.TenantSlug)
+	refreshToken, refreshExpiresAt, err := s.auth.IssueBrandCloudRefreshToken(claims.UserID, claims.BrandCloudUserID, claims.BrandCloudID, claims.TenantSlug)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
 		return
@@ -120,12 +120,12 @@ func (s *Server) brandCloudMe(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"brand_cloud": brandCloud, "brand_cloud_user": user, "brand_cloud_member": member})
 }
 
-func (s *Server) issueBrandCloudTokens(c *gin.Context, brandCloudUserID, brandCloudID, tenantSlug string) (tokenResponse, error) {
-	accessToken, accessExpiresAt, err := s.auth.IssueBrandCloudAccessToken(brandCloudUserID, brandCloudID, tenantSlug)
+func (s *Server) issueBrandCloudTokens(c *gin.Context, userID, brandCloudUserID, brandCloudID, tenantSlug string) (tokenResponse, error) {
+	accessToken, accessExpiresAt, err := s.auth.IssueBrandCloudAccessToken(userID, brandCloudUserID, brandCloudID, tenantSlug)
 	if err != nil {
 		return tokenResponse{}, err
 	}
-	refreshToken, refreshExpiresAt, err := s.auth.IssueBrandCloudRefreshToken(brandCloudUserID, brandCloudID, tenantSlug)
+	refreshToken, refreshExpiresAt, err := s.auth.IssueBrandCloudRefreshToken(userID, brandCloudUserID, brandCloudID, tenantSlug)
 	if err != nil {
 		return tokenResponse{}, err
 	}
