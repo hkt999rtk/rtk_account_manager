@@ -33,6 +33,7 @@ release_bundle="${ACCOUNT_MANAGER_LINODE_RELEASE_BUNDLE:-}"
 bundle="${release_bundle:-$artifact_dir/rtk_account_manager-${release}.tar.gz}"
 certbot_enable="${ACCOUNT_MANAGER_LINODE_CERTBOT_ENABLE:-1}"
 cert_cache_dir="${ACCOUNT_MANAGER_LINODE_CERT_CACHE_DIR:-}"
+cert_cache_enabled=0
 http_only="${ACCOUNT_MANAGER_LINODE_HTTP_ONLY:-0}"
 port="${ACCOUNT_MANAGER_PORT:-18081}"
 db_name="${ACCOUNT_MANAGER_POSTGRES_DB:-rtk_account_manager}"
@@ -76,6 +77,7 @@ if [ -n "$cert_cache_dir" ]; then
   [ -s "$cert_cache_dir/privkey.pem" ] || die "cached certificate private key not found: $cert_cache_dir/privkey.pem"
   openssl x509 -in "$cert_cache_dir/fullchain.pem" -noout -checkend "${ACCOUNT_MANAGER_LINODE_CERT_CACHE_MIN_VALID_SECONDS:-604800}" >/dev/null \
     || die "cached certificate is expired or too close to expiry: $cert_cache_dir/fullchain.pem"
+  cert_cache_enabled=1
 fi
 [ -n "${JWT_ACCESS_SECRET:-}" ] || die "JWT_ACCESS_SECRET is required"
 [ -n "${JWT_REFRESH_SECRET:-}" ] || die "JWT_REFRESH_SECRET is required"
@@ -178,7 +180,7 @@ if [ -n "$app_cert_issuer_base_url" ]; then
 fi
 
 printf '[account-manager-deploy] installing runtime on %s\n' "$remote" >&2
-ssh "${ssh_opts[@]}" "$remote" bash -s -- "$remote_bundle" "$release" "$domain" "$certbot_email" "$certbot_enable" "$http_only" "$port" "$db_name" "$db_user" "$db_password" "$cert_cache_dir" "$node_exporter_listen_addr" <<'REMOTE'
+ssh "${ssh_opts[@]}" "$remote" bash -s -- "$remote_bundle" "$release" "$domain" "$certbot_email" "$certbot_enable" "$http_only" "$port" "$db_name" "$db_user" "$db_password" "$cert_cache_enabled" "$node_exporter_listen_addr" <<'REMOTE'
 set -euo pipefail
 remote_bundle="$1"
 release="$2"
@@ -190,7 +192,7 @@ port="$7"
 db_name="$8"
 db_user="$9"
 db_password="${10}"
-cert_cache_dir="${11:-}"
+cert_cache_enabled="${11:-0}"
 node_exporter_listen_addr="${12:-127.0.0.1:9100}"
 
 export DEBIAN_FRONTEND=noninteractive
@@ -362,7 +364,7 @@ if [ "${ready:-0}" != "1" ]; then
   exit 1
 fi
 
-if [ -n "$cert_cache_dir" ] && [ "$http_only" != "1" ]; then
+if [ "$cert_cache_enabled" = "1" ] && [ "$http_only" != "1" ]; then
   archive_dir="/etc/letsencrypt/archive/$domain"
   live_dir="/etc/letsencrypt/live/$domain"
   renewal_conf="/etc/letsencrypt/renewal/$domain.conf"
