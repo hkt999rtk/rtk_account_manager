@@ -275,6 +275,363 @@ A device tag is an organization-scoped label attached to an existing device. Tag
 
 ## 4. Data Model
 
+The tables below are the canonical database schema contract. The ER models are
+operational maps of the maintained PostgreSQL schema. They are split by bounded
+area so the core relationships remain readable; detailed column semantics and
+constraints remain in the per-table sections that follow.
+
+### ER Model Overview
+
+```mermaid
+erDiagram
+    ORGANIZATIONS ||--o{ ORGANIZATION_MEMBERS : legacy_memberships
+    USERS ||--o{ ORGANIZATION_MEMBERS : platform_memberships
+    ORGANIZATIONS ||--o{ BRAND_CLOUD_USERS : owns_namespace
+    BRAND_CLOUD_USERS ||--o{ BRAND_CLOUD_MEMBERSHIPS : has_roles
+    ORGANIZATIONS ||--o{ BRAND_CLOUD_MEMBERSHIPS : scoped_to
+    USERS ||--o{ REFRESH_TOKENS : platform_sessions
+    BRAND_CLOUD_USERS ||--o{ BRAND_CLOUD_REFRESH_TOKENS : brand_sessions
+    ORGANIZATIONS ||--o{ BRAND_CLOUD_REFRESH_TOKENS : session_scope
+    USERS ||--o{ AUTH_TOKENS : verification_recovery
+    USERS ||--o{ USER_IDENTITIES : oidc_links
+    IDENTITY_PROVIDERS ||--o{ USER_IDENTITIES : issues_subjects
+    IDENTITY_PROVIDERS ||--o{ OIDC_LOGIN_STATES : login_states
+
+    ORGANIZATIONS ||--o{ DEVICES : owns_devices
+    ORGANIZATIONS ||--o{ DEVICE_GROUPS : owns_groups
+    DEVICE_GROUPS ||--o{ DEVICE_GROUP_MEMBERS : contains
+    DEVICES ||--o{ DEVICE_GROUP_MEMBERS : grouped
+    DEVICES ||--o{ DEVICE_TAGS : tagged
+    ORGANIZATIONS ||--o{ DEVICE_TAGS : scopes_tags
+    ORGANIZATIONS ||--o{ DEVICE_ITEM_PROFILES : brand_catalog
+    DEVICE_ITEM_PROFILES ||--o{ DEVICE_CLAIM_TOKENS : policy_snapshot
+    ORGANIZATIONS ||--o{ DEVICE_CLAIM_TOKENS : claim_inventory
+    DEVICE_CLAIM_TOKENS ||--|| DEVICE_CLAIMS : resolved_once
+    ORGANIZATIONS ||--o{ DEVICE_CLAIMS : claim_scope
+    DEVICES ||--o{ DEVICE_CLAIMS : claim_history
+    USERS ||--o{ DEVICE_CLAIMS : claimed_by
+
+    ORGANIZATIONS ||--o{ DEVICE_OPERATIONS : lifecycle_scope
+    DEVICES ||--o{ DEVICE_OPERATIONS : lifecycle_target
+    DEVICE_OPERATIONS ||--o{ DEVICE_MESSAGE_OUTBOX : command_messages
+    DEVICE_OPERATIONS ||--o{ DEVICE_MESSAGE_INBOX : result_events
+
+    PERMISSIONS ||--o{ ROLE_PERMISSIONS : grants
+    ROLES ||--o{ ROLE_PERMISSIONS : includes
+    ROLES ||--o{ ROLE_ASSIGNMENTS : assigned
+    ORGANIZATIONS ||--o{ ROLE_ASSIGNMENTS : org_scope
+    USERS ||--o{ ROLE_ASSIGNMENTS : actor_user
+    BRAND_CLOUD_USERS ||--o{ ROLE_ASSIGNMENTS : actor_brand_user
+    ROLES ||--o{ EXTERNAL_GROUP_MAPPINGS : mapped_role
+    ORGANIZATIONS ||--o{ EXTERNAL_GROUP_MAPPINGS : mapped_scope
+    USERS ||--o{ QUOTA_RAISE_REQUESTS : requested_by
+    ORGANIZATIONS ||--o{ QUOTA_RAISE_REQUESTS : quota_scope
+    USERS ||--o{ AUDIT_EVENTS : actor
+    ORGANIZATIONS ||--o{ AUDIT_EVENTS : audit_scope
+    USERS ||--o{ ACL_AUDIT_EVENTS : acl_actor
+    ORGANIZATIONS ||--o{ ACL_AUDIT_EVENTS : acl_scope
+```
+
+### Identity And Tenant ER Model
+
+```mermaid
+erDiagram
+    ORGANIZATIONS ||--o{ ORGANIZATION_MEMBERS : legacy_memberships
+    USERS ||--o{ ORGANIZATION_MEMBERS : platform_memberships
+    ORGANIZATIONS ||--o{ BRAND_CLOUD_USERS : owns_namespace
+    ORGANIZATIONS ||--o{ BRAND_CLOUD_MEMBERSHIPS : scoped_to
+    BRAND_CLOUD_USERS ||--o{ BRAND_CLOUD_MEMBERSHIPS : has_roles
+    USERS ||--o{ REFRESH_TOKENS : platform_sessions
+    BRAND_CLOUD_USERS ||--o{ BRAND_CLOUD_REFRESH_TOKENS : brand_sessions
+    ORGANIZATIONS ||--o{ BRAND_CLOUD_REFRESH_TOKENS : session_scope
+    USERS ||--o{ AUTH_TOKENS : verification_recovery
+    USERS ||--o{ USER_IDENTITIES : oidc_links
+    IDENTITY_PROVIDERS ||--o{ USER_IDENTITIES : issues_subjects
+    IDENTITY_PROVIDERS ||--o{ OIDC_LOGIN_STATES : login_states
+
+    ORGANIZATIONS {
+        uuid id PK
+        text name
+        text tenant_slug
+        text organization_kind
+        text status
+    }
+    USERS {
+        uuid id PK
+        text email UK
+        text password_hash
+        boolean platform_admin
+        timestamptz disabled_at
+    }
+    ORGANIZATION_MEMBERS {
+        uuid organization_id PK,FK
+        uuid user_id PK,FK
+        text role
+    }
+    BRAND_CLOUD_USERS {
+        uuid id PK
+        uuid brand_cloud_id FK
+        text email
+        text password_hash
+        timestamptz disabled_at
+    }
+    BRAND_CLOUD_MEMBERSHIPS {
+        uuid brand_cloud_id FK
+        uuid brand_cloud_user_id FK
+        text role
+    }
+    REFRESH_TOKENS {
+        uuid id PK
+        uuid user_id FK
+        text token_hash UK
+        timestamptz revoked_at
+    }
+    BRAND_CLOUD_REFRESH_TOKENS {
+        uuid id PK
+        uuid brand_cloud_user_id FK
+        uuid brand_cloud_id FK
+        text token_hash UK
+        timestamptz revoked_at
+    }
+    AUTH_TOKENS {
+        uuid id PK
+        uuid user_id FK
+        text purpose
+        text token_hash UK
+    }
+    IDENTITY_PROVIDERS {
+        uuid id PK
+        text provider_id UK
+        text issuer_url
+        boolean enabled
+    }
+    USER_IDENTITIES {
+        uuid id PK
+        uuid user_id FK
+        uuid provider_id FK
+        text subject
+    }
+    OIDC_LOGIN_STATES {
+        uuid id PK
+        uuid provider_id FK
+        text state_hash UK
+        text nonce_hash
+    }
+```
+
+### Device Registry And Claim ER Model
+
+```mermaid
+erDiagram
+    ORGANIZATIONS ||--o{ DEVICES : owns_devices
+    ORGANIZATIONS ||--o{ DEVICE_GROUPS : owns_groups
+    DEVICE_GROUPS ||--o{ DEVICE_GROUP_MEMBERS : contains
+    DEVICES ||--o{ DEVICE_GROUP_MEMBERS : grouped
+    DEVICES ||--o{ DEVICE_TAGS : tagged
+    ORGANIZATIONS ||--o{ DEVICE_TAGS : scopes_tags
+    ORGANIZATIONS ||--o{ DEVICE_ITEM_PROFILES : brand_catalog
+    DEVICE_ITEM_PROFILES ||--o{ DEVICE_CLAIM_TOKENS : policy_snapshot
+    ORGANIZATIONS ||--o{ DEVICE_CLAIM_TOKENS : claim_inventory
+    DEVICE_CLAIM_TOKENS ||--|| DEVICE_CLAIMS : resolved_once
+    ORGANIZATIONS ||--o{ DEVICE_CLAIMS : claim_scope
+    DEVICES ||--o{ DEVICE_CLAIMS : claim_history
+    USERS ||--o{ DEVICE_CLAIMS : claimed_by
+
+    ORGANIZATIONS {
+        uuid id PK
+        text organization_kind
+        text tenant_slug
+        text status
+    }
+    USERS {
+        uuid id PK
+        text email UK
+    }
+    DEVICES {
+        uuid id PK
+        uuid organization_id FK
+        text name
+        text category
+        text serial_number
+        text status
+    }
+    DEVICE_GROUPS {
+        uuid id PK
+        uuid organization_id FK
+        text name
+    }
+    DEVICE_GROUP_MEMBERS {
+        uuid organization_id FK
+        uuid group_id FK
+        uuid device_id FK
+    }
+    DEVICE_TAGS {
+        uuid organization_id FK
+        uuid device_id FK
+        text tag
+    }
+    DEVICE_ITEM_PROFILES {
+        uuid id PK
+        uuid brand_cloud_id FK
+        text profile_key
+        text status
+    }
+    DEVICE_CLAIM_TOKENS {
+        uuid id PK
+        uuid organization_id FK
+        uuid device_item_profile_id FK
+        text token_hash UK
+        timestamptz claimed_at
+    }
+    DEVICE_CLAIMS {
+        uuid id PK
+        uuid claim_token_id FK
+        uuid organization_id FK
+        uuid device_id FK
+        uuid claimed_by FK
+    }
+```
+
+### Lifecycle Messaging ER Model
+
+```mermaid
+erDiagram
+    ORGANIZATIONS ||--o{ DEVICE_OPERATIONS : lifecycle_scope
+    DEVICES ||--o{ DEVICE_OPERATIONS : lifecycle_target
+    DEVICE_OPERATIONS ||--o{ DEVICE_MESSAGE_OUTBOX : command_messages
+    DEVICE_OPERATIONS ||--o{ DEVICE_MESSAGE_INBOX : result_events
+
+    ORGANIZATIONS {
+        uuid id PK
+        text organization_kind
+        text status
+    }
+    DEVICES {
+        uuid id PK
+        uuid organization_id FK
+        text status
+    }
+    DEVICE_OPERATIONS {
+        uuid id PK
+        text operation_id UK
+        uuid organization_id FK
+        uuid device_id
+        text status
+    }
+    DEVICE_MESSAGE_OUTBOX {
+        uuid id PK
+        text message_id UK
+        text operation_id FK
+        text status
+    }
+    DEVICE_MESSAGE_INBOX {
+        uuid id PK
+        text message_id UK
+        text operation_id
+        text status
+    }
+```
+
+### ACL And Audit ER Model
+
+```mermaid
+erDiagram
+    PERMISSIONS ||--o{ ROLE_PERMISSIONS : grants
+    ROLES ||--o{ ROLE_PERMISSIONS : includes
+    ROLES ||--o{ ROLE_ASSIGNMENTS : assigned
+    ORGANIZATIONS ||--o{ ROLE_ASSIGNMENTS : org_scope
+    USERS ||--o{ ROLE_ASSIGNMENTS : actor_user
+    BRAND_CLOUD_USERS ||--o{ ROLE_ASSIGNMENTS : actor_brand_user
+    ROLES ||--o{ EXTERNAL_GROUP_MAPPINGS : mapped_role
+    ORGANIZATIONS ||--o{ EXTERNAL_GROUP_MAPPINGS : mapped_scope
+    USERS ||--o{ QUOTA_RAISE_REQUESTS : requested_by
+    ORGANIZATIONS ||--o{ QUOTA_RAISE_REQUESTS : quota_scope
+    USERS ||--o{ AUDIT_EVENTS : actor
+    ORGANIZATIONS ||--o{ AUDIT_EVENTS : audit_scope
+    USERS ||--o{ ACL_AUDIT_EVENTS : acl_actor
+    ORGANIZATIONS ||--o{ ACL_AUDIT_EVENTS : acl_scope
+
+    ORGANIZATIONS {
+        uuid id PK
+        text organization_kind
+        text status
+    }
+    USERS {
+        uuid id PK
+        text email UK
+        boolean platform_admin
+    }
+    BRAND_CLOUD_USERS {
+        uuid id PK
+        uuid brand_cloud_id FK
+        text email
+    }
+    PERMISSIONS {
+        uuid id PK
+        text name UK
+        text domain
+        text action
+    }
+    ROLES {
+        uuid id PK
+        text name UK
+        text scope_type
+        boolean system_role
+    }
+    ROLE_PERMISSIONS {
+        uuid role_id PK,FK
+        uuid permission_id PK,FK
+    }
+    ROLE_ASSIGNMENTS {
+        uuid id PK
+        uuid role_id FK
+        text actor_type
+        text actor_id
+        text scope_type
+        uuid organization_id FK
+    }
+    EXTERNAL_GROUP_MAPPINGS {
+        uuid id PK
+        text provider_id
+        text external_group
+        uuid role_id FK
+        uuid organization_id FK
+    }
+    QUOTA_RAISE_REQUESTS {
+        uuid id PK
+        uuid organization_id FK
+        uuid requested_by FK
+        text status
+    }
+    AUDIT_EVENTS {
+        uuid id PK
+        uuid actor_user_id FK
+        uuid organization_id FK
+        text subject_type
+        text subject_id
+    }
+    ACL_AUDIT_EVENTS {
+        uuid id PK
+        uuid actor_user_id FK
+        uuid organization_id FK
+        text subject_type
+        text subject_id
+    }
+```
+
+Notes:
+
+- `role_assignments.actor_id` is a polymorphic text key. For
+  `actor_type='user'` it logically references `users.id`; for
+  `actor_type='brand_cloud_user'` it logically references
+  `brand_cloud_users.id`.
+- `device_operations.device_id` and `device_message_inbox.operation_id` are
+  maintained as lifecycle correlation keys; they are shown as operational ER
+  links even where the database uses text or application-level integrity rather
+  than a direct foreign-key constraint.
+- Brand-cloud user identity, login, and refresh-token state are intentionally
+  separated from platform `users` and `refresh_tokens`.
+
 ### `organizations`
 
 | Field | Type | Required | Notes |
