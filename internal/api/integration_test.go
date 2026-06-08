@@ -357,6 +357,67 @@ func TestIntegrationInternalAppTokenAuthorization(t *testing.T) {
 	}
 }
 
+func TestIntegrationInternalDeviceProvisioningResult(t *testing.T) {
+	env := newIntegrationEnv(t)
+	env.server.ConfigureInternalAuthToken("internal-provision-token")
+	owner := registerUser(t, env.router, "internal-provision-owner@example.com", "Internal Provision Org")
+
+	deviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("internal-provision-device", "INTERNAL-PROVISION-001"), owner.Tokens.AccessToken)
+	if deviceRes.Code != http.StatusCreated {
+		t.Fatalf("expected device create 201, got %d: %s", deviceRes.Code, deviceRes.Body.String())
+	}
+	device := decodeBody[deviceBody](t, deviceRes)
+
+	provisionRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provision", map[string]any{
+		"video_cloud_devid": "video-internal-provision-1",
+		"activity_id":       "activity-internal-provision-1",
+		"clip_public_key":   "clip-internal-provision-1",
+		"operation_id":      "internal-provision-op-1",
+	}, owner.Tokens.AccessToken)
+	if provisionRes.Code != http.StatusCreated {
+		t.Fatalf("expected provision 201, got %d: %s", provisionRes.Code, provisionRes.Body.String())
+	}
+
+	activatedAt := time.Now().UTC().Truncate(time.Second)
+	resultRes := performJSON(env.router, http.MethodPost, "/v1/internal/device-provisioning-results", map[string]any{
+		"operation_id":      "internal-provision-op-1",
+		"org_id":            owner.Organization.ID,
+		"account_device_id": device.Device.ID,
+		"video_cloud_devid": "video-internal-provision-1",
+		"activity_id":       "activity-internal-provision-1",
+		"activated_at":      activatedAt.Format(time.RFC3339),
+	}, "internal-provision-token")
+	if resultRes.Code != http.StatusOK {
+		t.Fatalf("expected internal provisioning result 200, got %d: %s", resultRes.Code, resultRes.Body.String())
+	}
+
+	stateRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/provisioning", nil, owner.Tokens.AccessToken)
+	if stateRes.Code != http.StatusOK {
+		t.Fatalf("expected provisioning state 200, got %d: %s", stateRes.Code, stateRes.Body.String())
+	}
+	state := decodeBody[provisioningBody](t, stateRes)
+	if state.Operation == nil || state.Operation.Status != model.DeviceOperationStatusSucceeded {
+		t.Fatalf("expected succeeded operation, got %+v", state.Operation)
+	}
+	if state.Readiness.State != model.DeviceReadinessStateReady || state.Readiness.ProductState != model.ProductReadinessStateActivated {
+		t.Fatalf("expected ready activated state, got %+v", state.Readiness)
+	}
+	if got := state.VideoMetadata[model.DeviceMetadataVideoCloudActivationStatus]; got != string(model.VideoCloudActivationStatusActivated) {
+		t.Fatalf("expected activated metadata, got %+v", state.VideoMetadata)
+	}
+
+	unauthorizedRes := performJSON(env.router, http.MethodPost, "/v1/internal/device-provisioning-results", map[string]any{
+		"operation_id":      "internal-provision-op-1",
+		"org_id":            owner.Organization.ID,
+		"account_device_id": device.Device.ID,
+		"video_cloud_devid": "video-internal-provision-1",
+		"activity_id":       "activity-internal-provision-1",
+	}, "wrong-token")
+	if unauthorizedRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected wrong token 401, got %d: %s", unauthorizedRes.Code, unauthorizedRes.Body.String())
+	}
+}
+
 func TestIntegrationOIDCProviderLoginAndCallback(t *testing.T) {
 	env := newIntegrationEnv(t)
 	fake := newAPIOIDCTestServer(t)

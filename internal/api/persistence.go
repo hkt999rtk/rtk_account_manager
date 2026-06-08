@@ -109,6 +109,8 @@ type provisioningPersistence interface {
 	GetDeviceOperation(ctx context.Context, operationID string) (model.DeviceOperation, error)
 	GetLatestDeviceOperationByType(ctx context.Context, orgID, deviceID string, operationType model.DeviceOperationType) (model.DeviceOperation, error)
 	GetLatestOutboxMessageByOperationID(ctx context.Context, operationID string) (model.DeviceMessageOutbox, error)
+	CreateOrGetInboxMessage(ctx context.Context, in store.DeviceMessageInboxCreateInput) (model.DeviceMessageInbox, bool, error)
+	RecordInboxProcessTransition(ctx context.Context, in store.InboxProcessTransitionInput) (store.InboxProcessTransitionResult, error)
 	UnprovisionDevice(ctx context.Context, in store.DeviceUnprovisionInput) (store.DeviceUnprovisionResult, error)
 }
 
