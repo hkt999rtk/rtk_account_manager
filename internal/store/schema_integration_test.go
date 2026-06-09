@@ -145,6 +145,7 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 	for _, constraint := range requiredConstraints {
 		requireConstraint(t, ctx, env, constraint.table, constraint.name)
 	}
+	requireNoConstraint(t, ctx, env, "device_claims", "device_claims_claimed_by_fkey")
 
 	requiredIndexes := []string{
 		"audit_events_event_type_idx",
@@ -245,6 +246,25 @@ func requireConstraint(t *testing.T, ctx context.Context, env storeIntegrationEn
 	}
 	if !exists {
 		t.Fatalf("missing required constraint %s on table %s", constraint, table)
+	}
+}
+
+func requireNoConstraint(t *testing.T, ctx context.Context, env storeIntegrationEnv, table, constraint string) {
+	t.Helper()
+	var exists bool
+	if err := env.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_constraint c
+			JOIN pg_class t ON t.oid = c.conrelid
+			JOIN pg_namespace n ON n.oid = t.relnamespace
+			WHERE n.nspname = 'public' AND t.relname = $1 AND c.conname = $2
+		)
+	`, table, constraint).Scan(&exists); err != nil {
+		t.Fatal(err)
+	}
+	if exists {
+		t.Fatalf("unexpected constraint %s on table %s", constraint, table)
 	}
 }
 

@@ -173,6 +173,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminIdentityProviderWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminMetricsIncludesLifecycleVisibility`
 - `rtk_account_manager/internal/api`: `TestIntegrationAdminMetricsReportsEmptySnapshot`
+- `rtk_account_manager/internal/api`: `TestIntegrationAppEndUserClaimCreatesMultiBrandBindings`
+- `rtk_account_manager/internal/api`: `TestIntegrationAppEndUserLoginDoesNotCreateBrandLinkAndIssuesGlobalSubject`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/admin_can_create_device`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/admin_can_list_devices`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/admin_can_resolve_claim`
@@ -295,6 +297,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability`
 - `rtk_account_manager/internal/api`: `TestWriteStatusMetricsSortsStatuses`
 - `rtk_account_manager/internal/auth`: `TestBrandCloudTokenClaimsCarryScopedSubject`
+- `rtk_account_manager/internal/auth`: `TestEndUserTokenClaimsCarryGlobalSubject`
 - `rtk_account_manager/internal/auth`: `TestExpiredAndWrongSecretTokensFailParsing`
 - `rtk_account_manager/internal/auth`: `TestLoadPEMTokenSignerRejectsInvalidMaterial`
 - `rtk_account_manager/internal/auth`: `TestLoadPEMTokenSignerSupportsPKCS8`
@@ -493,6 +496,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileBacksClaimTokenSnapshotAndResolve`
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileCRUDAndAudit`
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
+- `rtk_account_manager/internal/store`: `TestEndUserPersistenceErrorPaths`
 - `rtk_account_manager/internal/store`: `TestEnsurePlatformAdminCreatesAndReenablesUser`
 - `rtk_account_manager/internal/store`: `TestEvaluationQuotaUsageUtilizationHandlesZeroAndNonZeroQuotas`
 - `rtk_account_manager/internal/store`: `TestGeneratedTenantSlugUsesNameAndEightCharSuffix`

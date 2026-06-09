@@ -2,6 +2,9 @@ ALTER TABLE app_certificates
     ADD COLUMN IF NOT EXISTS subject_type TEXT NOT NULL DEFAULT 'platform_user',
     ADD COLUMN IF NOT EXISTS subject_id TEXT;
 
+ALTER TABLE device_claims
+    DROP CONSTRAINT IF EXISTS device_claims_claimed_by_fkey;
+
 UPDATE app_certificates
 SET subject_id = user_id::text
 WHERE subject_id IS NULL;
