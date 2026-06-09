@@ -81,7 +81,7 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-			TRUNCATE acl_audit_events, external_group_mappings, role_assignments, oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_claims, device_claim_tokens, device_item_profiles, app_certificates, brand_cloud_refresh_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, brand_cloud_memberships, organization_members, brand_cloud_users, organizations, users
+				TRUNCATE acl_audit_events, external_group_mappings, role_assignments, oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_user_bindings, brand_cloud_end_users, end_user_refresh_tokens, end_user_identities, device_claims, device_claim_tokens, device_item_profiles, app_certificates, brand_cloud_refresh_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, brand_cloud_memberships, organization_members, brand_cloud_users, end_users, organizations, users
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatal(err)
@@ -308,6 +308,13 @@ func TestIntegrationLoginWithAppCSRStoresCertificateAndReusesIt(t *testing.T) {
 
 func TestIntegrationInternalAppTokenAuthorization(t *testing.T) {
 	env := newIntegrationEnv(t)
+	unconfiguredRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
+		"user_id": "00000000-0000-0000-0000-000000000000",
+		"devid":   "video-app-authz-1",
+	}, "internal-authz-token")
+	if unconfiguredRes.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected unconfigured internal token 503, got %d: %s", unconfiguredRes.Code, unconfiguredRes.Body.String())
+	}
 	env.server.ConfigureInternalAuthToken("internal-authz-token")
 	owner := registerUser(t, env.router, "app-authz-owner@example.com", "App Authz Owner Org")
 	outsider := registerUser(t, env.router, "app-authz-outsider@example.com", "App Authz Outsider Org")
@@ -354,6 +361,26 @@ func TestIntegrationInternalAppTokenAuthorization(t *testing.T) {
 	}, "wrong-token")
 	if wrongTokenRes.Code != http.StatusUnauthorized {
 		t.Fatalf("expected wrong internal token 401, got %d: %s", wrongTokenRes.Code, wrongTokenRes.Body.String())
+	}
+	missingUserRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
+		"devid": "video-app-authz-1",
+	}, "internal-authz-token")
+	if missingUserRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing user_id 400, got %d: %s", missingUserRes.Code, missingUserRes.Body.String())
+	}
+	unsupportedSubjectRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
+		"subject_type": "service_account",
+		"devid":        "video-app-authz-1",
+	}, "internal-authz-token")
+	if unsupportedSubjectRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected unsupported subject type 400, got %d: %s", unsupportedSubjectRes.Code, unsupportedSubjectRes.Body.String())
+	}
+	missingEndUserRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
+		"subject_type": "end_user",
+		"devid":        "video-app-authz-1",
+	}, "internal-authz-token")
+	if missingEndUserRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing end_user_id 400, got %d: %s", missingEndUserRes.Code, missingEndUserRes.Body.String())
 	}
 }
 
@@ -1783,6 +1810,264 @@ func TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug(t *testing.T) 
 	}, "")
 	if revokedRefreshRes.Code != http.StatusUnauthorized {
 		t.Fatalf("expected revoked brand refresh 401, got %d: %s", revokedRefreshRes.Code, revokedRefreshRes.Body.String())
+	}
+}
+
+func TestIntegrationAppEndUserLoginDoesNotCreateBrandLinkAndIssuesGlobalSubject(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	loginRes := performJSON(env.router, http.MethodPost, "/v1/app/end-users/auth/login", map[string]any{
+		"email":    "consumer@example.com",
+		"password": "consumer-password123",
+	}, "")
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("expected app end-user login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
+	}
+	login := decodeBody[endUserLoginBody](t, loginRes)
+	if login.EndUser.ID == "" || login.EndUser.Email != "consumer@example.com" {
+		t.Fatalf("unexpected end user login body: %+v", login)
+	}
+	if login.AppCertificate.Status != "csr_required" {
+		t.Fatalf("app certificate status = %q", login.AppCertificate.Status)
+	}
+	claims, err := env.server.auth.ParseAccessToken(login.Tokens.AccessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claims.SubjectType != auth.SubjectTypeEndUser || claims.EndUserID != login.EndUser.ID || claims.Subject != "end_user:"+login.EndUser.ID || claims.UserID != "" {
+		t.Fatalf("unexpected end-user claims: %+v", claims)
+	}
+	meRes := performJSON(env.router, http.MethodGet, "/v1/app/end-users/me", nil, login.Tokens.AccessToken)
+	if meRes.Code != http.StatusOK {
+		t.Fatalf("expected app end-user me 200, got %d: %s", meRes.Code, meRes.Body.String())
+	}
+	me := decodeBody[endUserMeBody](t, meRes)
+	if me.EndUser.ID != login.EndUser.ID || me.EndUser.Email != "consumer@example.com" {
+		t.Fatalf("unexpected end-user me body: %+v", me)
+	}
+	refreshRes := performJSON(env.router, http.MethodPost, "/v1/app/end-users/auth/refresh", map[string]any{
+		"refresh_token": login.Tokens.RefreshToken,
+	}, "")
+	if refreshRes.Code != http.StatusOK {
+		t.Fatalf("expected app end-user refresh 200, got %d: %s", refreshRes.Code, refreshRes.Body.String())
+	}
+	refreshed := decodeBody[tokenBody](t, refreshRes)
+	logoutRes := performJSON(env.router, http.MethodPost, "/v1/app/end-users/auth/logout", map[string]any{
+		"refresh_token": refreshed.Tokens.RefreshToken,
+	}, refreshed.Tokens.AccessToken)
+	if logoutRes.Code != http.StatusOK {
+		t.Fatalf("expected app end-user logout 200, got %d: %s", logoutRes.Code, logoutRes.Body.String())
+	}
+	revokedRefreshRes := performJSON(env.router, http.MethodPost, "/v1/app/end-users/auth/refresh", map[string]any{
+		"refresh_token": refreshed.Tokens.RefreshToken,
+	}, "")
+	if revokedRefreshRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected revoked app end-user refresh 401, got %d: %s", revokedRefreshRes.Code, revokedRefreshRes.Body.String())
+	}
+	missingRefreshRes := performJSON(env.router, http.MethodPost, "/v1/app/end-users/auth/refresh", map[string]any{
+		"refresh_token": "",
+	}, "")
+	if missingRefreshRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing app end-user refresh token 400, got %d: %s", missingRefreshRes.Code, missingRefreshRes.Body.String())
+	}
+	missingLogoutRefreshRes := performJSON(env.router, http.MethodPost, "/v1/app/end-users/auth/logout", map[string]any{
+		"refresh_token": "",
+	}, login.Tokens.AccessToken)
+	if missingLogoutRefreshRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing app end-user logout refresh token 400, got %d: %s", missingLogoutRefreshRes.Code, missingLogoutRefreshRes.Body.String())
+	}
+	wrongPasswordRes := performJSON(env.router, http.MethodPost, "/v1/app/end-users/auth/login", map[string]any{
+		"email":    "consumer@example.com",
+		"password": "wrong-password123",
+	}, "")
+	if wrongPasswordRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected wrong end-user password 401, got %d: %s", wrongPasswordRes.Code, wrongPasswordRes.Body.String())
+	}
+	platform := registerUser(t, env.router, "end-user-platform-token@example.com", "End User Platform Token Org")
+	platformRefreshRes := performJSON(env.router, http.MethodPost, "/v1/app/end-users/auth/refresh", map[string]any{
+		"refresh_token": platform.Tokens.RefreshToken,
+	}, "")
+	if platformRefreshRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected platform refresh token rejected by end-user refresh 401, got %d: %s", platformRefreshRes.Code, platformRefreshRes.Body.String())
+	}
+	platformMeRes := performJSON(env.router, http.MethodGet, "/v1/app/end-users/me", nil, platform.Tokens.AccessToken)
+	if platformMeRes.Code != http.StatusNotFound {
+		t.Fatalf("expected platform token rejected by end-user me 404, got %d: %s", platformMeRes.Code, platformMeRes.Body.String())
+	}
+	platformLogoutRes := performJSON(env.router, http.MethodPost, "/v1/app/end-users/auth/logout", map[string]any{
+		"refresh_token": platform.Tokens.RefreshToken,
+	}, platform.Tokens.AccessToken)
+	if platformLogoutRes.Code != http.StatusNotFound {
+		t.Fatalf("expected platform token rejected by end-user logout 404, got %d: %s", platformLogoutRes.Code, platformLogoutRes.Body.String())
+	}
+	platformResolveRes := performJSON(env.router, http.MethodPost, "/v1/app/devices/claim/resolve", map[string]any{
+		"claim_token": "unused-platform-token",
+		"device_name": "Unused Platform Device",
+	}, platform.Tokens.AccessToken)
+	if platformResolveRes.Code != http.StatusNotFound {
+		t.Fatalf("expected platform token rejected by end-user claim resolve 404, got %d: %s", platformResolveRes.Code, platformResolveRes.Body.String())
+	}
+	missingClaimRes := performJSON(env.router, http.MethodPost, "/v1/app/devices/claim/resolve", map[string]any{
+		"device_name": "Missing Claim Token",
+	}, login.Tokens.AccessToken)
+	if missingClaimRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing claim token 400, got %d: %s", missingClaimRes.Code, missingClaimRes.Body.String())
+	}
+	missingDeviceNameRes := performJSON(env.router, http.MethodPost, "/v1/app/devices/claim/resolve", map[string]any{
+		"claim_token": "unused-missing-device-name",
+		"device_name": "",
+	}, login.Tokens.AccessToken)
+	if missingDeviceNameRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing device name 400, got %d: %s", missingDeviceNameRes.Code, missingDeviceNameRes.Body.String())
+	}
+	invalidClaimRes := performJSON(env.router, http.MethodPost, "/v1/app/devices/claim/resolve", map[string]any{
+		"claim_token": "invalid-end-user-claim",
+		"device_name": "Invalid Claim Device",
+	}, login.Tokens.AccessToken)
+	if invalidClaimRes.Code != http.StatusNotFound {
+		t.Fatalf("expected invalid claim token 404, got %d: %s", invalidClaimRes.Code, invalidClaimRes.Body.String())
+	}
+	var linkCount int
+	if err := env.db.QueryRow(context.Background(), `SELECT count(*)::int FROM brand_cloud_end_users`).Scan(&linkCount); err != nil {
+		t.Fatal(err)
+	}
+	if linkCount != 0 {
+		t.Fatalf("login should not create brand links, got %d", linkCount)
+	}
+
+	issuer := &fakeAppCertificateIssuer{}
+	env.server.ConfigureAppCertificateIssuer(issuer)
+	csrRes := performJSON(env.router, http.MethodPost, "/v1/app/end-users/auth/login", map[string]any{
+		"email":       "consumer@example.com",
+		"password":    "consumer-password123",
+		"app_csr_pem": generateTestCSR(t, "app-end-user:"+login.EndUser.ID),
+	}, "")
+	if csrRes.Code != http.StatusOK {
+		t.Fatalf("expected app end-user csr login 200, got %d: %s", csrRes.Code, csrRes.Body.String())
+	}
+	csrLogin := decodeBody[endUserLoginBody](t, csrRes)
+	if csrLogin.AppCertificate.Status != "issued" || csrLogin.AppCertificate.Subject != "app-end-user:"+login.EndUser.ID {
+		t.Fatalf("unexpected app certificate response: %+v", csrLogin.AppCertificate)
+	}
+}
+
+func TestIntegrationAppEndUserClaimCreatesMultiBrandBindings(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+
+	admin := registerUser(t, env.router, "end-user-platform-admin@example.com", "End User Platform Admin")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	brandA := createBrandCloudForTest(t, env, admin.Tokens.AccessToken, "Brand A", "brand-a")
+	brandB := createBrandCloudForTest(t, env, admin.Tokens.AccessToken, "Brand B", "brand-b")
+
+	loginRes := performJSON(env.router, http.MethodPost, "/v1/app/end-users/auth/login", map[string]any{
+		"email":    "multi-brand-consumer@example.com",
+		"password": "consumer-password123",
+	}, "")
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("expected app end-user login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
+	}
+	login := decodeBody[endUserLoginBody](t, loginRes)
+	claims, err := env.server.auth.ParseAccessToken(login.Tokens.AccessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rawA := "app-end-user-brand-a-claim"
+	if _, err := store.New(env.db).CreateDeviceClaimToken(ctx, store.DeviceClaimTokenCreateInput{
+		OrganizationID:      &brandA.BrandCloud.ID,
+		CreatedBy:           &admin.User.ID,
+		TokenHash:           auth.HashToken(rawA),
+		Category:            model.DeviceCategoryGeneric,
+		VideoCloudDevid:     "video-brand-a-device",
+		ActivityID:          "activity-brand-a",
+		ClipPublicKey:       "clip-brand-a",
+		ServiceOptions:      []string{"mqtt"},
+		ExpiresAt:           time.Now().UTC().Add(time.Hour),
+		Metadata:            map[string]any{"brand": "a"},
+		DeviceItemProfileID: nil,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	claimARes := performJSON(env.router, http.MethodPost, "/v1/app/devices/claim/resolve", map[string]any{
+		"claim_token": rawA,
+		"device_name": "Brand A Device",
+	}, login.Tokens.AccessToken)
+	if claimARes.Code != http.StatusCreated {
+		t.Fatalf("expected app claim A 201, got %d: %s", claimARes.Code, claimARes.Body.String())
+	}
+
+	rawB := "app-end-user-brand-b-claim"
+	if _, err := store.New(env.db).CreateDeviceClaimToken(ctx, store.DeviceClaimTokenCreateInput{
+		OrganizationID:  &brandB.BrandCloud.ID,
+		CreatedBy:       &admin.User.ID,
+		TokenHash:       auth.HashToken(rawB),
+		Category:        model.DeviceCategoryGeneric,
+		VideoCloudDevid: "video-brand-b-device",
+		ActivityID:      "activity-brand-b",
+		ClipPublicKey:   "clip-brand-b",
+		ServiceOptions:  []string{"mqtt"},
+		ExpiresAt:       time.Now().UTC().Add(time.Hour),
+		Metadata:        map[string]any{"brand": "b"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	claimBRes := performJSON(env.router, http.MethodPost, "/v1/app/devices/claim/resolve", map[string]any{
+		"claim_token": rawB,
+		"device_name": "Brand B Device",
+	}, login.Tokens.AccessToken)
+	if claimBRes.Code != http.StatusCreated {
+		t.Fatalf("expected app claim B 201, got %d: %s", claimBRes.Code, claimBRes.Body.String())
+	}
+
+	var brandLinks int
+	if err := env.db.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM brand_cloud_end_users
+		WHERE end_user_id = $1
+	`, claims.EndUserID).Scan(&brandLinks); err != nil {
+		t.Fatal(err)
+	}
+	if brandLinks != 2 {
+		t.Fatalf("expected two brand links, got %d", brandLinks)
+	}
+	var bindings int
+	if err := env.db.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM device_user_bindings
+		WHERE end_user_id = $1
+	`, claims.EndUserID).Scan(&bindings); err != nil {
+		t.Fatal(err)
+	}
+	if bindings != 2 {
+		t.Fatalf("expected two device bindings, got %d", bindings)
+	}
+	env.server.ConfigureInternalAuthToken("end-user-internal-authz-token")
+	endUserAllowedRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
+		"subject_type": "end_user",
+		"end_user_id":  claims.EndUserID,
+		"devid":        "video-brand-a-device",
+	}, "end-user-internal-authz-token")
+	if endUserAllowedRes.Code != http.StatusOK {
+		t.Fatalf("expected end-user internal authorization 200, got %d: %s", endUserAllowedRes.Code, endUserAllowedRes.Body.String())
+	}
+	endUserForbiddenRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
+		"subject_type": "end_user",
+		"end_user_id":  claims.EndUserID,
+		"devid":        "missing-end-user-device",
+	}, "end-user-internal-authz-token")
+	if endUserForbiddenRes.Code != http.StatusForbidden {
+		t.Fatalf("expected end-user missing device authorization 403, got %d: %s", endUserForbiddenRes.Code, endUserForbiddenRes.Body.String())
+	}
+
+	brandLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/brand-a/auth/login", map[string]any{
+		"email":    "brand-developer@example.com",
+		"password": "brand-password123",
+	}, "")
+	if brandLoginRes.Code != http.StatusUnauthorized {
+		t.Fatalf("brand developer should not exist yet; got %d: %s", brandLoginRes.Code, brandLoginRes.Body.String())
 	}
 }
 
@@ -4733,6 +5018,33 @@ type tokenBody struct {
 	} `json:"app_certificate"`
 }
 
+type endUserLoginBody struct {
+	EndUser struct {
+		ID    string `json:"id"`
+		Email string `json:"email"`
+	} `json:"end_user"`
+	Tokens struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	} `json:"tokens"`
+	AppCertificate struct {
+		Status              string `json:"status"`
+		Subject             string `json:"subject"`
+		CertificatePEM      string `json:"certificate_pem"`
+		CertificateChainPEM string `json:"certificate_chain_pem"`
+		FingerprintSHA256   string `json:"fingerprint_sha256"`
+		SerialNumber        string `json:"serial_number"`
+		IssuerRequestID     string `json:"issuer_request_id"`
+	} `json:"app_certificate"`
+}
+
+type endUserMeBody struct {
+	EndUser struct {
+		ID    string `json:"id"`
+		Email string `json:"email"`
+	} `json:"end_user"`
+}
+
 type meBody struct {
 	User struct {
 		ID            string `json:"id"`
@@ -5113,6 +5425,18 @@ func registerUser(t *testing.T, router *gin.Engine, email, orgName string) regis
 	return decodeBody[registerBody](t, res)
 }
 
+func createBrandCloudForTest(t *testing.T, env integrationEnv, accessToken, name, tenantSlug string) brandCloudBody {
+	t.Helper()
+	res := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
+		"name":        name,
+		"tenant_slug": tenantSlug,
+	}, accessToken)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("expected brand cloud create 201, got %d: %s", res.Code, res.Body.String())
+	}
+	return decodeBody[brandCloudBody](t, res)
+}
+
 func equalStringSlices(got, want []string) bool {
 	if len(got) != len(want) {
 		return false
@@ -5481,7 +5805,10 @@ type fakeAppCertificateIssuer struct {
 
 func (f *fakeAppCertificateIssuer) IssueAppCertificate(_ context.Context, req AppCertificateIssueRequest) (AppCertificateIssueResponse, error) {
 	f.calls = append(f.calls, req)
-	subject := "app-user:" + req.UserID
+	subject := csrSubjectForTest(req.CSRPem)
+	if subject == "" {
+		subject = "app-user:" + req.UserID
+	}
 	now := time.Now().UTC().Truncate(time.Second)
 	certPEM := generateTestCertificate(subject, now, now.Add(365*24*time.Hour))
 	return AppCertificateIssueResponse{
@@ -5495,6 +5822,18 @@ func (f *fakeAppCertificateIssuer) IssueAppCertificate(_ context.Context, req Ap
 		CertificateChainPEM: certPEM,
 		IssuedAt:            now,
 	}, nil
+}
+
+func csrSubjectForTest(csrPEM string) string {
+	block, _ := pem.Decode([]byte(csrPEM))
+	if block == nil {
+		return ""
+	}
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return ""
+	}
+	return csr.Subject.CommonName
 }
 
 func generateTestCSR(t *testing.T, subject string) string {

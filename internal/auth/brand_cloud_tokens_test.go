@@ -69,3 +69,44 @@ func TestPlatformTokenClaimsDefaultToPlatformSubject(t *testing.T) {
 		t.Fatalf("unexpected platform claims: %+v", claims)
 	}
 }
+
+func TestEndUserTokenClaimsCarryGlobalSubject(t *testing.T) {
+	service := NewService("access-secret", "refresh-secret", time.Minute, time.Hour)
+
+	accessToken, accessExpiresAt, err := service.IssueEndUserAccessToken("end-user-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accessExpiresAt.IsZero() {
+		t.Fatal("expected access expiry")
+	}
+	accessClaims, err := service.ParseAccessToken(accessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accessClaims.SubjectType != SubjectTypeEndUser ||
+		accessClaims.EndUserID != "end-user-1" ||
+		accessClaims.UserID != "" ||
+		accessClaims.BrandCloudUserID != "" ||
+		accessClaims.BrandCloudID != "" ||
+		accessClaims.Subject != "end_user:end-user-1" {
+		t.Fatalf("unexpected access claims: %+v", accessClaims)
+	}
+
+	refreshToken, refreshExpiresAt, err := service.IssueEndUserRefreshToken("end-user-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshExpiresAt.IsZero() {
+		t.Fatal("expected refresh expiry")
+	}
+	refreshClaims, err := service.ParseRefreshToken(refreshToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshClaims.SubjectType != SubjectTypeEndUser ||
+		refreshClaims.EndUserID != "end-user-1" ||
+		refreshClaims.Subject != "end_user:end-user-1" {
+		t.Fatalf("unexpected refresh claims: %+v", refreshClaims)
+	}
+}

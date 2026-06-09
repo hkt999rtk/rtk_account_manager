@@ -45,6 +45,8 @@ tags:
     description: Platform-admin brand cloud and scoped user management.
   - name: Brand Cloud Auth
     description: Brand-cloud scoped authentication and current account endpoints.
+  - name: App End Users
+    description: APP-only global end-user authentication and device claim binding.
   - name: Identity Providers
     description: Platform-admin OIDC provider configuration.
   - name: ACL
@@ -414,6 +416,125 @@ paths:
         "401":
           $ref: "#/components/responses/Error"
         "404":
+          $ref: "#/components/responses/Error"
+  /v1/app/end-users/auth/login:
+    post:
+      tags:
+        - App End Users
+      operationId: loginAppEndUser
+      summary: Login or create a global APP end-user subject.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppEndUserLoginRequest"
+      responses:
+        "200":
+          description: APP end-user login succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppEndUserLoginResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/app/end-users/auth/refresh:
+    post:
+      tags:
+        - App End Users
+      operationId: refreshAppEndUserToken
+      summary: Exchange an APP end-user refresh token for new APP end-user tokens.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: APP end-user token refreshed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/app/end-users/auth/logout:
+    post:
+      tags:
+        - App End Users
+      operationId: logoutAppEndUser
+      security:
+        - bearerAuth: []
+      summary: Revoke one APP end-user refresh token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: APP end-user refresh token revoked.
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/app/end-users/me:
+    get:
+      tags:
+        - App End Users
+      operationId: getAppEndUserMe
+      security:
+        - bearerAuth: []
+      summary: Get the current APP end-user subject.
+      responses:
+        "200":
+          description: Current APP end-user account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppEndUserMeResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/app/devices/claim/resolve:
+    post:
+      tags:
+        - App End Users
+      operationId: resolveAppEndUserDeviceClaim
+      security:
+        - bearerAuth: []
+      summary: Resolve a Claim Token from the APP and bind the device to the current end user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClaimResolveRequest"
+      responses:
+        "201":
+          description: Claim resolved and end-user binding created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppEndUserClaimResolveResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
           $ref: "#/components/responses/Error"
   /v1/auth/logout:
     post:
@@ -3450,6 +3571,21 @@ components:
         rotate_password:
           type: boolean
           default: false
+    AppEndUserLoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        display_name:
+          type: string
+        app_csr_pem:
+          type: string
+          description: Optional app-generated CSR PEM. For APP end users, the CSR subject must be `app-end-user:<end_user_id>`.
     DeviceItemProfileRequest:
       type: object
       additionalProperties: false
@@ -3605,6 +3741,21 @@ components:
           format: uuid
         device:
           $ref: "#/components/schemas/Device"
+        provision_input:
+          $ref: "#/components/schemas/ClaimProvisionInput"
+    AppEndUserClaimResolveResponse:
+      type: object
+      required: [claim_id, device, brand_cloud_end_user, device_user_binding, provision_input]
+      properties:
+        claim_id:
+          type: string
+          format: uuid
+        device:
+          $ref: "#/components/schemas/Device"
+        brand_cloud_end_user:
+          $ref: "#/components/schemas/BrandCloudEndUser"
+        device_user_binding:
+          $ref: "#/components/schemas/DeviceUserBinding"
         provision_input:
           $ref: "#/components/schemas/ClaimProvisionInput"
     AdminDeviceClaimTokenCreateRequest:
@@ -3792,6 +3943,16 @@ components:
           $ref: "#/components/schemas/Tokens"
         app_certificate:
           $ref: "#/components/schemas/AppCertificateBootstrap"
+    AppEndUserLoginResponse:
+      type: object
+      required: [end_user, tokens, app_certificate]
+      properties:
+        end_user:
+          $ref: "#/components/schemas/EndUser"
+        tokens:
+          $ref: "#/components/schemas/Tokens"
+        app_certificate:
+          $ref: "#/components/schemas/AppCertificateBootstrap"
     AppCertificateBootstrap:
       type: object
       required: [status]
@@ -3801,7 +3962,8 @@ components:
           enum: [csr_required, issued]
         subject:
           type: string
-          example: app-user:0f0475fb-4c8d-4f78-8b6f-3b9e76c5b34b
+          description: APP certificate subject. Platform users use `app-user:<user_id>`; APP end users use `app-end-user:<end_user_id>`.
+          example: app-end-user:0f0475fb-4c8d-4f78-8b6f-3b9e76c5b34b
         certificate_pem:
           type: string
         certificate_chain_pem:
@@ -3840,6 +4002,12 @@ components:
       properties:
         user:
           $ref: "#/components/schemas/User"
+    AppEndUserMeResponse:
+      type: object
+      required: [end_user]
+      properties:
+        end_user:
+          $ref: "#/components/schemas/EndUser"
     OrganizationsResponse:
       type: object
       required: [organizations, pagination]
@@ -4244,6 +4412,93 @@ components:
           format: date-time
         signup_pending_verification:
           type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        disabled_at:
+          type: string
+          format: date-time
+    EndUser:
+      type: object
+      required: [id, email, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+          description: Global APP end-user primary email. Brand developer/admin projections should mask this by default.
+        display_name:
+          type: string
+        status:
+          type: string
+          enum: [active, disabled]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        disabled_at:
+          type: string
+          format: date-time
+    BrandCloudEndUser:
+      type: object
+      required: [brand_cloud_id, end_user_id, status, consent, first_seen_at, last_seen_at, created_at, updated_at]
+      properties:
+        brand_cloud_id:
+          type: string
+          format: uuid
+        end_user_id:
+          type: string
+          format: uuid
+          description: Global end-user id. This may appear in multiple brand projections.
+        display_alias:
+          type: string
+        status:
+          type: string
+          enum: [active, blocked]
+        consent:
+          type: object
+          additionalProperties: true
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    DeviceUserBinding:
+      type: object
+      required: [id, device_id, brand_cloud_id, end_user_id, role, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          format: uuid
+        brand_cloud_id:
+          type: string
+          format: uuid
+        end_user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [owner, member, viewer]
+        created_from_claim_id:
+          type: string
+          format: uuid
         created_at:
           type: string
           format: date-time

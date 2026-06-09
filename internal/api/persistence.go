@@ -47,6 +47,12 @@ type authPersistence interface {
 	SaveBrandCloudRefreshToken(ctx context.Context, brandCloudUserID, brandCloudID, tokenHash string, expiresAt time.Time) error
 	RotateBrandCloudRefreshToken(ctx context.Context, oldTokenHash, newTokenHash, brandCloudUserID, brandCloudID string, newExpiresAt time.Time) error
 	RevokeBrandCloudRefreshToken(ctx context.Context, tokenHash string) error
+	CreateEndUser(ctx context.Context, in store.EndUserCreateInput) (model.EndUser, error)
+	GetEndUserPassword(ctx context.Context, email string) (store.EndUserLoginResult, error)
+	GetEndUser(ctx context.Context, endUserID string) (model.EndUser, error)
+	SaveEndUserRefreshToken(ctx context.Context, endUserID, tokenHash string, expiresAt time.Time) error
+	RotateEndUserRefreshToken(ctx context.Context, oldTokenHash, newTokenHash, endUserID string, newExpiresAt time.Time) error
+	RevokeEndUserRefreshToken(ctx context.Context, tokenHash string) error
 }
 
 type userPersistence interface {
@@ -100,6 +106,7 @@ type deviceTagPersistence interface {
 
 type appCertificatePersistence interface {
 	GetValidAppCertificateForUser(ctx context.Context, userID string, now time.Time) (model.AppCertificate, error)
+	GetValidAppCertificateForSubject(ctx context.Context, subjectType, subjectID string, now time.Time) (model.AppCertificate, error)
 	CreateAppCertificate(ctx context.Context, in store.AppCertificateCreateInput) (model.AppCertificate, error)
 }
 
@@ -120,9 +127,11 @@ type deviceClaimPersistence interface {
 	GetDeviceClaimToken(ctx context.Context, tokenID string) (model.DeviceClaimToken, error)
 	RevokeDeviceClaimToken(ctx context.Context, tokenID string, now time.Time) (model.DeviceClaimToken, error)
 	ResolveDeviceClaimToken(ctx context.Context, in store.DeviceClaimResolveInput) (store.DeviceClaimResolveResult, error)
+	ResolveEndUserDeviceClaimToken(ctx context.Context, in store.EndUserDeviceClaimResolveInput) (store.EndUserDeviceClaimResolveResult, error)
 	TransferDeviceClaim(ctx context.Context, in store.DeviceClaimTransferInput) (store.DeviceClaimOverrideResult, error)
 	ReclaimDeviceClaimToken(ctx context.Context, in store.DeviceClaimReclaimInput) (store.DeviceClaimOverrideResult, error)
 	AuthorizeUserForVideoDevice(ctx context.Context, userID, videoCloudDevid string) error
+	AuthorizeEndUserForVideoDevice(ctx context.Context, endUserID, videoCloudDevid string) error
 }
 
 type metricsPersistence interface {

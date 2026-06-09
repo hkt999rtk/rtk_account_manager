@@ -27,6 +27,11 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"external_group_mappings",
 		"acl_audit_events",
 		"app_certificates",
+		"end_users",
+		"end_user_identities",
+		"end_user_refresh_tokens",
+		"brand_cloud_end_users",
+		"device_user_bindings",
 		"quota_raise_requests",
 		"user_identities",
 		"brand_cloud_users",
@@ -59,7 +64,12 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 			"created_by", "disabled_at"},
 		"acl_audit_events": {"event_type", "subject_type", "subject_id", "actor_user_id", "organization_id", "payload"},
 		"app_certificates": {"user_id", "subject", "csr_sha256", "certificate_pem", "certificate_chain_pem", "fingerprint_sha256",
-			"serial_number", "issuer_request_id", "not_before", "not_after", "revoked_at"},
+			"serial_number", "issuer_request_id", "not_before", "not_after", "revoked_at", "subject_type", "subject_id"},
+		"end_users":               {"primary_email", "password_hash", "display_name", "status", "disabled_at"},
+		"end_user_identities":     {"end_user_id", "identity_provider", "provider_subject", "email", "phone"},
+		"end_user_refresh_tokens": {"end_user_id", "token_hash", "expires_at", "revoked_at"},
+		"brand_cloud_end_users":   {"brand_cloud_id", "end_user_id", "display_alias", "status", "consent", "first_seen_at", "last_seen_at"},
+		"device_user_bindings":    {"device_id", "brand_cloud_id", "end_user_id", "role", "created_from_claim_id", "disabled_at"},
 		"quota_raise_requests": {"organization_id", "requested_by", "requested_quota", "status", "contact_info",
 			"decision_reason"},
 		"user_identities":   {"user_id", "provider_id", "issuer_url", "subject", "email", "email_verified", "claims", "linked_at", "last_login_at"},
@@ -125,10 +135,17 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		{table: "user_identities", name: "user_identities_user_provider_key"},
 		{table: "user_identities", name: "user_identities_email_normalized"},
 		{table: "user_identities", name: "user_identities_email_verified_check"},
+		{table: "app_certificates", name: "app_certificates_subject_type_check"},
+		{table: "end_users", name: "end_users_primary_email_normalized"},
+		{table: "end_users", name: "end_users_status_check"},
+		{table: "end_user_identities", name: "end_user_identities_provider_subject_key"},
+		{table: "brand_cloud_end_users", name: "brand_cloud_end_users_key"},
+		{table: "device_user_bindings", name: "device_user_bindings_device_end_user_key"},
 	}
 	for _, constraint := range requiredConstraints {
 		requireConstraint(t, ctx, env, constraint.table, constraint.name)
 	}
+	requireNoConstraint(t, ctx, env, "device_claims", "device_claims_claimed_by_fkey")
 
 	requiredIndexes := []string{
 		"audit_events_event_type_idx",
@@ -163,6 +180,14 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"acl_audit_events_org_idx",
 		"app_certificates_user_active_unique",
 		"app_certificates_user_validity_idx",
+		"app_certificates_subject_active_unique",
+		"app_certificates_subject_validity_idx",
+		"end_users_primary_email_key",
+		"end_user_identities_end_user_idx",
+		"end_user_refresh_tokens_user_idx",
+		"brand_cloud_end_users_end_user_idx",
+		"device_user_bindings_end_user_idx",
+		"device_user_bindings_brand_user_idx",
 		"quota_raise_requests_org_status_idx",
 		"user_identities_user_idx",
 	}
@@ -221,6 +246,25 @@ func requireConstraint(t *testing.T, ctx context.Context, env storeIntegrationEn
 	}
 	if !exists {
 		t.Fatalf("missing required constraint %s on table %s", constraint, table)
+	}
+}
+
+func requireNoConstraint(t *testing.T, ctx context.Context, env storeIntegrationEnv, table, constraint string) {
+	t.Helper()
+	var exists bool
+	if err := env.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_constraint c
+			JOIN pg_class t ON t.oid = c.conrelid
+			JOIN pg_namespace n ON n.oid = t.relnamespace
+			WHERE n.nspname = 'public' AND t.relname = $1 AND c.conname = $2
+		)
+	`, table, constraint).Scan(&exists); err != nil {
+		t.Fatal(err)
+	}
+	if exists {
+		t.Fatalf("unexpected constraint %s on table %s", constraint, table)
 	}
 }
 

@@ -28,6 +28,7 @@ type SubjectType string
 const (
 	SubjectTypePlatformUser   SubjectType = "platform_user"
 	SubjectTypeBrandCloudUser SubjectType = "brand_cloud_user"
+	SubjectTypeEndUser        SubjectType = "end_user"
 )
 
 type Claims struct {
@@ -36,6 +37,7 @@ type Claims struct {
 	BrandCloudUserID string      `json:"brand_cloud_user_id,omitempty"`
 	BrandCloudID     string      `json:"brand_cloud_id,omitempty"`
 	TenantSlug       string      `json:"tenant_slug,omitempty"`
+	EndUserID        string      `json:"end_user_id,omitempty"`
 	Kind             TokenKind   `json:"kind"`
 	jwt.RegisteredClaims
 }
@@ -116,6 +118,14 @@ func (s *Service) IssueBrandCloudRefreshToken(userID, brandCloudUserID, brandClo
 	return s.issueBrandCloudUser(userID, brandCloudUserID, brandCloudID, tenantSlug, TokenKindRefresh, s.refreshSecret, s.refreshSigner, s.refreshTTL)
 }
 
+func (s *Service) IssueEndUserAccessToken(endUserID string) (string, time.Time, error) {
+	return s.issueEndUser(endUserID, TokenKindAccess, s.accessSecret, s.accessSigner, s.accessTTL)
+}
+
+func (s *Service) IssueEndUserRefreshToken(endUserID string) (string, time.Time, error) {
+	return s.issueEndUser(endUserID, TokenKindRefresh, s.refreshSecret, s.refreshSigner, s.refreshTTL)
+}
+
 func (s *Service) ParseAccessToken(tokenString string) (*Claims, error) {
 	return s.parse(tokenString, TokenKindAccess, s.accessSecret, s.accessSigner)
 }
@@ -139,6 +149,13 @@ func (s *Service) issueBrandCloudUser(userID, brandCloudUserID, brandCloudID, te
 		BrandCloudID:     brandCloudID,
 		TenantSlug:       tenantSlug,
 	}, "brand_cloud_user:"+brandCloudUserID, kind, secret, signer, ttl)
+}
+
+func (s *Service) issueEndUser(endUserID string, kind TokenKind, secret []byte, signer TokenSigner, ttl time.Duration) (string, time.Time, error) {
+	return s.issue(Claims{
+		SubjectType: SubjectTypeEndUser,
+		EndUserID:   endUserID,
+	}, "end_user:"+endUserID, kind, secret, signer, ttl)
 }
 
 func (s *Service) issue(claims Claims, subject string, kind TokenKind, secret []byte, signer TokenSigner, ttl time.Duration) (string, time.Time, error) {

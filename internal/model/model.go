@@ -151,9 +151,45 @@ type UserIdentity struct {
 	UpdatedAt     time.Time      `json:"updated_at"`
 }
 
+type EndUser struct {
+	ID           string     `json:"id"`
+	PrimaryEmail string     `json:"email"`
+	DisplayName  *string    `json:"display_name,omitempty"`
+	Status       string     `json:"status"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	DisabledAt   *time.Time `json:"disabled_at,omitempty"`
+}
+
+type BrandCloudEndUser struct {
+	BrandCloudID string         `json:"brand_cloud_id"`
+	EndUserID    string         `json:"end_user_id"`
+	DisplayAlias *string        `json:"display_alias,omitempty"`
+	Status       string         `json:"status"`
+	Consent      map[string]any `json:"consent"`
+	FirstSeenAt  time.Time      `json:"first_seen_at"`
+	LastSeenAt   time.Time      `json:"last_seen_at"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+}
+
+type DeviceUserBinding struct {
+	ID                 string     `json:"id"`
+	DeviceID           string     `json:"device_id"`
+	BrandCloudID       string     `json:"brand_cloud_id"`
+	EndUserID          string     `json:"end_user_id"`
+	Role               string     `json:"role"`
+	CreatedFromClaimID *string    `json:"created_from_claim_id,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+	DisabledAt         *time.Time `json:"disabled_at,omitempty"`
+}
+
 type AppCertificate struct {
 	ID                  string     `json:"id"`
 	UserID              string     `json:"user_id"`
+	SubjectType         string     `json:"subject_type,omitempty"`
+	SubjectID           string     `json:"subject_id,omitempty"`
 	Subject             string     `json:"subject"`
 	CSRSHA256           string     `json:"csr_sha256"`
 	CertificatePEM      string     `json:"certificate_pem"`
