@@ -319,6 +319,8 @@ func (s *Server) Router() *gin.Engine {
 	v1.GET("/auth/oidc/:providerId/callback", s.handleOIDCCallback)
 	v1.POST("/brand-clouds/:tenantSlug/auth/login", s.brandCloudLogin)
 	v1.POST("/brand-clouds/:tenantSlug/auth/refresh", s.brandCloudRefresh)
+	v1.POST("/app/end-users/auth/login", s.appEndUserLogin)
+	v1.POST("/app/end-users/auth/refresh", s.appEndUserRefresh)
 	v1.POST("/internal/app-token-authorizations", s.handleInternalAppTokenAuthorization)
 	v1.POST("/internal/device-provisioning-results", s.handleInternalDeviceProvisioningResult)
 
@@ -327,6 +329,9 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/auth/logout", s.logout)
 	protected.POST("/brand-clouds/:tenantSlug/auth/logout", s.brandCloudLogout)
 	protected.GET("/brand-clouds/:tenantSlug/me", s.brandCloudMe)
+	protected.POST("/app/end-users/auth/logout", s.appEndUserLogout)
+	protected.GET("/app/end-users/me", s.appEndUserMe)
+	protected.POST("/app/devices/claim/resolve", s.appEndUserResolveDeviceClaim)
 	protected.GET("/me", s.me)
 	protected.DELETE("/me", s.deleteCurrentUser)
 	protected.PATCH("/me/password", s.changePassword)
@@ -1472,6 +1477,12 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 					c.Abort()
 					return
 				}
+			case auth.SubjectTypeEndUser:
+				if _, err := s.store.GetEndUser(c.Request.Context(), claims.EndUserID); err != nil {
+					writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
+					c.Abort()
+					return
+				}
 			default:
 				writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
 				c.Abort()
@@ -1483,6 +1494,7 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 		c.Set("brandCloudUserID", claims.BrandCloudUserID)
 		c.Set("brandCloudID", claims.BrandCloudID)
 		c.Set("tenantSlug", claims.TenantSlug)
+		c.Set("endUserID", claims.EndUserID)
 		c.Next()
 	}
 }
@@ -1565,6 +1577,12 @@ func currentTenantSlug(c *gin.Context) string {
 	value, _ := c.Get("tenantSlug")
 	slug, _ := value.(string)
 	return slug
+}
+
+func currentEndUserID(c *gin.Context) string {
+	value, _ := c.Get("endUserID")
+	id, _ := value.(string)
+	return id
 }
 
 func bind(c *gin.Context, dst any) bool {

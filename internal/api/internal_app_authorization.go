@@ -8,12 +8,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/store"
 )
 
 type internalAppTokenAuthorizationRequest struct {
-	UserID string `json:"user_id" binding:"required"`
-	Devid  string `json:"devid" binding:"required"`
+	UserID      string `json:"user_id,omitempty"`
+	EndUserID   string `json:"end_user_id,omitempty"`
+	SubjectType string `json:"subject_type,omitempty"`
+	Devid       string `json:"devid" binding:"required"`
 }
 
 func (s *Server) handleInternalAppTokenAuthorization(c *gin.Context) {
@@ -24,7 +27,27 @@ func (s *Server) handleInternalAppTokenAuthorization(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	err := s.store.AuthorizeUserForVideoDevice(c.Request.Context(), strings.TrimSpace(req.UserID), strings.TrimSpace(req.Devid))
+	subjectType := auth.SubjectType(strings.TrimSpace(req.SubjectType))
+	var err error
+	switch subjectType {
+	case "", auth.SubjectTypePlatformUser:
+		userID := strings.TrimSpace(req.UserID)
+		if userID == "" {
+			writeError(c, http.StatusBadRequest, "missing_user_id", "user_id is required")
+			return
+		}
+		err = s.store.AuthorizeUserForVideoDevice(c.Request.Context(), userID, strings.TrimSpace(req.Devid))
+	case auth.SubjectTypeEndUser:
+		endUserID := strings.TrimSpace(req.EndUserID)
+		if endUserID == "" {
+			writeError(c, http.StatusBadRequest, "missing_end_user_id", "end_user_id is required")
+			return
+		}
+		err = s.store.AuthorizeEndUserForVideoDevice(c.Request.Context(), endUserID, strings.TrimSpace(req.Devid))
+	default:
+		writeError(c, http.StatusBadRequest, "unsupported_subject_type", "Unsupported subject_type")
+		return
+	}
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(c, http.StatusForbidden, "app_token_not_authorized", "User is not authorized for device")

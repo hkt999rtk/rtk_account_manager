@@ -77,8 +77,16 @@ func (s *Server) loginResponse(ctx context.Context, user model.User, tokens toke
 }
 
 func (s *Server) appCertificateForLogin(ctx context.Context, userID, csrPEM string) (appCertificateResponse, error) {
+	return s.appCertificateForSubject(ctx, "platform_user", userID, "app-user:"+userID, csrPEM)
+}
+
+func (s *Server) appCertificateForEndUserLogin(ctx context.Context, endUserID, csrPEM string) (appCertificateResponse, error) {
+	return s.appCertificateForSubject(ctx, "end_user", endUserID, "app-end-user:"+endUserID, csrPEM)
+}
+
+func (s *Server) appCertificateForSubject(ctx context.Context, subjectType, subjectID, expectedSubject, csrPEM string) (appCertificateResponse, error) {
 	now := s.now()
-	existing, err := s.store.GetValidAppCertificateForUser(ctx, userID, now)
+	existing, err := s.store.GetValidAppCertificateForSubject(ctx, subjectType, subjectID, now)
 	if err == nil {
 		return appCertificateFromModel(existing, "issued"), nil
 	}
@@ -92,14 +100,13 @@ func (s *Server) appCertificateForLogin(ctx context.Context, userID, csrPEM stri
 	if s.appCertificateIssuer == nil {
 		return appCertificateResponse{}, errAppCertificateIssuerUnavailable
 	}
-	expectedSubject := "app-user:" + userID
 	csrDER, err := validateAppCSRSubject(csrPEM, expectedSubject)
 	if err != nil {
 		return appCertificateResponse{}, err
 	}
 	issuerResp, err := s.appCertificateIssuer.IssueAppCertificate(ctx, AppCertificateIssueRequest{
-		RequestID: "app-cert-" + userID + "-" + hashHexString(csrDER)[:16],
-		UserID:    userID,
+		RequestID: "app-cert-" + subjectID + "-" + hashHexString(csrDER)[:16],
+		UserID:    subjectID,
 		CSRPem:    csrPEM,
 	})
 	if err != nil {
@@ -118,7 +125,9 @@ func (s *Server) appCertificateForLogin(ctx context.Context, userID, csrPEM stri
 		serial = leaf.SerialNumber.Text(16)
 	}
 	stored, err := s.store.CreateAppCertificate(ctx, store.AppCertificateCreateInput{
-		UserID:              userID,
+		UserID:              userIDForAppCertificate(subjectType, subjectID),
+		SubjectType:         subjectType,
+		SubjectID:           subjectID,
 		Subject:             subject,
 		CSRSHA256:           hashHexString(csrDER),
 		CertificatePEM:      issuerResp.CertificatePEM,
@@ -133,6 +142,13 @@ func (s *Server) appCertificateForLogin(ctx context.Context, userID, csrPEM stri
 		return appCertificateResponse{}, err
 	}
 	return appCertificateFromModel(stored, "issued"), nil
+}
+
+func userIDForAppCertificate(subjectType, subjectID string) string {
+	if subjectType == "platform_user" {
+		return subjectID
+	}
+	return ""
 }
 
 func appCertificateFromModel(cert model.AppCertificate, status string) appCertificateResponse {
