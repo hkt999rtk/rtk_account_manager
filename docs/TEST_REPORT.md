@@ -164,6 +164,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestAuthTokenLinkRoutesByPurpose/login_activation`
 - `rtk_account_manager/internal/api`: `TestAuthTokenLinkRoutesByPurpose/password_reset`
 - `rtk_account_manager/internal/api`: `TestAuthTokenLinkRoutesByPurpose`
+- `rtk_account_manager/internal/api`: `TestAuthTokenSinksHandleFallbackAndUnavailablePaths`
+- `rtk_account_manager/internal/api`: `TestAuthTokenSubjectAndBodyByPurpose/email_verification`
+- `rtk_account_manager/internal/api`: `TestAuthTokenSubjectAndBodyByPurpose/login_activation`
+- `rtk_account_manager/internal/api`: `TestAuthTokenSubjectAndBodyByPurpose/password_reset`
+- `rtk_account_manager/internal/api`: `TestAuthTokenSubjectAndBodyByPurpose/unknown`
+- `rtk_account_manager/internal/api`: `TestAuthTokenSubjectAndBodyByPurpose`
 - `rtk_account_manager/internal/api`: `TestBindStrictRejectsUnknownFields`
 - `rtk_account_manager/internal/api`: `TestBrandCloudContextHelpers`
 - `rtk_account_manager/internal/api`: `TestBrandCloudLogoutAndMeRejectMismatchedSubject`
@@ -273,6 +279,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestPostgresStoreSatisfiesAPIPersistenceBoundaries`
 - `rtk_account_manager/internal/api`: `TestPrometheusMetricHelpersFormatLabelsDeterministically`
 - `rtk_account_manager/internal/api`: `TestPrometheusMetricsRoute`
+- `rtk_account_manager/internal/api`: `TestQuotaNotificationSinksHandleFallbackAndUnavailablePaths`
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/accepted_provisioning_waits_for_activation`
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/activation_failure_stays_visible`
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/activation_succeeded_and_online_is_ready`
@@ -296,6 +303,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsRefreshTokenAsBearer`
 - `rtk_account_manager/internal/api`: `TestSMTPAuthTokenSinkWritesDelivery`
 - `rtk_account_manager/internal/api`: `TestSMTPQuotaRaiseNotificationSinkWritesDelivery`
+- `rtk_account_manager/internal/api`: `TestSendSMTPMailDeliversMessage`
+- `rtk_account_manager/internal/api`: `TestSendSMTPMailTimesOut`
 - `rtk_account_manager/internal/api`: `TestTrimPtrNormalizesOptionalStrings`
 - `rtk_account_manager/internal/api`: `TestValidationHelpersWriteErrors`
 - `rtk_account_manager/internal/api`: `TestValueOrEmpty`
