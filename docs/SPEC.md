@@ -201,10 +201,16 @@ Enumeration safety is mandatory. Sign-in and forgot-password request endpoints
 return `202 Accepted` for syntactically valid requests whether the email is
 unknown, disabled, pending activation, rate limited, or eligible. Raw tokens are
 never returned in HTTP responses. Delivery is handled only through the
-configured `AuthTokenSink`; the first implementation may use the existing log
-sink until SMTP or another email sink is configured. The log sink is an
-operator-only delivery adapter and records the raw token in server logs; those
-logs must be treated as sensitive operational material.
+configured `AuthTokenSink`. Supported adapters are:
+
+- `AUTH_TOKEN_DELIVERY=log`: dev/test adapter that records the raw token in
+  server logs. Logs are sensitive operational material.
+- `AUTH_TOKEN_DELIVERY=smtp`: production email adapter that sends
+  email-verification, login-activation, and password-reset links. It requires
+  `SMTP_HOST`, `SMTP_FROM`, and any provider-required `SMTP_USERNAME` /
+  `SMTP_PASSWORD` values. `AUTH_TOKEN_BASE_URL` should point at the Admin
+  Console browser origin so messages can link to `/signup/verify`,
+  `/login/activate`, and `/reset-password`.
 
 `auth_tokens` stores only token hashes. Tenant-scoped login tokens also carry a
 server-side `scope` value such as `brand_cloud:<tenantSlug>`; console login,
@@ -1022,20 +1028,21 @@ Refresh tokens must be stored hashed, not in raw form.
 
 ### `auth_tokens`
 
-Stores one-time email verification and password reset tokens.
+Stores one-time email verification, login activation, and password reset tokens.
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `id` | UUID | Yes | Primary key. |
 | `user_id` | UUID | Yes | References `users.id`. |
-| `purpose` | Text | Yes | One of `email_verification`, `password_reset`. |
+| `purpose` | Text | Yes | One of `email_verification`, `login_activation`, `password_reset`. |
 | `token_hash` | Text | Yes | Unique hash of the one-time token. |
 | `expires_at` | Timestamp | Yes | Expiration timestamp. |
 | `consumed_at` | Timestamp | No | Set after successful one-time use. |
 | `created_at` | Timestamp | Yes | Creation timestamp. |
 
 Auth tokens must be stored hashed, not in raw form, and are throttled by
-`user_id` and `purpose`.
+`user_id`, `purpose`, and scope when applicable. Tenant-scoped brand-cloud login
+activation tokens store a scope such as `brand_cloud:<tenantSlug>`.
 
 ### Keycloak/OIDC Tables
 
@@ -1211,14 +1218,15 @@ Constraints:
 - Password change revokes all active refresh tokens for the user. Existing access tokens remain valid until their normal expiry.
 - `DELETE /v1/me` lets the authenticated current user disable their own account. The operation revokes active refresh tokens and refuses to disable the user while they are the last active owner of any organization.
 - Self-service account deletion is account-manager user lifecycle only. It preserves organization memberships and registry/device records, and it does not imply product-level device deletion or deactivation.
-- Verification and password reset tokens expire after 30 minutes, are stored
+- Verification, login activation, and password reset tokens expire after 30 minutes, are stored
   hashed, become one-time-use after consumption, and are throttled to five
   issued tokens per user/purpose per hour.
 - Auth token delivery is an explicit adapter boundary. The API process accepts
   an `AuthTokenSink` implementation for email/SMS/dev-test delivery. The
   production server entrypoint wires `AUTH_TOKEN_DELIVERY=log` as the local
   dev/test adapter so one-time verification and reset tokens are emitted to the
-  server log until a real mail or SMS adapter is configured.
+  server log; `AUTH_TOKEN_DELIVERY=smtp` sends verification, sign-in, and reset
+  links through the configured SMTP account.
 - Quota-raise decision delivery is also an explicit adapter boundary. The API
   process accepts a `QuotaRaiseNotificationSink` for approval/decline
   notifications. The production server entrypoint wires SMTP delivery when

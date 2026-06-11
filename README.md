@@ -99,7 +99,16 @@ The optional local Keycloak/OIDC login flow is documented in `docs/KEYCLOAK_LOCA
 Private-cloud deployment packaging, systemd templates, migration/upgrade/rollback, and backup/restore operations are documented in `docs/PRIVATE_CLOUD_DEPLOYMENT_RUNBOOK.md`; reference deploy assets live under `deploy/`.
 The service logging migration to `rtk_cloud_logger` zap and central journald forwarding is documented in `docs/SERVICE_LOGGING_MIGRATION.md`.
 Linode staging deployment for admins is documented in `linode_deploy/docs/RUNBOOK.md`; it uses an operator-run script and explicit release versions, not GitHub CD Actions.
-The local auth verification and password reset delivery adapter is `AUTH_TOKEN_DELIVERY=log`; generated one-time tokens are written to the API server log for dev/test use until a production mail or SMS adapter replaces it. Quota-raise approval and decline notifications use the SMTP mail path when `SMTP_HOST` and `SMTP_FROM` are configured, and otherwise fall back to the local log adapter for dev/test.
+Auth verification, email sign-in, and password reset tokens use `AUTH_TOKEN_DELIVERY`.
+Set `AUTH_TOKEN_DELIVERY=log` for dev/test to write generated one-time tokens to
+the API server log. Set `AUTH_TOKEN_DELIVERY=smtp` plus `SMTP_HOST`,
+`SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, and
+`AUTH_TOKEN_BASE_URL` to send verification, login activation, and password
+reset links by email. `AUTH_TOKEN_BASE_URL` must point at the Admin Console
+browser origin so messages can link to `/signup/verify`, `/login/activate`,
+and `/reset-password`. Quota-raise approval and decline notifications also use
+the SMTP mail path when `SMTP_HOST` and `SMTP_FROM` are configured, and
+otherwise fall back to the local log adapter for dev/test.
 Set `CROSS_SERVICE_BROKER=azure_eventhubs` plus `AZURE_EVENTHUB_CONNECTION_STRING` to run the workers against Azure Event Hubs instead of the local `log` adapter. The inbox worker persists Azure consumer checkpoints at `.state/azure_eventhubs/<stream>__<consumer-group>.json` by default; set `AZURE_EVENTHUB_CHECKPOINT_FILE` to override that path.
 
 ## Smoke Test

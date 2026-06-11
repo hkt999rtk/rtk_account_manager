@@ -46,6 +46,12 @@ func main() {
 	switch cfg.AuthTokenDelivery {
 	case "log":
 		authTokenSink = api.NewLogAuthTokenSink(logger)
+	case "smtp":
+		addr, auth, err := smtpConfig(cfg)
+		if err != nil {
+			fatal(logger, "configure SMTP auth token delivery failed", err)
+		}
+		authTokenSink = api.NewSMTPAuthTokenSink(addr, cfg.SMTPFrom, cfg.AuthTokenBaseURL, auth)
 	default:
 		fatal(logger, "unsupported auth token delivery", nil, zap.String("delivery", cfg.AuthTokenDelivery))
 	}
@@ -150,21 +156,36 @@ func newAuthService(cfg config.Config) (*auth.Service, error) {
 
 func quotaRaiseNotificationSink(cfg config.Config, logger *zap.Logger) api.QuotaRaiseNotificationSink {
 	if cfg.SMTPHost != "" && cfg.SMTPFrom != "" {
-		addr := cfg.SMTPHost
-		if cfg.SMTPPort != "" && !strings.Contains(addr, ":") {
-			addr = addr + ":" + cfg.SMTPPort
+		addr, auth, err := smtpConfig(cfg)
+		if err != nil {
+			logger.Warn("SMTP quota raise notification sink unavailable", zap.Error(err))
+		} else {
+			return api.NewSMTPQuotaRaiseNotificationSink(addr, cfg.SMTPFrom, auth)
 		}
-		var auth smtp.Auth
-		if cfg.SMTPUsername != "" || cfg.SMTPPassword != "" {
-			host := cfg.SMTPHost
-			if i := strings.Index(host, ":"); i >= 0 {
-				host = host[:i]
-			}
-			auth = smtp.PlainAuth("", cfg.SMTPUsername, cfg.SMTPPassword, host)
-		}
-		return api.NewSMTPQuotaRaiseNotificationSink(addr, cfg.SMTPFrom, auth)
 	}
 	return api.NewLogQuotaRaiseNotificationSink(logger)
+}
+
+func smtpConfig(cfg config.Config) (string, smtp.Auth, error) {
+	if strings.TrimSpace(cfg.SMTPHost) == "" {
+		return "", nil, fmt.Errorf("SMTP_HOST is required")
+	}
+	if strings.TrimSpace(cfg.SMTPFrom) == "" {
+		return "", nil, fmt.Errorf("SMTP_FROM is required")
+	}
+	addr := strings.TrimSpace(cfg.SMTPHost)
+	if cfg.SMTPPort != "" && !strings.Contains(addr, ":") {
+		addr = addr + ":" + strings.TrimSpace(cfg.SMTPPort)
+	}
+	var auth smtp.Auth
+	if cfg.SMTPUsername != "" || cfg.SMTPPassword != "" {
+		host := strings.TrimSpace(cfg.SMTPHost)
+		if i := strings.Index(host, ":"); i >= 0 {
+			host = host[:i]
+		}
+		auth = smtp.PlainAuth("", cfg.SMTPUsername, cfg.SMTPPassword, host)
+	}
+	return addr, auth, nil
 }
 
 func fatal(logger *zap.Logger, message string, err error, fields ...zap.Field) {

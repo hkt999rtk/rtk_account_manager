@@ -49,6 +49,7 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	t.Setenv("REFRESH_TOKEN_TTL", "24h")
 	t.Setenv("PORT", "9090")
 	t.Setenv("AUTH_TOKEN_DELIVERY", "log")
+	t.Setenv("AUTH_TOKEN_BASE_URL", "https://admin.example.test")
 	t.Setenv("SMTP_HOST", "smtp.example")
 	t.Setenv("SMTP_PORT", "2525")
 	t.Setenv("SMTP_USERNAME", "smtp-user")
@@ -91,6 +92,9 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	}
 	if cfg.AuthTokenDelivery != "log" {
 		t.Fatalf("unexpected auth token delivery: %q", cfg.AuthTokenDelivery)
+	}
+	if cfg.AuthTokenBaseURL != "https://admin.example.test" {
+		t.Fatalf("unexpected auth token base URL: %q", cfg.AuthTokenBaseURL)
 	}
 	if cfg.SMTPHost != "smtp.example" || cfg.SMTPPort != "2525" || cfg.SMTPUsername != "smtp-user" || cfg.SMTPPassword != "smtp-pass" || cfg.SMTPFrom != "noreply@example.com" {
 		t.Fatalf("unexpected smtp config: %+v", cfg)

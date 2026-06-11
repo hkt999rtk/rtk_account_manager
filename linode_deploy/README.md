@@ -130,6 +130,7 @@ scripts/verify-linode-release-objects.sh "$VERSION" ".artifacts/release-download
 - Remote hosts never push to GitHub.
 - The VM exposes only SSH from operator CIDRs and public HTTP/HTTPS.
 - PostgreSQL binds locally on the VM and is not exposed publicly.
-- Staging defaults use `AUTH_TOKEN_DELIVERY=log`, `CROSS_SERVICE_BROKER=log`,
+- Staging defaults may use `AUTH_TOKEN_DELIVERY=log`, `CROSS_SERVICE_BROKER=log`,
   and `OIDC_ENABLED=false`; production-like deployments must explicitly supply
-  SMTP/OIDC/broker settings and record those choices in service-owned docs.
+  `AUTH_TOKEN_DELIVERY=smtp`, `AUTH_TOKEN_BASE_URL`, SMTP/OIDC/broker settings,
+  and record those choices in service-owned docs.

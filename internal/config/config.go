@@ -32,6 +32,7 @@ type Config struct {
 	RefreshTokenTTL                time.Duration
 	Port                           string
 	AuthTokenDelivery              string
+	AuthTokenBaseURL               string
 	SMTPHost                       string
 	SMTPPort                       string
 	SMTPUsername                   string
@@ -152,6 +153,7 @@ func load() (Config, error) {
 		RefreshTokenTTL:                duration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
 		Port:                           getenv("PORT", "8080"),
 		AuthTokenDelivery:              getenv("AUTH_TOKEN_DELIVERY", "log"),
+		AuthTokenBaseURL:               getenv("AUTH_TOKEN_BASE_URL", ""),
 		SMTPHost:                       getenv("SMTP_HOST", ""),
 		SMTPPort:                       getenv("SMTP_PORT", "587"),
 		SMTPUsername:                   getenv("SMTP_USERNAME", ""),

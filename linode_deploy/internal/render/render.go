@@ -42,7 +42,8 @@ func RuntimeEnv(m manifest.Manifest, vals secrets.Values, opts Options) (string,
 		fmt.Sprintf("PORT=%d", m.Deploy.APIPort),
 		"ACCESS_TOKEN_TTL=15m",
 		"REFRESH_TOKEN_TTL=720h",
-		"AUTH_TOKEN_DELIVERY=log",
+		"AUTH_TOKEN_DELIVERY=" + defaultValue(vals.Get("AUTH_TOKEN_DELIVERY"), "log"),
+		"AUTH_TOKEN_BASE_URL=" + vals.Get("AUTH_TOKEN_BASE_URL"),
 		"EMAIL_VERIFICATION_TTL=30m",
 		"PASSWORD_RESET_TTL=30m",
 		"OTP_RESEND_INTERVAL=60s",
@@ -98,6 +99,13 @@ func crossServiceLines(m manifest.Manifest, vals secrets.Values, opts Options) [
 		return append([]string{"CROSS_SERVICE_BROKER=log"}, lines...)
 	}
 	return append([]string{"CROSS_SERVICE_BROKER=log"}, lines...)
+}
+
+func defaultValue(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func secretKey(key string) bool {
