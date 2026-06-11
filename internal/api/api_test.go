@@ -314,6 +314,70 @@ func TestLogAuthTokenSinkWritesDelivery(t *testing.T) {
 	}
 }
 
+func TestSMTPAuthTokenSinkWritesDelivery(t *testing.T) {
+	sink := NewSMTPAuthTokenSink("smtp.example:587", "no-reply@example.com", "https://admin.example.test/", nil)
+	var gotAddr string
+	var gotFrom string
+	var gotTo []string
+	var gotMsg []byte
+	sink.sendMail = func(addr string, _ smtp.Auth, from string, to []string, msg []byte) error {
+		gotAddr = addr
+		gotFrom = from
+		gotTo = append([]string(nil), to...)
+		gotMsg = append([]byte(nil), msg...)
+		return nil
+	}
+	expiresAt := time.Date(2026, 6, 12, 8, 30, 0, 0, time.UTC)
+
+	err := sink.DeliverAuthToken(context.Background(), AuthTokenDelivery{
+		Purpose:   "login_activation",
+		Email:     "user@example.com",
+		Token:     "login-token",
+		ExpiresAt: expiresAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if gotAddr != "smtp.example:587" || gotFrom != "no-reply@example.com" {
+		t.Fatalf("unexpected SMTP envelope: addr=%q from=%q", gotAddr, gotFrom)
+	}
+	if len(gotTo) != 1 || gotTo[0] != "user@example.com" {
+		t.Fatalf("unexpected recipients: %+v", gotTo)
+	}
+	message := string(gotMsg)
+	for _, want := range []string{
+		"To: user@example.com",
+		"From: no-reply@example.com",
+		"Subject: Sign in to Realtek Connect",
+		"https://admin.example.test/login/activate?token=login-token",
+		"Token: login-token",
+		"Expires: 2026-06-12T08:30:00Z",
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("expected SMTP auth message to contain %q, got %q", want, message)
+		}
+	}
+}
+
+func TestAuthTokenLinkRoutesByPurpose(t *testing.T) {
+	for _, tt := range []struct {
+		purpose string
+		want    string
+	}{
+		{purpose: "email_verification", want: "https://admin.example.test/signup/verify?token=token+with+space"},
+		{purpose: "login_activation", want: "https://admin.example.test/login/activate?token=token+with+space"},
+		{purpose: "password_reset", want: "https://admin.example.test/reset-password?token=token+with+space"},
+	} {
+		t.Run(tt.purpose, func(t *testing.T) {
+			got := authTokenLink(tt.purpose, "token with space", "https://admin.example.test/")
+			if got != tt.want {
+				t.Fatalf("authTokenLink() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestLogQuotaRaiseNotificationSinkWritesDelivery(t *testing.T) {
 	core, logs := observer.New(zapcore.InfoLevel)
 	sink := NewLogQuotaRaiseNotificationSink(zap.New(core))

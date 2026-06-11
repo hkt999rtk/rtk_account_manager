@@ -132,10 +132,12 @@ The backup script creates a PostgreSQL custom-format dump and a checksum under
 The default public VM profile is appropriate for staging smoke and admin
 integration:
 
-- `AUTH_TOKEN_DELIVERY=log`
+- `AUTH_TOKEN_DELIVERY=log` for log-only smoke, or `smtp` when staging should
+  send verification, sign-in, and password-reset email.
+- `AUTH_TOKEN_BASE_URL=<admin-console-origin>` when `AUTH_TOKEN_DELIVERY=smtp`.
 - `CROSS_SERVICE_BROKER=log`
 - `OIDC_ENABLED=false`
-- SMTP optional and usually unset
+- SMTP optional for log-only smoke; required for `AUTH_TOKEN_DELIVERY=smtp`.
 
 Production-like identity, notification, and cross-service lifecycle testing must
 set SMTP/OIDC/broker configuration explicitly before deployment.

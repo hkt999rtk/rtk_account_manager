@@ -140,6 +140,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 
 ## Executed Test Cases
 
+- `rtk_account_manager/cmd/server`: `TestSMTPConfigBuildsSubmissionAddress`
+- `rtk_account_manager/cmd/server`: `TestSMTPConfigRequiresHostAndFrom`
 - `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#0`
 - `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#1`
 - `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#2`
@@ -158,6 +160,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests/verify_email_missing_token`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests`
 - `rtk_account_manager/internal/api`: `TestAuthTokenDeliveryHook`
+- `rtk_account_manager/internal/api`: `TestAuthTokenLinkRoutesByPurpose/email_verification`
+- `rtk_account_manager/internal/api`: `TestAuthTokenLinkRoutesByPurpose/login_activation`
+- `rtk_account_manager/internal/api`: `TestAuthTokenLinkRoutesByPurpose/password_reset`
+- `rtk_account_manager/internal/api`: `TestAuthTokenLinkRoutesByPurpose`
 - `rtk_account_manager/internal/api`: `TestBindStrictRejectsUnknownFields`
 - `rtk_account_manager/internal/api`: `TestBrandCloudContextHelpers`
 - `rtk_account_manager/internal/api`: `TestBrandCloudLogoutAndMeRejectMismatchedSubject`
@@ -288,6 +294,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsInvalidToken`
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsMissingToken`
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsRefreshTokenAsBearer`
+- `rtk_account_manager/internal/api`: `TestSMTPAuthTokenSinkWritesDelivery`
 - `rtk_account_manager/internal/api`: `TestSMTPQuotaRaiseNotificationSinkWritesDelivery`
 - `rtk_account_manager/internal/api`: `TestTrimPtrNormalizesOptionalStrings`
 - `rtk_account_manager/internal/api`: `TestValidationHelpersWriteErrors`
@@ -609,6 +616,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/linode_deploy/internal/planner`: `TestPlanShowsWorkersWhenEnabled`
 - `rtk_account_manager/linode_deploy/internal/render`: `TestRuntimeEnvKeepsLogBrokerWhenWorkersAreEnabled`
 - `rtk_account_manager/linode_deploy/internal/render`: `TestRuntimeEnvRendersDefaultsAndSecretsWithoutLeakingRawValuesInReport`
+- `rtk_account_manager/linode_deploy/internal/render`: `TestRuntimeEnvRendersSMTPAuthTokenDelivery`
 - `rtk_account_manager/linode_deploy/internal/secrets`: `TestLoadRequiredSecretsAndRedact`
 - `rtk_account_manager/linode_deploy/internal/secrets`: `TestRequireReportsMissingKeys`
 

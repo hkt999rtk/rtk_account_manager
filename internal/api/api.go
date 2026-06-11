@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/smtp"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -117,6 +118,93 @@ func (s LogAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthToken
 		zap.Time("expires_at", delivery.ExpiresAt.UTC()),
 	)
 	return nil
+}
+
+type SMTPAuthTokenSink struct {
+	host     string
+	from     string
+	baseURL  string
+	auth     smtp.Auth
+	sendMail func(string, smtp.Auth, string, []string, []byte) error
+}
+
+func NewSMTPAuthTokenSink(host, from, baseURL string, auth smtp.Auth) SMTPAuthTokenSink {
+	return SMTPAuthTokenSink{
+		host:     host,
+		from:     from,
+		baseURL:  strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+		auth:     auth,
+		sendMail: smtp.SendMail,
+	}
+}
+
+func (s SMTPAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthTokenDelivery) error {
+	if s.sendMail == nil {
+		return errors.New("smtp auth token sink unavailable")
+	}
+	subject := authTokenSubject(delivery.Purpose)
+	body := buildAuthTokenBody(delivery, s.baseURL)
+	msg := buildSMTPMessage(s.from, delivery.Email, subject, body)
+	return s.sendMail(s.host, s.auth, s.from, []string{delivery.Email}, msg)
+}
+
+func authTokenSubject(purpose string) string {
+	switch purpose {
+	case "email_verification":
+		return "Verify your Realtek Connect account"
+	case "login_activation":
+		return "Sign in to Realtek Connect"
+	case "password_reset":
+		return "Reset your Realtek Connect password"
+	default:
+		return "Realtek Connect account token"
+	}
+}
+
+func buildAuthTokenBody(delivery AuthTokenDelivery, baseURL string) string {
+	var b bytes.Buffer
+	switch delivery.Purpose {
+	case "email_verification":
+		b.WriteString("Verify your Realtek Connect account with this link:\r\n\r\n")
+	case "login_activation":
+		b.WriteString("Sign in to Realtek Connect with this link:\r\n\r\n")
+	case "password_reset":
+		b.WriteString("Reset your Realtek Connect password with this link:\r\n\r\n")
+	default:
+		b.WriteString("Use this Realtek Connect account token:\r\n\r\n")
+	}
+	if link := authTokenLink(delivery.Purpose, delivery.Token, baseURL); link != "" {
+		fmt.Fprintf(&b, "%s\r\n\r\n", link)
+	}
+	fmt.Fprintf(&b, "Token: %s\r\n", delivery.Token)
+	if !delivery.ExpiresAt.IsZero() {
+		fmt.Fprintf(&b, "Expires: %s\r\n", delivery.ExpiresAt.UTC().Format(time.RFC3339))
+	}
+	b.WriteString("\r\nIf you did not request this email, you can ignore it.\r\n")
+	return b.String()
+}
+
+func authTokenLink(purpose, token, baseURL string) string {
+	if strings.TrimSpace(baseURL) == "" {
+		return ""
+	}
+	path := "/login/activate"
+	switch purpose {
+	case "email_verification":
+		path = "/signup/verify"
+	case "login_activation":
+		path = "/login/activate"
+	case "password_reset":
+		path = "/reset-password"
+	}
+	u, err := url.Parse(strings.TrimRight(strings.TrimSpace(baseURL), "/") + path)
+	if err != nil {
+		return ""
+	}
+	q := u.Query()
+	q.Set("token", token)
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 func NewWithAuthTokenSink(store Store, authService *auth.Service, sink AuthTokenSink) *Server {

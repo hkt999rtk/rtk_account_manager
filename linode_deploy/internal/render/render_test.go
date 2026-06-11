@@ -37,6 +37,7 @@ func TestRuntimeEnvRendersDefaultsAndSecretsWithoutLeakingRawValuesInReport(t *t
 		"JWT_SIGNER_PROVIDER=pkcs11",
 		"JWT_ACCESS_PKCS11_KEY_LABEL=jwt-access-key",
 		"OIDC_REDIRECT_URL=https://account-manager-staging.realtekconnect.com/v1/auth/oidc/keycloak/callback",
+		"AUTH_TOKEN_DELIVERY=log",
 	} {
 		if !strings.Contains(env, want) {
 			t.Fatalf("env missing %q:\n%s", want, env)
@@ -55,6 +56,39 @@ func TestRuntimeEnvRendersDefaultsAndSecretsWithoutLeakingRawValuesInReport(t *t
 	}
 	if !strings.Contains(report, "OIDC_CLIENT_SECRET=<redacted>") {
 		t.Fatalf("report missing redacted OIDC key:\n%s", report)
+	}
+}
+
+func TestRuntimeEnvRendersSMTPAuthTokenDelivery(t *testing.T) {
+	m, err := manifest.Load("../../configs/account-manager-staging.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	vals := secrets.Values{
+		"ACCOUNT_MANAGER_DB_PASSWORD": "db-secret",
+		"JWT_ACCESS_SECRET":           "access-secret",
+		"JWT_REFRESH_SECRET":          "refresh-secret",
+		"AUTH_TOKEN_DELIVERY":         "smtp",
+		"AUTH_TOKEN_BASE_URL":         "https://admin.video-cloud-staging.realtekconnect.com",
+		"SMTP_HOST":                   "mail.realtekconnect.com",
+		"SMTP_USERNAME":               "no-reply@realtekconnect.com",
+		"SMTP_PASSWORD":               "smtp-secret",
+		"SMTP_FROM":                   "no-reply@realtekconnect.com",
+	}
+	env, report := RuntimeEnv(m, vals, Options{SkipOIDC: true})
+	for _, want := range []string{
+		"AUTH_TOKEN_DELIVERY=smtp",
+		"AUTH_TOKEN_BASE_URL=https://admin.video-cloud-staging.realtekconnect.com",
+		"SMTP_HOST=mail.realtekconnect.com",
+		"SMTP_USERNAME=no-reply@realtekconnect.com",
+		"SMTP_FROM=no-reply@realtekconnect.com",
+	} {
+		if !strings.Contains(env, want) {
+			t.Fatalf("env missing %q:\n%s", want, env)
+		}
+	}
+	if strings.Contains(report, "smtp-secret") || !strings.Contains(report, "SMTP_PASSWORD=<redacted>") {
+		t.Fatalf("report did not redact SMTP password:\n%s", report)
 	}
 }
 
