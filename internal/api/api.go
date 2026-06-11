@@ -3,10 +3,12 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/smtp"
 	"net/url"
@@ -134,7 +136,7 @@ func NewSMTPAuthTokenSink(host, from, baseURL string, auth smtp.Auth) SMTPAuthTo
 		from:     from,
 		baseURL:  strings.TrimRight(strings.TrimSpace(baseURL), "/"),
 		auth:     auth,
-		sendMail: smtp.SendMail,
+		sendMail: smtpSendMailWithTimeout(15 * time.Second),
 	}
 }
 
@@ -276,7 +278,7 @@ func NewSMTPQuotaRaiseNotificationSink(host, from string, auth smtp.Auth) SMTPQu
 		host:     host,
 		from:     from,
 		auth:     auth,
-		sendMail: smtp.SendMail,
+		sendMail: smtpSendMailWithTimeout(15 * time.Second),
 	}
 }
 
@@ -319,6 +321,67 @@ func buildSMTPMessage(from, to, subject, body string) []byte {
 	b.WriteString("\r\n")
 	b.WriteString(body)
 	return b.Bytes()
+}
+
+func smtpSendMailWithTimeout(timeout time.Duration) func(string, smtp.Auth, string, []string, []byte) error {
+	return func(addr string, auth smtp.Auth, from string, to []string, msg []byte) error {
+		return sendSMTPMail(addr, auth, from, to, msg, timeout)
+	}
+}
+
+func sendSMTPMail(addr string, auth smtp.Auth, from string, to []string, msg []byte, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = 15 * time.Second
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	conn, err := (&net.Dialer{Timeout: timeout}).Dial("tcp", addr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		return err
+	}
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	if ok, _ := client.Extension("STARTTLS"); ok {
+		if err := client.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil {
+			return err
+		}
+	}
+	if auth != nil {
+		if ok, _ := client.Extension("AUTH"); ok {
+			if err := client.Auth(auth); err != nil {
+				return err
+			}
+		}
+	}
+	if err := client.Mail(from); err != nil {
+		return err
+	}
+	for _, recipient := range to {
+		if err := client.Rcpt(recipient); err != nil {
+			return err
+		}
+	}
+	w, err := client.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(msg); err != nil {
+		_ = w.Close()
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return client.Quit()
 }
 
 func NewWithAuthTokenAndNotificationSink(store Store, authService *auth.Service, authSink AuthTokenSink, notificationSink QuotaRaiseNotificationSink) *Server {

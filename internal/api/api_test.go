@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -11,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/smtp"
@@ -360,6 +362,163 @@ func TestSMTPAuthTokenSinkWritesDelivery(t *testing.T) {
 	}
 }
 
+func TestAuthTokenSinksHandleFallbackAndUnavailablePaths(t *testing.T) {
+	if err := (LogAuthTokenSink{}).DeliverAuthToken(context.Background(), AuthTokenDelivery{
+		Purpose: "login_activation",
+		Email:   "user@example.com",
+		Token:   "token",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	smtpSink := SMTPAuthTokenSink{}
+	if err := smtpSink.DeliverAuthToken(context.Background(), AuthTokenDelivery{
+		Purpose: "login_activation",
+		Email:   "user@example.com",
+		Token:   "token",
+	}); err == nil {
+		t.Fatal("expected unavailable SMTP auth token sink error")
+	}
+}
+
+func TestSendSMTPMailTimesOut(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		time.Sleep(500 * time.Millisecond)
+	}()
+
+	start := time.Now()
+	err = smtpSendMailWithTimeout(50*time.Millisecond)(listener.Addr().String(), nil, "from@example.com", []string{"to@example.com"}, []byte("message"))
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("SMTP timeout took too long: %s", elapsed)
+	}
+	<-done
+}
+
+func TestSendSMTPMailDeliversMessage(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	messageCh := make(chan string, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		defer conn.Close()
+		reader := bufio.NewReader(conn)
+		writer := bufio.NewWriter(conn)
+		writeLine := func(line string) error {
+			if _, err := writer.WriteString(line + "\r\n"); err != nil {
+				return err
+			}
+			return writer.Flush()
+		}
+		if err := writeLine("220 smtp.test ESMTP"); err != nil {
+			errCh <- err
+			return
+		}
+		var data strings.Builder
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				errCh <- err
+				return
+			}
+			line = strings.TrimRight(line, "\r\n")
+			switch {
+			case strings.HasPrefix(line, "EHLO "):
+				if _, err := writer.WriteString("250-smtp.test\r\n250 SIZE\r\n"); err != nil {
+					errCh <- err
+					return
+				}
+				if err := writer.Flush(); err != nil {
+					errCh <- err
+					return
+				}
+			case strings.HasPrefix(line, "MAIL FROM:"):
+				if err := writeLine("250 ok"); err != nil {
+					errCh <- err
+					return
+				}
+			case strings.HasPrefix(line, "RCPT TO:"):
+				if err := writeLine("250 ok"); err != nil {
+					errCh <- err
+					return
+				}
+			case line == "DATA":
+				if err := writeLine("354 end with dot"); err != nil {
+					errCh <- err
+					return
+				}
+				for {
+					msgLine, err := reader.ReadString('\n')
+					if err != nil {
+						errCh <- err
+						return
+					}
+					if strings.TrimRight(msgLine, "\r\n") == "." {
+						break
+					}
+					data.WriteString(msgLine)
+				}
+				if err := writeLine("250 queued"); err != nil {
+					errCh <- err
+					return
+				}
+			case line == "QUIT":
+				if err := writeLine("221 bye"); err != nil {
+					errCh <- err
+					return
+				}
+				messageCh <- data.String()
+				errCh <- nil
+				return
+			default:
+				errCh <- fmt.Errorf("unexpected SMTP command %q", line)
+				return
+			}
+		}
+	}()
+
+	err = smtpSendMailWithTimeout(time.Second)(
+		listener.Addr().String(),
+		nil,
+		"from@example.com",
+		[]string{"to@example.com"},
+		[]byte("Subject: Test\r\n\r\nhello\r\n"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := <-errCh; err != nil {
+		t.Fatal(err)
+	}
+	message := <-messageCh
+	for _, want := range []string{"Subject: Test", "hello"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("expected SMTP message to contain %q, got %q", want, message)
+		}
+	}
+}
+
 func TestAuthTokenLinkRoutesByPurpose(t *testing.T) {
 	for _, tt := range []struct {
 		purpose string
@@ -375,6 +534,57 @@ func TestAuthTokenLinkRoutesByPurpose(t *testing.T) {
 				t.Fatalf("authTokenLink() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAuthTokenSubjectAndBodyByPurpose(t *testing.T) {
+	expiresAt := time.Date(2026, 6, 12, 8, 30, 0, 0, time.UTC)
+	for _, tt := range []struct {
+		purpose     string
+		wantSubject string
+		wantBody    string
+	}{
+		{
+			purpose:     "email_verification",
+			wantSubject: "Verify your Realtek Connect account",
+			wantBody:    "Verify your Realtek Connect account with this link:",
+		},
+		{
+			purpose:     "login_activation",
+			wantSubject: "Sign in to Realtek Connect",
+			wantBody:    "Sign in to Realtek Connect with this link:",
+		},
+		{
+			purpose:     "password_reset",
+			wantSubject: "Reset your Realtek Connect password",
+			wantBody:    "Reset your Realtek Connect password with this link:",
+		},
+		{
+			purpose:     "unknown",
+			wantSubject: "Realtek Connect account token",
+			wantBody:    "Use this Realtek Connect account token:",
+		},
+	} {
+		t.Run(tt.purpose, func(t *testing.T) {
+			if got := authTokenSubject(tt.purpose); got != tt.wantSubject {
+				t.Fatalf("authTokenSubject() = %q, want %q", got, tt.wantSubject)
+			}
+			body := buildAuthTokenBody(AuthTokenDelivery{
+				Purpose:   tt.purpose,
+				Email:     "user@example.com",
+				Token:     "token-1",
+				ExpiresAt: expiresAt,
+			}, "https://admin.example.test")
+			for _, want := range []string{tt.wantBody, "Token: token-1", "Expires: 2026-06-12T08:30:00Z"} {
+				if !strings.Contains(body, want) {
+					t.Fatalf("expected body to contain %q, got %q", want, body)
+				}
+			}
+		})
+	}
+	body := buildAuthTokenBody(AuthTokenDelivery{Purpose: "login_activation", Token: "token-2"}, "")
+	if strings.Contains(body, "https://") || !strings.Contains(body, "Token: token-2") {
+		t.Fatalf("expected token-only body without base URL, got %q", body)
 	}
 }
 
@@ -415,6 +625,23 @@ func TestLogQuotaRaiseNotificationSinkWritesDelivery(t *testing.T) {
 		if got := fields[key]; got != want {
 			t.Fatalf("expected %s=%v, got %v in %+v", key, want, got, fields)
 		}
+	}
+}
+
+func TestQuotaNotificationSinksHandleFallbackAndUnavailablePaths(t *testing.T) {
+	delivery := QuotaRaiseNotificationDelivery{
+		RecipientEmail:   "owner@example.com",
+		OrganizationID:   "org-1",
+		OrganizationName: "Owner Org",
+		RequestedQuota:   8,
+		Decision:         "declined",
+	}
+	if err := (LogQuotaRaiseNotificationSink{}).DeliverQuotaRaiseNotification(context.Background(), delivery); err != nil {
+		t.Fatal(err)
+	}
+	smtpSink := SMTPQuotaRaiseNotificationSink{}
+	if err := smtpSink.DeliverQuotaRaiseNotification(context.Background(), delivery); err == nil {
+		t.Fatal("expected unavailable SMTP quota notification sink error")
 	}
 }
 
