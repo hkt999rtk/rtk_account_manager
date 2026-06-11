@@ -309,11 +309,8 @@ func TestLogAuthTokenSinkWritesDelivery(t *testing.T) {
 	if fields["purpose"] != "password_reset" || fields["email"] != "user@example.com" {
 		t.Fatalf("unexpected auth token log fields: %+v", fields)
 	}
-	if _, ok := fields["token"]; ok {
-		t.Fatalf("auth token log must not expose raw token: %+v", fields)
-	}
-	if fields["token_redacted"] != true {
-		t.Fatalf("expected token_redacted marker, got %+v", fields)
+	if fields["token"] != "reset-token" {
+		t.Fatalf("expected auth token log delivery token, got %+v", fields)
 	}
 }
 

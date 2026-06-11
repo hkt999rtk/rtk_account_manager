@@ -140,6 +140,46 @@ paths:
           $ref: "#/components/responses/Error"
         "401":
           $ref: "#/components/responses/Error"
+  /v1/auth/sign-in:
+    post:
+      tags:
+        - Auth
+      operationId: requestEmailSignIn
+      summary: Request an email sign-in activation token.
+      description: Returns the same `202 Accepted` status for unknown, disabled, pending, and throttled users to avoid account enumeration. Raw tokens are delivered only by the configured server-side AuthTokenSink and are never returned in the HTTP response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "202":
+          description: Sign-in request accepted when applicable.
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/auth/login/activate:
+    post:
+      tags:
+        - Auth
+      operationId: activateEmailSignIn
+      summary: Activate an email sign-in token.
+      description: Consumes a one-time `login_activation` token and issues the normal Account Manager access and refresh token response. Invalid, expired, and replayed tokens fail without issuing a session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthTokenRequest"
+      responses:
+        "200":
+          description: Login activation succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/Error"
   /v1/auth/refresh:
     post:
       tags:
@@ -338,6 +378,52 @@ paths:
       responses:
         "200":
           description: Brand-cloud login succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandCloudLoginResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/brand-clouds/{tenantSlug}/auth/sign-in:
+    post:
+      tags:
+        - Brand Cloud Auth
+      operationId: requestBrandCloudEmailSignIn
+      summary: Request a tenant-scoped brand-cloud email sign-in activation token.
+      description: Returns the same `202 Accepted` status for unknown, disabled, pending, tenant-mismatched, and throttled users to avoid account enumeration. Raw tokens are delivered only by the configured server-side AuthTokenSink.
+      parameters:
+        - $ref: "#/components/parameters/TenantSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "202":
+          description: Brand-cloud sign-in request accepted when applicable.
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/brand-clouds/{tenantSlug}/auth/login/activate:
+    post:
+      tags:
+        - Brand Cloud Auth
+      operationId: activateBrandCloudEmailSignIn
+      summary: Activate a tenant-scoped brand-cloud email sign-in token.
+      description: Consumes a one-time `login_activation` token only when the token's user is active in the requested brand-cloud tenant and issues brand-cloud scoped tokens.
+      parameters:
+        - $ref: "#/components/parameters/TenantSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthTokenRequest"
+      responses:
+        "200":
+          description: Brand-cloud login activation succeeded.
           content:
             application/json:
               schema:
@@ -1180,6 +1266,43 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
   /v1/admin/brand-clouds/{brandCloudId}/users:
+    get:
+      tags:
+        - Brand Clouds
+      operationId: listBrandCloudUsers
+      security:
+        - bearerAuth: []
+      summary: List brand-cloud users, including pending activation and disabled users.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [active, pending_verification, disabled]
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Brand cloud user list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandCloudUsersResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
     post:
       tags:
         - Brand Clouds
@@ -1210,6 +1333,98 @@ paths:
                 $ref: "#/components/schemas/BrandCloudUserResponse"
         "400":
           $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/admin/brand-clouds/{brandCloudId}/users/{brandCloudUserId}/disable:
+    post:
+      tags:
+        - Brand Clouds
+      operationId: disableBrandCloudUser
+      security:
+        - bearerAuth: []
+      summary: Disable a brand-cloud user and revoke their brand-cloud refresh tokens.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/BrandCloudUserId"
+      responses:
+        "200":
+          description: Brand cloud user disabled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandCloudUserStateResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/admin/brand-clouds/{brandCloudId}/users/{brandCloudUserId}/enable:
+    post:
+      tags:
+        - Brand Clouds
+      operationId: enableBrandCloudUser
+      security:
+        - bearerAuth: []
+      summary: Enable a disabled brand-cloud user.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/BrandCloudUserId"
+      responses:
+        "200":
+          description: Brand cloud user enabled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandCloudUserStateResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/admin/brand-clouds/{brandCloudId}/users/{brandCloudUserId}/approve:
+    post:
+      tags:
+        - Brand Clouds
+      operationId: approveBrandCloudUser
+      security:
+        - bearerAuth: []
+      summary: Approve a pending brand-cloud user activation.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/BrandCloudUserId"
+      responses:
+        "200":
+          description: Brand cloud user approved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandCloudUserStateResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/admin/brand-clouds/{brandCloudId}/users/{brandCloudUserId}:
+    delete:
+      tags:
+        - Brand Clouds
+      operationId: deleteBrandCloudUser
+      security:
+        - bearerAuth: []
+      summary: Soft-delete a brand-cloud user by disabling brand-cloud access.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/BrandCloudUserId"
+      responses:
+        "204":
+          description: Brand cloud user soft-deleted.
         "401":
           $ref: "#/components/responses/Error"
         "403":
@@ -2791,6 +3006,13 @@ components:
       schema:
         type: string
         format: uuid
+    BrandCloudUserId:
+      name: brandCloudUserId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     TenantSlug:
       name: tenantSlug
       in: path
@@ -4045,6 +4267,12 @@ components:
           $ref: "#/components/schemas/BrandCloudUser"
         brand_cloud_member:
           $ref: "#/components/schemas/BrandCloudMember"
+    BrandCloudUserStateResponse:
+      type: object
+      required: [brand_cloud_user]
+      properties:
+        brand_cloud_user:
+          $ref: "#/components/schemas/BrandCloudUser"
     BrandCloudLoginResponse:
       type: object
       required: [brand_cloud, brand_cloud_user, brand_cloud_member, tokens]
@@ -4075,6 +4303,16 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Organization"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+    BrandCloudUsersResponse:
+      type: object
+      required: [brand_cloud_users, pagination]
+      properties:
+        brand_cloud_users:
+          type: array
+          items:
+            $ref: "#/components/schemas/BrandCloudUser"
         pagination:
           $ref: "#/components/schemas/Pagination"
     DeviceItemProfileResponse:

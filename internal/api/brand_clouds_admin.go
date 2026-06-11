@@ -57,6 +57,15 @@ type deviceItemProfilesResponse struct {
 	Pagination         store.Page                `json:"pagination"`
 }
 
+type brandCloudUsersResponse struct {
+	BrandCloudUsers []model.BrandCloudUser `json:"brand_cloud_users"`
+	Pagination      store.Page             `json:"pagination"`
+}
+
+type brandCloudUserResponse struct {
+	BrandCloudUser model.BrandCloudUser `json:"brand_cloud_user"`
+}
+
 func (s *Server) createBrandCloud(c *gin.Context) {
 	var req brandCloudRequest
 	if !bind(c, &req) {
@@ -322,4 +331,60 @@ func (s *Server) createBrandCloudUser(c *gin.Context) {
 		status = http.StatusCreated
 	}
 	c.JSON(status, result)
+}
+
+func (s *Server) listBrandCloudUsers(c *gin.Context) {
+	limit, offset := pagination(c)
+	status := strings.TrimSpace(c.Query("status"))
+	if status != "" && status != "active" && status != "pending_verification" && status != "disabled" {
+		writeError(c, http.StatusBadRequest, "invalid_status", "status must be active, pending_verification, or disabled")
+		return
+	}
+	page, err := s.store.ListBrandCloudUsers(c.Request.Context(), store.BrandCloudUserListFilter{
+		BrandCloudID: c.Param("brandCloudId"),
+		Status:       status,
+		Query:        c.Query("q"),
+		Limit:        limit,
+		Offset:       offset,
+	})
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, brandCloudUsersResponse{BrandCloudUsers: page.Users, Pagination: page.Page})
+}
+
+func (s *Server) disableBrandCloudUser(c *gin.Context) {
+	user, err := s.store.DisableBrandCloudUser(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), c.Param("brandCloudUserId"))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, brandCloudUserResponse{BrandCloudUser: user})
+}
+
+func (s *Server) enableBrandCloudUser(c *gin.Context) {
+	user, err := s.store.EnableBrandCloudUser(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), c.Param("brandCloudUserId"))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, brandCloudUserResponse{BrandCloudUser: user})
+}
+
+func (s *Server) approveBrandCloudUser(c *gin.Context) {
+	user, err := s.store.ApproveBrandCloudUser(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), c.Param("brandCloudUserId"))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, brandCloudUserResponse{BrandCloudUser: user})
+}
+
+func (s *Server) deleteBrandCloudUser(c *gin.Context) {
+	if err := s.store.DeleteBrandCloudUser(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), c.Param("brandCloudUserId")); err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }

@@ -77,6 +77,19 @@ type BrandCloudUserResult struct {
 	BrandCloudMember model.BrandCloudMember `json:"brand_cloud_member"`
 }
 
+type BrandCloudUserListFilter struct {
+	BrandCloudID string
+	Status       string
+	Query        string
+	Limit        int
+	Offset       int
+}
+
+type BrandCloudUserPage struct {
+	Users []model.BrandCloudUser
+	Page  Page
+}
+
 type BrandCloudLoginResult struct {
 	BrandCloud     model.Organization     `json:"brand_cloud"`
 	User           model.User             `json:"user"`
@@ -309,11 +322,54 @@ func (s *Store) EnsurePlatformAdmin(ctx context.Context, email, passwordHash str
 }
 
 func (s *Store) CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
-	return s.createAuthToken(ctx, userID, "email_verification", tokenHash, expiresAt)
+	return s.createAuthToken(ctx, userID, "email_verification", "", tokenHash, expiresAt)
 }
 
 func (s *Store) CreatePasswordResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
-	return s.createAuthToken(ctx, userID, "password_reset", tokenHash, expiresAt)
+	return s.createAuthToken(ctx, userID, "password_reset", "", tokenHash, expiresAt)
+}
+
+func (s *Store) CreateLoginActivationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
+	return s.createAuthToken(ctx, userID, "login_activation", "", tokenHash, expiresAt)
+}
+
+func (s *Store) createScopedLoginActivationToken(ctx context.Context, userID, scope, tokenHash string, expiresAt time.Time) error {
+	return s.createAuthToken(ctx, userID, "login_activation", scope, tokenHash, expiresAt)
+}
+
+func (s *Store) CreateLoginActivationTokenForEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error) {
+	var userID string
+	err := s.db.QueryRow(ctx, `
+		SELECT id::text
+		FROM users
+		WHERE email = $1
+		  AND disabled_at IS NULL
+		  AND signup_pending_verification = false
+		  AND (
+		      platform_admin = true
+		      OR EXISTS (
+		          SELECT 1
+		          FROM organization_members m
+		          JOIN organizations o ON o.id = m.organization_id
+		          WHERE m.user_id = users.id
+		            AND o.organization_kind = 'customer_org'
+		      )
+		      OR NOT EXISTS (
+		          SELECT 1
+		          FROM organization_members m
+		          JOIN organizations o ON o.id = m.organization_id
+		          WHERE m.user_id = users.id
+		            AND o.organization_kind = 'brand_cloud'
+		      )
+		  )
+	`, strings.ToLower(strings.TrimSpace(email))).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, s.CreateLoginActivationToken(ctx, userID, tokenHash, expiresAt)
 }
 
 func (s *Store) CreatePasswordResetTokenForEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error) {
@@ -349,6 +405,49 @@ func (s *Store) CreateEmailVerificationTokenForEmail(ctx context.Context, email,
 	return true, s.CreateEmailVerificationToken(ctx, userID, tokenHash, expiresAt)
 }
 
+func (s *Store) ActivateLoginToken(ctx context.Context, tokenHash string) (model.User, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return model.User{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	userID, err := consumeAuthTokenTx(ctx, tx, tokenHash, "login_activation", "")
+	if err != nil {
+		return model.User{}, err
+	}
+	var user model.User
+	err = tx.QueryRow(ctx, `
+		SELECT id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
+		FROM users
+		WHERE id = $1
+		  AND disabled_at IS NULL
+		  AND signup_pending_verification = false
+	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.User{}, ErrNotFound
+	}
+	if err != nil {
+		return model.User{}, err
+	}
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{
+		EventType:   "login_activation_consumed",
+		ActorUserID: &userID,
+		SubjectType: "user",
+		SubjectID:   userID,
+		Payload: map[string]any{
+			"token_purpose": "login_activation",
+			"email":         user.Email,
+		},
+	}); err != nil {
+		return model.User{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.User{}, err
+	}
+	return user, nil
+}
+
 func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash string) (model.User, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -356,7 +455,7 @@ func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash string) (model.U
 	}
 	defer tx.Rollback(ctx)
 
-	userID, err := consumeAuthTokenTx(ctx, tx, tokenHash, "email_verification")
+	userID, err := consumeAuthTokenTx(ctx, tx, tokenHash, "email_verification", "")
 	if err != nil {
 		return model.User{}, err
 	}
@@ -412,7 +511,7 @@ func (s *Store) ResetPasswordWithToken(ctx context.Context, tokenHash, passwordH
 	}
 	defer tx.Rollback(ctx)
 
-	userID, err := consumeAuthTokenTx(ctx, tx, tokenHash, "password_reset")
+	userID, err := consumeAuthTokenTx(ctx, tx, tokenHash, "password_reset", "")
 	if err != nil {
 		return err
 	}
@@ -437,7 +536,7 @@ func (s *Store) ResetPasswordWithToken(ctx context.Context, tokenHash, passwordH
 	return tx.Commit(ctx)
 }
 
-func (s *Store) createAuthToken(ctx context.Context, userID, purpose, tokenHash string, expiresAt time.Time) error {
+func (s *Store) createAuthToken(ctx context.Context, userID, purpose, scope, tokenHash string, expiresAt time.Time) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -448,8 +547,8 @@ func (s *Store) createAuthToken(ctx context.Context, userID, purpose, tokenHash 
 	if err := tx.QueryRow(ctx, `
 		SELECT count(*)
 		FROM auth_tokens
-		WHERE user_id = $1 AND purpose = $2 AND created_at > now() - interval '1 hour'
-	`, userID, purpose).Scan(&recent); err != nil {
+		WHERE user_id = $1 AND purpose = $2 AND scope = $3 AND created_at > now() - interval '1 hour'
+	`, userID, purpose, scope).Scan(&recent); err != nil {
 		return err
 	}
 	if recent >= 5 {
@@ -458,20 +557,20 @@ func (s *Store) createAuthToken(ctx context.Context, userID, purpose, tokenHash 
 	if _, err := tx.Exec(ctx, `
 		UPDATE auth_tokens
 		SET consumed_at = now()
-		WHERE user_id = $1 AND purpose = $2 AND consumed_at IS NULL
-	`, userID, purpose); err != nil {
+		WHERE user_id = $1 AND purpose = $2 AND scope = $3 AND consumed_at IS NULL
+	`, userID, purpose, scope); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO auth_tokens (user_id, purpose, token_hash, expires_at)
-		VALUES ($1, $2, $3, $4)
-	`, userID, purpose, tokenHash, expiresAt); err != nil {
+		INSERT INTO auth_tokens (user_id, purpose, scope, token_hash, expires_at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, userID, purpose, scope, tokenHash, expiresAt); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
-func consumeAuthTokenTx(ctx context.Context, tx pgx.Tx, tokenHash, purpose string) (string, error) {
+func consumeAuthTokenTx(ctx context.Context, tx pgx.Tx, tokenHash, purpose, scope string) (string, error) {
 	var userID string
 	err := tx.QueryRow(ctx, `
 		SELECT at.user_id::text
@@ -479,11 +578,12 @@ func consumeAuthTokenTx(ctx context.Context, tx pgx.Tx, tokenHash, purpose strin
 		JOIN users u ON u.id = at.user_id
 		WHERE at.token_hash = $1
 		  AND at.purpose = $2
+		  AND at.scope = $3
 		  AND at.consumed_at IS NULL
 		  AND at.expires_at > now()
 		  AND u.disabled_at IS NULL
 		FOR UPDATE OF at
-	`, tokenHash, purpose).Scan(&userID)
+	`, tokenHash, purpose, scope).Scan(&userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
 	}

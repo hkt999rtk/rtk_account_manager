@@ -215,6 +215,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationDeviceUserUnprovisionWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationDisabledUserCannotManageOIDCIdentities`
 - `rtk_account_manager/internal/api`: `TestIntegrationDisabledUserCannotUseExistingTokens`
+- `rtk_account_manager/internal/api`: `TestIntegrationEmailSignInValidationPaths`
 - `rtk_account_manager/internal/api`: `TestIntegrationEmailVerificationAndPasswordRecovery`
 - `rtk_account_manager/internal/api`: `TestIntegrationFleetGroupsAndTags`
 - `rtk_account_manager/internal/api`: `TestIntegrationInternalAppTokenAuthorization`
@@ -481,6 +482,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestACLSeedPermissionCatalogAndSystemRoles`
 - `rtk_account_manager/internal/store`: `TestAppCertificateCreateRotatesActiveCertificate`
 - `rtk_account_manager/internal/store`: `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`
+- `rtk_account_manager/internal/store`: `TestBrandCloudLoginActivationTokenIsTenantScoped`
+- `rtk_account_manager/internal/store`: `TestBrandCloudStoreCRUDAndErrorPaths`
 - `rtk_account_manager/internal/store`: `TestClaimOutboxMessagesReadyLeasesRows`
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshotWithLossyUTF8`
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshot`
@@ -509,6 +512,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestListAuditEventsReturnsRecordedLifecycleEvents`
 - `rtk_account_manager/internal/store`: `TestListInboxMessagesByStatusAndShowDetail`
 - `rtk_account_manager/internal/store`: `TestListOutboxMessagesByStatusFiltersLifecycleRows`
+- `rtk_account_manager/internal/store`: `TestLoginActivationTokenLifecycleAndScope`
 - `rtk_account_manager/internal/store`: `TestMergeDeviceMetadataPreservesUnrelatedFields`
 - `rtk_account_manager/internal/store`: `TestMetadataChangedProjectionFiltersNonVideoCloudKeys`
 - `rtk_account_manager/internal/store`: `TestNormalizeTenantSlug/empty_after_normalization`
