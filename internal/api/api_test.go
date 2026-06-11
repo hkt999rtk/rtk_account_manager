@@ -276,15 +276,30 @@ func TestAuthTokenDeliveryHook(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	c.Set("request_id", "req-1")
 
 	noSinkServer := New(nil, nil)
 	if err := noSinkServer.deliverAuthToken(c, "user@example.com", "email_verification", "token", time.Now()); !errors.Is(err, ErrAuthTokenSinkUnavailable) {
 		t.Fatalf("expected unavailable sink error, got %v", err)
 	}
 
+	core, logs := observer.New(zapcore.ErrorLevel)
 	errorServer := NewWithAuthTokenSink(nil, nil, failingAuthTokenSink{})
-	if err := errorServer.deliverAuthToken(c, "user@example.com", "email_verification", "token", time.Now()); err == nil {
+	errorServer.SetLogger(zap.New(core))
+	if err := errorServer.deliverAuthToken(c, "User@Example.com", "email_verification", "secret-token", time.Now()); err == nil {
 		t.Fatal("expected sink delivery error")
+	}
+	entries := logs.FilterMessage("auth token delivery failed").All()
+	if len(entries) != 1 {
+		t.Fatalf("expected one delivery failure log, got %d", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if fields["purpose"] != "email_verification" || fields["email_domain"] != "example.com" || fields["request_id"] != "req-1" {
+		t.Fatalf("unexpected delivery failure log fields: %+v", fields)
+	}
+	logText := entries[0].Context
+	if fmt.Sprint(logText) == "" || strings.Contains(fmt.Sprint(logText), "secret-token") || strings.Contains(fmt.Sprint(logText), "User@Example.com") {
+		t.Fatalf("delivery failure log leaked sensitive values: %+v", logText)
 	}
 }
 

@@ -1191,14 +1191,19 @@ func (s *Server) createAuthToken(c *gin.Context, userID, purpose string) (string
 
 func (s *Server) deliverAuthToken(c *gin.Context, email, purpose, token string, expiresAt time.Time) error {
 	if s.authTokenSink == nil {
+		s.logAuthTokenDeliveryFailure(c, email, purpose, ErrAuthTokenSinkUnavailable)
 		return ErrAuthTokenSinkUnavailable
 	}
-	return s.authTokenSink.DeliverAuthToken(c.Request.Context(), AuthTokenDelivery{
+	err := s.authTokenSink.DeliverAuthToken(c.Request.Context(), AuthTokenDelivery{
 		Purpose:   purpose,
 		Email:     email,
 		Token:     token,
 		ExpiresAt: expiresAt,
 	})
+	if err != nil {
+		s.logAuthTokenDeliveryFailure(c, email, purpose, err)
+	}
+	return err
 }
 
 func (s *Server) newAuthToken() (string, time.Time, error) {
@@ -1207,6 +1212,30 @@ func (s *Server) newAuthToken() (string, time.Time, error) {
 		return "", time.Time{}, err
 	}
 	return token, time.Now().UTC().Add(30 * time.Minute), nil
+}
+
+func (s *Server) logAuthTokenDeliveryFailure(c *gin.Context, email, purpose string, err error) {
+	logger := s.logger
+	if logger == nil {
+		logger = cloudlogger.Nop()
+	}
+	fields := []zap.Field{
+		zap.String("purpose", purpose),
+		zap.String("email_domain", emailDomain(email)),
+		zap.Error(err),
+	}
+	if requestID := c.GetString("request_id"); requestID != "" {
+		fields = append(fields, zap.String("request_id", requestID))
+	}
+	logger.Error("auth token delivery failed", fields...)
+}
+
+func emailDomain(email string) string {
+	_, domain, ok := strings.Cut(strings.ToLower(strings.TrimSpace(email)), "@")
+	if !ok {
+		return ""
+	}
+	return domain
 }
 
 func (s *Server) logout(c *gin.Context) {
