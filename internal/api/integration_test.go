@@ -81,7 +81,7 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-				TRUNCATE acl_audit_events, external_group_mappings, role_assignments, oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_user_bindings, brand_cloud_end_users, end_user_refresh_tokens, end_user_identities, device_claims, device_claim_tokens, device_item_profiles, app_certificates, brand_cloud_refresh_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, brand_cloud_memberships, organization_members, brand_cloud_users, end_users, organizations, users
+				TRUNCATE acl_audit_events, external_group_mappings, role_assignments, oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_user_bindings, brand_cloud_end_users, end_user_refresh_tokens, end_user_identities, device_claims, device_claim_tokens, device_item_profiles, device_message_inbox, device_message_outbox, device_operations, app_certificates, brand_cloud_refresh_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, brand_cloud_memberships, organization_members, brand_cloud_users, end_users, organizations, users
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatal(err)
@@ -1073,6 +1073,56 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	}
 }
 
+func TestIntegrationEmailSignInValidationPaths(t *testing.T) {
+	env := newIntegrationEnv(t)
+	accountStore := store.New(env.db)
+	ctx := context.Background()
+
+	malformedSignInRes := performJSON(env.router, http.MethodPost, "/v1/auth/sign-in", "not-json", "")
+	if malformedSignInRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected malformed sign-in 400, got %d: %s", malformedSignInRes.Code, malformedSignInRes.Body.String())
+	}
+	missingActivationTokenRes := performJSON(env.router, http.MethodPost, "/v1/auth/login/activate", map[string]any{
+		"token": "   ",
+	}, "")
+	if missingActivationTokenRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected blank login activation token 400, got %d: %s", missingActivationTokenRes.Code, missingActivationTokenRes.Body.String())
+	}
+	invalidActivationTokenRes := performJSON(env.router, http.MethodPost, "/v1/auth/login/activate", map[string]any{
+		"token": "not-a-valid-login-token",
+	}, "")
+	if invalidActivationTokenRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid login activation token 400, got %d: %s", invalidActivationTokenRes.Code, invalidActivationTokenRes.Body.String())
+	}
+
+	malformedBrandSignInRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/missing/auth/sign-in", "not-json", "")
+	if malformedBrandSignInRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected malformed brand sign-in 400, got %d: %s", malformedBrandSignInRes.Code, malformedBrandSignInRes.Body.String())
+	}
+	invalidBrandActivationTokenRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/missing/auth/login/activate", map[string]any{
+		"token": "not-a-valid-brand-token",
+	}, "")
+	if invalidBrandActivationTokenRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid brand activation token 400, got %d: %s", invalidBrandActivationTokenRes.Code, invalidBrandActivationTokenRes.Body.String())
+	}
+
+	rateLimited := registerUser(t, env.router, "signin-rate-limit@example.com", "Sign In Rate Limit Org")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified = true, email_verified_at = now(), signup_pending_verification = false WHERE id = $1`, rateLimited.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		if err := accountStore.CreateLoginActivationToken(ctx, rateLimited.User.ID, auth.HashToken("signin-rate-limit-"+strconv.Itoa(i)), time.Now().Add(30*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rateLimitedSignInRes := performJSON(env.router, http.MethodPost, "/v1/auth/sign-in", map[string]any{
+		"email": "signin-rate-limit@example.com",
+	}, "")
+	if rateLimitedSignInRes.Code != http.StatusAccepted {
+		t.Fatalf("expected rate-limited sign-in to stay enumeration-safe 202, got %d", rateLimitedSignInRes.Code)
+	}
+}
+
 func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
 	env := newIntegrationEnv(t)
 
@@ -1372,6 +1422,23 @@ func TestIntegrationPlatformAdminBrandCloudLifecycle(t *testing.T) {
 		t.Fatalf("unexpected brand cloud response: %+v", created.BrandCloud)
 	}
 
+	nonAdminGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+created.BrandCloud.ID, nil, nonAdmin.Tokens.AccessToken)
+	if nonAdminGetRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-admin brand cloud get 403, got %d: %s", nonAdminGetRes.Code, nonAdminGetRes.Body.String())
+	}
+	getRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+created.BrandCloud.ID, nil, admin.Tokens.AccessToken)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("expected brand cloud get 200, got %d: %s", getRes.Code, getRes.Body.String())
+	}
+	got := decodeBody[brandCloudBody](t, getRes)
+	if got.BrandCloud.ID != created.BrandCloud.ID || got.BrandCloud.TenantSlug == "" {
+		t.Fatalf("unexpected brand cloud get response: %+v", got.BrandCloud)
+	}
+	missingGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/00000000-0000-0000-0000-000000000000", nil, admin.Tokens.AccessToken)
+	if missingGetRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing brand cloud get 404, got %d: %s", missingGetRes.Code, missingGetRes.Body.String())
+	}
+
 	patchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/"+created.BrandCloud.ID, map[string]any{
 		"name":   "Realtek Connect Plus",
 		"status": "disabled",
@@ -1383,6 +1450,12 @@ func TestIntegrationPlatformAdminBrandCloudLifecycle(t *testing.T) {
 	if patched.BrandCloud.Name != "Realtek Connect Plus" || patched.BrandCloud.Status != "disabled" {
 		t.Fatalf("unexpected patched brand cloud: %+v", patched.BrandCloud)
 	}
+	missingPatchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/00000000-0000-0000-0000-000000000000", map[string]any{
+		"name": "Missing Brand Cloud",
+	}, admin.Tokens.AccessToken)
+	if missingPatchRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing brand cloud patch 404, got %d: %s", missingPatchRes.Code, missingPatchRes.Body.String())
+	}
 
 	memberRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+created.BrandCloud.ID+"/members", map[string]any{
 		"user_id": owner.User.ID,
@@ -1390,6 +1463,13 @@ func TestIntegrationPlatformAdminBrandCloudLifecycle(t *testing.T) {
 	}, admin.Tokens.AccessToken)
 	if memberRes.Code != http.StatusCreated {
 		t.Fatalf("expected brand cloud member assignment 201, got %d: %s", memberRes.Code, memberRes.Body.String())
+	}
+	missingMemberRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/00000000-0000-0000-0000-000000000000/members", map[string]any{
+		"user_id": owner.User.ID,
+		"role":    "member",
+	}, admin.Tokens.AccessToken)
+	if missingMemberRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing brand cloud member assignment 404, got %d: %s", missingMemberRes.Code, missingMemberRes.Body.String())
 	}
 
 	listRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds", nil, admin.Tokens.AccessToken)
