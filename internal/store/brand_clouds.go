@@ -17,6 +17,10 @@ import (
 
 var slugUnsafePattern = regexp.MustCompile(`[^a-z0-9]+`)
 
+type rowQuerier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
 func (s *Store) CreateBrandCloud(ctx context.Context, actorUserID string, in BrandCloudInput) (model.Organization, error) {
 	metadata, err := json.Marshal(defaultMetadata(in.Metadata))
 	if err != nil {
@@ -373,6 +377,126 @@ func (s *Store) CreateBrandCloudUser(ctx context.Context, actorUserID, orgID str
 	return BrandCloudUserResult{Action: action, User: user, Member: member, BrandCloudUser: brandCloudUser, BrandCloudMember: brandCloudMember}, nil
 }
 
+func (s *Store) ListBrandCloudUsers(ctx context.Context, in BrandCloudUserListFilter) (BrandCloudUserPage, error) {
+	exists, err := s.brandCloudExists(ctx, in.BrandCloudID)
+	if err != nil {
+		return BrandCloudUserPage{}, err
+	}
+	if !exists {
+		return BrandCloudUserPage{}, ErrNotFound
+	}
+
+	status := strings.TrimSpace(in.Status)
+	query := strings.ToLower(strings.TrimSpace(in.Query))
+	total, err := s.countBrandCloudUsers(ctx, in.BrandCloudID, status, query)
+	if err != nil {
+		return BrandCloudUserPage{}, err
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT id::text, brand_cloud_id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
+		FROM brand_cloud_users
+		WHERE brand_cloud_id = $1
+		  AND (
+		    $2 = ''
+		    OR ($2 = 'active' AND disabled_at IS NULL AND signup_pending_verification = false)
+		    OR ($2 = 'pending_verification' AND disabled_at IS NULL AND signup_pending_verification = true)
+		    OR ($2 = 'disabled' AND disabled_at IS NOT NULL)
+		  )
+		  AND (
+		    $3 = ''
+		    OR lower(email) LIKE '%' || $3 || '%'
+		    OR lower(coalesce(display_name, '')) LIKE '%' || $3 || '%'
+		    OR id::text = $3
+		  )
+		ORDER BY created_at ASC
+		LIMIT $4 OFFSET $5
+	`, in.BrandCloudID, status, query, in.Limit, in.Offset)
+	if err != nil {
+		return BrandCloudUserPage{}, err
+	}
+	defer rows.Close()
+
+	users := []model.BrandCloudUser{}
+	for rows.Next() {
+		user, err := scanBrandCloudUser(rows)
+		if err != nil {
+			return BrandCloudUserPage{}, err
+		}
+		users = append(users, user)
+	}
+	if err := rows.Err(); err != nil {
+		return BrandCloudUserPage{}, err
+	}
+	return BrandCloudUserPage{Users: users, Page: Page{Limit: in.Limit, Offset: in.Offset, Total: total}}, nil
+}
+
+func (s *Store) DisableBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) (model.BrandCloudUser, error) {
+	return s.setBrandCloudUserDisabled(ctx, actorUserID, brandCloudID, brandCloudUserID, true, "brand_cloud_user_disabled")
+}
+
+func (s *Store) EnableBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) (model.BrandCloudUser, error) {
+	return s.setBrandCloudUserDisabled(ctx, actorUserID, brandCloudID, brandCloudUserID, false, "brand_cloud_user_enabled")
+}
+
+func (s *Store) ApproveBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) (model.BrandCloudUser, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return model.BrandCloudUser{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	user, err := scanBrandCloudUser(tx.QueryRow(ctx, `
+		UPDATE brand_cloud_users
+		SET email_verified = true,
+		    email_verified_at = COALESCE(email_verified_at, now()),
+		    signup_pending_verification = false,
+		    disabled_at = NULL,
+		    updated_at = now()
+		WHERE brand_cloud_id = $1 AND id = $2
+		RETURNING id::text, brand_cloud_id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
+	`, brandCloudID, brandCloudUserID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.BrandCloudUser{}, ErrNotFound
+	}
+	if err != nil {
+		return model.BrandCloudUser{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE users
+		SET email_verified = true,
+		    email_verified_at = COALESCE(email_verified_at, now()),
+		    signup_pending_verification = false,
+		    disabled_at = NULL,
+		    updated_at = now()
+		WHERE email = $1
+	`, user.Email); err != nil {
+		return model.BrandCloudUser{}, err
+	}
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{
+		EventType:      "brand_cloud_user_approved",
+		ActorUserID:    &actorUserID,
+		OrganizationID: &brandCloudID,
+		SubjectType:    "brand_cloud_user",
+		SubjectID:      brandCloudUserID,
+		Payload: map[string]any{
+			"brand_cloud_id":      brandCloudID,
+			"brand_cloud_user_id": brandCloudUserID,
+			"email":               user.Email,
+		},
+	}); err != nil {
+		return model.BrandCloudUser{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.BrandCloudUser{}, err
+	}
+	return user, nil
+}
+
+func (s *Store) DeleteBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) error {
+	_, err := s.setBrandCloudUserDisabled(ctx, actorUserID, brandCloudID, brandCloudUserID, true, "brand_cloud_user_deleted")
+	return err
+}
+
 func (s *Store) GetBrandCloudByTenantSlug(ctx context.Context, tenantSlug string) (model.Organization, error) {
 	org, err := scanOrganization(s.db.QueryRow(ctx, `
 		SELECT id::text, name, tenant_slug, ''::text, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at
@@ -386,9 +510,91 @@ func (s *Store) GetBrandCloudByTenantSlug(ctx context.Context, tenantSlug string
 }
 
 func (s *Store) GetBrandCloudUserPassword(ctx context.Context, tenantSlug, email string) (BrandCloudLoginResult, error) {
+	return getBrandCloudLoginResultByEmail(ctx, s.db, tenantSlug, email)
+}
+
+func (s *Store) CreateBrandCloudLoginActivationTokenForEmail(ctx context.Context, tenantSlug, email, tokenHash string, expiresAt time.Time) (bool, error) {
+	result, err := s.GetBrandCloudUserPassword(ctx, tenantSlug, email)
+	if errors.Is(err, ErrNotFound) || result.BrandCloudUser.SignupPendingVerification {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, s.createScopedLoginActivationToken(ctx, result.User.ID, brandCloudAuthTokenScope(tenantSlug), tokenHash, expiresAt)
+}
+
+func (s *Store) ActivateBrandCloudLoginToken(ctx context.Context, tenantSlug, tokenHash string) (BrandCloudLoginResult, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return BrandCloudLoginResult{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var userID, email string
+	err = tx.QueryRow(ctx, `
+		SELECT u.id::text, u.email
+		FROM auth_tokens at
+		JOIN users u ON u.id = at.user_id
+		WHERE at.token_hash = $1
+		  AND at.purpose = 'login_activation'
+		  AND at.scope = $2
+		  AND at.consumed_at IS NULL
+		  AND at.expires_at > now()
+		  AND u.disabled_at IS NULL
+		  AND u.signup_pending_verification = false
+		FOR UPDATE OF at
+	`, tokenHash, brandCloudAuthTokenScope(tenantSlug)).Scan(&userID, &email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return BrandCloudLoginResult{}, ErrNotFound
+	}
+	if err != nil {
+		return BrandCloudLoginResult{}, err
+	}
+
+	result, err := getBrandCloudLoginResultByEmail(ctx, tx, tenantSlug, email)
+	if err != nil {
+		return BrandCloudLoginResult{}, err
+	}
+	if result.User.ID != userID || result.BrandCloudUser.SignupPendingVerification {
+		return BrandCloudLoginResult{}, ErrNotFound
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE auth_tokens
+		SET consumed_at = now()
+		WHERE token_hash = $1
+	`, tokenHash); err != nil {
+		return BrandCloudLoginResult{}, err
+	}
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{
+		EventType:      "brand_cloud_login_activation_consumed",
+		ActorUserID:    &userID,
+		OrganizationID: &result.BrandCloud.ID,
+		SubjectType:    "brand_cloud_user",
+		SubjectID:      result.BrandCloudUser.ID,
+		Payload: map[string]any{
+			"token_purpose":       "login_activation",
+			"tenant_slug":         normalizeTenantSlug(tenantSlug),
+			"email":               result.BrandCloudUser.Email,
+			"brand_cloud_user_id": result.BrandCloudUser.ID,
+		},
+	}); err != nil {
+		return BrandCloudLoginResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return BrandCloudLoginResult{}, err
+	}
+	return result, nil
+}
+
+func brandCloudAuthTokenScope(tenantSlug string) string {
+	return "brand_cloud:" + normalizeTenantSlug(tenantSlug)
+}
+
+func getBrandCloudLoginResultByEmail(ctx context.Context, q rowQuerier, tenantSlug, email string) (BrandCloudLoginResult, error) {
 	var result BrandCloudLoginResult
 	var rawMetadata []byte
-	err := s.db.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		SELECT
 		    o.id::text, o.name, o.tenant_slug, ''::text, o.organization_kind, o.status, o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at,
 		    bcu.id::text, bcu.brand_cloud_id::text, bcu.email, bcu.password_hash, bcu.display_name, bcu.email_verified, bcu.email_verified_at, bcu.signup_pending_verification, bcu.created_at, bcu.updated_at, bcu.disabled_at,
@@ -549,6 +755,97 @@ func (s *Store) countBrandClouds(ctx context.Context) (int, error) {
 		WHERE organization_kind = 'brand_cloud'
 	`).Scan(&total)
 	return total, err
+}
+
+func (s *Store) countBrandCloudUsers(ctx context.Context, brandCloudID, status, query string) (int, error) {
+	var total int
+	err := s.db.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM brand_cloud_users
+		WHERE brand_cloud_id = $1
+		  AND (
+		    $2 = ''
+		    OR ($2 = 'active' AND disabled_at IS NULL AND signup_pending_verification = false)
+		    OR ($2 = 'pending_verification' AND disabled_at IS NULL AND signup_pending_verification = true)
+		    OR ($2 = 'disabled' AND disabled_at IS NOT NULL)
+		  )
+		  AND (
+		    $3 = ''
+		    OR lower(email) LIKE '%' || $3 || '%'
+		    OR lower(coalesce(display_name, '')) LIKE '%' || $3 || '%'
+		    OR id::text = $3
+		  )
+	`, brandCloudID, status, query).Scan(&total)
+	return total, err
+}
+
+func (s *Store) brandCloudExists(ctx context.Context, brandCloudID string) (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM organizations
+			WHERE id = $1 AND organization_kind = 'brand_cloud'
+		)
+	`, brandCloudID).Scan(&exists)
+	return exists, err
+}
+
+func (s *Store) setBrandCloudUserDisabled(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string, disabled bool, eventType string) (model.BrandCloudUser, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return model.BrandCloudUser{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var user model.BrandCloudUser
+	if disabled {
+		user, err = scanBrandCloudUser(tx.QueryRow(ctx, `
+			UPDATE brand_cloud_users
+			SET disabled_at = COALESCE(disabled_at, now()), updated_at = now()
+			WHERE brand_cloud_id = $1 AND id = $2
+			RETURNING id::text, brand_cloud_id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
+		`, brandCloudID, brandCloudUserID))
+	} else {
+		user, err = scanBrandCloudUser(tx.QueryRow(ctx, `
+			UPDATE brand_cloud_users
+			SET disabled_at = NULL, updated_at = now()
+			WHERE brand_cloud_id = $1 AND id = $2
+			RETURNING id::text, brand_cloud_id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
+		`, brandCloudID, brandCloudUserID))
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.BrandCloudUser{}, ErrNotFound
+	}
+	if err != nil {
+		return model.BrandCloudUser{}, err
+	}
+	if disabled {
+		if _, err := tx.Exec(ctx, `
+			UPDATE brand_cloud_refresh_tokens
+			SET revoked_at = now()
+			WHERE brand_cloud_id = $1 AND brand_cloud_user_id = $2 AND revoked_at IS NULL
+		`, brandCloudID, brandCloudUserID); err != nil {
+			return model.BrandCloudUser{}, err
+		}
+	}
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{
+		EventType:      eventType,
+		ActorUserID:    &actorUserID,
+		OrganizationID: &brandCloudID,
+		SubjectType:    "brand_cloud_user",
+		SubjectID:      brandCloudUserID,
+		Payload: map[string]any{
+			"brand_cloud_id":      brandCloudID,
+			"brand_cloud_user_id": brandCloudUserID,
+			"email":               user.Email,
+		},
+	}); err != nil {
+		return model.BrandCloudUser{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.BrandCloudUser{}, err
+	}
+	return user, nil
 }
 
 type scanner interface {

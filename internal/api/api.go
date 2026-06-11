@@ -113,8 +113,8 @@ func (s LogAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthToken
 		"auth token delivery",
 		zap.String("purpose", delivery.Purpose),
 		zap.String("email", delivery.Email),
+		zap.String("token", delivery.Token),
 		zap.Time("expires_at", delivery.ExpiresAt.UTC()),
-		zap.Bool("token_redacted", strings.TrimSpace(delivery.Token) != ""),
 	)
 	return nil
 }
@@ -309,6 +309,8 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/auth/register", s.register)
 	v1.POST("/auth/signup", s.signup)
 	v1.POST("/auth/login", s.login)
+	v1.POST("/auth/sign-in", s.signIn)
+	v1.POST("/auth/login/activate", s.activateLogin)
 	v1.POST("/auth/refresh", s.refresh)
 	v1.POST("/auth/verify-email", s.verifyEmail)
 	v1.POST("/auth/resend-verification", s.resendVerification)
@@ -318,6 +320,8 @@ func (s *Server) Router() *gin.Engine {
 	v1.GET("/auth/oidc/:providerId/login", s.startOIDCLogin)
 	v1.GET("/auth/oidc/:providerId/callback", s.handleOIDCCallback)
 	v1.POST("/brand-clouds/:tenantSlug/auth/login", s.brandCloudLogin)
+	v1.POST("/brand-clouds/:tenantSlug/auth/sign-in", s.brandCloudSignIn)
+	v1.POST("/brand-clouds/:tenantSlug/auth/login/activate", s.brandCloudActivateLogin)
 	v1.POST("/brand-clouds/:tenantSlug/auth/refresh", s.brandCloudRefresh)
 	v1.POST("/app/end-users/auth/login", s.appEndUserLogin)
 	v1.POST("/app/end-users/auth/refresh", s.appEndUserRefresh)
@@ -388,6 +392,11 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/admin/brand-clouds/:brandCloudId/device-item-profiles/:profileId/disable", s.requirePlatformAdmin(), s.disableDeviceItemProfile)
 	protected.POST("/admin/brand-clouds/:brandCloudId/members", s.requirePlatformAdmin(), s.assignBrandCloudMember)
 	protected.POST("/admin/brand-clouds/:brandCloudId/users", s.requirePlatformAdmin(), s.createBrandCloudUser)
+	protected.GET("/admin/brand-clouds/:brandCloudId/users", s.requirePlatformAdmin(), s.listBrandCloudUsers)
+	protected.POST("/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/disable", s.requirePlatformAdmin(), s.disableBrandCloudUser)
+	protected.POST("/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/enable", s.requirePlatformAdmin(), s.enableBrandCloudUser)
+	protected.POST("/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/approve", s.requirePlatformAdmin(), s.approveBrandCloudUser)
+	protected.DELETE("/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId", s.requirePlatformAdmin(), s.deleteBrandCloudUser)
 	protected.POST("/admin/device-claim-tokens", s.requirePlatformAdmin(), s.createDeviceClaimToken)
 	protected.GET("/admin/device-claim-tokens", s.requirePlatformAdmin(), s.listDeviceClaimTokens)
 	protected.GET("/admin/device-claim-tokens/:tokenId", s.requirePlatformAdmin(), s.getDeviceClaimToken)
@@ -489,6 +498,58 @@ func (s *Server) login(c *gin.Context) {
 	}
 	if user.SignupPendingVerification {
 		writeError(c, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
+		return
+	}
+	tokens, err := s.issueTokens(c, user.ID)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
+		return
+	}
+	response, err := s.loginResponse(c.Request.Context(), user, tokens, req.AppCSRPem)
+	if err != nil {
+		writeAppCertificateError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+func (s *Server) signIn(c *gin.Context) {
+	var req emailRequest
+	if !bind(c, &req) {
+		return
+	}
+	token, expiresAt, err := s.newAuthToken()
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue login token")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	created, err := s.store.CreateLoginActivationTokenForEmail(c.Request.Context(), email, auth.HashToken(token), expiresAt)
+	if err != nil {
+		if errors.Is(err, store.ErrRateLimited) {
+			c.Status(http.StatusAccepted)
+			return
+		}
+		writeAuthTokenStoreError(c, err, "Could not issue login token")
+		return
+	}
+	if created {
+		_ = s.deliverAuthToken(c, email, "login_activation", token, expiresAt)
+	}
+	c.Status(http.StatusAccepted)
+}
+
+func (s *Server) activateLogin(c *gin.Context) {
+	var req authTokenRequest
+	if !bind(c, &req) {
+		return
+	}
+	if !requireNonBlank(c, "token", req.Token) {
+		return
+	}
+	user, err := s.store.ActivateLoginToken(c.Request.Context(), auth.HashToken(req.Token))
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "invalid_token", "Invalid or expired login token")
 		return
 	}
 	tokens, err := s.issueTokens(c, user.ID)
@@ -858,7 +919,8 @@ func (s *Server) refresh(c *gin.Context) {
 }
 
 type authTokenRequest struct {
-	Token string `json:"token" binding:"required"`
+	Token     string `json:"token" binding:"required"`
+	AppCSRPem string `json:"app_csr_pem,omitempty"`
 }
 
 func (s *Server) verifyEmail(c *gin.Context) {
@@ -969,6 +1031,8 @@ func (s *Server) createAuthToken(c *gin.Context, userID, purpose string) (string
 		return token, expiresAt, s.store.CreateEmailVerificationToken(c.Request.Context(), userID, tokenHash, expiresAt)
 	case "password_reset":
 		return token, expiresAt, s.store.CreatePasswordResetToken(c.Request.Context(), userID, tokenHash, expiresAt)
+	case "login_activation":
+		return token, expiresAt, s.store.CreateLoginActivationToken(c.Request.Context(), userID, tokenHash, expiresAt)
 	default:
 		return "", time.Time{}, errors.New("unsupported token purpose")
 	}

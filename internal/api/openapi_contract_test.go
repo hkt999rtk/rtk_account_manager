@@ -254,6 +254,9 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 		"role":         "member",
 	}, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users", brandCloudUserRes)
+	brandCloudUserBody := decodeBody[brandCloudUserBody](t, brandCloudUserRes)
+	brandCloudUsersRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users", brandCloudUsersRes)
 	brandCloudReactivateRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID, map[string]any{
 		"status": "active",
 	}, admin.Tokens.AccessToken)
@@ -278,6 +281,14 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 		"refresh_token": brandRefreshBody.Tokens.RefreshToken,
 	}, brandRefreshBody.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/brand-clouds/"+brandCloudResp.BrandCloud.TenantSlug+"/auth/logout", brandLogoutRes)
+	brandCloudUserDisableRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users/"+brandCloudUserBody.BrandCloudUser.ID+"/disable", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users/"+brandCloudUserBody.BrandCloudUser.ID+"/disable", brandCloudUserDisableRes)
+	brandCloudUserEnableRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users/"+brandCloudUserBody.BrandCloudUser.ID+"/enable", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users/"+brandCloudUserBody.BrandCloudUser.ID+"/enable", brandCloudUserEnableRes)
+	brandCloudUserApproveRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users/"+brandCloudUserBody.BrandCloudUser.ID+"/approve", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users/"+brandCloudUserBody.BrandCloudUser.ID+"/approve", brandCloudUserApproveRes)
+	brandCloudUserDeleteRes := performJSON(env.router, http.MethodDelete, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users/"+brandCloudUserBody.BrandCloudUser.ID, nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodDelete, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users/"+brandCloudUserBody.BrandCloudUser.ID, brandCloudUserDeleteRes)
 	adminClaimTokensRes := performJSON(env.router, http.MethodGet, "/v1/admin/device-claim-tokens", nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodGet, "/v1/admin/device-claim-tokens", adminClaimTokensRes)
 	adminClaimTokenGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/device-claim-tokens/"+adminClaimTokenBody.DeviceClaimToken.ID, nil, admin.Tokens.AccessToken)

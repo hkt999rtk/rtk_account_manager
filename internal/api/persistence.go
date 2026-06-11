@@ -33,15 +33,20 @@ type authPersistence interface {
 	GetUserPasswordByID(ctx context.Context, userID string) (model.User, string, error)
 	CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
 	CreatePasswordResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
+	CreateLoginActivationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
 	CreatePasswordResetTokenForEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error)
 	CreateEmailVerificationTokenForEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error)
+	CreateLoginActivationTokenForEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error)
 	VerifyEmailToken(ctx context.Context, tokenHash string) (model.User, error)
+	ActivateLoginToken(ctx context.Context, tokenHash string) (model.User, error)
 	ResetPasswordWithToken(ctx context.Context, tokenHash, passwordHash string) error
 	UpdateUserPassword(ctx context.Context, userID, passwordHash string) error
 	SaveRefreshToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
 	RotateRefreshToken(ctx context.Context, oldTokenHash, newTokenHash, userID string, newExpiresAt time.Time) error
 	RevokeRefreshToken(ctx context.Context, tokenHash string) error
 	GetBrandCloudUserPassword(ctx context.Context, tenantSlug, email string) (store.BrandCloudLoginResult, error)
+	CreateBrandCloudLoginActivationTokenForEmail(ctx context.Context, tenantSlug, email, tokenHash string, expiresAt time.Time) (bool, error)
+	ActivateBrandCloudLoginToken(ctx context.Context, tenantSlug, tokenHash string) (store.BrandCloudLoginResult, error)
 	GetBrandCloudUser(ctx context.Context, brandCloudUserID string) (model.BrandCloudUser, error)
 	GetBrandCloudMember(ctx context.Context, brandCloudID, brandCloudUserID string) (model.BrandCloudMember, error)
 	SaveBrandCloudRefreshToken(ctx context.Context, brandCloudUserID, brandCloudID, tokenHash string, expiresAt time.Time) error
@@ -194,6 +199,11 @@ type brandCloudPersistence interface {
 	UpdateBrandCloud(ctx context.Context, actorUserID, orgID string, in store.BrandCloudInput) (model.Organization, error)
 	AssignBrandCloudMember(ctx context.Context, actorUserID, orgID, userID string, role model.Role) (model.Member, error)
 	CreateBrandCloudUser(ctx context.Context, actorUserID, orgID string, in store.BrandCloudUserInput) (store.BrandCloudUserResult, error)
+	ListBrandCloudUsers(ctx context.Context, in store.BrandCloudUserListFilter) (store.BrandCloudUserPage, error)
+	DisableBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) (model.BrandCloudUser, error)
+	EnableBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) (model.BrandCloudUser, error)
+	ApproveBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) (model.BrandCloudUser, error)
+	DeleteBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) error
 	CreateDeviceItemProfile(ctx context.Context, in store.DeviceItemProfileCreateInput) (model.DeviceItemProfile, error)
 	ListDeviceItemProfiles(ctx context.Context, in store.DeviceItemProfileListFilter) (store.DeviceItemProfilePage, error)
 	GetDeviceItemProfile(ctx context.Context, brandCloudID, profileID string) (model.DeviceItemProfile, error)

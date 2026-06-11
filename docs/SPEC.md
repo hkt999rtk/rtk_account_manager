@@ -174,6 +174,57 @@ This scope does not:
 - Auto-link an arbitrary external identity to a local user without the configured
   account-manager policy allowing that link.
 
+## 2.4 Email Sign-In And Password Recovery
+
+Account Manager supports an email activation lifecycle for Admin Console login
+and password recovery. The API is backend-only; `rtk_cloud_admin` owns the
+browser routes, local session cookie, and display states.
+
+Console user sign-in is split into two steps:
+
+1. `POST /v1/auth/sign-in` accepts an email address and, when the user is an
+   eligible platform/customer console user, creates a one-time
+   `login_activation` token.
+2. `POST /v1/auth/login/activate` consumes the one-time token and issues the
+   same access/refresh token response shape as password login.
+
+Brand-cloud users use tenant-scoped equivalents:
+
+1. `POST /v1/brand-clouds/:tenantSlug/auth/sign-in`
+2. `POST /v1/brand-clouds/:tenantSlug/auth/login/activate`
+
+The tenant slug is part of the brand-cloud authentication namespace. A brand
+activation token must succeed only for the tenant where the email has an active
+brand-cloud user and membership.
+
+Enumeration safety is mandatory. Sign-in and forgot-password request endpoints
+return `202 Accepted` for syntactically valid requests whether the email is
+unknown, disabled, pending activation, rate limited, or eligible. Raw tokens are
+never returned in HTTP responses. Delivery is handled only through the
+configured `AuthTokenSink`; the first implementation may use the existing log
+sink until SMTP or another email sink is configured. The log sink is an
+operator-only delivery adapter and records the raw token in server logs; those
+logs must be treated as sensitive operational material.
+
+`auth_tokens` stores only token hashes. Tenant-scoped login tokens also carry a
+server-side `scope` value such as `brand_cloud:<tenantSlug>`; console login,
+email verification, and password reset use the empty scope. Token purposes are:
+
+- `email_verification`: signup verification.
+- `login_activation`: email sign-in activation.
+- `password_reset`: forgot-password/reset-password activation.
+
+Forgot password uses the same email activation lifecycle:
+
+1. `POST /v1/auth/forgot-password` creates a `password_reset` token when
+   applicable and still returns `202 Accepted` for non-eligible emails.
+2. `POST /v1/auth/reset-password` consumes the token, writes the new password
+   hash, and revokes active refresh tokens.
+
+Password login remains available as a migration fallback for platform,
+customer, and brand-cloud console users. APP end users are explicitly out of
+scope for this first version and keep using `/v1/app/end-users/*`.
+
 ## 3. Core Concepts
 
 ### Organization
@@ -1377,6 +1428,11 @@ All endpoints are versioned under `/v1`.
 | `PATCH` | `/v1/admin/brand-clouds/:brandCloudId` | Yes | Platform admin | Update brand cloud name, tenant slug, status, or metadata. |
 | `POST` | `/v1/admin/brand-clouds/:brandCloudId/members` | Yes | Platform admin | Assign/update a brand-cloud membership by `brand_cloud_user_id`; legacy `user_id` is accepted only during migration. |
 | `POST` | `/v1/admin/brand-clouds/:brandCloudId/users` | Yes | Platform admin | Create/reactivate a brand-scoped user and membership; response includes legacy aliases during migration. |
+| `GET` | `/v1/admin/brand-clouds/:brandCloudId/users` | Yes | Platform admin | List brand-scoped users, including active, pending-verification, and disabled states. |
+| `POST` | `/v1/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/approve` | Yes | Platform admin | Approve a pending brand-cloud user activation and mark the brand-scoped user verified. |
+| `POST` | `/v1/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/disable` | Yes | Platform admin | Disable brand-cloud access and revoke active brand-cloud refresh tokens. |
+| `POST` | `/v1/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/enable` | Yes | Platform admin | Re-enable a disabled brand-cloud user without changing tenant scope. |
+| `DELETE` | `/v1/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId` | Yes | Platform admin | Soft-delete brand-cloud access by disabling the brand-scoped user. |
 | `POST` | `/v1/admin/quota-raise-requests/:requestId/approve` | Yes | Platform admin | Approve a pending quota raise request and apply the approved evaluation quota. |
 | `POST` | `/v1/admin/quota-raise-requests/:requestId/decline` | Yes | Platform admin | Decline a pending quota raise request with an optional decision reason. |
 | `GET` | `/v1/admin/metrics` | Yes | Platform admin | Return evaluation signup, verification, quota request, and quota utilization metrics. |
@@ -2170,6 +2226,11 @@ The brand-cloud user namespace implementation is acceptable when:
   accounts; the same email in N brand clouds becomes N brand-scoped user rows.
 - Platform-admin provisioning dual-writes to brand-cloud tables and legacy
   `users`/`organization_members` compatibility rows.
+- Platform-admin user management lists pending activation state and provides
+  explicit approve, disable, enable, and soft-delete lifecycle actions. Disable
+  and soft-delete revoke brand-cloud refresh tokens; approve clears
+  `signup_pending_verification`, sets `email_verified=true`, and keeps the
+  action auditable.
 - `/v1/auth/*` remains platform-user-only while `/v1/brand-clouds/:tenantSlug/*`
   handles brand-cloud sessions.
 - Automated tests and OpenAPI contract checks cover the new brand-cloud auth

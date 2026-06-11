@@ -1,12 +1,14 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"rtk_account_manager/internal/auth"
+	"rtk_account_manager/internal/store"
 )
 
 func (s *Server) brandCloudLogin(c *gin.Context) {
@@ -19,12 +21,58 @@ func (s *Server) brandCloudLogin(c *gin.Context) {
 		writeError(c, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
 		return
 	}
+	s.writeBrandCloudLoginResponse(c, req.AppCSRPem, result)
+}
+
+func (s *Server) brandCloudSignIn(c *gin.Context) {
+	var req emailRequest
+	if !bind(c, &req) {
+		return
+	}
+	token, expiresAt, err := s.newAuthToken()
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue login token")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	created, err := s.store.CreateBrandCloudLoginActivationTokenForEmail(c.Request.Context(), c.Param("tenantSlug"), email, auth.HashToken(token), expiresAt)
+	if err != nil {
+		if errors.Is(err, store.ErrRateLimited) {
+			c.Status(http.StatusAccepted)
+			return
+		}
+		writeAuthTokenStoreError(c, err, "Could not issue login token")
+		return
+	}
+	if created {
+		_ = s.deliverAuthToken(c, email, "login_activation", token, expiresAt)
+	}
+	c.Status(http.StatusAccepted)
+}
+
+func (s *Server) brandCloudActivateLogin(c *gin.Context) {
+	var req authTokenRequest
+	if !bind(c, &req) {
+		return
+	}
+	if !requireNonBlank(c, "token", req.Token) {
+		return
+	}
+	result, err := s.store.ActivateBrandCloudLoginToken(c.Request.Context(), c.Param("tenantSlug"), auth.HashToken(req.Token))
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "invalid_token", "Invalid or expired login token")
+		return
+	}
+	s.writeBrandCloudLoginResponse(c, req.AppCSRPem, result)
+}
+
+func (s *Server) writeBrandCloudLoginResponse(c *gin.Context, appCSRPem string, result store.BrandCloudLoginResult) {
 	tokens, err := s.issueBrandCloudTokens(c, result.User.ID, result.BrandCloudUser.ID, result.BrandCloud.ID, valueOrEmpty(result.BrandCloud.TenantSlug))
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
 		return
 	}
-	appCert, err := s.appCertificateForLogin(c.Request.Context(), result.User.ID, req.AppCSRPem)
+	appCert, err := s.appCertificateForLogin(c.Request.Context(), result.User.ID, appCSRPem)
 	if err != nil {
 		writeAppCertificateError(c, err)
 		return
