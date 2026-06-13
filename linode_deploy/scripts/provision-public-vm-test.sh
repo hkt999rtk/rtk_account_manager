@@ -121,4 +121,9 @@ jq -e '
 
 grep -q '^ACCOUNT_MANAGER_LINODE_PRIVATE_IPV4=10.42.1.50$' "$state"
 
+jq -e '
+  ([.rules.inbound[] | select((.ports | split(",")) | index("80"))] | length) == 0 and
+  ([.rules.inbound[] | select(.label == "https" and .protocol == "TCP" and .ports == "443")] | length) == 1
+' "$capture/firewall-create.json" >/dev/null
+
 printf 'provision-public-vm VPC test passed\n'
