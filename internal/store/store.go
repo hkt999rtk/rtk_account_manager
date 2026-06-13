@@ -71,8 +71,6 @@ type BrandCloudUserInput struct {
 
 type BrandCloudUserResult struct {
 	Action           string                 `json:"action"`
-	User             model.User             `json:"user"`
-	Member           model.Member           `json:"member"`
 	BrandCloudUser   model.BrandCloudUser   `json:"brand_cloud_user"`
 	BrandCloudMember model.BrandCloudMember `json:"brand_cloud_member"`
 }
@@ -537,6 +535,10 @@ func (s *Store) ResetPasswordWithToken(ctx context.Context, tokenHash, passwordH
 }
 
 func (s *Store) createAuthToken(ctx context.Context, userID, purpose, scope, tokenHash string, expiresAt time.Time) error {
+	return s.createAuthTokenForSubject(ctx, "platform_user", userID, userID, purpose, scope, tokenHash, expiresAt)
+}
+
+func (s *Store) createAuthTokenForSubject(ctx context.Context, subjectType, subjectID, userID, purpose, scope, tokenHash string, expiresAt time.Time) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -547,8 +549,8 @@ func (s *Store) createAuthToken(ctx context.Context, userID, purpose, scope, tok
 	if err := tx.QueryRow(ctx, `
 		SELECT count(*)
 		FROM auth_tokens
-		WHERE user_id = $1 AND purpose = $2 AND scope = $3 AND created_at > now() - interval '1 hour'
-	`, userID, purpose, scope).Scan(&recent); err != nil {
+		WHERE subject_type = $1 AND subject_id = $2 AND purpose = $3 AND scope = $4 AND created_at > now() - interval '1 hour'
+	`, subjectType, subjectID, purpose, scope).Scan(&recent); err != nil {
 		return err
 	}
 	if recent >= 5 {
@@ -557,14 +559,14 @@ func (s *Store) createAuthToken(ctx context.Context, userID, purpose, scope, tok
 	if _, err := tx.Exec(ctx, `
 		UPDATE auth_tokens
 		SET consumed_at = now()
-		WHERE user_id = $1 AND purpose = $2 AND scope = $3 AND consumed_at IS NULL
-	`, userID, purpose, scope); err != nil {
+		WHERE subject_type = $1 AND subject_id = $2 AND purpose = $3 AND scope = $4 AND consumed_at IS NULL
+	`, subjectType, subjectID, purpose, scope); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO auth_tokens (user_id, purpose, scope, token_hash, expires_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`, userID, purpose, scope, tokenHash, expiresAt); err != nil {
+		INSERT INTO auth_tokens (user_id, subject_type, subject_id, purpose, scope, token_hash, expires_at)
+		VALUES (NULLIF($1, '')::uuid, $2, $3, $4, $5, $6, $7)
+	`, userID, subjectType, subjectID, purpose, scope, tokenHash, expiresAt); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

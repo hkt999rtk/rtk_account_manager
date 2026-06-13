@@ -242,11 +242,6 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 		"status": "disabled",
 	}, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID, brandCloudPatchRes)
-	brandCloudMemberRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/members", map[string]any{
-		"user_id": registered.User.ID,
-		"role":    "owner",
-	}, admin.Tokens.AccessToken)
-	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/members", brandCloudMemberRes)
 	brandCloudUserRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users", map[string]any{
 		"email":        "contract-brand-user@example.com",
 		"password":     "password123",
@@ -255,6 +250,11 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	}, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users", brandCloudUserRes)
 	brandCloudUserBody := decodeBody[brandCloudUserBody](t, brandCloudUserRes)
+	brandCloudMemberRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/members", map[string]any{
+		"brand_cloud_user_id": brandCloudUserBody.BrandCloudUser.ID,
+		"role":                "owner",
+	}, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/members", brandCloudMemberRes)
 	brandCloudUsersRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users", nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/users", brandCloudUsersRes)
 	brandCloudReactivateRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID, map[string]any{
