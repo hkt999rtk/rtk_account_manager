@@ -1,7 +1,9 @@
 # Account Manager Linode Runbook
 
 This runbook covers the dedicated public VM staging profile for
-`rtk_account_manager`.
+`rtk_account_manager`. It is retained as a legacy Linode VM migration reference
+and rollback path. The production migration target is Linode Kubernetes Engine
+(LKE), gated by the workspace `docs/lke-migration-inventory.md`.
 
 ## Source Of Truth
 
@@ -12,6 +14,31 @@ This runbook covers the dedicated public VM staging profile for
   fallback.
 - Deployment state: `DEPLOY_SECRETS_DIR/state/` when set, with
   `linode_deploy/state/` kept as a legacy fallback.
+
+## LKE Target Profile
+
+The LKE target should preserve Account Manager API behavior while replacing the
+public VM, nginx, local env file, and systemd service with Kubernetes
+primitives:
+
+- Run the API as a Deployment in an `account-manager` namespace with a
+  ClusterIP Service and readiness/liveness probes.
+- Expose public HTTPS through Linode NodeBalancer plus Ingress or Gateway API.
+  cert-manager should own TLS automation.
+- Keep `/v1/health` as the external smoke endpoint and keep
+  `/metrics/prometheus` private to the observability namespace.
+- Source runtime secrets from OpenBao or an approved secret manager. Kubernetes
+  Secrets may hold injected runtime material only; do not commit env files,
+  DSNs, tokens, or signing material.
+- Do not assume the current local PostgreSQL VM database moves into Kubernetes.
+  Compare temporary VM/external database retention, a PostgreSQL operator, a
+  StatefulSet, or a managed/external PostgreSQL option before cutover.
+- Database migration and rollback must be release-controlled and restore-tested
+  before production traffic moves to LKE.
+
+TODO: confirm LKE namespace naming, database target, migration job shape,
+cert-manager issuer, OpenBao auth role, NetworkPolicy, and backup target before
+writing production manifests.
 
 ## Prerequisites
 
