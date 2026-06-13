@@ -28,7 +28,8 @@ Remote VM target:
 - Ubuntu 24.04
 - public IPv4 only
 - inbound `22/tcp` restricted to operator CIDRs
-- inbound `80/tcp` and `443/tcp` public for certbot and HTTPS
+- inbound `443/tcp` public for HTTPS; Let's Encrypt uses GoDaddy DNS-01, so
+  public `80/tcp` is not required
 
 ## Runtime Shape
 

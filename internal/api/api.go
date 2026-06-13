@@ -547,6 +547,7 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/disable", s.requirePlatformAdmin(), s.disableBrandCloudUser)
 	protected.POST("/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/enable", s.requirePlatformAdmin(), s.enableBrandCloudUser)
 	protected.POST("/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/approve", s.requirePlatformAdmin(), s.approveBrandCloudUser)
+	protected.POST("/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/app-certificate/revoke", s.requirePlatformAdmin(), s.revokeBrandCloudUserAppCertificate)
 	protected.DELETE("/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId", s.requirePlatformAdmin(), s.deleteBrandCloudUser)
 	protected.POST("/admin/device-claim-tokens", s.requirePlatformAdmin(), s.createDeviceClaimToken)
 	protected.GET("/admin/device-claim-tokens", s.requirePlatformAdmin(), s.listDeviceClaimTokens)

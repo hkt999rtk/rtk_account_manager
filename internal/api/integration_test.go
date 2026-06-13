@@ -1762,6 +1762,21 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 	if brandCSR.AppCertificate.Status != "issued" || brandCSR.AppCertificate.FingerprintSHA256 == "" {
 		t.Fatalf("brand-cloud app certificate response = %+v", brandCSR.AppCertificate)
 	}
+	revokeAppCertRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users/"+created.BrandCloudUser.ID+"/app-certificate/revoke", nil, admin.Tokens.AccessToken)
+	if revokeAppCertRes.Code != http.StatusOK {
+		t.Fatalf("expected app certificate revoke 200, got %d: %s", revokeAppCertRes.Code, revokeAppCertRes.Body.String())
+	}
+	brandLoginAfterRevokeRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/rtk-brand/auth/login", map[string]any{
+		"email":    "rtk+001@users.example.com",
+		"password": "initial-password123",
+	}, "")
+	if brandLoginAfterRevokeRes.Code != http.StatusOK {
+		t.Fatalf("expected brand-cloud login after app cert revoke 200, got %d: %s", brandLoginAfterRevokeRes.Code, brandLoginAfterRevokeRes.Body.String())
+	}
+	brandLoginAfterRevoke := decodeBody[tokenBody](t, brandLoginAfterRevokeRes)
+	if brandLoginAfterRevoke.AppCertificate.Status != "csr_required" {
+		t.Fatalf("expected csr_required after app cert revoke, got %+v", brandLoginAfterRevoke.AppCertificate)
+	}
 
 	if _, err := env.db.Exec(ctx, `UPDATE brand_cloud_users SET disabled_at = now() WHERE id = $1`, created.BrandCloudUser.ID); err != nil {
 		t.Fatal(err)

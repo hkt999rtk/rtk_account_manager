@@ -1411,6 +1411,30 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/admin/brand-clouds/{brandCloudId}/users/{brandCloudUserId}/app-certificate/revoke:
+    post:
+      tags:
+        - Brand Clouds
+      operationId: revokeBrandCloudUserAppCertificate
+      security:
+        - bearerAuth: []
+      summary: Revoke active app certificates for a brand-cloud user.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/BrandCloudUserId"
+      responses:
+        "200":
+          description: Active app certificates revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppCertificateRevokeResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
   /v1/admin/brand-clouds/{brandCloudId}/users/{brandCloudUserId}:
     delete:
       tags:
@@ -4265,6 +4289,14 @@ components:
       properties:
         brand_cloud_user:
           $ref: "#/components/schemas/BrandCloudUser"
+    AppCertificateRevokeResponse:
+      type: object
+      required: [revoked]
+      properties:
+        revoked:
+          type: integer
+          format: int64
+          minimum: 0
     BrandCloudLoginResponse:
       type: object
       required: [brand_cloud, brand_cloud_user, brand_cloud_member, tokens]
