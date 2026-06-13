@@ -1457,16 +1457,25 @@ func TestIntegrationPlatformAdminBrandCloudLifecycle(t *testing.T) {
 		t.Fatalf("expected missing brand cloud patch 404, got %d: %s", missingPatchRes.Code, missingPatchRes.Body.String())
 	}
 
+	brandUserRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+created.BrandCloud.ID+"/users", map[string]any{
+		"email":    owner.User.Email,
+		"password": "brand-owner-password123",
+		"role":     "owner",
+	}, admin.Tokens.AccessToken)
+	if brandUserRes.Code != http.StatusCreated {
+		t.Fatalf("expected brand cloud user create 201, got %d: %s", brandUserRes.Code, brandUserRes.Body.String())
+	}
+	brandUser := decodeBody[brandCloudUserBody](t, brandUserRes)
 	memberRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+created.BrandCloud.ID+"/members", map[string]any{
-		"user_id": owner.User.ID,
-		"role":    "owner",
+		"brand_cloud_user_id": brandUser.BrandCloudUser.ID,
+		"role":                "owner",
 	}, admin.Tokens.AccessToken)
 	if memberRes.Code != http.StatusCreated {
 		t.Fatalf("expected brand cloud member assignment 201, got %d: %s", memberRes.Code, memberRes.Body.String())
 	}
 	missingMemberRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/00000000-0000-0000-0000-000000000000/members", map[string]any{
-		"user_id": owner.User.ID,
-		"role":    "member",
+		"brand_cloud_user_id": brandUser.BrandCloudUser.ID,
+		"role":                "member",
 	}, admin.Tokens.AccessToken)
 	if missingMemberRes.Code != http.StatusNotFound {
 		t.Fatalf("expected missing brand cloud member assignment 404, got %d: %s", missingMemberRes.Code, missingMemberRes.Body.String())
@@ -1717,7 +1726,7 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 		t.Fatalf("expected brand user create 201, got %d: %s", createRes.Code, createRes.Body.String())
 	}
 	created := decodeBody[brandCloudUserBody](t, createRes)
-	if created.Action != "created" || created.User.Email != "rtk+001@users.example.com" || !created.User.EmailVerified || created.User.SignupPendingVerification || created.Member.Role != "member" {
+	if created.Action != "created" || created.BrandCloudUser.Email != "rtk+001@users.example.com" || !created.BrandCloudUser.EmailVerified || created.BrandCloudUser.SignupPendingVerification || created.BrandCloudMember.Role != "member" {
 		t.Fatalf("unexpected created brand user response: %+v", created)
 	}
 
@@ -1744,7 +1753,7 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 	brandCSRRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/rtk-brand/auth/login", map[string]any{
 		"email":       "rtk+001@users.example.com",
 		"password":    "initial-password123",
-		"app_csr_pem": generateTestCSR(t, "app-user:"+created.User.ID),
+		"app_csr_pem": generateTestCSR(t, "app-brand-cloud-user:"+created.BrandCloudUser.ID),
 	}, "")
 	if brandCSRRes.Code != http.StatusOK {
 		t.Fatalf("expected brand-cloud csr login 200, got %d: %s", brandCSRRes.Code, brandCSRRes.Body.String())
@@ -1754,7 +1763,7 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 		t.Fatalf("brand-cloud app certificate response = %+v", brandCSR.AppCertificate)
 	}
 
-	if _, err := env.db.Exec(ctx, `UPDATE users SET disabled_at = now() WHERE id = $1`, created.User.ID); err != nil {
+	if _, err := env.db.Exec(ctx, `UPDATE brand_cloud_users SET disabled_at = now() WHERE id = $1`, created.BrandCloudUser.ID); err != nil {
 		t.Fatal(err)
 	}
 	reassignRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
@@ -1767,7 +1776,7 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 		t.Fatalf("expected existing brand user upsert 200, got %d: %s", reassignRes.Code, reassignRes.Body.String())
 	}
 	reassigned := decodeBody[brandCloudUserBody](t, reassignRes)
-	if reassigned.Action != "assigned" || reassigned.User.DisabledAt != nil || reassigned.User.DisplayName == nil || *reassigned.User.DisplayName != "RTK User 001 Reactivated" {
+	if reassigned.Action != "assigned" || reassigned.BrandCloudUser.DisabledAt != nil || reassigned.BrandCloudUser.DisplayName == nil || *reassigned.BrandCloudUser.DisplayName != "RTK User 001 Reactivated" {
 		t.Fatalf("unexpected reassigned brand user response: %+v", reassigned)
 	}
 	ignoredPasswordLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
@@ -1809,13 +1818,6 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 		SET email_verified = false, email_verified_at = NULL, signup_pending_verification = true, updated_at = now()
 		WHERE id = $1
 	`, created.BrandCloudUser.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := env.db.Exec(ctx, `
-		UPDATE users
-		SET email_verified = false, email_verified_at = NULL, signup_pending_verification = true, updated_at = now()
-		WHERE id = $1
-	`, created.User.ID); err != nil {
 		t.Fatal(err)
 	}
 	pendingLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/rtk-brand/auth/login", map[string]any{
@@ -5511,19 +5513,7 @@ type deviceItemProfilesBody struct {
 }
 
 type brandCloudUserBody struct {
-	Action string `json:"action"`
-	User   struct {
-		ID                        string     `json:"id"`
-		Email                     string     `json:"email"`
-		DisplayName               *string    `json:"display_name"`
-		EmailVerified             bool       `json:"email_verified"`
-		SignupPendingVerification bool       `json:"signup_pending_verification"`
-		DisabledAt                *time.Time `json:"disabled_at"`
-	} `json:"user"`
-	Member struct {
-		UserID string `json:"user_id"`
-		Role   string `json:"role"`
-	} `json:"member"`
+	Action         string `json:"action"`
 	BrandCloudUser struct {
 		ID                        string     `json:"id"`
 		BrandCloudID              string     `json:"brand_cloud_id"`

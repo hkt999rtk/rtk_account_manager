@@ -193,10 +193,10 @@ func (s *Store) UpdateBrandCloud(ctx context.Context, actorUserID, orgID string,
 	return org, nil
 }
 
-func (s *Store) AssignBrandCloudMember(ctx context.Context, actorUserID, orgID, userID string, role model.Role) (model.Member, error) {
+func (s *Store) AssignBrandCloudMember(ctx context.Context, actorUserID, orgID, brandCloudUserID string, role model.Role) (model.BrandCloudMember, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return model.Member{}, err
+		return model.BrandCloudMember{}, err
 	}
 	defer tx.Rollback(ctx)
 
@@ -207,32 +207,37 @@ func (s *Store) AssignBrandCloudMember(ctx context.Context, actorUserID, orgID, 
 			WHERE id = $1 AND organization_kind = 'brand_cloud'
 		)
 	`, orgID).Scan(&exists); err != nil {
-		return model.Member{}, err
+		return model.BrandCloudMember{}, err
 	}
 	if !exists {
-		return model.Member{}, ErrNotFound
+		return model.BrandCloudMember{}, ErrNotFound
 	}
 
-	member, err := scanMember(tx.QueryRow(ctx, `
-		INSERT INTO organization_members (organization_id, user_id, role)
-		SELECT $1, id, $3 FROM users WHERE id = $2 AND disabled_at IS NULL
-		ON CONFLICT (organization_id, user_id)
+	member, err := scanBrandCloudMember(tx.QueryRow(ctx, `
+		INSERT INTO brand_cloud_memberships (brand_cloud_id, brand_cloud_user_id, role)
+		SELECT $1, id, $3
+		FROM brand_cloud_users
+		WHERE brand_cloud_id = $1 AND id = $2 AND disabled_at IS NULL
+		ON CONFLICT ON CONSTRAINT brand_cloud_memberships_brand_user_key
 		DO UPDATE SET role = EXCLUDED.role, updated_at = now()
-		RETURNING organization_id::text, user_id::text, role, created_at, updated_at
-	`, orgID, userID, role))
+		RETURNING brand_cloud_id::text, brand_cloud_user_id::text, role, created_at, updated_at
+	`, orgID, brandCloudUserID, role))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return model.Member{}, ErrNotFound
+		return model.BrandCloudMember{}, ErrNotFound
 	}
 	if err != nil {
-		return model.Member{}, err
+		return model.BrandCloudMember{}, err
 	}
-	user, err := getUserTx(ctx, tx, member.UserID)
+	user, err := scanBrandCloudUser(tx.QueryRow(ctx, `
+		SELECT id::text, brand_cloud_id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
+		FROM brand_cloud_users
+		WHERE brand_cloud_id = $1 AND id = $2
+	`, orgID, member.BrandCloudUserID))
 	if err != nil {
-		return model.Member{}, err
+		return model.BrandCloudMember{}, err
 	}
 	member.Email = user.Email
 	member.DisplayName = user.DisplayName
-	member.DisabledAt = user.DisabledAt
 
 	if err := createAuditEventTx(ctx, tx, AuditEventInput{
 		EventType:      "brand_cloud_member_assigned",
@@ -241,14 +246,15 @@ func (s *Store) AssignBrandCloudMember(ctx context.Context, actorUserID, orgID, 
 		SubjectType:    "brand_cloud",
 		SubjectID:      orgID,
 		Payload: map[string]any{
-			"user_id": member.UserID,
-			"role":    member.Role,
+			"brand_cloud_user_id": member.BrandCloudUserID,
+			"email":               member.Email,
+			"role":                member.Role,
 		},
 	}); err != nil {
-		return model.Member{}, err
+		return model.BrandCloudMember{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return model.Member{}, err
+		return model.BrandCloudMember{}, err
 	}
 	return member, nil
 }
@@ -318,39 +324,6 @@ func (s *Store) CreateBrandCloudUser(ctx context.Context, actorUserID, orgID str
 	brandCloudMember.Email = brandCloudUser.Email
 	brandCloudMember.DisplayName = brandCloudUser.DisplayName
 
-	var user model.User
-	err = tx.QueryRow(ctx, `
-		INSERT INTO users (email, password_hash, display_name, email_verified, email_verified_at, signup_pending_verification, disabled_at)
-		VALUES ($1, $2, $3, true, now(), false, NULL)
-		ON CONFLICT (email)
-		DO UPDATE SET
-			password_hash = CASE WHEN $4 THEN EXCLUDED.password_hash ELSE users.password_hash END,
-			display_name = COALESCE(EXCLUDED.display_name, users.display_name),
-			email_verified = true,
-			email_verified_at = COALESCE(users.email_verified_at, now()),
-			signup_pending_verification = false,
-			disabled_at = NULL,
-			updated_at = now()
-		RETURNING id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
-	`, email, in.PasswordHash, in.DisplayName, in.RotatePassword).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
-	if err != nil {
-		return BrandCloudUserResult{}, err
-	}
-
-	member, err := scanMember(tx.QueryRow(ctx, `
-		INSERT INTO organization_members (organization_id, user_id, role)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (organization_id, user_id)
-		DO UPDATE SET role = EXCLUDED.role, updated_at = now()
-		RETURNING organization_id::text, user_id::text, role, created_at, updated_at
-	`, orgID, user.ID, in.Role))
-	if err != nil {
-		return BrandCloudUserResult{}, err
-	}
-	member.Email = user.Email
-	member.DisplayName = user.DisplayName
-	member.DisabledAt = user.DisabledAt
-
 	eventType := "brand_cloud_user_assigned"
 	if action == "created" {
 		eventType = "brand_cloud_user_created"
@@ -362,7 +335,6 @@ func (s *Store) CreateBrandCloudUser(ctx context.Context, actorUserID, orgID str
 		SubjectType:    "brand_cloud",
 		SubjectID:      orgID,
 		Payload: map[string]any{
-			"user_id":             user.ID,
 			"brand_cloud_user_id": brandCloudUser.ID,
 			"email":               brandCloudUser.Email,
 			"role":                brandCloudMember.Role,
@@ -374,7 +346,7 @@ func (s *Store) CreateBrandCloudUser(ctx context.Context, actorUserID, orgID str
 	if err := tx.Commit(ctx); err != nil {
 		return BrandCloudUserResult{}, err
 	}
-	return BrandCloudUserResult{Action: action, User: user, Member: member, BrandCloudUser: brandCloudUser, BrandCloudMember: brandCloudMember}, nil
+	return BrandCloudUserResult{Action: action, BrandCloudUser: brandCloudUser, BrandCloudMember: brandCloudMember}, nil
 }
 
 func (s *Store) ListBrandCloudUsers(ctx context.Context, in BrandCloudUserListFilter) (BrandCloudUserPage, error) {
@@ -461,17 +433,6 @@ func (s *Store) ApproveBrandCloudUser(ctx context.Context, actorUserID, brandClo
 	if err != nil {
 		return model.BrandCloudUser{}, err
 	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE users
-		SET email_verified = true,
-		    email_verified_at = COALESCE(email_verified_at, now()),
-		    signup_pending_verification = false,
-		    disabled_at = NULL,
-		    updated_at = now()
-		WHERE email = $1
-	`, user.Email); err != nil {
-		return model.BrandCloudUser{}, err
-	}
 	if err := createAuditEventTx(ctx, tx, AuditEventInput{
 		EventType:      "brand_cloud_user_approved",
 		ActorUserID:    &actorUserID,
@@ -521,7 +482,7 @@ func (s *Store) CreateBrandCloudLoginActivationTokenForEmail(ctx context.Context
 	if err != nil {
 		return false, err
 	}
-	return true, s.createScopedLoginActivationToken(ctx, result.User.ID, brandCloudAuthTokenScope(tenantSlug), tokenHash, expiresAt)
+	return true, s.createAuthTokenForSubject(ctx, "brand_cloud_user", result.BrandCloudUser.ID, "", "login_activation", brandCloudAuthTokenScope(tenantSlug), tokenHash, expiresAt)
 }
 
 func (s *Store) ActivateBrandCloudLoginToken(ctx context.Context, tenantSlug, tokenHash string) (BrandCloudLoginResult, error) {
@@ -531,20 +492,25 @@ func (s *Store) ActivateBrandCloudLoginToken(ctx context.Context, tenantSlug, to
 	}
 	defer tx.Rollback(ctx)
 
-	var userID, email string
+	var brandCloudUserID string
 	err = tx.QueryRow(ctx, `
-		SELECT u.id::text, u.email
+		SELECT bcu.id::text
 		FROM auth_tokens at
-		JOIN users u ON u.id = at.user_id
+		JOIN brand_cloud_users bcu ON bcu.id = at.subject_id
+		JOIN organizations o ON o.id = bcu.brand_cloud_id
 		WHERE at.token_hash = $1
+		  AND at.subject_type = 'brand_cloud_user'
 		  AND at.purpose = 'login_activation'
 		  AND at.scope = $2
 		  AND at.consumed_at IS NULL
 		  AND at.expires_at > now()
-		  AND u.disabled_at IS NULL
-		  AND u.signup_pending_verification = false
+		  AND o.organization_kind = 'brand_cloud'
+		  AND o.status = 'active'
+		  AND o.tenant_slug = $3
+		  AND bcu.disabled_at IS NULL
+		  AND bcu.signup_pending_verification = false
 		FOR UPDATE OF at
-	`, tokenHash, brandCloudAuthTokenScope(tenantSlug)).Scan(&userID, &email)
+	`, tokenHash, brandCloudAuthTokenScope(tenantSlug), normalizeTenantSlug(tenantSlug)).Scan(&brandCloudUserID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return BrandCloudLoginResult{}, ErrNotFound
 	}
@@ -552,11 +518,11 @@ func (s *Store) ActivateBrandCloudLoginToken(ctx context.Context, tenantSlug, to
 		return BrandCloudLoginResult{}, err
 	}
 
-	result, err := getBrandCloudLoginResultByEmail(ctx, tx, tenantSlug, email)
+	result, err := getBrandCloudLoginResultByID(ctx, tx, tenantSlug, brandCloudUserID)
 	if err != nil {
 		return BrandCloudLoginResult{}, err
 	}
-	if result.User.ID != userID || result.BrandCloudUser.SignupPendingVerification {
+	if result.BrandCloudUser.SignupPendingVerification {
 		return BrandCloudLoginResult{}, ErrNotFound
 	}
 	if _, err := tx.Exec(ctx, `
@@ -568,7 +534,6 @@ func (s *Store) ActivateBrandCloudLoginToken(ctx context.Context, tenantSlug, to
 	}
 	if err := createAuditEventTx(ctx, tx, AuditEventInput{
 		EventType:      "brand_cloud_login_activation_consumed",
-		ActorUserID:    &userID,
 		OrganizationID: &result.BrandCloud.ID,
 		SubjectType:    "brand_cloud_user",
 		SubjectID:      result.BrandCloudUser.ID,
@@ -592,25 +557,31 @@ func brandCloudAuthTokenScope(tenantSlug string) string {
 }
 
 func getBrandCloudLoginResultByEmail(ctx context.Context, q rowQuerier, tenantSlug, email string) (BrandCloudLoginResult, error) {
+	return getBrandCloudLoginResult(ctx, q, tenantSlug, strings.ToLower(strings.TrimSpace(email)), "")
+}
+
+func getBrandCloudLoginResultByID(ctx context.Context, q rowQuerier, tenantSlug, brandCloudUserID string) (BrandCloudLoginResult, error) {
+	return getBrandCloudLoginResult(ctx, q, tenantSlug, "", brandCloudUserID)
+}
+
+func getBrandCloudLoginResult(ctx context.Context, q rowQuerier, tenantSlug, email, brandCloudUserID string) (BrandCloudLoginResult, error) {
 	var result BrandCloudLoginResult
 	var rawMetadata []byte
 	err := q.QueryRow(ctx, `
 		SELECT
 		    o.id::text, o.name, o.tenant_slug, ''::text, o.organization_kind, o.status, o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at,
 		    bcu.id::text, bcu.brand_cloud_id::text, bcu.email, bcu.password_hash, bcu.display_name, bcu.email_verified, bcu.email_verified_at, bcu.signup_pending_verification, bcu.created_at, bcu.updated_at, bcu.disabled_at,
-		    bcm.role, bcm.created_at, bcm.updated_at,
-		    u.id::text, u.email, u.display_name, u.email_verified, u.email_verified_at, u.signup_pending_verification, u.created_at, u.updated_at, u.disabled_at
+		    bcm.role, bcm.created_at, bcm.updated_at
 		FROM organizations o
 		JOIN brand_cloud_users bcu ON bcu.brand_cloud_id = o.id
 		JOIN brand_cloud_memberships bcm ON bcm.brand_cloud_id = o.id AND bcm.brand_cloud_user_id = bcu.id
-		JOIN users u ON u.email = bcu.email
 		WHERE o.organization_kind = 'brand_cloud'
 		  AND o.status = 'active'
 		  AND o.tenant_slug = $1
-		  AND bcu.email = $2
+		  AND ($2 = '' OR bcu.email = $2)
+		  AND ($3 = '' OR bcu.id = NULLIF($3, '')::uuid)
 		  AND bcu.disabled_at IS NULL
-		  AND u.disabled_at IS NULL
-	`, normalizeTenantSlug(tenantSlug), strings.ToLower(strings.TrimSpace(email))).Scan(
+	`, normalizeTenantSlug(tenantSlug), email, brandCloudUserID).Scan(
 		&result.BrandCloud.ID,
 		&result.BrandCloud.Name,
 		&result.BrandCloud.TenantSlug,
@@ -636,15 +607,6 @@ func getBrandCloudLoginResultByEmail(ctx context.Context, q rowQuerier, tenantSl
 		&result.Member.Role,
 		&result.Member.CreatedAt,
 		&result.Member.UpdatedAt,
-		&result.User.ID,
-		&result.User.Email,
-		&result.User.DisplayName,
-		&result.User.EmailVerified,
-		&result.User.EmailVerifiedAt,
-		&result.User.SignupPendingVerification,
-		&result.User.CreatedAt,
-		&result.User.UpdatedAt,
-		&result.User.DisabledAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return BrandCloudLoginResult{}, ErrNotFound
@@ -659,6 +621,15 @@ func getBrandCloudLoginResultByEmail(ctx context.Context, q rowQuerier, tenantSl
 	result.Member.BrandCloudUserID = result.BrandCloudUser.ID
 	result.Member.Email = result.BrandCloudUser.Email
 	result.Member.DisplayName = result.BrandCloudUser.DisplayName
+	result.User.ID = result.BrandCloudUser.ID
+	result.User.Email = result.BrandCloudUser.Email
+	result.User.DisplayName = result.BrandCloudUser.DisplayName
+	result.User.EmailVerified = result.BrandCloudUser.EmailVerified
+	result.User.EmailVerifiedAt = result.BrandCloudUser.EmailVerifiedAt
+	result.User.SignupPendingVerification = result.BrandCloudUser.SignupPendingVerification
+	result.User.CreatedAt = result.BrandCloudUser.CreatedAt
+	result.User.UpdatedAt = result.BrandCloudUser.UpdatedAt
+	result.User.DisabledAt = result.BrandCloudUser.DisabledAt
 	return result, nil
 }
 
