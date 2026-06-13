@@ -1241,7 +1241,7 @@ paths:
       operationId: assignBrandCloudMember
       security:
         - bearerAuth: []
-      summary: Assign an existing user to a brand cloud.
+      summary: Assign an existing brand-scoped user to a brand cloud.
       parameters:
         - $ref: "#/components/parameters/BrandCloudId"
       requestBody:
@@ -1256,7 +1256,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MemberResponse"
+                $ref: "#/components/schemas/BrandCloudMemberResponse"
         "400":
           $ref: "#/components/responses/Error"
         "401":
@@ -4506,6 +4506,12 @@ components:
       properties:
         member:
           $ref: "#/components/schemas/Member"
+    BrandCloudMemberResponse:
+      type: object
+      required: [member]
+      properties:
+        member:
+          $ref: "#/components/schemas/BrandCloudMember"
     DevicesResponse:
       type: object
       required: [devices, pagination]
