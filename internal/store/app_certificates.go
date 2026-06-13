@@ -93,6 +93,27 @@ func (s *Store) CreateAppCertificate(ctx context.Context, in AppCertificateCreat
 	return cert, nil
 }
 
+func (s *Store) RevokeValidAppCertificatesForBrandCloudUser(ctx context.Context, brandCloudID, brandCloudUserID string) (int64, error) {
+	tag, err := s.db.Exec(ctx, `
+		UPDATE app_certificates ac
+		SET revoked_at = COALESCE(ac.revoked_at, now()),
+		    updated_at = now()
+		FROM brand_cloud_users bcu
+		JOIN users u ON u.email = bcu.email
+		WHERE bcu.id = $1
+		  AND bcu.brand_cloud_id = $2
+		  AND ac.subject_type = 'platform_user'
+		  AND ac.subject_id = u.id::text
+		  AND ac.revoked_at IS NULL
+		  AND ac.not_before <= now()
+		  AND ac.not_after > now()
+	`, brandCloudUserID, brandCloudID)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 type appCertificateRow interface {
 	Scan(dest ...any) error
 }

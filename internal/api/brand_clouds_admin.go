@@ -381,6 +381,15 @@ func (s *Server) approveBrandCloudUser(c *gin.Context) {
 	c.JSON(http.StatusOK, brandCloudUserResponse{BrandCloudUser: user})
 }
 
+func (s *Server) revokeBrandCloudUserAppCertificate(c *gin.Context) {
+	revoked, err := s.store.RevokeValidAppCertificatesForBrandCloudUser(c.Request.Context(), c.Param("brandCloudId"), c.Param("brandCloudUserId"))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"revoked": revoked})
+}
+
 func (s *Server) deleteBrandCloudUser(c *gin.Context) {
 	if err := s.store.DeleteBrandCloudUser(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), c.Param("brandCloudUserId")); err != nil {
 		writeStoreError(c, err)
