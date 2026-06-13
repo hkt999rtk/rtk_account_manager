@@ -56,8 +56,23 @@ if [ -s "$FORMAT_OUT" ]; then
 	format_status=1
 fi
 
-TEST_DATABASE_URL="$TEST_DATABASE_URL" go test -json ./... -coverpkg=./internal/... -coverprofile="$COVERAGE_OUT" -covermode=atomic | tee "$TEST_EVENTS" >/dev/null
+TEST_DATABASE_URL="$TEST_DATABASE_URL" go test -json -count=1 ./... -coverpkg=./internal/... -coverprofile="$COVERAGE_OUT" -covermode=atomic | tee "$TEST_EVENTS" >/dev/null
 test_status=${PIPESTATUS[0]}
+if [ "$test_status" -ne 0 ]; then
+	echo "go test failed with status $test_status. Failed test events:" >&2
+	grep '"Action":"fail"' "$TEST_EVENTS" >&2 || true
+	grep '"Action":"fail".*"Test":' "$TEST_EVENTS" \
+		| sed -E 's/.*"Test":"([^"]+)".*/\1/' \
+		| LC_ALL=C sort -u \
+		| while IFS= read -r failed_test; do
+			if [ -n "$failed_test" ]; then
+				echo "Events for failed test $failed_test:" >&2
+				grep '"Test":"'"$failed_test"'"' "$TEST_EVENTS" >&2 || true
+			fi
+		done
+	echo "Last 80 go test events:" >&2
+	tail -80 "$TEST_EVENTS" >&2 || true
+fi
 
 if [ -f "$COVERAGE_OUT" ]; then
 	go tool cover -func="$COVERAGE_OUT" >"$COVERAGE_FUNC"
@@ -272,7 +287,7 @@ $(if [ -s "$TEST_CASES_MD" ]; then cat "$TEST_CASES_MD"; else echo "No test case
 
 \`\`\`sh
 gofmt -l .
-TEST_DATABASE_URL='***' go test -json ./... -coverpkg=./internal/... -coverprofile=$COVERAGE_OUT -covermode=atomic
+TEST_DATABASE_URL='***' go test -json -count=1 ./... -coverpkg=./internal/... -coverprofile=$COVERAGE_OUT -covermode=atomic
 go tool cover -func=$COVERAGE_OUT
 go tool cover -html=$COVERAGE_OUT -o $COVERAGE_HTML
 go build ./...
