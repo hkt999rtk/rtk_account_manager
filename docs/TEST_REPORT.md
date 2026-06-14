@@ -26,7 +26,7 @@ Generated: ci-candidate
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 21 |
+| Go packages | 22 |
 | Test cases started | recorded in reports/test-events.json |
 | JSON pass events | recorded in reports/test-events.json |
 | JSON fail events | recorded in reports/test-events.json |
@@ -140,6 +140,9 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 
 ## Executed Test Cases
 
+- `rtk_account_manager/cmd/linode-object-storage`: `TestObjectExistsReportsServerError`
+- `rtk_account_manager/cmd/linode-object-storage`: `TestPutDownloadCatAndExistsUseSignedPathStyleRequests`
+- `rtk_account_manager/cmd/linode-object-storage`: `TestStoreFromEnvPrefersLinodeCredentials`
 - `rtk_account_manager/cmd/server`: `TestSMTPConfigBuildsSubmissionAddress`
 - `rtk_account_manager/cmd/server`: `TestSMTPConfigRequiresHostAndFrom`
 - `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#0`
