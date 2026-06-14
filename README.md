@@ -98,7 +98,7 @@ The local provisioning and worker flow, including the `log` broker adapter runbo
 The optional local Keycloak/OIDC login flow is documented in `docs/KEYCLOAK_LOCAL_RUNBOOK.md`; normal local development does not require Keycloak.
 Private-cloud deployment packaging, systemd templates, migration/upgrade/rollback, and backup/restore operations are documented in `docs/PRIVATE_CLOUD_DEPLOYMENT_RUNBOOK.md`; reference deploy assets live under `deploy/`.
 The service logging migration to `rtk_cloud_logger` zap and central journald forwarding is documented in `docs/SERVICE_LOGGING_MIGRATION.md`.
-Linode staging deployment for admins is documented in `linode_deploy/docs/RUNBOOK.md`; it uses an operator-run script and explicit release versions, not GitHub CD Actions.
+Linode staging runtime is K8s-only and is operated from the workspace; see `docs/linode-staging-k8s.md`.
 Auth verification, email sign-in, and password reset tokens use `AUTH_TOKEN_DELIVERY`.
 Set `AUTH_TOKEN_DELIVERY=log` for dev/test to write generated one-time tokens to
 the API server log. Set `AUTH_TOKEN_DELIVERY=smtp` plus `SMTP_HOST`,

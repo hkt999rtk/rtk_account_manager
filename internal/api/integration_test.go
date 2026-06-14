@@ -339,6 +339,44 @@ func TestIntegrationInternalAppTokenAuthorization(t *testing.T) {
 		t.Fatalf("expected owner authorization 200, got %d: %s", allowedRes.Code, allowedRes.Body.String())
 	}
 
+	brand := createBrandCloudForTest(t, env, owner.Tokens.AccessToken, "App Authz Brand", "app-authz-brand")
+	brandUserRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
+		"email":    "app-authz-brand@example.com",
+		"password": "brand-password123",
+		"role":     "member",
+	}, owner.Tokens.AccessToken)
+	if brandUserRes.Code != http.StatusCreated {
+		t.Fatalf("expected brand cloud user create 201, got %d: %s", brandUserRes.Code, brandUserRes.Body.String())
+	}
+	brandUser := decodeBody[brandCloudUserBody](t, brandUserRes)
+	brandDeviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+brand.BrandCloud.ID+"/devices", map[string]any{
+		"name":          "app-authz-brand-camera",
+		"category":      "ip_camera",
+		"serial_number": "APP-AUTHZ-BRAND-001",
+		"metadata": map[string]any{
+			model.DeviceMetadataVideoCloudDevid: "video-app-authz-brand-1",
+		},
+	}, owner.Tokens.AccessToken)
+	if brandDeviceRes.Code != http.StatusCreated {
+		t.Fatalf("expected brand device create 201, got %d: %s", brandDeviceRes.Code, brandDeviceRes.Body.String())
+	}
+	brandAllowedRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
+		"subject_type":        "brand_cloud_user",
+		"brand_cloud_user_id": brandUser.BrandCloudUser.ID,
+		"devid":               "video-app-authz-brand-1",
+	}, "internal-authz-token")
+	if brandAllowedRes.Code != http.StatusOK {
+		t.Fatalf("expected brand-cloud user authorization 200, got %d: %s", brandAllowedRes.Code, brandAllowedRes.Body.String())
+	}
+	brandMissingRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
+		"subject_type":        "brand_cloud_user",
+		"brand_cloud_user_id": brandUser.BrandCloudUser.ID,
+		"devid":               "missing-brand-video-device",
+	}, "internal-authz-token")
+	if brandMissingRes.Code != http.StatusForbidden {
+		t.Fatalf("expected missing brand-cloud device authorization 403, got %d: %s", brandMissingRes.Code, brandMissingRes.Body.String())
+	}
+
 	outsiderRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
 		"user_id": outsider.User.ID,
 		"devid":   "video-app-authz-1",
