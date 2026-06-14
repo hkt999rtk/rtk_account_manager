@@ -308,6 +308,8 @@ func TestIntegrationLoginWithAppCSRStoresCertificateAndReusesIt(t *testing.T) {
 
 func TestIntegrationInternalAppTokenAuthorization(t *testing.T) {
 	env := newIntegrationEnv(t)
+	ctx := context.Background()
+
 	unconfiguredRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
 		"user_id": "00000000-0000-0000-0000-000000000000",
 		"devid":   "video-app-authz-1",
@@ -318,6 +320,10 @@ func TestIntegrationInternalAppTokenAuthorization(t *testing.T) {
 	env.server.ConfigureInternalAuthToken("internal-authz-token")
 	owner := registerUser(t, env.router, "app-authz-owner@example.com", "App Authz Owner Org")
 	outsider := registerUser(t, env.router, "app-authz-outsider@example.com", "App Authz Outsider Org")
+	admin := registerUser(t, env.router, "app-authz-platform-admin@example.com", "App Authz Platform Admin Org")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	createRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", map[string]any{
 		"name":          "app-authz-camera",
@@ -339,24 +345,31 @@ func TestIntegrationInternalAppTokenAuthorization(t *testing.T) {
 		t.Fatalf("expected owner authorization 200, got %d: %s", allowedRes.Code, allowedRes.Body.String())
 	}
 
-	brand := createBrandCloudForTest(t, env, owner.Tokens.AccessToken, "App Authz Brand", "app-authz-brand")
+	brand := createBrandCloudForTest(t, env, admin.Tokens.AccessToken, "App Authz Brand", "app-authz-brand")
 	brandUserRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
 		"email":    "app-authz-brand@example.com",
 		"password": "brand-password123",
-		"role":     "member",
-	}, owner.Tokens.AccessToken)
+		"role":     "admin",
+	}, admin.Tokens.AccessToken)
 	if brandUserRes.Code != http.StatusCreated {
 		t.Fatalf("expected brand cloud user create 201, got %d: %s", brandUserRes.Code, brandUserRes.Body.String())
 	}
 	brandUser := decodeBody[brandCloudUserBody](t, brandUserRes)
+	brandLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/app-authz-brand/auth/login", map[string]any{
+		"email":    "app-authz-brand@example.com",
+		"password": "brand-password123",
+	}, "")
+	if brandLoginRes.Code != http.StatusOK {
+		t.Fatalf("expected brand login 200, got %d: %s", brandLoginRes.Code, brandLoginRes.Body.String())
+	}
+	brandLogin := decodeBody[brandCloudLoginBody](t, brandLoginRes)
 	brandDeviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+brand.BrandCloud.ID+"/devices", map[string]any{
-		"name":          "app-authz-brand-camera",
-		"category":      "ip_camera",
-		"serial_number": "APP-AUTHZ-BRAND-001",
+		"name":     "app-authz-brand-camera",
+		"category": "ip_camera",
 		"metadata": map[string]any{
 			model.DeviceMetadataVideoCloudDevid: "video-app-authz-brand-1",
 		},
-	}, owner.Tokens.AccessToken)
+	}, brandLogin.Tokens.AccessToken)
 	if brandDeviceRes.Code != http.StatusCreated {
 		t.Fatalf("expected brand device create 201, got %d: %s", brandDeviceRes.Code, brandDeviceRes.Body.String())
 	}
@@ -2106,6 +2119,10 @@ func TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug(t *testing.T) 
 	if meRes.Code != http.StatusOK {
 		t.Fatalf("expected brand me 200, got %d: %s", meRes.Code, meRes.Body.String())
 	}
+	wrongTenantMeRes := performJSON(env.router, http.MethodGet, "/v1/brand-clouds/contoso/me", nil, acmeLogin.Tokens.AccessToken)
+	if wrongTenantMeRes.Code != http.StatusNotFound {
+		t.Fatalf("expected cross-tenant brand me 404, got %d: %s", wrongTenantMeRes.Code, wrongTenantMeRes.Body.String())
+	}
 
 	listOwnDevicesRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+acme.BrandCloud.ID+"/devices", nil, acmeLogin.Tokens.AccessToken)
 	if listOwnDevicesRes.Code != http.StatusOK {
@@ -2122,6 +2139,18 @@ func TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug(t *testing.T) 
 	if refreshRes.Code != http.StatusOK {
 		t.Fatalf("expected brand refresh 200, got %d: %s", refreshRes.Code, refreshRes.Body.String())
 	}
+	missingBrandRefreshRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/acme/auth/refresh", map[string]any{
+		"refresh_token": "",
+	}, "")
+	if missingBrandRefreshRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing brand refresh token 400, got %d: %s", missingBrandRefreshRes.Code, missingBrandRefreshRes.Body.String())
+	}
+	tenantMismatchRefreshRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/contoso/auth/refresh", map[string]any{
+		"refresh_token": acmeLogin.Tokens.RefreshToken,
+	}, "")
+	if tenantMismatchRefreshRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected tenant-mismatched brand refresh 401, got %d: %s", tenantMismatchRefreshRes.Code, tenantMismatchRefreshRes.Body.String())
+	}
 	platformRefreshRes := performJSON(env.router, http.MethodPost, "/v1/auth/refresh", map[string]any{
 		"refresh_token": acmeLogin.Tokens.RefreshToken,
 	}, "")
@@ -2129,6 +2158,18 @@ func TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug(t *testing.T) 
 		t.Fatalf("expected platform refresh to reject brand token, got %d: %s", platformRefreshRes.Code, platformRefreshRes.Body.String())
 	}
 	refreshed := decodeBody[brandCloudLoginBody](t, refreshRes)
+	wrongTenantLogoutRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/contoso/auth/logout", map[string]any{
+		"refresh_token": refreshed.Tokens.RefreshToken,
+	}, refreshed.Tokens.AccessToken)
+	if wrongTenantLogoutRes.Code != http.StatusNotFound {
+		t.Fatalf("expected cross-tenant brand logout 404, got %d: %s", wrongTenantLogoutRes.Code, wrongTenantLogoutRes.Body.String())
+	}
+	missingBrandLogoutRefreshRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/acme/auth/logout", map[string]any{
+		"refresh_token": "",
+	}, refreshed.Tokens.AccessToken)
+	if missingBrandLogoutRefreshRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing brand logout refresh token 400, got %d: %s", missingBrandLogoutRefreshRes.Code, missingBrandLogoutRefreshRes.Body.String())
+	}
 	logoutRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/acme/auth/logout", map[string]any{
 		"refresh_token": refreshed.Tokens.RefreshToken,
 	}, refreshed.Tokens.AccessToken)
