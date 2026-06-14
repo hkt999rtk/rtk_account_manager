@@ -19,7 +19,6 @@ type brandCloudRequest struct {
 }
 
 type brandCloudMemberRequest struct {
-	UserID           string `json:"user_id,omitempty"`
 	BrandCloudUserID string `json:"brand_cloud_user_id,omitempty"`
 	Role             string `json:"role" binding:"required"`
 }
@@ -284,15 +283,12 @@ func (s *Server) assignBrandCloudMember(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "invalid_role", "Invalid role")
 		return
 	}
-	userID := strings.TrimSpace(req.UserID)
-	if userID == "" {
-		userID = strings.TrimSpace(req.BrandCloudUserID)
-	}
-	if userID == "" {
-		writeError(c, http.StatusBadRequest, "missing_user", "user_id or brand_cloud_user_id is required")
+	brandCloudUserID := strings.TrimSpace(req.BrandCloudUserID)
+	if brandCloudUserID == "" {
+		writeError(c, http.StatusBadRequest, "missing_brand_cloud_user", "brand_cloud_user_id is required")
 		return
 	}
-	member, err := s.store.AssignBrandCloudMember(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), userID, role)
+	member, err := s.store.AssignBrandCloudMember(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), brandCloudUserID, role)
 	if err != nil {
 		writeStoreError(c, err)
 		return

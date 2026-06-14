@@ -44,7 +44,7 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 
 	requiredColumns := map[string][]string{
 		"organizations":              {"organization_kind", "status", "metadata", "tenant_slug"},
-		"auth_tokens":                {"user_id", "purpose", "scope", "token_hash", "expires_at", "consumed_at"},
+		"auth_tokens":                {"user_id", "subject_type", "subject_id", "purpose", "scope", "token_hash", "expires_at", "consumed_at"},
 		"brand_cloud_users":          {"brand_cloud_id", "email", "password_hash", "display_name", "email_verified", "email_verified_at", "signup_pending_verification", "disabled_at"},
 		"brand_cloud_memberships":    {"brand_cloud_id", "brand_cloud_user_id", "role"},
 		"brand_cloud_refresh_tokens": {"brand_cloud_user_id", "brand_cloud_id", "token_hash", "expires_at", "revoked_at"},

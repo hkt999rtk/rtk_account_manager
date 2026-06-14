@@ -80,6 +80,10 @@ func (s *Server) appCertificateForLogin(ctx context.Context, userID, csrPEM stri
 	return s.appCertificateForSubject(ctx, "platform_user", userID, "app-user:"+userID, csrPEM)
 }
 
+func (s *Server) appCertificateForBrandCloudLogin(ctx context.Context, brandCloudUserID, csrPEM string) (appCertificateResponse, error) {
+	return s.appCertificateForSubject(ctx, "brand_cloud_user", brandCloudUserID, "app-brand-cloud-user:"+brandCloudUserID, csrPEM)
+}
+
 func (s *Server) appCertificateForEndUserLogin(ctx context.Context, endUserID, csrPEM string) (appCertificateResponse, error) {
 	return s.appCertificateForSubject(ctx, "end_user", endUserID, "app-end-user:"+endUserID, csrPEM)
 }

@@ -1033,16 +1033,21 @@ Stores one-time email verification, login activation, and password reset tokens.
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `id` | UUID | Yes | Primary key. |
-| `user_id` | UUID | Yes | References `users.id`. |
+| `user_id` | UUID | No | Legacy/platform FK to `users.id`; null for brand-cloud subjects. |
+| `subject_type` | Text | Yes | One of `platform_user`, `brand_cloud_user`. |
+| `subject_id` | UUID | Yes | `users.id` for platform subjects, `brand_cloud_users.id` for brand-cloud subjects. |
 | `purpose` | Text | Yes | One of `email_verification`, `login_activation`, `password_reset`. |
+| `scope` | Text | Yes | Empty for global platform flows; `brand_cloud:<tenantSlug>` for brand-cloud login activation. |
 | `token_hash` | Text | Yes | Unique hash of the one-time token. |
 | `expires_at` | Timestamp | Yes | Expiration timestamp. |
 | `consumed_at` | Timestamp | No | Set after successful one-time use. |
 | `created_at` | Timestamp | Yes | Creation timestamp. |
 
 Auth tokens must be stored hashed, not in raw form, and are throttled by
-`user_id`, `purpose`, and scope when applicable. Tenant-scoped brand-cloud login
-activation tokens store a scope such as `brand_cloud:<tenantSlug>`.
+`subject_type`, `subject_id`, `purpose`, and scope when applicable.
+Tenant-scoped brand-cloud login activation tokens store a scope such as
+`brand_cloud:<tenantSlug>` and reference `brand_cloud_users.id`; they must not
+create or require a global `users` row.
 
 ### Keycloak/OIDC Tables
 
@@ -1434,8 +1439,8 @@ All endpoints are versioned under `/v1`.
 | `GET` | `/v1/admin/brand-clouds` | Yes | Platform admin | List brand cloud organizations. |
 | `GET` | `/v1/admin/brand-clouds/:brandCloudId` | Yes | Platform admin | Read one brand cloud organization. |
 | `PATCH` | `/v1/admin/brand-clouds/:brandCloudId` | Yes | Platform admin | Update brand cloud name, tenant slug, status, or metadata. |
-| `POST` | `/v1/admin/brand-clouds/:brandCloudId/members` | Yes | Platform admin | Assign/update a brand-cloud membership by `brand_cloud_user_id`; legacy `user_id` is accepted only during migration. |
-| `POST` | `/v1/admin/brand-clouds/:brandCloudId/users` | Yes | Platform admin | Create/reactivate a brand-scoped user and membership; response includes legacy aliases during migration. |
+| `POST` | `/v1/admin/brand-clouds/:brandCloudId/members` | Yes | Platform admin | Assign/update a brand-cloud membership by `brand_cloud_user_id`; platform `user_id` values are not accepted. |
+| `POST` | `/v1/admin/brand-clouds/:brandCloudId/users` | Yes | Platform admin | Create/reactivate a brand-scoped user and membership; response returns `brand_cloud_user` and `brand_cloud_member`. |
 | `GET` | `/v1/admin/brand-clouds/:brandCloudId/users` | Yes | Platform admin | List brand-scoped users, including active, pending-verification, and disabled states. |
 | `POST` | `/v1/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/approve` | Yes | Platform admin | Approve a pending brand-cloud user activation and mark the brand-scoped user verified. |
 | `POST` | `/v1/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/disable` | Yes | Platform admin | Disable brand-cloud access and revoke active brand-cloud refresh tokens. |

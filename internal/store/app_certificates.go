@@ -99,11 +99,13 @@ func (s *Store) RevokeValidAppCertificatesForBrandCloudUser(ctx context.Context,
 		SET revoked_at = COALESCE(ac.revoked_at, now()),
 		    updated_at = now()
 		FROM brand_cloud_users bcu
-		JOIN users u ON u.email = bcu.email
+		LEFT JOIN users u ON u.email = bcu.email
 		WHERE bcu.id = $1
 		  AND bcu.brand_cloud_id = $2
-		  AND ac.subject_type = 'platform_user'
-		  AND ac.subject_id = u.id::text
+		  AND (
+		    (ac.subject_type = 'brand_cloud_user' AND ac.subject_id = bcu.id::text)
+		    OR (ac.subject_type = 'platform_user' AND u.id IS NOT NULL AND ac.subject_id = u.id::text)
+		  )
 		  AND ac.revoked_at IS NULL
 		  AND ac.not_before <= now()
 		  AND ac.not_after > now()

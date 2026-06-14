@@ -67,12 +67,12 @@ func (s *Server) brandCloudActivateLogin(c *gin.Context) {
 }
 
 func (s *Server) writeBrandCloudLoginResponse(c *gin.Context, appCSRPem string, result store.BrandCloudLoginResult) {
-	tokens, err := s.issueBrandCloudTokens(c, result.User.ID, result.BrandCloudUser.ID, result.BrandCloud.ID, valueOrEmpty(result.BrandCloud.TenantSlug))
+	tokens, err := s.issueBrandCloudTokens(c, result.BrandCloudUser.ID, result.BrandCloudUser.ID, result.BrandCloud.ID, valueOrEmpty(result.BrandCloud.TenantSlug))
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
 		return
 	}
-	appCert, err := s.appCertificateForLogin(c.Request.Context(), result.User.ID, appCSRPem)
+	appCert, err := s.appCertificateForBrandCloudLogin(c.Request.Context(), result.BrandCloudUser.ID, appCSRPem)
 	if err != nil {
 		writeAppCertificateError(c, err)
 		return

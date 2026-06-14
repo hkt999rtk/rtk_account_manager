@@ -28,3 +28,25 @@ func (s *Store) AuthorizeUserForVideoDevice(ctx context.Context, userID, videoCl
 	}
 	return nil
 }
+
+func (s *Store) AuthorizeBrandCloudUserForVideoDevice(ctx context.Context, brandCloudUserID, videoCloudDevid string) error {
+	var ok bool
+	err := s.db.QueryRow(ctx, `
+		SELECT true
+		FROM devices d
+		JOIN brand_cloud_memberships m ON m.brand_cloud_id = d.organization_id
+		JOIN brand_cloud_users u ON u.id = m.brand_cloud_user_id
+		WHERE m.brand_cloud_user_id = $1
+		  AND u.disabled_at IS NULL
+		  AND d.disabled_at IS NULL
+		  AND d.metadata ->> $2 = $3
+		LIMIT 1
+	`, brandCloudUserID, model.DeviceMetadataVideoCloudDevid, videoCloudDevid).Scan(&ok)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	return nil
+}

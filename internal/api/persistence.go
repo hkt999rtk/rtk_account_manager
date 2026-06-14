@@ -137,6 +137,7 @@ type deviceClaimPersistence interface {
 	TransferDeviceClaim(ctx context.Context, in store.DeviceClaimTransferInput) (store.DeviceClaimOverrideResult, error)
 	ReclaimDeviceClaimToken(ctx context.Context, in store.DeviceClaimReclaimInput) (store.DeviceClaimOverrideResult, error)
 	AuthorizeUserForVideoDevice(ctx context.Context, userID, videoCloudDevid string) error
+	AuthorizeBrandCloudUserForVideoDevice(ctx context.Context, brandCloudUserID, videoCloudDevid string) error
 	AuthorizeEndUserForVideoDevice(ctx context.Context, endUserID, videoCloudDevid string) error
 }
 
@@ -198,7 +199,7 @@ type brandCloudPersistence interface {
 	GetBrandCloud(ctx context.Context, orgID string) (model.Organization, error)
 	GetBrandCloudByTenantSlug(ctx context.Context, tenantSlug string) (model.Organization, error)
 	UpdateBrandCloud(ctx context.Context, actorUserID, orgID string, in store.BrandCloudInput) (model.Organization, error)
-	AssignBrandCloudMember(ctx context.Context, actorUserID, orgID, userID string, role model.Role) (model.Member, error)
+	AssignBrandCloudMember(ctx context.Context, actorUserID, orgID, brandCloudUserID string, role model.Role) (model.BrandCloudMember, error)
 	CreateBrandCloudUser(ctx context.Context, actorUserID, orgID string, in store.BrandCloudUserInput) (store.BrandCloudUserResult, error)
 	ListBrandCloudUsers(ctx context.Context, in store.BrandCloudUserListFilter) (store.BrandCloudUserPage, error)
 	DisableBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) (model.BrandCloudUser, error)

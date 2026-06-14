@@ -500,6 +500,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`
 - `rtk_account_manager/internal/store`: `TestBrandCloudLoginActivationTokenIsTenantScoped`
 - `rtk_account_manager/internal/store`: `TestBrandCloudStoreCRUDAndErrorPaths`
+- `rtk_account_manager/internal/store`: `TestBrandCloudUserProvisioningUsesBrandScopedIdentityOnly`
 - `rtk_account_manager/internal/store`: `TestClaimOutboxMessagesReadyLeasesRows`
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshotWithLossyUTF8`
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshot`
@@ -633,7 +634,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 
 ```sh
 gofmt -l .
-TEST_DATABASE_URL='***' go test -json ./... -coverpkg=./internal/... -coverprofile=reports/coverage.out -covermode=atomic
+TEST_DATABASE_URL='***' go test -json -count=1 ./... -coverpkg=./internal/... -coverprofile=reports/coverage.out -covermode=atomic
 go tool cover -func=reports/coverage.out
 go tool cover -html=reports/coverage.out -o reports/coverage.html
 go build ./...

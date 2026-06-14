@@ -203,14 +203,90 @@ func TestBrandCloudStoreCRUDAndErrorPaths(t *testing.T) {
 		t.Fatalf("expected missing brand cloud update not found, got %v", err)
 	}
 
-	assigned, err := env.store.AssignBrandCloudMember(ctx, admin.User.ID, acme.ID, member.User.ID, model.RoleAdmin)
+	brandMember, err := env.store.CreateBrandCloudUser(ctx, admin.User.ID, acme.ID, BrandCloudUserInput{
+		Email:        member.User.Email,
+		PasswordHash: "hash",
+		Role:         model.RoleMember,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if assigned.UserID != member.User.ID || assigned.Role != model.RoleAdmin {
+	assigned, err := env.store.AssignBrandCloudMember(ctx, admin.User.ID, acme.ID, brandMember.BrandCloudUser.ID, model.RoleAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assigned.BrandCloudUserID != brandMember.BrandCloudUser.ID || assigned.Role != model.RoleAdmin {
 		t.Fatalf("unexpected assigned brand-cloud member: %+v", assigned)
 	}
-	if _, err := env.store.AssignBrandCloudMember(ctx, admin.User.ID, "00000000-0000-0000-0000-000000000000", member.User.ID, model.RoleMember); !errors.Is(err, ErrNotFound) {
+	if _, err := env.store.AssignBrandCloudMember(ctx, admin.User.ID, "00000000-0000-0000-0000-000000000000", brandMember.BrandCloudUser.ID, model.RoleMember); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected missing brand cloud member assignment not found, got %v", err)
+	}
+}
+
+func TestBrandCloudUserProvisioningUsesBrandScopedIdentityOnly(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+
+	admin, err := env.store.Register(ctx, RegisterInput{
+		Email:            "brand-target-admin@example.com",
+		PasswordHash:     "hash",
+		OrganizationName: "Brand Target Admin",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	acme, err := env.store.CreateBrandCloud(ctx, admin.User.ID, BrandCloudInput{Name: "Target Acme", TenantSlug: "target-acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contoso, err := env.store.CreateBrandCloud(ctx, admin.User.ID, BrandCloudInput{Name: "Target Contoso", TenantSlug: "target-contoso"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	acmeUser, err := env.store.CreateBrandCloudUser(ctx, admin.User.ID, acme.ID, BrandCloudUserInput{
+		Email:        "shared-target@example.com",
+		PasswordHash: "hash-acme",
+		Role:         model.RoleOwner,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contosoUser, err := env.store.CreateBrandCloudUser(ctx, admin.User.ID, contoso.ID, BrandCloudUserInput{
+		Email:        "shared-target@example.com",
+		PasswordHash: "hash-contoso",
+		Role:         model.RoleAdmin,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acmeUser.BrandCloudUser.ID == contosoUser.BrandCloudUser.ID {
+		t.Fatalf("same email in different brand clouds must create distinct brand-cloud users: acme=%+v contoso=%+v", acmeUser, contosoUser)
+	}
+
+	var globalUserCount int
+	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM users WHERE email = 'shared-target@example.com'`).Scan(&globalUserCount); err != nil {
+		t.Fatal(err)
+	}
+	if globalUserCount != 0 {
+		t.Fatalf("brand-cloud user provisioning must not create global users, got %d", globalUserCount)
+	}
+	var legacyMembershipCount int
+	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM organization_members WHERE organization_id IN ($1, $2)`, acme.ID, contoso.ID).Scan(&legacyMembershipCount); err != nil {
+		t.Fatal(err)
+	}
+	if legacyMembershipCount != 0 {
+		t.Fatalf("brand-cloud user provisioning must not create legacy organization_members, got %d", legacyMembershipCount)
+	}
+
+	assigned, err := env.store.AssignBrandCloudMember(ctx, admin.User.ID, acme.ID, acmeUser.BrandCloudUser.ID, model.RoleAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assigned.BrandCloudUserID != acmeUser.BrandCloudUser.ID || assigned.Role != model.RoleAdmin {
+		t.Fatalf("brand-cloud member assignment must use brand_cloud_user_id only, got %+v", assigned)
+	}
+	if _, err := env.store.AssignBrandCloudMember(ctx, admin.User.ID, acme.ID, admin.User.ID, model.RoleMember); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("legacy global user_id assignment must be rejected, got %v", err)
 	}
 }
