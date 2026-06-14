@@ -26,7 +26,7 @@ Generated: ci-candidate
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 28 |
+| Go packages | 21 |
 | Test cases started | recorded in reports/test-events.json |
 | JSON pass events | recorded in reports/test-events.json |
 | JSON fail events | recorded in reports/test-events.json |
@@ -613,22 +613,6 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceMarksSuccessfulPublishes`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunOnceSchedulesTransientRetry`
 - `rtk_account_manager/internal/worker/outbox`: `TestRunReturnsWhenContextIsCanceled`
-- `rtk_account_manager/linode_deploy/internal/artifact`: `TestValidateManifestRejectsWrongArtifactName`
-- `rtk_account_manager/linode_deploy/internal/artifact`: `TestVerifyLocalRequiresAccountManagerBundleContract`
-- `rtk_account_manager/linode_deploy/internal/artifact`: `TestVerifyManifestAndChecksum`
-- `rtk_account_manager/linode_deploy/internal/cli`: `TestDeployDryRunRequiresReleaseAndSecrets`
-- `rtk_account_manager/linode_deploy/internal/cli`: `TestDeployRejectsLatestRelease`
-- `rtk_account_manager/linode_deploy/internal/cli`: `TestPlanCommandPrintsDeploymentPlan`
-- `rtk_account_manager/linode_deploy/internal/manifest`: `TestLoadAccountManagerStagingManifest`
-- `rtk_account_manager/linode_deploy/internal/manifest`: `TestManifestRejectsUnsafeAccountManagerShape`
-- `rtk_account_manager/linode_deploy/internal/manifest`: `TestManifestRequiresNoLatestRelease`
-- `rtk_account_manager/linode_deploy/internal/planner`: `TestPlanIncludesAccountManagerDeploymentGates`
-- `rtk_account_manager/linode_deploy/internal/planner`: `TestPlanShowsWorkersWhenEnabled`
-- `rtk_account_manager/linode_deploy/internal/render`: `TestRuntimeEnvKeepsLogBrokerWhenWorkersAreEnabled`
-- `rtk_account_manager/linode_deploy/internal/render`: `TestRuntimeEnvRendersDefaultsAndSecretsWithoutLeakingRawValuesInReport`
-- `rtk_account_manager/linode_deploy/internal/render`: `TestRuntimeEnvRendersSMTPAuthTokenDelivery`
-- `rtk_account_manager/linode_deploy/internal/secrets`: `TestLoadRequiredSecretsAndRedact`
-- `rtk_account_manager/linode_deploy/internal/secrets`: `TestRequireReportsMissingKeys`
 
 ## Commands
 
