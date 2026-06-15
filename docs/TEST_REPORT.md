@@ -304,11 +304,13 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsInvalidToken`
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsMissingToken`
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsRefreshTokenAsBearer`
+- `rtk_account_manager/internal/api`: `TestRootRouteDescribesAPIService`
 - `rtk_account_manager/internal/api`: `TestSMTPAuthTokenSinkWritesDelivery`
 - `rtk_account_manager/internal/api`: `TestSMTPQuotaRaiseNotificationSinkWritesDelivery`
 - `rtk_account_manager/internal/api`: `TestSendSMTPMailDeliversMessage`
 - `rtk_account_manager/internal/api`: `TestSendSMTPMailTimesOut`
 - `rtk_account_manager/internal/api`: `TestTrimPtrNormalizesOptionalStrings`
+- `rtk_account_manager/internal/api`: `TestUnknownRouteStillReturnsNotFound`
 - `rtk_account_manager/internal/api`: `TestValidationHelpersWriteErrors`
 - `rtk_account_manager/internal/api`: `TestValueOrEmpty`
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability/invalid_token`
