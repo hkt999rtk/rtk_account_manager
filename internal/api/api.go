@@ -451,6 +451,13 @@ func (s *Server) recoveryLogger() gin.HandlerFunc {
 func (s *Server) Router() *gin.Engine {
 	r := gin.New()
 	r.Use(s.requestLogger(), s.recoveryLogger())
+	r.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"service": "account-manager",
+			"status":  "ok",
+			"health":  "/v1/health",
+		})
+	})
 	r.GET("/metrics/prometheus", s.prometheusMetrics)
 
 	v1 := r.Group("/v1")
