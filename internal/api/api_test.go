@@ -73,6 +73,43 @@ func TestHealthRoute(t *testing.T) {
 	}
 }
 
+func TestRootRouteDescribesAPIService(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := New(nil, nil).Router()
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected root 200, got %d", res.Code)
+	}
+	var body struct {
+		Service string `json:"service"`
+		Status  string `json:"status"`
+		Health  string `json:"health"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatalf("expected JSON root body, got %v", err)
+	}
+	if body.Service != "account-manager" || body.Status != "ok" || body.Health != "/v1/health" {
+		t.Fatalf("unexpected root body: %+v", body)
+	}
+}
+
+func TestUnknownRouteStillReturnsNotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := New(nil, nil).Router()
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/unknown", nil)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("expected unknown route 404, got %d", res.Code)
+	}
+}
+
 func TestPrometheusMetricsRoute(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := New(nil, nil).Router()
