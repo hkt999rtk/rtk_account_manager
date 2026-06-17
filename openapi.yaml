@@ -43,6 +43,8 @@ tags:
     description: Platform-admin operational metrics.
   - name: Brand Clouds
     description: Platform-admin brand cloud and scoped user management.
+  - name: Developer Brand Clouds
+    description: Developer-owned brand cloud listing, creation, and owner transfer.
   - name: Brand Cloud Auth
     description: Brand-cloud scoped authentication and current account endpoints.
   - name: App End Users
@@ -97,7 +99,7 @@ paths:
       tags:
         - Auth
       operationId: signupUser
-      summary: Create a public evaluation-tier account.
+      summary: Create a developer account and default brand cloud.
       requestBody:
         required: true
         content:
@@ -106,7 +108,7 @@ paths:
               $ref: "#/components/schemas/SignupRequest"
       responses:
         "202":
-          description: Signup accepted and verification token issued.
+          description: Developer signup accepted and verification token issued.
           content:
             application/json:
               schema:
@@ -476,6 +478,106 @@ paths:
       responses:
         "200":
           description: Brand-cloud refresh token revoked.
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/developer/brand-clouds:
+    get:
+      tags:
+        - Developer Brand Clouds
+      operationId: listDeveloperBrandClouds
+      security:
+        - bearerAuth: []
+      summary: List brand clouds visible to the current developer.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Developer brand cloud list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandCloudsResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+    post:
+      tags:
+        - Developer Brand Clouds
+      operationId: createDeveloperBrandCloud
+      security:
+        - bearerAuth: []
+      summary: Create a brand cloud owned by the current developer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandCloudRequest"
+      responses:
+        "201":
+          description: Developer brand cloud created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandCloudResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/developer/brand-clouds/{brandCloudId}/owner-transfer:
+    post:
+      tags:
+        - Developer Brand Clouds
+      operationId: requestBrandCloudOwnerTransfer
+      security:
+        - bearerAuth: []
+      summary: Request transfer of brand cloud ownership to an existing developer.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandCloudOwnerTransferRequest"
+      responses:
+        "202":
+          description: Owner transfer email issued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandCloudOwnerTransferResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/developer/brand-cloud-owner-transfers/accept:
+    post:
+      tags:
+        - Developer Brand Clouds
+      operationId: acceptBrandCloudOwnerTransfer
+      security:
+        - bearerAuth: []
+      summary: Accept a pending brand cloud owner transfer as the target developer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandCloudOwnerTransferAcceptRequest"
+      responses:
+        "200":
+          description: Owner transfer accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandCloudOwnerTransferResponse"
         "400":
           $ref: "#/components/responses/Error"
         "401":
@@ -3258,7 +3360,7 @@ components:
           minLength: 1
     SignupRequest:
       type: object
-      required: [email, password, organization_name]
+      required: [email, password]
       properties:
         email:
           type: string
@@ -3271,6 +3373,8 @@ components:
         organization_name:
           type: string
           minLength: 1
+          deprecated: true
+          description: Ignored by developer signup; the default brand cloud name is the developer email.
         captcha_token:
           type: string
     LoginRequest:
@@ -3850,6 +3954,21 @@ components:
         rotate_password:
           type: boolean
           default: false
+    BrandCloudOwnerTransferRequest:
+      type: object
+      required: [target_email]
+      properties:
+        target_email:
+          type: string
+          format: email
+          description: Existing developer account that will receive the owner-transfer email.
+    BrandCloudOwnerTransferAcceptRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 1
     AppEndUserLoginRequest:
       type: object
       required: [email, password]
@@ -4206,12 +4325,16 @@ components:
           $ref: "#/components/schemas/Tokens"
     SignupResponse:
       type: object
-      required: [user, organization]
+      required: [user, brand_cloud, organization]
       properties:
         user:
           $ref: "#/components/schemas/User"
+        brand_cloud:
+          $ref: "#/components/schemas/Organization"
         organization:
           $ref: "#/components/schemas/Organization"
+          deprecated: true
+          description: Compatibility alias for `brand_cloud`.
     LoginResponse:
       type: object
       required: [user, tokens, app_certificate]
@@ -4366,6 +4489,12 @@ components:
             $ref: "#/components/schemas/Organization"
         pagination:
           $ref: "#/components/schemas/Pagination"
+    BrandCloudOwnerTransferResponse:
+      type: object
+      required: [owner_transfer]
+      properties:
+        owner_transfer:
+          $ref: "#/components/schemas/BrandCloudOwnerTransfer"
     BrandCloudUsersResponse:
       type: object
       required: [brand_cloud_users, pagination]
@@ -4737,7 +4866,7 @@ components:
           format: date-time
     User:
       type: object
-      required: [id, email, email_verified, signup_pending_verification, created_at, updated_at]
+      required: [id, email, email_verified, signup_pending_verification, developer_cloud_limit, created_at, updated_at]
       properties:
         id:
           type: string
@@ -4754,6 +4883,10 @@ components:
           format: date-time
         signup_pending_verification:
           type: boolean
+        developer_cloud_limit:
+          type: integer
+          minimum: 0
+          maximum: 200
         created_at:
           type: string
           format: date-time
@@ -4761,6 +4894,43 @@ components:
           type: string
           format: date-time
         disabled_at:
+          type: string
+          format: date-time
+    BrandCloudOwnerTransfer:
+      type: object
+      required: [id, brand_cloud_id, requested_by_user_id, target_user_id, status, expires_at, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        brand_cloud_id:
+          type: string
+          format: uuid
+        requested_by_user_id:
+          type: string
+          format: uuid
+        target_user_id:
+          type: string
+          format: uuid
+        target_email:
+          type: string
+          format: email
+        status:
+          type: string
+          enum: [pending, accepted, canceled, expired]
+        expires_at:
+          type: string
+          format: date-time
+        accepted_at:
+          type: string
+          format: date-time
+        canceled_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
           type: string
           format: date-time
     EndUser:

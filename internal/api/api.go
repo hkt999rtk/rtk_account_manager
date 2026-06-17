@@ -160,6 +160,8 @@ func authTokenSubject(purpose string) string {
 		return "Sign in to Realtek Connect"
 	case "password_reset":
 		return "Reset your Realtek Connect password"
+	case "brand_cloud_owner_transfer":
+		return "Accept Realtek Connect+ brand cloud ownership"
 	default:
 		return "Realtek Connect account token"
 	}
@@ -174,6 +176,8 @@ func buildAuthTokenBody(delivery AuthTokenDelivery, baseURL string) string {
 		b.WriteString("Sign in to Realtek Connect with this link:\r\n\r\n")
 	case "password_reset":
 		b.WriteString("Reset your Realtek Connect password with this link:\r\n\r\n")
+	case "brand_cloud_owner_transfer":
+		b.WriteString("Accept Realtek Connect+ brand cloud ownership with this link:\r\n\r\n")
 	default:
 		b.WriteString("Use this Realtek Connect account token:\r\n\r\n")
 	}
@@ -200,6 +204,8 @@ func authTokenLink(purpose, token, baseURL string) string {
 		path = "/login/activate"
 	case "password_reset":
 		path = "/reset-password"
+	case "brand_cloud_owner_transfer":
+		path = "/brand-cloud-owner-transfer/accept"
 	}
 	u, err := url.Parse(strings.TrimRight(strings.TrimSpace(baseURL), "/") + path)
 	if err != nil {
@@ -461,6 +467,13 @@ func (s *Server) recoveryLogger() gin.HandlerFunc {
 func (s *Server) Router() *gin.Engine {
 	r := gin.New()
 	r.Use(s.requestLogger(), s.recoveryLogger())
+	r.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"service": "account-manager",
+			"status":  "ok",
+			"health":  "/v1/health",
+		})
+	})
 	r.GET("/metrics/prometheus", s.prometheusMetrics)
 
 	v1 := r.Group("/v1")
@@ -502,6 +515,11 @@ func (s *Server) Router() *gin.Engine {
 	protected.PATCH("/me/password", s.changePassword)
 	protected.GET("/me/identities", s.listCurrentUserIdentities)
 	protected.DELETE("/me/identities/:identityId", s.deleteCurrentUserIdentity)
+
+	protected.GET("/developer/brand-clouds", s.listDeveloperBrandClouds)
+	protected.POST("/developer/brand-clouds", s.createDeveloperBrandCloud)
+	protected.POST("/developer/brand-clouds/:brandCloudId/owner-transfer", s.createBrandCloudOwnerTransfer)
+	protected.POST("/developer/brand-cloud-owner-transfers/accept", s.acceptBrandCloudOwnerTransfer)
 
 	protected.GET("/orgs", s.listOrganizations)
 	protected.POST("/orgs", s.createOrganization)
@@ -1964,6 +1982,8 @@ func writeStoreError(c *gin.Context, err error) {
 		writeError(c, http.StatusTooManyRequests, "rate_limited", "Too many token requests")
 	case errors.Is(err, store.ErrEvaluationQuotaExceeded):
 		writeError(c, http.StatusConflict, "EVALUATION_QUOTA_EXCEEDED", "Evaluation device quota exceeded")
+	case errors.Is(err, store.ErrDeveloperCloudLimitExceeded):
+		writeError(c, http.StatusConflict, "developer_cloud_limit_exceeded", "Developer brand cloud limit exceeded")
 	case errors.Is(err, errOperationStateInconsistent):
 		writeError(c, http.StatusInternalServerError, "operation_state_inconsistent", err.Error())
 	case strings.Contains(err.Error(), "duplicate key"):

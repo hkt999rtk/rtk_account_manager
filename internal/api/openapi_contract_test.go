@@ -33,7 +33,6 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 		"organization_name": "Contract Signup Org",
 	}, "")
 	contract.validate(t, http.MethodPost, "/v1/auth/signup", signupRes)
-	signupBody := decodeBody[signupBody](t, signupRes)
 
 	registered := registerUser(t, env.router, "contract-owner@example.com", "Contract Org")
 	registerRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
@@ -134,16 +133,17 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 		"password": "password123",
 	}, "")
 	contract.validate(t, http.MethodPost, "/v1/auth/login", signupLoginRes)
-	signupLoginBody := decodeBody[tokenBody](t, signupLoginRes)
 
-	raiseReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", map[string]any{
+	quotaRegistered := registerUser(t, env.router, "contract-quota@example.com", "Contract Quota Org")
+	markEvaluationOrg(t, env, quotaRegistered.Organization.ID, 5)
+	raiseReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+quotaRegistered.Organization.ID+"/quota-raise-requests", map[string]any{
 		"requested_quota": 8,
 		"use_case":        "contract test",
 		"contact_info": map[string]any{
 			"email": "contract@example.com",
 		},
-	}, signupLoginBody.Tokens.AccessToken)
-	contract.validate(t, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", raiseReqRes)
+	}, quotaRegistered.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/orgs/"+quotaRegistered.Organization.ID+"/quota-raise-requests", raiseReqRes)
 	raiseReqBody := decodeBody[quotaRaiseRequestBody](t, raiseReqRes)
 
 	admin := registerUser(t, env.router, "contract-platform-admin@example.com", "Contract Admin Org")

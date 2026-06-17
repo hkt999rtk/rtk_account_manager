@@ -560,8 +560,14 @@ func TestNewAzureEventHubsConstructorsRequireConfig(t *testing.T) {
 	if _, err := NewAzureEventHubsPublisherFromConnectionString("", "account.video.commands"); err == nil {
 		t.Fatal("expected publisher config error")
 	}
+	if _, err := NewAzureEventHubsPublisherFromConnectionString("Endpoint=sb://example.servicebus.windows.net/;SharedAccessKeyName=name;SharedAccessKey=key", ""); err == nil {
+		t.Fatal("expected publisher stream error")
+	}
 	if _, err := NewAzureEventHubsConsumerFromConnectionString("", "video.account.events", "group", time.Second, ""); err == nil {
 		t.Fatal("expected consumer config error")
+	}
+	if _, err := NewAzureEventHubsConsumerFromConnectionString("Endpoint=sb://example.servicebus.windows.net/;SharedAccessKeyName=name;SharedAccessKey=key", "", "group", time.Second, ""); err == nil {
+		t.Fatal("expected consumer stream error")
 	}
 }
 

@@ -239,10 +239,11 @@ An organization represents an account boundary. Devices belong to organizations,
 
 Organizations have an explicit kind:
 
-- `customer_org`: default for existing self-service register/signup
-  organizations and normal customer account boundaries.
+- `customer_org`: legacy/internal account boundaries created by
+  `/v1/auth/register` and organization APIs.
 - `brand_cloud`: second-layer brand cloud under the Realtek platform root,
-  created and managed only through Account Manager platform-admin APIs.
+  created by developer signup, developer self-service APIs, platform-admin
+  bootstrap, or platform-admin operations.
 
 Account Manager is the source of truth for brand cloud state, membership, and
 audit. `rtk_cloud_admin` may proxy or present brand cloud management, but it
@@ -257,25 +258,21 @@ and password, stored in `users`. Platform users authenticate through
 users may carry global operator privileges, but they are not customer-visible
 brand-cloud accounts.
 
-The existing `users` table remains the platform and legacy account table until
-the brand-scoped account migration is implemented.
+The `users` table is also the global developer identity table. A developer can
+own or join multiple brand clouds, defaults to `developer_cloud_limit=8`, and
+uses `/v1/auth/login` for the primary developer console session. Platform-admin
+users are developers too; bootstrap ensures the root admin owns the initial
+`Realtek Connect+` brand cloud.
 
 ### Brand Cloud User
 
-A brand-cloud user is a human identity scoped to exactly one brand cloud and
-stored in `brand_cloud_users`. It represents that brand cloud's developer,
-owner, admin, or operator account. It does not represent consumer APP end-user
-identity. The same email address in two different brand clouds represents two
-different brand developer/admin accounts because each brand cloud is presented
-as its own service. Brand-cloud developer/admin/operator accounts are not
-platform accounts, even when they use the same email address as a platform user,
-an APP end user, or a user in another brand cloud.
-
-Brand-cloud users authenticate through
-`/v1/brand-clouds/:tenantSlug/auth/login`; the tenant slug determines the
-authentication namespace. Authentication responses and session tokens must
-preserve whether the subject is a platform user or a brand-cloud user, and must
-include the brand-cloud scope for brand-cloud users.
+A developer is a global human identity stored in `users`. Developer membership
+in a brand cloud is represented by `organization_members` where
+`organizations.organization_kind='brand_cloud'`. Each brand cloud has exactly
+one active owner in the developer model. `brand_cloud_users` and tenant-scoped
+`/v1/brand-clouds/:tenantSlug/auth/*` login remain legacy compatibility surfaces
+for brand-scoped accounts, but new developer signup, cloud creation, cloud
+listing, and ownership transfer use global developer sessions.
 
 ### End User
 
@@ -307,16 +304,21 @@ is validated.
 
 ### Organization Member
 
-An organization member links a platform user to a customer organization and
-assigns a role. For brand clouds, `organization_members` remains only a legacy
-compatibility mirror during migration; brand-side role assignment is represented
-by `brand_cloud_memberships`.
+An organization member links a global user/developer to a customer organization
+or brand cloud and assigns a role. For brand clouds, this is the canonical
+developer membership and ownership model. `brand_cloud_memberships` remains for
+legacy tenant-scoped brand-cloud users.
 
 ### Brand Cloud Membership
 
-A brand-cloud membership links a brand-cloud user to its brand cloud and assigns
-the brand-cloud role. Brand-cloud roles are scoped to that brand cloud and do not
-grant platform-admin privileges.
+A brand-cloud membership links a global developer to its brand cloud through
+`organization_members`. The `owner` role is unique per brand cloud; `admin` and
+`member` are scoped to that brand cloud and do not grant platform-admin
+privileges. Owner transfer is a pending transaction: the current owner requests
+transfer to an existing developer email, the system emails a tokenized link to
+that developer, and acceptance requires both the token and the target
+developer's authenticated session. When accepted, the target becomes `owner`
+and the previous owner becomes `admin`.
 
 ### Device
 
@@ -755,6 +757,7 @@ for new brand-cloud developer/admin users or APP end-user identities.
 | `email_verified_at` | Timestamp | No | Time email verification completed. |
 | `signup_pending_verification` | Boolean | Yes | Public signup accounts cannot log in until this is cleared. |
 | `platform_admin` | Boolean | Yes | Allows platform-admin quota decisions and metrics access. |
+| `developer_cloud_limit` | Integer | Yes | Maximum number of brand clouds the developer may own; defaults to `8`. |
 | `created_at` | Timestamp | Yes | Creation timestamp. |
 | `updated_at` | Timestamp | Yes | Last update timestamp. |
 | `disabled_at` | Timestamp | No | Set when user access is disabled. |
@@ -767,11 +770,11 @@ Constraints:
 - Disabled users must not authenticate, refresh tokens, or access protected organization/device APIs with existing access tokens.
 - Self-service account deletion is implemented as account-manager user soft-disable by setting `disabled_at`; it does not remove organizations, memberships, devices, or product-level device state.
 
-### `brand_cloud_users` target model
+### `brand_cloud_users` legacy compatibility model
 
-Brand-cloud user storage is the target model for brand-cloud developers,
-owners, admins, and operators. It must be introduced as dedicated brand-scoped identity
-storage rather than by removing global uniqueness from `users.email`.
+Brand-cloud user storage is retained for tenant-scoped legacy brand-cloud
+login. New developer ownership, developer-created clouds, cloud limits, and
+owner transfer use global `users` plus `organization_members`.
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
@@ -792,15 +795,16 @@ Constraints:
 - `(brand_cloud_id, email)` is unique after lowercasing and trimming email.
 - The same normalized email may exist in multiple brand clouds as different
   `brand_cloud_users.id` values.
-- Brand-cloud users do not authenticate through `/v1/auth/login`.
+- Brand-cloud users authenticate through legacy
+  `/v1/brand-clouds/:tenantSlug/auth/*` endpoints.
 - Brand-cloud users must not carry `platform_admin`; platform privileges remain
   on platform users only.
 - Brand-cloud users must not be used for APP consumer identity. Consumer end
   users use the global `end_users` identity model and brand-scoped projection
   tables instead.
-- Existing brand-cloud memberships in `organization_members` that reference
-  global `users` are legacy data and must be migrated into per-brand
-  `brand_cloud_users` records before the legacy representation is retired.
+- `organization_members` is canonical for global developer membership in brand
+  clouds; `brand_cloud_memberships` is canonical only for legacy
+  tenant-scoped brand-cloud users.
 
 ### `end_users`
 
@@ -1302,20 +1306,35 @@ Keycloak as an external identity provider. Detailed callback, linking, token,
 security, and test requirements are defined in
 [KEYCLOAK_OIDC_SSO.md](KEYCLOAK_OIDC_SSO.md).
 
+### Developer Signup and Brand Cloud Ownership
+
+- `POST /v1/auth/signup` creates a developer user and a default brand cloud in
+  a signup-pending state, issues an email verification token, and returns
+  `202 Accepted` without login tokens. The default brand cloud name is the
+  developer email address and can later be changed.
+- `POST /v1/auth/verify-email` consumes the verification token and clears the
+  signup-pending state so the account can log in.
+- The existing `POST /v1/auth/register` endpoint remains the internal-use path
+  for customer organization creation that is not part of developer signup.
+- Developers can create additional brand clouds through
+  `/v1/developer/brand-clouds` until they reach `users.developer_cloud_limit`,
+  which defaults to `8`.
+- Platform admins can adjust a developer's cloud limit in platform-admin
+  workflows. The root bootstrap admin is also a developer and owns the initial
+  `Realtek Connect+` brand cloud.
+- `POST /v1/developer/brand-clouds/{brandCloudId}/owner-transfer` starts an
+  owner transfer to an existing developer email. The transfer is not effective
+  until the target developer accepts with both a valid email token and their
+  authenticated developer session.
+
 ### Self-Service Evaluation Tier
 
 `rtk_cloud_workspace/docs/business-model.md` defines a public evaluation tier
 (default 5 devices, ceiling 200 on request, non-commercial use) and a private
 commercial tier (no minimum scale, one-time license + annual maintenance).
-Account manager owns the API surface that supports the evaluation tier:
+Account manager still owns the quota request API surface for evaluation
+customer organizations created through legacy/internal paths:
 
-- `POST /v1/auth/signup` creates an evaluation-tier user and initial
-  organization in a signup-pending state, issues an email verification token,
-  and returns `202 Accepted` without login tokens.
-- `POST /v1/auth/verify-email` consumes the verification token and clears the
-  signup-pending state so the account can log in.
-- The existing `POST /v1/auth/register` endpoint remains the internal-use path
-  for account creation that is not part of the public signup flow.
 - Organizations carry tier metadata (`tier ∈ {evaluation, commercial}`) and an
   evaluation device quota (`evaluation_device_quota`, default `5`, maximum
   `200`). Device registration rejects evaluation-tier organizations whose

@@ -1177,59 +1177,18 @@ func TestIntegrationEmailSignInValidationPaths(t *testing.T) {
 func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	signupRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
-		"email":             "eval@example.com",
-		"password":          "password123",
-		"display_name":      "Eval User",
-		"organization_name": "Eval Org",
-	}, "")
-	if signupRes.Code != http.StatusAccepted {
-		t.Fatalf("expected signup 202, got %d: %s", signupRes.Code, signupRes.Body.String())
-	}
-	signupBody := decodeBody[signupBody](t, signupRes)
-	if !signupBody.User.SignupPendingVerification || signupBody.User.EmailVerified {
-		t.Fatalf("expected signup-pending user, got %+v", signupBody.User)
-	}
-	if signupBody.Organization.Tier != string(model.OrganizationTierEvaluation) || signupBody.Organization.EvaluationDeviceQuota != 5 {
-		t.Fatalf("expected evaluation org quota defaults, got %+v", signupBody.Organization)
-	}
-
-	unauthorizedLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
-		"email":    "eval@example.com",
-		"password": "password123",
-	}, "")
-	if unauthorizedLoginRes.Code != http.StatusUnauthorized {
-		t.Fatalf("expected pending signup login to fail, got %d", unauthorizedLoginRes.Code)
-	}
-
-	verifyToken := latestAuthToken(t, env.tokenSink, "eval@example.com", "email_verification")
-	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
-		"token": verifyToken,
-	}, "")
-	if verifyRes.Code != http.StatusOK {
-		t.Fatalf("expected signup verification 200, got %d: %s", verifyRes.Code, verifyRes.Body.String())
-	}
-	verifiedBody := decodeBody[userBody](t, verifyRes)
-	if !verifiedBody.User.EmailVerified || verifiedBody.User.SignupPendingVerification {
-		t.Fatalf("expected verified signup user, got %+v", verifiedBody.User)
-	}
-
-	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
-		"email":    "eval@example.com",
-		"password": "password123",
-	}, "")
-	if loginRes.Code != http.StatusOK {
-		t.Fatalf("expected verified signup login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
-	}
-	loginBody := decodeBody[tokenBody](t, loginRes)
+	registered := registerUser(t, env.router, "eval@example.com", "Eval Org")
+	markEvaluationOrg(t, env, registered.Organization.ID, 5)
+	orgID := registered.Organization.ID
+	accessToken := registered.Tokens.AccessToken
 
 	for i := 0; i < 5; i++ {
-		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/devices", devicePayload("eval-device-"+strconv.Itoa(i), "EVAL-"+strconv.Itoa(i)), loginBody.Tokens.AccessToken)
+		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+orgID+"/devices", devicePayload("eval-device-"+strconv.Itoa(i), "EVAL-"+strconv.Itoa(i)), accessToken)
 		if res.Code != http.StatusCreated {
 			t.Fatalf("expected device %d create 201, got %d: %s", i, res.Code, res.Body.String())
 		}
 	}
-	quotaExceededRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/devices", devicePayload("eval-device-5", "EVAL-5"), loginBody.Tokens.AccessToken)
+	quotaExceededRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+orgID+"/devices", devicePayload("eval-device-5", "EVAL-5"), accessToken)
 	if quotaExceededRes.Code != http.StatusConflict {
 		t.Fatalf("expected quota exceeded 409, got %d: %s", quotaExceededRes.Code, quotaExceededRes.Body.String())
 	}
@@ -1245,13 +1204,13 @@ func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
 		t.Fatalf("expected evaluation quota error code, got %+v", quotaExceeded)
 	}
 
-	raiseReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", map[string]any{
+	raiseReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+orgID+"/quota-raise-requests", map[string]any{
 		"requested_quota": 8,
 		"use_case":        "pilot expansion",
 		"contact_info": map[string]any{
 			"email": "buyer@example.com",
 		},
-	}, loginBody.Tokens.AccessToken)
+	}, accessToken)
 	if raiseReqRes.Code != http.StatusCreated {
 		t.Fatalf("expected quota raise request 201, got %d: %s", raiseReqRes.Code, raiseReqRes.Body.String())
 	}
@@ -1262,7 +1221,7 @@ func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
 
 	nonAdminApproveRes := performJSON(env.router, http.MethodPost, "/v1/admin/quota-raise-requests/"+raiseReqBody.QuotaRaiseRequest.ID+"/approve", map[string]any{
 		"approved_quota": 500,
-	}, loginBody.Tokens.AccessToken)
+	}, accessToken)
 	if nonAdminApproveRes.Code != http.StatusForbidden {
 		t.Fatalf("expected non-admin approval attempt 403, got %d: %s", nonAdminApproveRes.Code, nonAdminApproveRes.Body.String())
 	}
@@ -1271,7 +1230,7 @@ func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
 	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	nonAdminListRes := performJSON(env.router, http.MethodGet, "/v1/admin/quota-raise-requests", nil, loginBody.Tokens.AccessToken)
+	nonAdminListRes := performJSON(env.router, http.MethodGet, "/v1/admin/quota-raise-requests", nil, accessToken)
 	if nonAdminListRes.Code != http.StatusForbidden {
 		t.Fatalf("expected non-admin quota list 403, got %d: %s", nonAdminListRes.Code, nonAdminListRes.Body.String())
 	}
@@ -1302,13 +1261,13 @@ func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
 		t.Fatalf("expected approved quota to cap at 200, got %+v", approvedBody.Organization)
 	}
 
-	declineReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", map[string]any{
+	declineReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+orgID+"/quota-raise-requests", map[string]any{
 		"requested_quota": 12,
 		"use_case":        "contract exit",
 		"contact_info": map[string]any{
 			"email": "buyer@example.com",
 		},
-	}, loginBody.Tokens.AccessToken)
+	}, accessToken)
 	if declineReqRes.Code != http.StatusCreated {
 		t.Fatalf("expected second quota raise request 201, got %d: %s", declineReqRes.Code, declineReqRes.Body.String())
 	}
@@ -1362,14 +1321,8 @@ func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
 		t.Fatalf("expected admin metrics 200, got %d: %s", metricsRes.Code, metricsRes.Body.String())
 	}
 	metricsBody := decodeBody[evalTierMetricsBody](t, metricsRes)
-	if metricsBody.Signups.EvaluationCreated != 1 {
-		t.Fatalf("expected one evaluation signup, got %+v", metricsBody.Signups)
-	}
-	if metricsBody.Signups.VerificationCompleted != 1 {
-		t.Fatalf("expected one signup verification completion, got %+v", metricsBody.Signups)
-	}
-	if metricsBody.Signups.VerificationCompletionRate != 1 {
-		t.Fatalf("expected 100%% verification completion, got %+v", metricsBody.Signups)
+	if metricsBody.Signups.EvaluationCreated != 0 || metricsBody.Signups.VerificationCompleted != 0 || metricsBody.Signups.VerificationCompletionRate != 0 {
+		t.Fatalf("expected no legacy signup metrics in quota workflow, got %+v", metricsBody.Signups)
 	}
 	if metricsBody.QuotaRaiseRequests.Pending != 0 || metricsBody.QuotaRaiseRequests.Approved != 1 || metricsBody.QuotaRaiseRequests.Declined != 1 {
 		t.Fatalf("expected quota raise status counts to reflect one approve and one decline, got %+v", metricsBody.QuotaRaiseRequests)
@@ -1381,9 +1334,163 @@ func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
 		t.Fatalf("expected live quota usage to reflect approved quota and existing devices, got %+v", metricsBody.EvaluationQuotaUsage[0])
 	}
 
-	postApprovalRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/devices", devicePayload("eval-device-5", "EVAL-5"), loginBody.Tokens.AccessToken)
+	postApprovalRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+orgID+"/devices", devicePayload("eval-device-5", "EVAL-5"), accessToken)
 	if postApprovalRes.Code != http.StatusCreated {
 		t.Fatalf("expected device create after approval 201, got %d: %s", postApprovalRes.Code, postApprovalRes.Body.String())
+	}
+}
+
+func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	signupRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
+		"email":        "developer-owner@example.com",
+		"password":     "password123",
+		"display_name": "Developer Owner",
+	}, "")
+	if signupRes.Code != http.StatusAccepted {
+		t.Fatalf("expected developer signup 202, got %d: %s", signupRes.Code, signupRes.Body.String())
+	}
+	signup := decodeBody[developerSignupBody](t, signupRes)
+	if signup.BrandCloud.ID == "" || signup.BrandCloud.Name != "developer-owner@example.com" || signup.BrandCloud.OrganizationKind != "brand_cloud" {
+		t.Fatalf("expected default developer brand cloud, got %+v", signup.BrandCloud)
+	}
+	if signup.User.DeveloperCloudLimit != 8 || !signup.User.SignupPendingVerification {
+		t.Fatalf("expected developer limit and pending verification, got %+v", signup.User)
+	}
+
+	duplicateSignupRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
+		"email":        "developer-owner@example.com",
+		"password":     "password123",
+		"display_name": "Duplicate Developer",
+	}, "")
+	if duplicateSignupRes.Code != http.StatusConflict {
+		t.Fatalf("expected duplicate developer signup 409, got %d: %s", duplicateSignupRes.Code, duplicateSignupRes.Body.String())
+	}
+
+	env.server.authTokenSink = failingAuthTokenSink{}
+	deliveryFailureRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
+		"email":        "delivery-failure-developer@example.com",
+		"password":     "password123",
+		"display_name": "Delivery Failure",
+	}, "")
+	if deliveryFailureRes.Code != http.StatusInternalServerError {
+		t.Fatalf("expected token delivery failure 500, got %d: %s", deliveryFailureRes.Code, deliveryFailureRes.Body.String())
+	}
+	env.server.authTokenSink = env.tokenSink
+
+	verifyToken := latestAuthToken(t, env.tokenSink, "developer-owner@example.com", "email_verification")
+	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{"token": verifyToken}, "")
+	if verifyRes.Code != http.StatusOK {
+		t.Fatalf("expected verify 200, got %d: %s", verifyRes.Code, verifyRes.Body.String())
+	}
+	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    "developer-owner@example.com",
+		"password": "password123",
+	}, "")
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("expected login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
+	}
+	login := decodeBody[tokenBody](t, loginRes)
+
+	listRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds", nil, login.Tokens.AccessToken)
+	if listRes.Code != http.StatusOK {
+		t.Fatalf("expected developer brand cloud list 200, got %d: %s", listRes.Code, listRes.Body.String())
+	}
+	list := decodeBody[brandCloudsBody](t, listRes)
+	if list.Pagination.Total != 1 || len(list.BrandClouds) != 1 || list.BrandClouds[0].ID != signup.BrandCloud.ID {
+		t.Fatalf("expected default cloud in list, got %+v", list)
+	}
+
+	createRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds", map[string]any{
+		"name":        "Second Developer Cloud",
+		"tenant_slug": "second-developer-cloud",
+	}, login.Tokens.AccessToken)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected developer brand cloud create 201, got %d: %s", createRes.Code, createRes.Body.String())
+	}
+	created := decodeBody[brandCloudBody](t, createRes)
+	if created.BrandCloud.Name != "Second Developer Cloud" || created.BrandCloud.OrganizationKind != "brand_cloud" {
+		t.Fatalf("unexpected developer brand cloud: %+v", created.BrandCloud)
+	}
+}
+
+func TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession(t *testing.T) {
+	env := newIntegrationEnv(t)
+	source := verifiedDeveloperForTest(t, env, "source-transfer@example.com")
+	target := verifiedDeveloperForTest(t, env, "target-transfer@example.com")
+
+	invalidCreateRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds", map[string]any{
+		"name":        "Invalid Slug Cloud",
+		"tenant_slug": "!!!",
+	}, source.AccessToken)
+	if invalidCreateRes.Code != http.StatusConflict {
+		t.Fatalf("expected invalid developer cloud slug 409, got %d: %s", invalidCreateRes.Code, invalidCreateRes.Body.String())
+	}
+
+	invalidTransferRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer", map[string]any{}, source.AccessToken)
+	if invalidTransferRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing target email 400, got %d: %s", invalidTransferRes.Code, invalidTransferRes.Body.String())
+	}
+
+	selfTransferRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer", map[string]any{
+		"target_email": "source-transfer@example.com",
+	}, source.AccessToken)
+	if selfTransferRes.Code != http.StatusConflict {
+		t.Fatalf("expected self-transfer 409, got %d: %s", selfTransferRes.Code, selfTransferRes.Body.String())
+	}
+
+	missingRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer", map[string]any{
+		"target_email": "missing-transfer@example.com",
+	}, source.AccessToken)
+	if missingRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing target 404, got %d: %s", missingRes.Code, missingRes.Body.String())
+	}
+
+	requestRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer", map[string]any{
+		"target_email": "target-transfer@example.com",
+	}, source.AccessToken)
+	if requestRes.Code != http.StatusAccepted {
+		t.Fatalf("expected owner transfer request 202, got %d: %s", requestRes.Code, requestRes.Body.String())
+	}
+	transfer := decodeBody[brandCloudOwnerTransferBody](t, requestRes)
+	if transfer.OwnerTransfer.Status != "pending" || transfer.OwnerTransfer.TargetUserID != target.UserID {
+		t.Fatalf("unexpected pending transfer: %+v", transfer.OwnerTransfer)
+	}
+	token := latestAuthToken(t, env.tokenSink, "target-transfer@example.com", "brand_cloud_owner_transfer")
+
+	wrongAcceptRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-cloud-owner-transfers/accept", map[string]any{
+		"token": token,
+	}, source.AccessToken)
+	if wrongAcceptRes.Code != http.StatusNotFound {
+		t.Fatalf("expected wrong target accept 404, got %d: %s", wrongAcceptRes.Code, wrongAcceptRes.Body.String())
+	}
+
+	missingTokenRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-cloud-owner-transfers/accept", map[string]any{}, target.AccessToken)
+	if missingTokenRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing transfer token 400, got %d: %s", missingTokenRes.Code, missingTokenRes.Body.String())
+	}
+
+	acceptRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-cloud-owner-transfers/accept", map[string]any{
+		"token": token,
+	}, target.AccessToken)
+	if acceptRes.Code != http.StatusOK {
+		t.Fatalf("expected target accept 200, got %d: %s", acceptRes.Code, acceptRes.Body.String())
+	}
+	accepted := decodeBody[brandCloudOwnerTransferBody](t, acceptRes)
+	if accepted.OwnerTransfer.Status != "accepted" || accepted.OwnerTransfer.AcceptedAt == nil {
+		t.Fatalf("expected accepted transfer, got %+v", accepted.OwnerTransfer)
+	}
+
+	sourceCloudsRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds", nil, source.AccessToken)
+	targetCloudsRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds", nil, target.AccessToken)
+	sourceClouds := decodeBody[brandCloudsBody](t, sourceCloudsRes)
+	targetClouds := decodeBody[brandCloudsBody](t, targetCloudsRes)
+	if !brandCloudListHasRole(sourceClouds, source.BrandCloudID, "admin") {
+		t.Fatalf("expected source to become admin, got %+v", sourceClouds)
+	}
+	if !brandCloudListHasRole(targetClouds, source.BrandCloudID, "owner") {
+		t.Fatalf("expected target to become owner, got %+v", targetClouds)
 	}
 }
 
@@ -2812,31 +2919,10 @@ func TestIntegrationAdminMetricsIncludesLifecycleVisibility(t *testing.T) {
 func TestIntegrationQuotaRaiseValidationAndDefaultApproval(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	signupRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
-		"email":             "validate-quota@example.com",
-		"password":          "password123",
-		"display_name":      "Validate Quota",
-		"organization_name": "Validate Quota Org",
-	}, "")
-	if signupRes.Code != http.StatusAccepted {
-		t.Fatalf("expected signup 202, got %d: %s", signupRes.Code, signupRes.Body.String())
-	}
-	signupBody := decodeBody[signupBody](t, signupRes)
-	verifyToken := latestAuthToken(t, env.tokenSink, "validate-quota@example.com", "email_verification")
-	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
-		"token": verifyToken,
-	}, "")
-	if verifyRes.Code != http.StatusOK {
-		t.Fatalf("expected verify 200, got %d: %s", verifyRes.Code, verifyRes.Body.String())
-	}
-	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
-		"email":    "validate-quota@example.com",
-		"password": "password123",
-	}, "")
-	if loginRes.Code != http.StatusOK {
-		t.Fatalf("expected login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
-	}
-	loginBody := decodeBody[tokenBody](t, loginRes)
+	registered := registerUser(t, env.router, "validate-quota@example.com", "Validate Quota Org")
+	markEvaluationOrg(t, env, registered.Organization.ID, 5)
+	orgID := registered.Organization.ID
+	accessToken := registered.Tokens.AccessToken
 
 	invalidRequests := []map[string]any{
 		{"requested_quota": 0, "use_case": "pilot", "contact_info": map[string]any{"email": "buyer@example.com"}},
@@ -2845,19 +2931,19 @@ func TestIntegrationQuotaRaiseValidationAndDefaultApproval(t *testing.T) {
 		{"requested_quota": 8, "use_case": "pilot", "contact_info": map[string]any{}},
 	}
 	for i, body := range invalidRequests {
-		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", body, loginBody.Tokens.AccessToken)
+		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+orgID+"/quota-raise-requests", body, accessToken)
 		if res.Code != http.StatusBadRequest {
 			t.Fatalf("expected invalid quota raise request %d to fail 400, got %d: %s", i, res.Code, res.Body.String())
 		}
 	}
 
-	raiseReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", map[string]any{
+	raiseReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+orgID+"/quota-raise-requests", map[string]any{
 		"requested_quota": 8,
 		"use_case":        "pilot expansion",
 		"contact_info": map[string]any{
 			"email": "buyer@example.com",
 		},
-	}, loginBody.Tokens.AccessToken)
+	}, accessToken)
 	if raiseReqRes.Code != http.StatusCreated {
 		t.Fatalf("expected quota raise request 201, got %d: %s", raiseReqRes.Code, raiseReqRes.Body.String())
 	}
@@ -2875,13 +2961,13 @@ func TestIntegrationQuotaRaiseValidationAndDefaultApproval(t *testing.T) {
 	if approvedBody.Organization.EvaluationDeviceQuota != 8 {
 		t.Fatalf("expected default approval quota to use requested amount, got %+v", approvedBody.Organization)
 	}
-	declineReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+signupBody.Organization.ID+"/quota-raise-requests", map[string]any{
+	declineReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+orgID+"/quota-raise-requests", map[string]any{
 		"requested_quota": 12,
 		"use_case":        "contract exit",
 		"contact_info": map[string]any{
 			"email": "buyer@example.com",
 		},
-	}, loginBody.Tokens.AccessToken)
+	}, accessToken)
 	if declineReqRes.Code != http.StatusCreated {
 		t.Fatalf("expected decline quota raise request 201, got %d: %s", declineReqRes.Code, declineReqRes.Body.String())
 	}
@@ -5477,6 +5563,30 @@ type signupBody struct {
 	} `json:"organization"`
 }
 
+type developerSignupBody struct {
+	User struct {
+		ID                        string `json:"id"`
+		Email                     string `json:"email"`
+		DeveloperCloudLimit       int    `json:"developer_cloud_limit"`
+		EmailVerified             bool   `json:"email_verified"`
+		SignupPendingVerification bool   `json:"signup_pending_verification"`
+	} `json:"user"`
+	BrandCloud struct {
+		ID               string `json:"id"`
+		Name             string `json:"name"`
+		Role             string `json:"role"`
+		TenantSlug       string `json:"tenant_slug"`
+		OrganizationKind string `json:"organization_kind"`
+	} `json:"brand_cloud"`
+	Organization struct {
+		ID               string `json:"id"`
+		Name             string `json:"name"`
+		Role             string `json:"role"`
+		TenantSlug       string `json:"tenant_slug"`
+		OrganizationKind string `json:"organization_kind"`
+	} `json:"organization"`
+}
+
 type userBody struct {
 	User struct {
 		ID                        string     `json:"id"`
@@ -5706,6 +5816,7 @@ type brandCloudsBody struct {
 		TenantSlug       string `json:"tenant_slug"`
 		OrganizationKind string `json:"organization_kind"`
 		Status           string `json:"status"`
+		Role             string `json:"role"`
 	} `json:"brand_clouds"`
 	Pagination paginationBody `json:"pagination"`
 }
@@ -5790,6 +5901,24 @@ type brandCloudLoginBody struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
 	} `json:"tokens"`
+}
+
+type brandCloudOwnerTransferBody struct {
+	OwnerTransfer struct {
+		ID                string     `json:"id"`
+		BrandCloudID      string     `json:"brand_cloud_id"`
+		RequestedByUserID string     `json:"requested_by_user_id"`
+		TargetUserID      string     `json:"target_user_id"`
+		TargetEmail       string     `json:"target_email"`
+		Status            string     `json:"status"`
+		AcceptedAt        *time.Time `json:"accepted_at"`
+	} `json:"owner_transfer"`
+}
+
+type verifiedDeveloperFixture struct {
+	UserID       string
+	BrandCloudID string
+	AccessToken  string
 }
 
 type quotaRaiseRequestBody struct {
@@ -5928,6 +6057,57 @@ func registerUser(t *testing.T, router *gin.Engine, email, orgName string) regis
 		t.Fatalf("expected register 201, got %d: %s", res.Code, res.Body.String())
 	}
 	return decodeBody[registerBody](t, res)
+}
+
+func markEvaluationOrg(t *testing.T, env integrationEnv, orgID string, quota int) {
+	t.Helper()
+	if _, err := env.db.Exec(context.Background(), `
+		UPDATE organizations
+		SET tier = 'evaluation', evaluation_device_quota = $2, updated_at = now()
+		WHERE id = $1
+	`, orgID, quota); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func verifiedDeveloperForTest(t *testing.T, env integrationEnv, email string) verifiedDeveloperFixture {
+	t.Helper()
+	signupRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
+		"email":        email,
+		"password":     "password123",
+		"display_name": email,
+	}, "")
+	if signupRes.Code != http.StatusAccepted {
+		t.Fatalf("expected developer signup 202, got %d: %s", signupRes.Code, signupRes.Body.String())
+	}
+	signup := decodeBody[developerSignupBody](t, signupRes)
+	verifyToken := latestAuthToken(t, env.tokenSink, email, "email_verification")
+	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{"token": verifyToken}, "")
+	if verifyRes.Code != http.StatusOK {
+		t.Fatalf("expected verify 200, got %d: %s", verifyRes.Code, verifyRes.Body.String())
+	}
+	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":    email,
+		"password": "password123",
+	}, "")
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("expected login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
+	}
+	login := decodeBody[tokenBody](t, loginRes)
+	return verifiedDeveloperFixture{
+		UserID:       signup.User.ID,
+		BrandCloudID: signup.BrandCloud.ID,
+		AccessToken:  login.Tokens.AccessToken,
+	}
+}
+
+func brandCloudListHasRole(body brandCloudsBody, brandCloudID, role string) bool {
+	for _, brandCloud := range body.BrandClouds {
+		if brandCloud.ID == brandCloudID && brandCloud.Role == role {
+			return true
+		}
+	}
+	return false
 }
 
 func createBrandCloudForTest(t *testing.T, env integrationEnv, accessToken, name, tenantSlug string) brandCloudBody {
