@@ -189,6 +189,9 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.image.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Write image manifest
         shell: bash
@@ -204,9 +207,17 @@ jobs:
             "primary_tag": "sha-${{ steps.image.outputs.short_sha }}"
           }
           JSON
+          {
+            echo "## LKE image"
+            echo
+            echo "\`\`\`json"
+            cat .artifacts/lke-image/image-manifest.json
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload image manifest
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: image-manifest
           path: .artifacts/lke-image/image-manifest.json
