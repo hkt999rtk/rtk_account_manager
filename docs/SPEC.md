@@ -331,14 +331,29 @@ factory policy vocabulary for one device item, SKU, or equivalent product line.
 It may define inventory defaults such as `category`, `manufacturer`, `model`,
 and metadata shape, plus the device certificate `ca_profile` or
 `issuer_profile`, canonical `service_options`, and claim/provisioning policy
-references. The current account-manager implementation does not expose a
-dedicated product-catalog API; concrete values may arrive through existing
-registry fields, Claim Token metadata, provisioning input, or external factory
-policy.
+references. Platform-admin APIs expose device item profiles under a brand cloud.
+Factory production runs bind one profile to a production period and allowed
+quantity, then issue a factory enrollment JWT for initial device certificate
+issuance.
 
 All profile fields are independent settings. Account-manager registry fields are
 inventory facts, and neither `category`, `device_type`, `manufacturer`, `model`,
 nor metadata may be treated as service ACL input.
+
+### Factory Production Run
+
+A factory production run is the Account Manager authorization object for
+manufacturing-time device certificate enrollment. It binds a brand cloud, device
+item profile, validity window, allowed quantity, optional factory id, and
+optional batch id. On creation, Account Manager signs a factory enrollment JWT
+whose immutable `brand_cloud_id`, `device_item_profile_id`, and
+`production_run_id` claims are the only trusted CA selectors used by
+`cmd/factoryenroll` and `cmd/certissuer`.
+
+The factory enrollment JWT is not a user/session token. It is secret bearer
+material for the factory path and must not be logged. CSR fields, tenant slugs,
+URL names, and request-body selector overrides must not select the cloud CA or
+SKU CA. See `docs/FACTORY_PRODUCTION_RUNS.md`.
 
 ### Device Group
 
@@ -1465,6 +1480,7 @@ All endpoints are versioned under `/v1`.
 | `POST` | `/v1/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/disable` | Yes | Platform admin | Disable brand-cloud access and revoke active brand-cloud refresh tokens. |
 | `POST` | `/v1/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/enable` | Yes | Platform admin | Re-enable a disabled brand-cloud user without changing tenant scope. |
 | `DELETE` | `/v1/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId` | Yes | Platform admin | Soft-delete brand-cloud access by disabling the brand-scoped user. |
+| `POST` | `/v1/admin/brand-clouds/:brandCloudId/device-item-profiles/:profileId/production-runs` | Yes | Platform admin | Create a factory production run for a selected production period and quantity, then issue a factory enrollment JWT. The JWT carries immutable `brand_cloud_id`, `device_item_profile_id`, `production_run_id`, validity, and quantity claims; factory CSR fields, URL names, tenant slugs, and request body overrides are not CA selectors. |
 | `POST` | `/v1/admin/quota-raise-requests/:requestId/approve` | Yes | Platform admin | Approve a pending quota raise request and apply the approved evaluation quota. |
 | `POST` | `/v1/admin/quota-raise-requests/:requestId/decline` | Yes | Platform admin | Decline a pending quota raise request with an optional decision reason. |
 | `GET` | `/v1/admin/metrics` | Yes | Platform admin | Return evaluation signup, verification, quota request, and quota utilization metrics. |
@@ -2088,6 +2104,8 @@ Required configuration:
 | `JWT_SIGNER_PROVIDER` | Token signer backend. Supported values are `hs256`, `pem`, and `pkcs11`; default is `hs256`. |
 | `JWT_ACCESS_SECRET` | Secret for signing access tokens when `JWT_SIGNER_PROVIDER=hs256`. |
 | `JWT_REFRESH_SECRET` | Secret for signing or validating refresh tokens when `JWT_SIGNER_PROVIDER=hs256`. |
+| `FACTORY_PRODUCTION_JWT_SECRET` | Separate HS256 secret for signing production-run JWTs consumed by the factory enrollment daemon. Required before production-run JWT issuance is enabled. |
+| `FACTORY_PRODUCTION_JWT_AUDIENCE` | Audience claim for factory enrollment production JWTs. Default `factory-enroll`. |
 | `JWT_ACCESS_PRIVATE_KEY_PATH`, `JWT_ACCESS_PUBLIC_KEY_PATH` | Access token PEM signer key paths when `JWT_SIGNER_PROVIDER=pem`. |
 | `JWT_REFRESH_PRIVATE_KEY_PATH`, `JWT_REFRESH_PUBLIC_KEY_PATH` | Refresh token PEM signer key paths when `JWT_SIGNER_PROVIDER=pem`. |
 | `JWT_ACCESS_PKCS11_MODULE_PATH`, `JWT_ACCESS_PKCS11_TOKEN_LABEL` or `JWT_ACCESS_PKCS11_SLOT_ID`, `JWT_ACCESS_PKCS11_PIN`, `JWT_ACCESS_PKCS11_KEY_LABEL` | Access token PKCS#11 signer selection when `JWT_SIGNER_PROVIDER=pkcs11`. |

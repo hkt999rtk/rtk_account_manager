@@ -216,6 +216,7 @@ type brandCloudPersistence interface {
 	GetDeviceItemProfile(ctx context.Context, brandCloudID, profileID string) (model.DeviceItemProfile, error)
 	UpdateDeviceItemProfile(ctx context.Context, in store.DeviceItemProfileUpdateInput) (model.DeviceItemProfile, error)
 	DisableDeviceItemProfile(ctx context.Context, brandCloudID, profileID string, actorUserID *string) (model.DeviceItemProfile, error)
+	CreateProductionRun(ctx context.Context, in store.ProductionRunCreateInput) (model.ProductionRun, error)
 }
 
 type auditPersistence interface {

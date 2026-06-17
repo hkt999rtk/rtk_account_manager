@@ -147,6 +147,11 @@ type DeviceItemProfilePage struct {
 	Page     Page
 }
 
+type ProductionRunPage struct {
+	Runs []model.ProductionRun
+	Page Page
+}
+
 type QuotaRaiseRequestPage struct {
 	Requests []model.QuotaRaiseRequest
 	Page     Page

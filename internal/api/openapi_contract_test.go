@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -238,6 +239,30 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	contract.validate(t, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID, deviceItemProfilePatchRes)
 	deviceItemProfileDisableRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID+"/disable", nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles/"+deviceItemProfileBody.DeviceItemProfile.ID+"/disable", deviceItemProfileDisableRes)
+	activeProfileRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles", map[string]any{
+		"profile_key":     "contract-production",
+		"display_name":    "Contract Production",
+		"category":        "ip_camera",
+		"ca_profile":      "contract-production-ca",
+		"issuer_profile":  "contract-production-issuer",
+		"service_options": []string{"video_streaming"},
+	}, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles", activeProfileRes)
+	var activeProfileBody struct {
+		DeviceItemProfile model.DeviceItemProfile `json:"device_item_profile"`
+	}
+	if err := json.NewDecoder(activeProfileRes.Body).Decode(&activeProfileBody); err != nil {
+		t.Fatalf("decode active profile body: %v", err)
+	}
+	env.server.ConfigureProductionJWT("contract-production-secret", "factory-enroll")
+	productionRunRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles/"+activeProfileBody.DeviceItemProfile.ID+"/production-runs", map[string]any{
+		"factory_id":       "contract-factory",
+		"batch_id":         "contract-batch",
+		"allowed_quantity": 10,
+		"valid_from":       time.Now().UTC().Add(-time.Minute).Format(time.RFC3339),
+		"valid_until":      time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+	}, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles/"+activeProfileBody.DeviceItemProfile.ID+"/production-runs", productionRunRes)
 	brandCloudPatchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID, map[string]any{
 		"status": "disabled",
 	}, admin.Tokens.AccessToken)

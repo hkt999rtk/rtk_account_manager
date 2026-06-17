@@ -38,6 +38,7 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"brand_cloud_memberships",
 		"brand_cloud_refresh_tokens",
 		"brand_cloud_owner_transfers",
+		"factory_production_runs",
 	}
 	for _, table := range requiredTables {
 		requireTable(t, ctx, env, table)
@@ -79,6 +80,8 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 			"decision_reason"},
 		"user_identities":   {"user_id", "provider_id", "issuer_url", "subject", "email", "email_verified", "claims", "linked_at", "last_login_at"},
 		"device_operations": {"operation_id", "organization_id", "device_id", "operation_type", "status", "request_payload", "result_payload"},
+		"factory_production_runs": {"brand_cloud_id", "device_item_profile_id", "factory_id", "batch_id", "status", "allowed_quantity",
+			"issued_quantity", "valid_from", "valid_until", "created_by"},
 	}
 	for table, columns := range requiredColumns {
 		for _, column := range columns {
@@ -103,6 +106,10 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		{table: "brand_cloud_users", name: "brand_cloud_users_brand_email_key"},
 		{table: "brand_cloud_memberships", name: "brand_cloud_memberships_role_check"},
 		{table: "brand_cloud_memberships", name: "brand_cloud_memberships_brand_user_key"},
+		{table: "factory_production_runs", name: "factory_production_runs_status_check"},
+		{table: "factory_production_runs", name: "factory_production_runs_allowed_quantity_positive"},
+		{table: "factory_production_runs", name: "factory_production_runs_issued_quantity_non_negative"},
+		{table: "factory_production_runs", name: "factory_production_runs_period_check"},
 		{table: "devices", name: "devices_name_not_blank"},
 		{table: "devices", name: "devices_category_check"},
 		{table: "devices", name: "devices_status_check"},
@@ -164,6 +171,8 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"device_claim_tokens_org_idx",
 		"device_claim_tokens_profile_idx",
 		"device_item_profiles_brand_status_idx",
+		"factory_production_runs_brand_profile_idx",
+		"factory_production_runs_status_validity_idx",
 		"device_claims_device_idx",
 		"device_claims_org_created_idx",
 		"device_claims_override_idx",

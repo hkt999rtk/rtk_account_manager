@@ -75,6 +75,7 @@ func main() {
 	server := api.NewWithAuthTokenAndNotificationSink(accountStore, authService, authTokenSink, notificationSink)
 	server.SetLogger(logger)
 	server.ConfigureInternalAuthToken(cfg.InternalAuthToken)
+	server.ConfigureProductionJWT(cfg.FactoryProductionJWTSecret, cfg.FactoryProductionJWTAudience)
 	server.ConfigureOIDC(api.OIDCOptions{
 		Env: auth.OIDCEnvConfig{
 			Enabled:       cfg.OIDCEnabled,

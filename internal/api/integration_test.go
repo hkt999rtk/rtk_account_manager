@@ -1846,6 +1846,119 @@ func TestIntegrationPlatformAdminDeviceItemProfileLifecycle(t *testing.T) {
 	}
 }
 
+func TestIntegrationPlatformAdminCreatesProductionRunJWT(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+
+	admin := registerUser(t, env.router, "production-run-api-root@example.com", "Production Run API Root")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	nonAdmin := registerUser(t, env.router, "production-run-api-user@example.com", "Production Run API User")
+
+	brandRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
+		"name": "Production Run API Brand",
+	}, admin.Tokens.AccessToken)
+	if brandRes.Code != http.StatusCreated {
+		t.Fatalf("expected brand cloud create 201, got %d: %s", brandRes.Code, brandRes.Body.String())
+	}
+	brand := decodeBody[brandCloudBody](t, brandRes)
+
+	profileRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/device-item-profiles", map[string]any{
+		"profile_key":     "prod-api-cam-v1",
+		"display_name":    "Production API Camera V1",
+		"category":        "ip_camera",
+		"ca_profile":      "sku-ca-prod-api",
+		"issuer_profile":  "factory-line-a",
+		"service_options": []string{"video_streaming"},
+	}, admin.Tokens.AccessToken)
+	if profileRes.Code != http.StatusCreated {
+		t.Fatalf("expected profile create 201, got %d: %s", profileRes.Code, profileRes.Body.String())
+	}
+	profile := decodeBody[deviceItemProfileBody](t, profileRes)
+
+	validFrom := time.Now().UTC().Add(-time.Minute).Truncate(time.Second)
+	validUntil := validFrom.Add(24 * time.Hour)
+	path := "/v1/admin/brand-clouds/" + brand.BrandCloud.ID + "/device-item-profiles/" + profile.DeviceItemProfile.ID + "/production-runs"
+
+	unconfiguredSignerRes := performJSON(env.router, http.MethodPost, path, map[string]any{
+		"allowed_quantity": 10,
+		"valid_from":       validFrom.Format(time.RFC3339),
+		"valid_until":      validUntil.Format(time.RFC3339),
+	}, admin.Tokens.AccessToken)
+	if unconfiguredSignerRes.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected unconfigured production JWT signer 503, got %d: %s", unconfiguredSignerRes.Code, unconfiguredSignerRes.Body.String())
+	}
+
+	env.server.ConfigureProductionJWT("factory-production-secret", "")
+
+	nonAdminRes := performJSON(env.router, http.MethodPost, path, map[string]any{
+		"allowed_quantity": 10,
+		"valid_from":       validFrom.Format(time.RFC3339),
+		"valid_until":      validUntil.Format(time.RFC3339),
+	}, nonAdmin.Tokens.AccessToken)
+	if nonAdminRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-admin production run create 403, got %d", nonAdminRes.Code)
+	}
+
+	invalidQuantityRes := performJSON(env.router, http.MethodPost, path, map[string]any{
+		"allowed_quantity": 0,
+		"valid_from":       validFrom.Format(time.RFC3339),
+		"valid_until":      validUntil.Format(time.RFC3339),
+	}, admin.Tokens.AccessToken)
+	if invalidQuantityRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid allowed_quantity 400, got %d: %s", invalidQuantityRes.Code, invalidQuantityRes.Body.String())
+	}
+
+	invalidPeriodRes := performJSON(env.router, http.MethodPost, path, map[string]any{
+		"allowed_quantity": 10,
+		"valid_from":       validUntil.Format(time.RFC3339),
+		"valid_until":      validFrom.Format(time.RFC3339),
+	}, admin.Tokens.AccessToken)
+	if invalidPeriodRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid production period 400, got %d: %s", invalidPeriodRes.Code, invalidPeriodRes.Body.String())
+	}
+
+	createRes := performJSON(env.router, http.MethodPost, path, map[string]any{
+		"factory_id":       "factory-a",
+		"batch_id":         "batch-20260617",
+		"allowed_quantity": 250,
+		"valid_from":       validFrom.Format(time.RFC3339),
+		"valid_until":      validUntil.Format(time.RFC3339),
+	}, admin.Tokens.AccessToken)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected production run create 201, got %d: %s", createRes.Code, createRes.Body.String())
+	}
+	body := decodeBody[productionRunBody](t, createRes)
+	if body.ProductionRun.BrandCloudID != brand.BrandCloud.ID ||
+		body.ProductionRun.DeviceItemProfileID != profile.DeviceItemProfile.ID ||
+		body.ProductionRun.AllowedQuantity != 250 ||
+		body.FactoryJWT == "" ||
+		body.TokenType != "Bearer" {
+		t.Fatalf("unexpected production run response: %+v", body)
+	}
+
+	claims := &productionJWTClaims{}
+	token, err := jwt.ParseWithClaims(body.FactoryJWT, claims, func(token *jwt.Token) (any, error) {
+		if token.Method != jwt.SigningMethodHS256 {
+			return nil, fmt.Errorf("unexpected signing method")
+		}
+		return []byte("factory-production-secret"), nil
+	}, jwt.WithAudience("factory-enroll"))
+	if err != nil || !token.Valid {
+		t.Fatalf("expected valid factory production JWT, token=%v err=%v", token, err)
+	}
+	if claims.ProductionRunID != body.ProductionRun.ID ||
+		claims.BrandCloudID != brand.BrandCloud.ID ||
+		claims.DeviceItemProfileID != profile.DeviceItemProfile.ID ||
+		claims.ProfileKey != "prod-api-cam-v1" ||
+		claims.FactoryID != "factory-a" ||
+		claims.BatchID != "batch-20260617" ||
+		claims.AllowedQuantity != 250 {
+		t.Fatalf("unexpected production JWT claims: %+v", claims)
+	}
+}
+
 func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
@@ -5715,6 +5828,14 @@ type deviceItemProfileBody struct {
 type deviceItemProfilesBody struct {
 	DeviceItemProfiles []model.DeviceItemProfile `json:"device_item_profiles"`
 	Pagination         paginationBody            `json:"pagination"`
+}
+
+type productionRunBody struct {
+	ProductionRun model.ProductionRun `json:"production_run"`
+	FactoryJWT    string              `json:"factory_jwt"`
+	TokenType     string              `json:"token_type"`
+	ExpiresAt     time.Time           `json:"expires_at"`
+	Audience      string              `json:"audience"`
 }
 
 type brandCloudUserBody struct {
