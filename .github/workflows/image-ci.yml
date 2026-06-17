@@ -1,0 +1,75 @@
+name: Image CI
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/image-ci.yml"
+      - "deploy/lke/Dockerfile"
+      - "go.mod"
+      - "go.sum"
+      - "cmd/**"
+      - "internal/**"
+      - "migrations/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build deployable image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build local image
+        run: docker build --pull -t local/account-manager:ci -f deploy/lke/Dockerfile .
+
+      - name: Smoke test image
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint /bin/sh local/account-manager:ci -c \
+            'test -x /app/rtk-account-manager && test -x /app/rtk-account-manager-migrate && test -d /app/migrations'
+
+      - name: Write image build metadata
+        run: |
+          set -euo pipefail
+          mkdir -p .artifacts/image-ci
+          cat > .artifacts/image-ci/image-build.json <<JSON
+          {
+            "schema": "rtk-image-build/v1",
+            "service": "account-manager",
+            "repository": "${GITHUB_REPOSITORY}",
+            "source_commit": "${GITHUB_SHA}",
+            "dockerfile": "deploy/lke/Dockerfile",
+            "local_image": "local/account-manager:ci",
+            "platform": "linux/amd64",
+            "smoke_test": "passed"
+          }
+          JSON
+          {
+            echo "## Image CI"
+            echo
+            echo "- Service: account-manager"
+            echo "- Dockerfile: \`deploy/lke/Dockerfile\`"
+            echo "- Local image: \`local/account-manager:ci\`"
+            echo "- Platform: \`linux/amd64\`"
+            echo "- Smoke test: passed"
+            echo
+            echo "\`\`\`json"
+            cat .artifacts/image-ci/image-build.json
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload image build metadata
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: image-build-metadata
+          path: .artifacts/image-ci/
+          if-no-files-found: error
