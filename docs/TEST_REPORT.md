@@ -26,7 +26,7 @@ Generated: ci-candidate
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 21 |
+| Go packages | 22 |
 | Test cases started | recorded in reports/test-events.json |
 | JSON pass events | recorded in reports/test-events.json |
 | JSON fail events | recorded in reports/test-events.json |
@@ -69,6 +69,8 @@ Generated: ci-candidate
 | Database invariants | `TestIntegrationDatabaseSchemaInvariants` | PASS |
 | OpenAPI contract | `TestIntegrationResponsesMatchOpenAPIContract` | PASS |
 | Brand-cloud scoped user namespace | `TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug` | PASS |
+| Developer-owned brand clouds | `TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit` | PASS |
+| Brand-cloud owner transfer | `TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession` | PASS |
 | OIDC provider persistence | `TestIdentityProviderStoreCRUDAndEnabledInvariant` | PASS |
 | OIDC provider admin CRUD | `TestIntegrationAdminIdentityProviderWorkflow` | PASS |
 | OIDC state and nonce replay guards | `TestOIDCLoginStateStoresHashesAndRejectsReplay` | PASS |
@@ -127,6 +129,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Database invariants | `TestIntegrationDatabaseSchemaInvariants` plus existing migration tests verify idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, critical tables/columns/constraints/indexes, and automatic `updated_at` triggers. |
 | OpenAPI contract | `TestIntegrationResponsesMatchOpenAPIContract` plus OpenAPI schema validation cover representative Claim Token resolve/admin, registry-only provisioning-state with nullable `operation`, provisioned/failed provisioning-state, provisioning, deactivation, quota visibility, audit visibility, public OIDC, current-user identity, and admin identity-provider responses against `openapi.yaml`. |
 | Brand-cloud scoped user namespace | `TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug`, `TestIntegrationPlatformAdminBrandCloudLifecycle`, `TestIntegrationPlatformAdminCreatesActiveBrandCloudUser`, `TestIntegrationDatabaseSchemaInvariants`, and brand-cloud token/helper unit tests verify tenant slug uniqueness, brand-scoped user storage, same-email cross-brand login isolation, brand-only refresh/logout handling, platform-login rejection for brand users, and brand-cloud membership authorization. |
+| Developer-owned brand clouds | `TestDeveloperSignupCreatesDefaultBrandCloudAndEnforcesCloudLimit`, `TestEnsurePlatformAdminCreatesRealtekConnectBrandCloud`, and `TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit` verify global developer signup, default brand cloud creation, root `Realtek Connect+` bootstrap, and developer cloud limits. |
+| Brand-cloud owner transfer | `TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper` and `TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession` verify existing-target checks, email token delivery, target-session acceptance, old-owner downgrade, and replay rejection. |
 | OIDC provider persistence | `TestIdentityProviderStoreCRUDAndEnabledInvariant`, `TestIdentityProviderRejectsRawClientSecretRef`, and `TestIntegrationDatabaseSchemaInvariants` verify provider CRUD, the one-enabled-provider invariant, secret-reference-only storage, identity link uniqueness, and OIDC schema/index presence. |
 | OIDC provider admin CRUD | `TestIntegrationAdminIdentityProviderWorkflow` verifies platform-admin-only create/list/show/update/disable, pagination, second-enabled-provider conflict handling, audit events, `env:VAR_NAME` secret references, and raw-secret non-persistence/non-response behavior. |
 | OIDC state and nonce replay guards | `TestOIDCLoginStateStoresHashesAndRejectsReplay`, `TestOIDCLoginStateRejectsExpiredState`, and `TestIntegrationOIDCProviderLoginAndCallback` verify raw state/nonce non-persistence, one-time state consumption, replay rejection, and callback nonce validation through hashed state records. |
@@ -140,6 +144,9 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 
 ## Executed Test Cases
 
+- `rtk_account_manager/cmd/linode-object-storage`: `TestObjectExistsReportsServerError`
+- `rtk_account_manager/cmd/linode-object-storage`: `TestPutDownloadCatAndExistsUseSignedPathStyleRequests`
+- `rtk_account_manager/cmd/linode-object-storage`: `TestStoreFromEnvPrefersLinodeCredentials`
 - `rtk_account_manager/cmd/server`: `TestSMTPConfigBuildsSubmissionAddress`
 - `rtk_account_manager/cmd/server`: `TestSMTPConfigRequiresHostAndFrom`
 - `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#0`
@@ -215,6 +222,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/platform_admin_can_list_quota_requests`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/platform_admin_can_show_quota_request`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix`
+- `rtk_account_manager/internal/api`: `TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession`
 - `rtk_account_manager/internal/api`: `TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug`
 - `rtk_account_manager/internal/api`: `TestIntegrationClaimResolveEndpoint`
 - `rtk_account_manager/internal/api`: `TestIntegrationCleanupRefreshTokensRemovesExpiredAndRevokedRows`
@@ -224,6 +232,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationDatabaseMaintainsUpdatedAt`
 - `rtk_account_manager/internal/api`: `TestIntegrationDatabaseRejectsInvalidCoreData`
 - `rtk_account_manager/internal/api`: `TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata`
+- `rtk_account_manager/internal/api`: `TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit`
 - `rtk_account_manager/internal/api`: `TestIntegrationDeviceUserUnprovisionWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationDisabledUserCannotManageOIDCIdentities`
 - `rtk_account_manager/internal/api`: `TestIntegrationDisabledUserCannotUseExistingTokens`
@@ -499,6 +508,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestAppCertificateCreateRotatesActiveCertificate`
 - `rtk_account_manager/internal/store`: `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`
 - `rtk_account_manager/internal/store`: `TestBrandCloudLoginActivationTokenIsTenantScoped`
+- `rtk_account_manager/internal/store`: `TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper`
 - `rtk_account_manager/internal/store`: `TestBrandCloudStoreCRUDAndErrorPaths`
 - `rtk_account_manager/internal/store`: `TestBrandCloudUserProvisioningUsesBrandScopedIdentityOnly`
 - `rtk_account_manager/internal/store`: `TestClaimOutboxMessagesReadyLeasesRows`
@@ -510,6 +520,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestCreateOrGetDeviceOperationRejectsMismatchedDeviceOrganization`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessageDeduplicates`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessagePreservesDeadLetterPayloadSnapshot`
+- `rtk_account_manager/internal/store`: `TestDeveloperBrandCloudErrorPaths`
+- `rtk_account_manager/internal/store`: `TestDeveloperSignupCreatesDefaultBrandCloudAndEnforcesCloudLimit`
 - `rtk_account_manager/internal/store`: `TestDeviceClaimReclaimRequiresEvidenceAndRejectsInvalidTransitions`
 - `rtk_account_manager/internal/store`: `TestDeviceClaimTokenAdminLifecycle`
 - `rtk_account_manager/internal/store`: `TestDeviceClaimTransferMovesOwnershipAndAudits`
@@ -518,6 +530,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
 - `rtk_account_manager/internal/store`: `TestEndUserPersistenceErrorPaths`
 - `rtk_account_manager/internal/store`: `TestEnsurePlatformAdminCreatesAndReenablesUser`
+- `rtk_account_manager/internal/store`: `TestEnsurePlatformAdminCreatesRealtekConnectBrandCloud`
 - `rtk_account_manager/internal/store`: `TestEvaluationQuotaUsageUtilizationHandlesZeroAndNonZeroQuotas`
 - `rtk_account_manager/internal/store`: `TestGeneratedTenantSlugUsesNameAndEightCharSuffix`
 - `rtk_account_manager/internal/store`: `TestGetOutboxMessageDetailIncludesOperation`

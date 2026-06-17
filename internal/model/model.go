@@ -383,6 +383,7 @@ type User struct {
 	EmailVerified             bool       `json:"email_verified"`
 	EmailVerifiedAt           *time.Time `json:"email_verified_at,omitempty"`
 	SignupPendingVerification bool       `json:"signup_pending_verification"`
+	DeveloperCloudLimit       int        `json:"developer_cloud_limit"`
 	CreatedAt                 time.Time  `json:"created_at"`
 	UpdatedAt                 time.Time  `json:"updated_at"`
 	DisabledAt                *time.Time `json:"disabled_at,omitempty"`
@@ -434,6 +435,20 @@ type BrandCloudMember struct {
 	Role             Role      `json:"role"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+type BrandCloudOwnerTransfer struct {
+	ID                string     `json:"id"`
+	BrandCloudID      string     `json:"brand_cloud_id"`
+	RequestedByUserID string     `json:"requested_by_user_id"`
+	TargetUserID      string     `json:"target_user_id"`
+	TargetEmail       string     `json:"target_email,omitempty"`
+	Status            string     `json:"status"`
+	ExpiresAt         time.Time  `json:"expires_at"`
+	AcceptedAt        *time.Time `json:"accepted_at,omitempty"`
+	CanceledAt        *time.Time `json:"canceled_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 type Device struct {

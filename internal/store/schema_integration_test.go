@@ -37,6 +37,7 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"brand_cloud_users",
 		"brand_cloud_memberships",
 		"brand_cloud_refresh_tokens",
+		"brand_cloud_owner_transfers",
 	}
 	for _, table := range requiredTables {
 		requireTable(t, ctx, env, table)
@@ -44,14 +45,17 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 
 	requiredColumns := map[string][]string{
 		"organizations":              {"organization_kind", "status", "metadata", "tenant_slug"},
+		"users":                      {"developer_cloud_limit"},
 		"auth_tokens":                {"user_id", "subject_type", "subject_id", "purpose", "scope", "token_hash", "expires_at", "consumed_at"},
 		"brand_cloud_users":          {"brand_cloud_id", "email", "password_hash", "display_name", "email_verified", "email_verified_at", "signup_pending_verification", "disabled_at"},
 		"brand_cloud_memberships":    {"brand_cloud_id", "brand_cloud_user_id", "role"},
 		"brand_cloud_refresh_tokens": {"brand_cloud_user_id", "brand_cloud_id", "token_hash", "expires_at", "revoked_at"},
-		"device_claim_tokens":        {"token_hash", "organization_id", "created_by", "device_item_profile_id", "revoked_at", "service_options", "metadata", "notes", "expires_at", "claimed_at"},
-		"device_item_profiles":       {"brand_cloud_id", "profile_key", "display_name", "status", "category", "manufacturer", "model", "metadata_defaults", "metadata_schema", "ca_profile", "issuer_profile", "service_options", "claim_policy", "provisioning_policy", "disabled_at"},
-		"device_claims":              {"claim_token_id", "organization_id", "device_id", "claimed_by", "status", "provision_input", "overridden_by", "override_reason", "override_evidence", "overridden_at"},
-		"device_message_inbox":       {"message_id", "operation_id", "stream", "message_type", "schema_version", "partition_key", "status", "payload", "attempt_count"},
+		"brand_cloud_owner_transfers": {"brand_cloud_id", "requested_by_user_id", "target_user_id", "token_hash", "status",
+			"expires_at", "accepted_at", "canceled_at"},
+		"device_claim_tokens":  {"token_hash", "organization_id", "created_by", "device_item_profile_id", "revoked_at", "service_options", "metadata", "notes", "expires_at", "claimed_at"},
+		"device_item_profiles": {"brand_cloud_id", "profile_key", "display_name", "status", "category", "manufacturer", "model", "metadata_defaults", "metadata_schema", "ca_profile", "issuer_profile", "service_options", "claim_policy", "provisioning_policy", "disabled_at"},
+		"device_claims":        {"claim_token_id", "organization_id", "device_id", "claimed_by", "status", "provision_input", "overridden_by", "override_reason", "override_evidence", "overridden_at"},
+		"device_message_inbox": {"message_id", "operation_id", "stream", "message_type", "schema_version", "partition_key", "status", "payload", "attempt_count"},
 		"device_message_outbox": {"message_id", "operation_id", "stream", "message_type", "schema_version", "partition_key", "status", "payload",
 			"attempt_count", "available_at"},
 		"audit_events":       {"event_type", "subject_type", "subject_id", "actor_user_id", "organization_id", "payload"},
@@ -93,6 +97,9 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		{table: "organizations", name: "organizations_status_check"},
 		{table: "auth_tokens", name: "auth_tokens_purpose_check"},
 		{table: "users", name: "users_email_normalized"},
+		{table: "users", name: "users_developer_cloud_limit_check"},
+		{table: "brand_cloud_owner_transfers", name: "brand_cloud_owner_transfers_status_check"},
+		{table: "brand_cloud_owner_transfers", name: "brand_cloud_owner_transfers_different_users"},
 		{table: "brand_cloud_users", name: "brand_cloud_users_brand_email_key"},
 		{table: "brand_cloud_memberships", name: "brand_cloud_memberships_role_check"},
 		{table: "brand_cloud_memberships", name: "brand_cloud_memberships_brand_user_key"},

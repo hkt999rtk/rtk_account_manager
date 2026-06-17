@@ -19,12 +19,13 @@ type signupRequest struct {
 	Email            string  `json:"email" binding:"required,email"`
 	Password         string  `json:"password" binding:"required,min=8"`
 	DisplayName      *string `json:"display_name"`
-	OrganizationName string  `json:"organization_name" binding:"required"`
+	OrganizationName string  `json:"organization_name,omitempty"`
 	CaptchaToken     *string `json:"captcha_token"`
 }
 
 type signupResponse struct {
 	User         model.User         `json:"user"`
+	BrandCloud   model.Organization `json:"brand_cloud"`
 	Organization model.Organization `json:"organization"`
 }
 
@@ -130,9 +131,6 @@ func (s *Server) signup(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	if !requireNonBlank(c, "organization_name", req.OrganizationName) {
-		return
-	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	if !s.allowSignup(c, email, req.CaptchaToken) {
 		return
@@ -142,13 +140,10 @@ func (s *Server) signup(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not hash password")
 		return
 	}
-	result, err := s.store.Register(c.Request.Context(), store.RegisterInput{
+	result, err := s.store.SignupDeveloper(c.Request.Context(), store.DeveloperSignupInput{
 		Email:                     email,
 		PasswordHash:              hash,
 		DisplayName:               req.DisplayName,
-		OrganizationName:          strings.TrimSpace(req.OrganizationName),
-		OrganizationTier:          model.OrganizationTierEvaluation,
-		EvaluationDeviceQuota:     5,
 		SignupPendingVerification: true,
 	})
 	if err != nil {
@@ -164,7 +159,7 @@ func (s *Server) signup(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "token_delivery_failed", "Could not deliver verification token")
 		return
 	}
-	c.JSON(http.StatusAccepted, signupResponse{User: result.User, Organization: result.Organization})
+	c.JSON(http.StatusAccepted, signupResponse{User: result.User, BrandCloud: result.BrandCloud, Organization: result.BrandCloud})
 }
 
 func (s *Server) createQuotaRaiseRequest(c *gin.Context) {
