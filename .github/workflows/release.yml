@@ -12,6 +12,11 @@ on:
         description: "Release version. Defaults to the git ref name or timestamped short SHA."
         required: false
         type: string
+      publish_bundle:
+        description: "Build and upload the native release bundle. Set false for GHCR image-only publishes."
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -19,6 +24,7 @@ permissions:
 
 jobs:
   package:
+    if: github.event_name != 'workflow_dispatch' || inputs.publish_bundle
     name: Package release
     runs-on: ubuntu-latest
     steps:
