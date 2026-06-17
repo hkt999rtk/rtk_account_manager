@@ -1741,7 +1741,6 @@ func TestIntegrationPlatformAdminDeviceItemProfileLifecycle(t *testing.T) {
 
 func TestIntegrationPlatformAdminCreatesProductionRunJWT(t *testing.T) {
 	env := newIntegrationEnv(t)
-	env.server.ConfigureProductionJWT("factory-production-secret", "factory-enroll")
 	ctx := context.Background()
 
 	admin := registerUser(t, env.router, "production-run-api-root@example.com", "Production Run API Root")
@@ -1774,6 +1773,18 @@ func TestIntegrationPlatformAdminCreatesProductionRunJWT(t *testing.T) {
 	validFrom := time.Now().UTC().Add(-time.Minute).Truncate(time.Second)
 	validUntil := validFrom.Add(24 * time.Hour)
 	path := "/v1/admin/brand-clouds/" + brand.BrandCloud.ID + "/device-item-profiles/" + profile.DeviceItemProfile.ID + "/production-runs"
+
+	unconfiguredSignerRes := performJSON(env.router, http.MethodPost, path, map[string]any{
+		"allowed_quantity": 10,
+		"valid_from":       validFrom.Format(time.RFC3339),
+		"valid_until":      validUntil.Format(time.RFC3339),
+	}, admin.Tokens.AccessToken)
+	if unconfiguredSignerRes.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected unconfigured production JWT signer 503, got %d: %s", unconfiguredSignerRes.Code, unconfiguredSignerRes.Body.String())
+	}
+
+	env.server.ConfigureProductionJWT("factory-production-secret", "")
+
 	nonAdminRes := performJSON(env.router, http.MethodPost, path, map[string]any{
 		"allowed_quantity": 10,
 		"valid_from":       validFrom.Format(time.RFC3339),
@@ -1781,6 +1792,24 @@ func TestIntegrationPlatformAdminCreatesProductionRunJWT(t *testing.T) {
 	}, nonAdmin.Tokens.AccessToken)
 	if nonAdminRes.Code != http.StatusForbidden {
 		t.Fatalf("expected non-admin production run create 403, got %d", nonAdminRes.Code)
+	}
+
+	invalidQuantityRes := performJSON(env.router, http.MethodPost, path, map[string]any{
+		"allowed_quantity": 0,
+		"valid_from":       validFrom.Format(time.RFC3339),
+		"valid_until":      validUntil.Format(time.RFC3339),
+	}, admin.Tokens.AccessToken)
+	if invalidQuantityRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid allowed_quantity 400, got %d: %s", invalidQuantityRes.Code, invalidQuantityRes.Body.String())
+	}
+
+	invalidPeriodRes := performJSON(env.router, http.MethodPost, path, map[string]any{
+		"allowed_quantity": 10,
+		"valid_from":       validUntil.Format(time.RFC3339),
+		"valid_until":      validFrom.Format(time.RFC3339),
+	}, admin.Tokens.AccessToken)
+	if invalidPeriodRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid production period 400, got %d: %s", invalidPeriodRes.Code, invalidPeriodRes.Body.String())
 	}
 
 	createRes := performJSON(env.router, http.MethodPost, path, map[string]any{

@@ -26,7 +26,7 @@ Generated: ci-candidate
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 21 |
+| Go packages | 22 |
 | Test cases started | recorded in reports/test-events.json |
 | JSON pass events | recorded in reports/test-events.json |
 | JSON fail events | recorded in reports/test-events.json |
@@ -140,6 +140,9 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 
 ## Executed Test Cases
 
+- `rtk_account_manager/cmd/linode-object-storage`: `TestObjectExistsReportsServerError`
+- `rtk_account_manager/cmd/linode-object-storage`: `TestPutDownloadCatAndExistsUseSignedPathStyleRequests`
+- `rtk_account_manager/cmd/linode-object-storage`: `TestStoreFromEnvPrefersLinodeCredentials`
 - `rtk_account_manager/cmd/server`: `TestSMTPConfigBuildsSubmissionAddress`
 - `rtk_account_manager/cmd/server`: `TestSMTPConfigRequiresHostAndFrom`
 - `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#0`
@@ -249,8 +252,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanUpdateOrganization`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminBrandCloudLifecycle`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminCreatesActiveBrandCloudUser`
-- `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminDeviceItemProfileLifecycle`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminCreatesProductionRunJWT`
+- `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminDeviceItemProfileLifecycle`
 - `rtk_account_manager/internal/api`: `TestIntegrationPrometheusMetricsReportsEmptySnapshot`
 - `rtk_account_manager/internal/api`: `TestIntegrationProvisioningEndpoints`
 - `rtk_account_manager/internal/api`: `TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness`
@@ -511,13 +514,13 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestCreateOrGetDeviceOperationRejectsMismatchedDeviceOrganization`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessageDeduplicates`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessagePreservesDeadLetterPayloadSnapshot`
+- `rtk_account_manager/internal/store`: `TestCreateProductionRunBindsBrandCloudAndProfile`
+- `rtk_account_manager/internal/store`: `TestCreateProductionRunRejectsDisabledOrCrossBrandProfile`
 - `rtk_account_manager/internal/store`: `TestDeviceClaimReclaimRequiresEvidenceAndRejectsInvalidTransitions`
 - `rtk_account_manager/internal/store`: `TestDeviceClaimTokenAdminLifecycle`
 - `rtk_account_manager/internal/store`: `TestDeviceClaimTransferMovesOwnershipAndAudits`
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileBacksClaimTokenSnapshotAndResolve`
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileCRUDAndAudit`
-- `rtk_account_manager/internal/store`: `TestCreateProductionRunBindsBrandCloudAndProfile`
-- `rtk_account_manager/internal/store`: `TestCreateProductionRunRejectsDisabledOrCrossBrandProfile`
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
 - `rtk_account_manager/internal/store`: `TestEndUserPersistenceErrorPaths`
 - `rtk_account_manager/internal/store`: `TestEnsurePlatformAdminCreatesAndReenablesUser`
@@ -562,6 +565,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenRejectsExpiredToken`
 - `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenRejectsInvalidToken`
 - `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenRejectsUnsupportedCategory`
+- `rtk_account_manager/internal/store`: `TestScanProductionRunMapsNoRowsToNotFound`
+- `rtk_account_manager/internal/store`: `TestScanProductionRunReturnsScanError`
 - `rtk_account_manager/internal/store`: `TestServiceOptionSetsEqual`
 - `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationRejectsMissingProjectedMetadata`
 - `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationUsesProjectedMetadata`
@@ -577,6 +582,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestValidateDeviceItemProfileRejectsInvalidFields/unsupported_service`
 - `rtk_account_manager/internal/store`: `TestValidateDeviceItemProfileRejectsInvalidFields`
 - `rtk_account_manager/internal/store`: `TestValidatePartitionKeyMatchesOperationSkipsBlankValues`
+- `rtk_account_manager/internal/store`: `TestValidateProductionRunCreateRejectsInvalidInput/missing_brand_cloud`
+- `rtk_account_manager/internal/store`: `TestValidateProductionRunCreateRejectsInvalidInput/missing_profile`
+- `rtk_account_manager/internal/store`: `TestValidateProductionRunCreateRejectsInvalidInput/non-positive_allowed_quantity`
+- `rtk_account_manager/internal/store`: `TestValidateProductionRunCreateRejectsInvalidInput/valid_until_before_valid_from`
+- `rtk_account_manager/internal/store`: `TestValidateProductionRunCreateRejectsInvalidInput/zero_valid_from`
+- `rtk_account_manager/internal/store`: `TestValidateProductionRunCreateRejectsInvalidInput`
 - `rtk_account_manager/internal/worker/inbox`: `TestPostgresStoreSatisfiesInboxMessageStore`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidMessages`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidPartitionKeysAfterPersistingInboxRow/blank_partition_key_is_normalized_for_storage_and_dead-lettered`

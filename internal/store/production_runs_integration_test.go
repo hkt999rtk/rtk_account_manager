@@ -6,8 +6,111 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"rtk_account_manager/internal/model"
 )
+
+type failingProductionRunRow struct {
+	err error
+}
+
+func (r failingProductionRunRow) Scan(...any) error {
+	return r.err
+}
+
+func TestScanProductionRunMapsNoRowsToNotFound(t *testing.T) {
+	_, err := scanProductionRun(failingProductionRunRow{err: pgx.ErrNoRows})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestScanProductionRunReturnsScanError(t *testing.T) {
+	scanErr := errors.New("scan failed")
+	_, err := scanProductionRun(failingProductionRunRow{err: scanErr})
+	if !errors.Is(err, scanErr) {
+		t.Fatalf("expected scan error, got %v", err)
+	}
+}
+
+func TestValidateProductionRunCreateRejectsInvalidInput(t *testing.T) {
+	validFrom := time.Now().UTC()
+	valid := ProductionRunCreateInput{
+		BrandCloudID:        "brand-cloud-id",
+		DeviceItemProfileID: "profile-id",
+		AllowedQuantity:     1,
+		ValidFrom:           validFrom,
+		ValidUntil:          validFrom.Add(time.Hour),
+	}
+
+	tests := []struct {
+		name string
+		in   ProductionRunCreateInput
+		want error
+	}{
+		{
+			name: "missing brand cloud",
+			in: ProductionRunCreateInput{
+				DeviceItemProfileID: valid.DeviceItemProfileID,
+				AllowedQuantity:     valid.AllowedQuantity,
+				ValidFrom:           valid.ValidFrom,
+				ValidUntil:          valid.ValidUntil,
+			},
+			want: ErrNotFound,
+		},
+		{
+			name: "missing profile",
+			in: ProductionRunCreateInput{
+				BrandCloudID:    valid.BrandCloudID,
+				AllowedQuantity: valid.AllowedQuantity,
+				ValidFrom:       valid.ValidFrom,
+				ValidUntil:      valid.ValidUntil,
+			},
+			want: ErrNotFound,
+		},
+		{
+			name: "non-positive allowed quantity",
+			in: ProductionRunCreateInput{
+				BrandCloudID:        valid.BrandCloudID,
+				DeviceItemProfileID: valid.DeviceItemProfileID,
+				AllowedQuantity:     0,
+				ValidFrom:           valid.ValidFrom,
+				ValidUntil:          valid.ValidUntil,
+			},
+			want: ErrConflict,
+		},
+		{
+			name: "zero valid from",
+			in: ProductionRunCreateInput{
+				BrandCloudID:        valid.BrandCloudID,
+				DeviceItemProfileID: valid.DeviceItemProfileID,
+				AllowedQuantity:     valid.AllowedQuantity,
+				ValidUntil:          valid.ValidUntil,
+			},
+			want: ErrConflict,
+		},
+		{
+			name: "valid until before valid from",
+			in: ProductionRunCreateInput{
+				BrandCloudID:        valid.BrandCloudID,
+				DeviceItemProfileID: valid.DeviceItemProfileID,
+				AllowedQuantity:     valid.AllowedQuantity,
+				ValidFrom:           valid.ValidUntil,
+				ValidUntil:          valid.ValidFrom,
+			},
+			want: ErrConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validateProductionRunCreate(tt.in); !errors.Is(err, tt.want) {
+				t.Fatalf("expected %v, got %v", tt.want, err)
+			}
+		})
+	}
+}
 
 func TestCreateProductionRunBindsBrandCloudAndProfile(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
