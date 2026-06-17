@@ -1234,6 +1234,43 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/admin/brand-clouds/{brandCloudId}/device-item-profiles/{profileId}/production-runs:
+    post:
+      tags:
+        - Brand Clouds
+      operationId: createProductionRun
+      security:
+        - bearerAuth: []
+      summary: Create a factory production run and issue its factory enrollment JWT.
+      description: The production JWT is the canonical CA selector for factory enrollment. It binds the production run to immutable `brand_cloud_id` and `device_item_profile_id` claims; factory CSR fields, tenant slugs, URL names, and request-body overrides must not select the signing CA.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/ProfileId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductionRunRequest"
+      responses:
+        "201":
+          description: Production run created and factory enrollment JWT issued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductionRunResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
   /v1/admin/brand-clouds/{brandCloudId}/members:
     post:
       tags:
@@ -4355,6 +4392,43 @@ components:
             $ref: "#/components/schemas/DeviceItemProfile"
         pagination:
           $ref: "#/components/schemas/Pagination"
+    ProductionRunRequest:
+      type: object
+      additionalProperties: false
+      required: [allowed_quantity, valid_from, valid_until]
+      properties:
+        factory_id:
+          type: string
+          description: Optional factory identifier embedded in the production JWT.
+        batch_id:
+          type: string
+          description: Optional manufacturing batch identifier embedded in the production JWT.
+        allowed_quantity:
+          type: integer
+          minimum: 1
+        valid_from:
+          type: string
+          format: date-time
+        valid_until:
+          type: string
+          format: date-time
+    ProductionRunResponse:
+      type: object
+      required: [production_run, factory_jwt, token_type, expires_at, audience]
+      properties:
+        production_run:
+          $ref: "#/components/schemas/ProductionRun"
+        factory_jwt:
+          type: string
+          description: Bearer JWT for the factory enrollment daemon. Treat as secret material.
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_at:
+          type: string
+          format: date-time
+        audience:
+          type: string
     QuotaRaiseRequestResponse:
       type: object
       required: [quota_raise_request]
@@ -4942,6 +5016,47 @@ components:
         disabled_at:
           type: string
           format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ProductionRun:
+      type: object
+      required: [id, brand_cloud_id, device_item_profile_id, status, allowed_quantity, issued_quantity, valid_from, valid_until, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        brand_cloud_id:
+          type: string
+          format: uuid
+        device_item_profile_id:
+          type: string
+          format: uuid
+        factory_id:
+          type: string
+        batch_id:
+          type: string
+        status:
+          type: string
+          enum: [active, disabled]
+        allowed_quantity:
+          type: integer
+          minimum: 1
+        issued_quantity:
+          type: integer
+          minimum: 0
+        valid_from:
+          type: string
+          format: date-time
+        valid_until:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+          format: uuid
         created_at:
           type: string
           format: date-time

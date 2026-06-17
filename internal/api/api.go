@@ -38,6 +38,8 @@ type Server struct {
 	oidcEnvClientSecretRef     string
 	appCertificateIssuer       AppCertificateIssuer
 	internalAuthToken          string
+	productionJWTSecret        string
+	productionJWTAudience      string
 	logger                     *zap.Logger
 }
 
@@ -219,6 +221,14 @@ func (s *Server) ConfigureAppCertificateIssuer(issuer AppCertificateIssuer) {
 
 func (s *Server) ConfigureInternalAuthToken(token string) {
 	s.internalAuthToken = strings.TrimSpace(token)
+}
+
+func (s *Server) ConfigureProductionJWT(secret, audience string) {
+	s.productionJWTSecret = strings.TrimSpace(secret)
+	s.productionJWTAudience = strings.TrimSpace(audience)
+	if s.productionJWTAudience == "" {
+		s.productionJWTAudience = "factory-enroll"
+	}
 }
 
 type QuotaRaiseNotificationDelivery struct {
@@ -541,6 +551,7 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/admin/brand-clouds/:brandCloudId/device-item-profiles/:profileId", s.requirePlatformAdmin(), s.getDeviceItemProfile)
 	protected.PATCH("/admin/brand-clouds/:brandCloudId/device-item-profiles/:profileId", s.requirePlatformAdmin(), s.updateDeviceItemProfile)
 	protected.POST("/admin/brand-clouds/:brandCloudId/device-item-profiles/:profileId/disable", s.requirePlatformAdmin(), s.disableDeviceItemProfile)
+	protected.POST("/admin/brand-clouds/:brandCloudId/device-item-profiles/:profileId/production-runs", s.requirePlatformAdmin(), s.createProductionRun)
 	protected.POST("/admin/brand-clouds/:brandCloudId/members", s.requirePlatformAdmin(), s.assignBrandCloudMember)
 	protected.POST("/admin/brand-clouds/:brandCloudId/users", s.requirePlatformAdmin(), s.createBrandCloudUser)
 	protected.GET("/admin/brand-clouds/:brandCloudId/users", s.requirePlatformAdmin(), s.listBrandCloudUsers)

@@ -65,6 +65,8 @@ type Config struct {
 	AppCertIssuerCAFile            string
 	AppCertIssuerTimeout           time.Duration
 	InternalAuthToken              string
+	FactoryProductionJWTSecret     string
+	FactoryProductionJWTAudience   string
 	BootstrapPlatformAdminEmail    string
 	BootstrapPlatformAdminPassword string
 	LogEnv                         string
@@ -186,6 +188,8 @@ func load() (Config, error) {
 		AppCertIssuerCAFile:            os.Getenv("APP_CERT_ISSUER_CA_FILE"),
 		AppCertIssuerTimeout:           duration("APP_CERT_ISSUER_TIMEOUT", 10*time.Second),
 		InternalAuthToken:              os.Getenv("ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN"),
+		FactoryProductionJWTSecret:     os.Getenv("FACTORY_PRODUCTION_JWT_SECRET"),
+		FactoryProductionJWTAudience:   getenv("FACTORY_PRODUCTION_JWT_AUDIENCE", "factory-enroll"),
 		BootstrapPlatformAdminEmail:    os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL"),
 		BootstrapPlatformAdminPassword: os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD"),
 		LogEnv:                         getenv("ACCOUNT_MANAGER_ENV", "local"),

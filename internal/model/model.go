@@ -263,6 +263,29 @@ type DeviceItemProfile struct {
 	UpdatedAt          time.Time               `json:"updated_at"`
 }
 
+type ProductionRunStatus string
+
+const (
+	ProductionRunStatusActive   ProductionRunStatus = "active"
+	ProductionRunStatusDisabled ProductionRunStatus = "disabled"
+)
+
+type ProductionRun struct {
+	ID                  string              `json:"id"`
+	BrandCloudID        string              `json:"brand_cloud_id"`
+	DeviceItemProfileID string              `json:"device_item_profile_id"`
+	FactoryID           string              `json:"factory_id,omitempty"`
+	BatchID             string              `json:"batch_id,omitempty"`
+	Status              ProductionRunStatus `json:"status"`
+	AllowedQuantity     int                 `json:"allowed_quantity"`
+	IssuedQuantity      int                 `json:"issued_quantity"`
+	ValidFrom           time.Time           `json:"valid_from"`
+	ValidUntil          time.Time           `json:"valid_until"`
+	CreatedBy           *string             `json:"created_by,omitempty"`
+	CreatedAt           time.Time           `json:"created_at"`
+	UpdatedAt           time.Time           `json:"updated_at"`
+}
+
 type DeviceClaim struct {
 	ID             string         `json:"id"`
 	TokenID        string         `json:"claim_token_id"`

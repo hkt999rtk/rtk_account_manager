@@ -250,6 +250,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminBrandCloudLifecycle`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminCreatesActiveBrandCloudUser`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminDeviceItemProfileLifecycle`
+- `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminCreatesProductionRunJWT`
 - `rtk_account_manager/internal/api`: `TestIntegrationPrometheusMetricsReportsEmptySnapshot`
 - `rtk_account_manager/internal/api`: `TestIntegrationProvisioningEndpoints`
 - `rtk_account_manager/internal/api`: `TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness`
@@ -515,6 +516,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestDeviceClaimTransferMovesOwnershipAndAudits`
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileBacksClaimTokenSnapshotAndResolve`
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileCRUDAndAudit`
+- `rtk_account_manager/internal/store`: `TestCreateProductionRunBindsBrandCloudAndProfile`
+- `rtk_account_manager/internal/store`: `TestCreateProductionRunRejectsDisabledOrCrossBrandProfile`
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
 - `rtk_account_manager/internal/store`: `TestEndUserPersistenceErrorPaths`
 - `rtk_account_manager/internal/store`: `TestEnsurePlatformAdminCreatesAndReenablesUser`
