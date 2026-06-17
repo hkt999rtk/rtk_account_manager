@@ -29,6 +29,7 @@ type Store interface {
 
 type authPersistence interface {
 	Register(context.Context, store.RegisterInput) (store.RegisterResult, error)
+	SignupDeveloper(context.Context, store.DeveloperSignupInput) (store.DeveloperSignupResult, error)
 	GetUserPassword(ctx context.Context, email string) (model.User, string, error)
 	GetUserPasswordByID(ctx context.Context, userID string) (model.User, string, error)
 	CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
@@ -195,6 +196,10 @@ type identityProviderPersistence interface {
 
 type brandCloudPersistence interface {
 	CreateBrandCloud(ctx context.Context, actorUserID string, in store.BrandCloudInput) (model.Organization, error)
+	CreateDeveloperBrandCloud(ctx context.Context, userID string, in store.BrandCloudInput) (model.Organization, error)
+	ListDeveloperBrandClouds(ctx context.Context, userID string, limit, offset int) (store.OrganizationPage, error)
+	CreateBrandCloudOwnerTransfer(ctx context.Context, in store.BrandCloudOwnerTransferInput) (model.BrandCloudOwnerTransfer, error)
+	AcceptBrandCloudOwnerTransfer(ctx context.Context, targetUserID, tokenHash string, now time.Time) (model.BrandCloudOwnerTransfer, error)
 	ListBrandClouds(ctx context.Context, limit, offset int) (store.OrganizationPage, error)
 	GetBrandCloud(ctx context.Context, orgID string) (model.Organization, error)
 	GetBrandCloudByTenantSlug(ctx context.Context, tenantSlug string) (model.Organization, error)

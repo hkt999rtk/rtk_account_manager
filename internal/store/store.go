@@ -33,6 +33,7 @@ var (
 	ErrClaimEvidenceRequired       = errors.New("claim override requires operator evidence")
 	ErrOIDCStateInvalid            = errors.New("oidc login state is invalid")
 	ErrOIDCStateExpired            = errors.New("oidc login state is expired")
+	ErrDeveloperCloudLimitExceeded = errors.New("developer brand cloud limit exceeded")
 )
 
 type Store struct {
@@ -59,6 +60,26 @@ type BrandCloudInput struct {
 	TenantSlug string
 	Status     model.OrganizationStatus
 	Metadata   map[string]any
+}
+
+type DeveloperSignupInput struct {
+	Email                     string
+	PasswordHash              string
+	DisplayName               *string
+	SignupPendingVerification bool
+}
+
+type DeveloperSignupResult struct {
+	User       model.User         `json:"user"`
+	BrandCloud model.Organization `json:"brand_cloud"`
+}
+
+type BrandCloudOwnerTransferInput struct {
+	BrandCloudID      string
+	RequestedByUserID string
+	TargetEmail       string
+	TokenHash         string
+	ExpiresAt         time.Time
 }
 
 type BrandCloudUserInput struct {
@@ -232,28 +253,11 @@ func (s *Store) GetUserPassword(ctx context.Context, email string) (model.User, 
 	var user model.User
 	var hash string
 	err := s.db.QueryRow(ctx, `
-		SELECT id::text, email, password_hash, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
+		SELECT id::text, email, password_hash, display_name, email_verified, email_verified_at, signup_pending_verification, developer_cloud_limit, created_at, updated_at, disabled_at
 		FROM users
 		WHERE email = $1
 		  AND disabled_at IS NULL
-		  AND (
-		      platform_admin = true
-		      OR EXISTS (
-		          SELECT 1
-		          FROM organization_members m
-		          JOIN organizations o ON o.id = m.organization_id
-		          WHERE m.user_id = users.id
-		            AND o.organization_kind = 'customer_org'
-		      )
-		      OR NOT EXISTS (
-		      SELECT 1
-		      FROM organization_members m
-		      JOIN organizations o ON o.id = m.organization_id
-		      WHERE m.user_id = users.id
-		        AND o.organization_kind = 'brand_cloud'
-		      )
-		  )
-	`, email).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	`, email).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.DeveloperCloudLimit, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, "", ErrNotFound
 	}
@@ -264,10 +268,10 @@ func (s *Store) GetUserPasswordByID(ctx context.Context, userID string) (model.U
 	var user model.User
 	var hash string
 	err := s.db.QueryRow(ctx, `
-		SELECT id::text, email, password_hash, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
+		SELECT id::text, email, password_hash, display_name, email_verified, email_verified_at, signup_pending_verification, developer_cloud_limit, created_at, updated_at, disabled_at
 		FROM users
 		WHERE id = $1 AND disabled_at IS NULL
-	`, userID).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	`, userID).Scan(&user.ID, &user.Email, &hash, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.DeveloperCloudLimit, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, "", ErrNotFound
 	}
@@ -277,10 +281,10 @@ func (s *Store) GetUserPasswordByID(ctx context.Context, userID string) (model.U
 func (s *Store) GetUser(ctx context.Context, userID string) (model.User, error) {
 	var user model.User
 	err := s.db.QueryRow(ctx, `
-		SELECT id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
+		SELECT id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, developer_cloud_limit, created_at, updated_at, disabled_at
 		FROM users
 		WHERE id = $1 AND disabled_at IS NULL
-	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.DeveloperCloudLimit, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, ErrNotFound
 	}
@@ -290,10 +294,10 @@ func (s *Store) GetUser(ctx context.Context, userID string) (model.User, error) 
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (model.User, error) {
 	var user model.User
 	err := s.db.QueryRow(ctx, `
-		SELECT id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
+		SELECT id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, developer_cloud_limit, created_at, updated_at, disabled_at
 		FROM users
 		WHERE email = $1 AND disabled_at IS NULL
-	`, strings.ToLower(strings.TrimSpace(email))).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	`, strings.ToLower(strings.TrimSpace(email))).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.DeveloperCloudLimit, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, ErrNotFound
 	}
@@ -301,8 +305,13 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (model.User, e
 }
 
 func (s *Store) EnsurePlatformAdmin(ctx context.Context, email, passwordHash string, displayName *string) (model.User, error) {
-	var user model.User
-	err := s.db.QueryRow(ctx, `
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return model.User{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	user, err := scanDeveloperUser(tx.QueryRow(ctx, `
 		INSERT INTO users (email, password_hash, display_name, email_verified, email_verified_at, platform_admin)
 		VALUES ($1, $2, $3, true, now(), true)
 		ON CONFLICT (email)
@@ -314,9 +323,27 @@ func (s *Store) EnsurePlatformAdmin(ctx context.Context, email, passwordHash str
 			platform_admin = true,
 			disabled_at = NULL,
 			updated_at = now()
-		RETURNING id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
-	`, strings.ToLower(strings.TrimSpace(email)), passwordHash, displayName).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
-	return user, err
+		RETURNING id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, developer_cloud_limit, created_at, updated_at, disabled_at
+	`, strings.ToLower(strings.TrimSpace(email)), passwordHash, displayName))
+	if err != nil {
+		return model.User{}, err
+	}
+	count, err := countDeveloperBrandCloudsTx(ctx, tx, user.ID)
+	if err != nil {
+		return model.User{}, err
+	}
+	if count == 0 {
+		if _, err := createDeveloperBrandCloudTx(ctx, tx, user.ID, BrandCloudInput{
+			Name:       "Realtek Connect+",
+			TenantSlug: "realtek-connect",
+		}, false); err != nil {
+			return model.User{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.User{}, err
+	}
+	return user, nil
 }
 
 func (s *Store) CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
