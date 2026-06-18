@@ -50,6 +50,8 @@ type Config struct {
 	PasswordResetTTL               time.Duration
 	OTPResendInterval              time.Duration
 	OTPMaxAttempts                 int
+	AuthTokenRateLimitMax          int
+	AuthTokenRateLimitWindow       time.Duration
 	OIDCEnabled                    bool
 	OIDCProviderID                 string
 	OIDCProviderName               string
@@ -173,6 +175,8 @@ func load() (Config, error) {
 		PasswordResetTTL:               duration("PASSWORD_RESET_TTL", 30*time.Minute),
 		OTPResendInterval:              duration("OTP_RESEND_INTERVAL", 60*time.Second),
 		OTPMaxAttempts:                 intValue("OTP_MAX_ATTEMPTS", 5),
+		AuthTokenRateLimitMax:          intValue("AUTH_TOKEN_RATE_LIMIT_MAX", 5),
+		AuthTokenRateLimitWindow:       duration("AUTH_TOKEN_RATE_LIMIT_WINDOW", time.Hour),
 		OIDCEnabled:                    boolValue("OIDC_ENABLED", false),
 		OIDCProviderID:                 getenv("OIDC_PROVIDER_ID", "keycloak"),
 		OIDCProviderName:               getenv("OIDC_PROVIDER_NAME", "Keycloak"),

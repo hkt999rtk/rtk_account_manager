@@ -57,6 +57,7 @@ func main() {
 	}
 	notificationSink := quotaRaiseNotificationSink(cfg, logger)
 	accountStore := store.New(db)
+	accountStore.ConfigureAuthTokenRateLimit(cfg.AuthTokenRateLimitMax, cfg.AuthTokenRateLimitWindow)
 	if cfg.BootstrapPlatformAdminEmail != "" || cfg.BootstrapPlatformAdminPassword != "" {
 		if cfg.BootstrapPlatformAdminEmail == "" || cfg.BootstrapPlatformAdminPassword == "" {
 			fatal(logger, "bootstrap platform admin config incomplete", nil)

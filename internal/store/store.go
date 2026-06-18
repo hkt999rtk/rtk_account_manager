@@ -38,10 +38,28 @@ var (
 
 type Store struct {
 	db *pgxpool.Pool
+
+	authTokenRateLimitMax    int
+	authTokenRateLimitWindow time.Duration
 }
 
 func New(db *pgxpool.Pool) *Store {
-	return &Store{db: db}
+	return &Store{
+		db:                       db,
+		authTokenRateLimitMax:    5,
+		authTokenRateLimitWindow: time.Hour,
+	}
+}
+
+// ConfigureAuthTokenRateLimit tunes the per-subject auth-token issuance limiter
+// used by password reset, login activation, and email verification flows.
+func (s *Store) ConfigureAuthTokenRateLimit(max int, window time.Duration) {
+	if max > 0 {
+		s.authTokenRateLimitMax = max
+	}
+	if window > 0 {
+		s.authTokenRateLimitWindow = window
+	}
 }
 
 type Page struct {
@@ -581,11 +599,11 @@ func (s *Store) createAuthTokenForSubject(ctx context.Context, subjectType, subj
 	if err := tx.QueryRow(ctx, `
 		SELECT count(*)
 		FROM auth_tokens
-		WHERE subject_type = $1 AND subject_id = $2 AND purpose = $3 AND scope = $4 AND created_at > now() - interval '1 hour'
-	`, subjectType, subjectID, purpose, scope).Scan(&recent); err != nil {
+		WHERE subject_type = $1 AND subject_id = $2 AND purpose = $3 AND scope = $4 AND created_at > now() - make_interval(secs => $5)
+	`, subjectType, subjectID, purpose, scope, int(s.authTokenRateLimitWindow.Seconds())).Scan(&recent); err != nil {
 		return err
 	}
-	if recent >= 5 {
+	if recent >= s.authTokenRateLimitMax {
 		return ErrRateLimited
 	}
 	if _, err := tx.Exec(ctx, `
