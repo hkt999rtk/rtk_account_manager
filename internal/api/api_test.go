@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
@@ -1611,4 +1612,21 @@ func readinessDisabledDevice(status model.DeviceStatus, metadata map[string]any)
 
 func operationStatusPtr(status model.DeviceOperationStatus) *model.DeviceOperationStatus {
 	return &status
+}
+
+func TestIsUniqueViolationClassifiesPostgresErrors(t *testing.T) {
+	if !isUniqueViolation(&pgconn.PgError{Code: "23505"}) {
+		t.Fatal("expected 23505 to be a unique violation")
+	}
+	if isUniqueViolation(&pgconn.PgError{Code: "23503"}) {
+		t.Fatal("expected foreign key violation to not be a unique violation")
+	}
+	if isUniqueViolation(errors.New("not a pg error")) {
+		t.Fatal("expected generic error to not be a unique violation")
+	}
+}
+
+func TestLogDeliveryFailureHandlesNilLogger(t *testing.T) {
+	server := &Server{}
+	server.logDeliveryFailure("password_reset", "user@example.com", errors.New("smtp down"))
 }

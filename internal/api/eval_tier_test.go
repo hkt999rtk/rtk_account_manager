@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -98,6 +99,21 @@ func TestAllowSignupEnforcesCaptchaDisposableAndRateLimit(t *testing.T) {
 	}
 	if limitedRecorder.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected rate limit failure 429, got %d", limitedRecorder.Code)
+	}
+}
+
+func TestSignupLimiterEvictsStaleEntries(t *testing.T) {
+	limiter := newSignupLimiter(1, time.Millisecond)
+	now := time.Now().UTC()
+	for i := 0; i < 300; i++ {
+		limiter.allow(fmt.Sprintf("10.0.0.%d", i), now)
+	}
+	later := now.Add(time.Second)
+	if !limiter.allow("fresh-ip", later) {
+		t.Fatal("expected fresh ip to be allowed after eviction")
+	}
+	if _, ok := limiter.counters["10.0.0.0"]; ok {
+		t.Fatalf("expected stale entries to be evicted, still present")
 	}
 }
 
