@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"net/mail"
 	"os"
@@ -115,6 +116,17 @@ func newSignupLimiter(limit int, window time.Duration) *signupLimiter {
 func (l *signupLimiter) allow(key string, now time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
+	// Lazy eviction of stale windows so the map cannot grow unboundedly when
+	// callers vary the key (e.g. spoofed X-Forwarded-For). The sweep is
+	// amortized: only run when the map is non-trivially sized.
+	if len(l.counters) > 256 {
+		for k, state := range l.counters {
+			if state.windowStart.IsZero() || now.Sub(state.windowStart) >= l.window {
+				delete(l.counters, k)
+			}
+		}
+	}
 
 	state := l.counters[key]
 	if state.windowStart.IsZero() || now.Sub(state.windowStart) >= l.window {
@@ -311,7 +323,11 @@ func (s *Server) requirePlatformAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		isAdmin, err := s.store.IsPlatformAdmin(c.Request.Context(), currentUserID(c))
 		if err != nil {
-			writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
+			if errors.Is(err, store.ErrNotFound) {
+				writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
+			} else {
+				writeError(c, http.StatusInternalServerError, "internal_error", "Internal server error")
+			}
 			c.Abort()
 			return
 		}

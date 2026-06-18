@@ -92,6 +92,7 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 	tokenSink := &recordingAuthTokenSink{}
 	notificationSink := &recordingQuotaRaiseNotificationSink{}
 	server := NewWithAuthTokenAndNotificationSink(store.New(db), authService, tokenSink, notificationSink)
+	server.signupLimiter = nil
 	return integrationEnv{
 		router:           server.Router(),
 		server:           server,

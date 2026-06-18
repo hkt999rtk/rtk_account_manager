@@ -272,8 +272,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationStoreRefreshTokenHelpers`
 - `rtk_account_manager/internal/api`: `TestIntegrationValidationAndNotFoundErrors`
 - `rtk_account_manager/internal/api`: `TestIsDisposableSignupEmail`
+- `rtk_account_manager/internal/api`: `TestIsUniqueViolationClassifiesPostgresErrors`
 - `rtk_account_manager/internal/api`: `TestLoadSignupPolicyHonorsEnvironmentOverrides`
 - `rtk_account_manager/internal/api`: `TestLogAuthTokenSinkWritesDelivery`
+- `rtk_account_manager/internal/api`: `TestLogDeliveryFailureHandlesNilLogger`
 - `rtk_account_manager/internal/api`: `TestLogQuotaRaiseNotificationSinkWritesDelivery`
 - `rtk_account_manager/internal/api`: `TestMatchExistingDeactivateOperation`
 - `rtk_account_manager/internal/api`: `TestMatchExistingProvisionOperation`
@@ -316,6 +318,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestSMTPQuotaRaiseNotificationSinkWritesDelivery`
 - `rtk_account_manager/internal/api`: `TestSendSMTPMailDeliversMessage`
 - `rtk_account_manager/internal/api`: `TestSendSMTPMailTimesOut`
+- `rtk_account_manager/internal/api`: `TestSignupLimiterEvictsStaleEntries`
 - `rtk_account_manager/internal/api`: `TestTrimPtrNormalizesOptionalStrings`
 - `rtk_account_manager/internal/api`: `TestUnknownRouteStillReturnsNotFound`
 - `rtk_account_manager/internal/api`: `TestValidationHelpersWriteErrors`
@@ -487,6 +490,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/config`: `TestLoadUsesOIDCDefaultsAndBooleanFallbacks`
 - `rtk_account_manager/internal/config`: `TestLoadWorkerAllowsMissingJWTSecrets`
 - `rtk_account_manager/internal/config`: `TestLoadWorkerFallsBackForInvalidMaxAttempts`
+- `rtk_account_manager/internal/database`: `TestEnvDurationFallback`
+- `rtk_account_manager/internal/database`: `TestEnvIntFallback`
+- `rtk_account_manager/internal/database`: `TestFindMigrationDirCandidates`
+- `rtk_account_manager/internal/database`: `TestFindMigrationDirHonorsEnvOverride`
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirMissing`
 - `rtk_account_manager/internal/logging`: `TestNewBuildsServiceLoggerFromConfig`
 - `rtk_account_manager/internal/logging`: `TestNewFromEnvReadsLoggingConfigWithFallbacks`
@@ -518,6 +525,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshotWithLossyUTF8`
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshot`
 - `rtk_account_manager/internal/store`: `TestCompareOperationCreate`
+- `rtk_account_manager/internal/store`: `TestConfigureAuthTokenRateLimit`
 - `rtk_account_manager/internal/store`: `TestCreateDeviceClaimTokenRejectsUnsupportedServiceOptions`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetDeviceOperationIsIdempotent`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetDeviceOperationRejectsMismatchedDeviceOrganization`
@@ -550,6 +558,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestLoginActivationTokenLifecycleAndScope`
 - `rtk_account_manager/internal/store`: `TestMergeDeviceMetadataPreservesUnrelatedFields`
 - `rtk_account_manager/internal/store`: `TestMetadataChangedProjectionFiltersNonVideoCloudKeys`
+- `rtk_account_manager/internal/store`: `TestNewStoreHasDefaultAuthTokenRateLimit`
 - `rtk_account_manager/internal/store`: `TestNormalizeTenantSlug/empty_after_normalization`
 - `rtk_account_manager/internal/store`: `TestNormalizeTenantSlug/lowercase`
 - `rtk_account_manager/internal/store`: `TestNormalizeTenantSlug/punctuation`

@@ -18,6 +18,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	cloudlogger "github.com/hkt999rtk/rtk_cloud_logger"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.uber.org/zap"
 
 	"rtk_account_manager/internal/auth"
@@ -413,6 +414,18 @@ func (s *Server) SetLogger(logger *zap.Logger) {
 	s.logger = logger
 }
 
+func (s *Server) logDeliveryFailure(purpose, email string, err error) {
+	logger := s.logger
+	if logger == nil {
+		logger = cloudlogger.Nop()
+	}
+	logger.Warn("auth token delivery failed",
+		zap.String("purpose", purpose),
+		zap.String("email", email),
+		zap.Error(err),
+	)
+}
+
 func (s *Server) requestLogger() gin.HandlerFunc {
 	logger := s.logger
 	if logger == nil {
@@ -616,11 +629,16 @@ type registerRequest struct {
 	Password         string  `json:"password" binding:"required,min=8"`
 	DisplayName      *string `json:"display_name"`
 	OrganizationName string  `json:"organization_name" binding:"required"`
+	CaptchaToken     *string `json:"captcha_token"`
 }
 
 func (s *Server) register(c *gin.Context) {
 	var req registerRequest
 	if !bind(c, &req) {
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if !s.allowSignup(c, email, req.CaptchaToken) {
 		return
 	}
 	if !requireNonBlank(c, "organization_name", req.OrganizationName) {
@@ -632,7 +650,7 @@ func (s *Server) register(c *gin.Context) {
 		return
 	}
 	result, err := s.store.Register(c.Request.Context(), store.RegisterInput{
-		Email:                     strings.ToLower(strings.TrimSpace(req.Email)),
+		Email:                     email,
 		PasswordHash:              hash,
 		DisplayName:               req.DisplayName,
 		OrganizationName:          strings.TrimSpace(req.OrganizationName),
@@ -673,11 +691,15 @@ func (s *Server) login(c *gin.Context) {
 		return
 	}
 	user, hash, err := s.store.GetUserPassword(c.Request.Context(), strings.ToLower(strings.TrimSpace(req.Email)))
-	if err != nil || !auth.CheckPassword(hash, req.Password) {
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			writeStoreError(c, err)
+			return
+		}
 		writeError(c, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
 		return
 	}
-	if user.SignupPendingVerification {
+	if !auth.CheckPassword(hash, req.Password) || user.SignupPendingVerification {
 		writeError(c, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
 		return
 	}
@@ -715,7 +737,9 @@ func (s *Server) signIn(c *gin.Context) {
 		return
 	}
 	if created {
-		_ = s.deliverAuthToken(c, email, "login_activation", token, expiresAt)
+		if err := s.deliverAuthToken(c, email, "login_activation", token, expiresAt); err != nil {
+			s.logDeliveryFailure("login_activation", email, err)
+		}
 	}
 	c.Status(http.StatusAccepted)
 }
@@ -1171,7 +1195,9 @@ func (s *Server) forgotPassword(c *gin.Context) {
 		return
 	}
 	if created {
-		_ = s.deliverAuthToken(c, email, "password_reset", token, expiresAt)
+		if err := s.deliverAuthToken(c, email, "password_reset", token, expiresAt); err != nil {
+			s.logDeliveryFailure("password_reset", email, err)
+		}
 	}
 	c.Status(http.StatusAccepted)
 }
@@ -1986,7 +2012,7 @@ func writeStoreError(c *gin.Context, err error) {
 		writeError(c, http.StatusConflict, "developer_cloud_limit_exceeded", "Developer brand cloud limit exceeded")
 	case errors.Is(err, errOperationStateInconsistent):
 		writeError(c, http.StatusInternalServerError, "operation_state_inconsistent", err.Error())
-	case strings.Contains(err.Error(), "duplicate key"):
+	case isUniqueViolation(err):
 		writeError(c, http.StatusConflict, "conflict", "Resource already exists")
 	default:
 		writeError(c, http.StatusInternalServerError, "internal_error", "Internal server error")
@@ -2013,7 +2039,7 @@ func writeClaimResolveError(c *gin.Context, err error) {
 		writeClaimError(c, http.StatusBadRequest, "operator_evidence_required", "Operator reason and evidence are required", false, "provide_operator_evidence")
 	case errors.Is(err, store.ErrEvaluationQuotaExceeded):
 		writeClaimError(c, http.StatusConflict, "EVALUATION_QUOTA_EXCEEDED", "Evaluation device quota exceeded", false, "request_quota_raise_or_contact_admin")
-	case strings.Contains(err.Error(), "duplicate key"):
+	case isUniqueViolation(err):
 		writeClaimError(c, http.StatusConflict, "conflict", "Resource already exists", false, "retry_with_current_claim_state")
 	default:
 		writeClaimError(c, http.StatusServiceUnavailable, "service_unavailable", "Claim resolve is temporarily unavailable", true, "retry_later")
@@ -2045,4 +2071,9 @@ func writeErrorWithFields(c *gin.Context, status int, code, message string, retr
 		errBody["resolution_action"] = strings.TrimSpace(*resolutionAction)
 	}
 	c.JSON(status, gin.H{"error": errBody})
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }

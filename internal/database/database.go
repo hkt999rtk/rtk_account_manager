@@ -5,13 +5,31 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	if v := envInt("DATABASE_MAX_CONNS", 0); v > 0 {
+		config.MaxConns = int32(v)
+	}
+	if v := envInt("DATABASE_MIN_CONNS", 0); v > 0 {
+		config.MinConns = int32(v)
+	}
+	if v := envDuration("DATABASE_MAX_CONN_LIFETIME", 0); v > 0 {
+		config.MaxConnLifetime = v
+	}
+	if v := envDuration("DATABASE_MAX_CONN_IDLE_TIME", 0); v > 0 {
+		config.MaxConnIdleTime = v
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, err
 	}
@@ -20,6 +38,30 @@ func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 		return nil, err
 	}
 	return pool, nil
+}
+
+func envInt(key string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return n
+}
+
+func envDuration(key string, fallback time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return fallback
+	}
+	return d
 }
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
@@ -78,6 +120,11 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 }
 
 func findMigrationDir() (string, error) {
+	if env := strings.TrimSpace(os.Getenv("MIGRATIONS_DIR")); env != "" {
+		if info, err := os.Stat(env); err == nil && info.IsDir() {
+			return env, nil
+		}
+	}
 	candidates := []string{"migrations", "../../migrations"}
 	for _, candidate := range candidates {
 		info, err := os.Stat(candidate)
@@ -85,5 +132,5 @@ func findMigrationDir() (string, error) {
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("migrations directory not found")
+	return "", fmt.Errorf("migrations directory not found (set MIGRATIONS_DIR)")
 }

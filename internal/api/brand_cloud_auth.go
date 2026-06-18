@@ -17,7 +17,15 @@ func (s *Server) brandCloudLogin(c *gin.Context) {
 		return
 	}
 	result, err := s.store.GetBrandCloudUserPassword(c.Request.Context(), c.Param("tenantSlug"), strings.ToLower(strings.TrimSpace(req.Email)))
-	if err != nil || !auth.CheckPassword(result.PasswordHash, req.Password) || result.BrandCloudUser.SignupPendingVerification {
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			writeStoreError(c, err)
+			return
+		}
+		writeError(c, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
+		return
+	}
+	if !auth.CheckPassword(result.PasswordHash, req.Password) || result.BrandCloudUser.SignupPendingVerification {
 		writeError(c, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
 		return
 	}

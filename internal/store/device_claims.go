@@ -473,7 +473,7 @@ func (s *Store) overrideDeviceClaim(ctx context.Context, in claimOverrideInput) 
 		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
 	`, claim.DeviceID, in.TargetOrganizationID, now))
 	if err != nil {
-		if strings.Contains(err.Error(), "duplicate key") {
+		if isUniqueViolation(err) {
 			return DeviceClaimOverrideResult{}, ErrConflict
 		}
 		return DeviceClaimOverrideResult{}, err
