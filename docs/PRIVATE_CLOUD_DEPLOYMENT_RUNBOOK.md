@@ -575,6 +575,52 @@ Operator endpoints:
 Quota approval/decline should trigger requester notification through SMTP when
 configured, or through logs in evaluation mode.
 
+## User Cache Operations
+
+When `ACCOUNT_MANAGER_USER_CACHE_ENABLED=true`, the API uses Redis-compatible
+read-through cache for platform/developer, brand-cloud, and end-user profile
+and auth lookups. Postgres remains the source of truth. Redis cache records do
+not use TTL; normal account-manager write paths refresh or delete affected cache
+entries after successful Postgres writes. Redis miss or Redis outage does not
+block user queries because the API falls back to Postgres and refills Redis when
+possible.
+
+Required runtime settings:
+
+| Variable | Purpose |
+| --- | --- |
+| `ACCOUNT_MANAGER_USER_CACHE_ENABLED` | Enables the Redis-compatible user cache. |
+| `ACCOUNT_MANAGER_USER_CACHE_ADDR` | Redis/Valkey host and port. |
+| `ACCOUNT_MANAGER_USER_CACHE_PREFIX` | Key prefix; keep separate per environment. |
+
+Maintenance commands:
+
+```sh
+/app/rtk-account-manager-user-cache rebuild
+/app/rtk-account-manager-user-cache inspect --email owner@example.com
+/app/rtk-account-manager-user-cache delete --user-id '<user-id>'
+```
+
+Run `rebuild` after Redis flush/replacement or after direct Postgres repair for
+platform users in the `users` table. Run `delete` when a single platform user
+projection should be forced to refill on the next query. Brand-cloud and end-user
+cache entries are covered by the API Store decorator read-through behavior, but
+this maintenance command does not rebuild those tables; use normal read-through
+refill or delete the relevant Redis keys directly if those records were repaired
+outside the Account Manager write path.
+
+The key families under `ACCOUNT_MANAGER_USER_CACHE_PREFIX` are:
+
+| Subject | Profile key | Email index | Auth/login key |
+| --- | --- | --- | --- |
+| Platform/developer user | `:platform:id:{user_id}` | `:platform:email:{email}` | `:platform:auth:{user_id}` |
+| Brand-cloud user | `:brand_cloud:id:{brand_cloud_user_id}` | `:brand_cloud:email:{tenant_slug}:{email}` | `:brand_cloud:auth:{brand_cloud_user_id}` |
+| End user | `:end_user:id:{end_user_id}` | `:end_user:email:{email}` | `:end_user:auth:{end_user_id}` |
+
+The cache stores auth projections, including password hashes, so the Redis
+endpoint must remain private and covered by the same secret-network controls as
+the API runtime.
+
 ## Upgrade
 
 1. Identify source commit, artifact checksum, contracts submodule commit, and
@@ -601,7 +647,10 @@ Rollback binary artifacts only when database compatibility is confirmed.
    database backup to a replacement database and repoint `DATABASE_URL`.
 5. Start API and workers.
 6. Run health and smoke checks.
-7. Record failed version, rollback version, migration state, and residual data
+7. If Redis user cache is enabled, run `rtk-account-manager-user-cache rebuild`
+   for platform users or delete affected brand-cloud/end-user keys before
+   serving traffic after direct database restore.
+8. Record failed version, rollback version, migration state, and residual data
    risk.
 
 Do not delete migration rows to force binary rollback.

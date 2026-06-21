@@ -61,6 +61,9 @@ type Config struct {
 	OIDCRedirectURL                string
 	OIDCScopes                     []string
 	OIDCAutoLinkEmail              bool
+	UserCacheEnabled               bool
+	UserCacheAddr                  string
+	UserCachePrefix                string
 	AppCertIssuerBaseURL           string
 	AppCertIssuerClientCert        string
 	AppCertIssuerClientKey         string
@@ -186,6 +189,9 @@ func load() (Config, error) {
 		OIDCRedirectURL:                os.Getenv("OIDC_REDIRECT_URL"),
 		OIDCScopes:                     stringList("OIDC_SCOPES", []string{"openid", "email", "profile"}),
 		OIDCAutoLinkEmail:              boolValue("OIDC_AUTO_LINK_EMAIL", false),
+		UserCacheEnabled:               boolValue("ACCOUNT_MANAGER_USER_CACHE_ENABLED", false),
+		UserCacheAddr:                  getenv("ACCOUNT_MANAGER_USER_CACHE_ADDR", "127.0.0.1:6379"),
+		UserCachePrefix:                getenv("ACCOUNT_MANAGER_USER_CACHE_PREFIX", "account_manager:user"),
 		AppCertIssuerBaseURL:           os.Getenv("APP_CERT_ISSUER_BASE_URL"),
 		AppCertIssuerClientCert:        os.Getenv("APP_CERT_ISSUER_CLIENT_CERT"),
 		AppCertIssuerClientKey:         os.Getenv("APP_CERT_ISSUER_CLIENT_KEY"),

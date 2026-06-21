@@ -26,7 +26,7 @@ Generated: ci-candidate
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 22 |
+| Go packages | 24 |
 | Test cases started | recorded in reports/test-events.json |
 | JSON pass events | recorded in reports/test-events.json |
 | JSON fail events | recorded in reports/test-events.json |
@@ -609,6 +609,25 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestValidateProductionRunCreateRejectsInvalidInput/valid_until_before_valid_from`
 - `rtk_account_manager/internal/store`: `TestValidateProductionRunCreateRejectsInvalidInput/zero_valid_from`
 - `rtk_account_manager/internal/store`: `TestValidateProductionRunCreateRejectsInvalidInput`
+- `rtk_account_manager/internal/usercache`: `TestRedisCacheFlushPlatformAuthScansAndDeletesOnlyAuthKeys`
+- `rtk_account_manager/internal/usercache`: `TestRedisCachePlatformAuthUsesExpectedKeysWithoutTTL`
+- `rtk_account_manager/internal/usercache`: `TestRedisCacheRoundTripsPlatformBrandAndEndUserProjections`
+- `rtk_account_manager/internal/usercache`: `TestRedisCacheValidationAndDecodeErrors`
+- `rtk_account_manager/internal/usercache`: `TestRedisCommandRoundTripAndValidationErrors`
+- `rtk_account_manager/internal/usercache`: `TestRedisRESPHelpers`
+- `rtk_account_manager/internal/usercache`: `TestStoreActivateBrandCloudLoginTokenRefreshesCache`
+- `rtk_account_manager/internal/usercache`: `TestStoreAdditionalPlatformMutationsRefreshCache`
+- `rtk_account_manager/internal/usercache`: `TestStoreAdditionalReadThroughPaths`
+- `rtk_account_manager/internal/usercache`: `TestStoreBrandAndEndUserMutationsRefreshCache`
+- `rtk_account_manager/internal/usercache`: `TestStoreConstructorAndHelpers`
+- `rtk_account_manager/internal/usercache`: `TestStoreDisableCurrentUserDeletesCachedUser`
+- `rtk_account_manager/internal/usercache`: `TestStoreGetBrandCloudUserPasswordReadThroughCachesLoginProjection`
+- `rtk_account_manager/internal/usercache`: `TestStoreGetEndUserPasswordReadThroughCachesLoginProjection`
+- `rtk_account_manager/internal/usercache`: `TestStoreGetUserFallsBackToPostgresWhenRedisUnavailable`
+- `rtk_account_manager/internal/usercache`: `TestStoreGetUserPasswordReadThroughCachesAuthProjection`
+- `rtk_account_manager/internal/usercache`: `TestStoreGetUserReadThroughCachesPostgresMiss`
+- `rtk_account_manager/internal/usercache`: `TestStoreIgnoresCacheReadAndWriteErrors`
+- `rtk_account_manager/internal/usercache`: `TestStoreRegisterRefreshesUserAuthCacheAfterCommit`
 - `rtk_account_manager/internal/worker/inbox`: `TestPostgresStoreSatisfiesInboxMessageStore`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidMessages`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidPartitionKeysAfterPersistingInboxRow/blank_partition_key_is_normalized_for_storage_and_dead-lettered`

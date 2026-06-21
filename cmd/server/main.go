@@ -14,6 +14,7 @@ import (
 	"rtk_account_manager/internal/database"
 	"rtk_account_manager/internal/logging"
 	"rtk_account_manager/internal/store"
+	"rtk_account_manager/internal/usercache"
 
 	"go.uber.org/zap"
 )
@@ -73,7 +74,16 @@ func main() {
 		}
 		logger.Info("platform admin ensured", zap.String("email", admin.Email), zap.String("user_id", admin.ID))
 	}
-	server := api.NewWithAuthTokenAndNotificationSink(accountStore, authService, authTokenSink, notificationSink)
+	var apiStore api.Store = accountStore
+	if cfg.UserCacheEnabled {
+		cache := usercache.NewRedisCache(usercache.Config{
+			Addr:   cfg.UserCacheAddr,
+			Prefix: cfg.UserCachePrefix,
+		})
+		apiStore = usercache.NewStore(apiStore, cache, logger)
+		logger.Info("user cache enabled", zap.String("addr", cfg.UserCacheAddr), zap.String("prefix", cfg.UserCachePrefix))
+	}
+	server := api.NewWithAuthTokenAndNotificationSink(apiStore, authService, authTokenSink, notificationSink)
 	server.SetLogger(logger)
 	server.ConfigureInternalAuthToken(cfg.InternalAuthToken)
 	server.ConfigureProductionJWT(cfg.FactoryProductionJWTSecret, cfg.FactoryProductionJWTAudience)

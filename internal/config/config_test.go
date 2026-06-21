@@ -66,6 +66,9 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	t.Setenv("OIDC_REDIRECT_URL", "https://api.example.test/v1/auth/oidc/corp-keycloak/callback")
 	t.Setenv("OIDC_SCOPES", "openid email profile offline_access")
 	t.Setenv("OIDC_AUTO_LINK_EMAIL", "true")
+	t.Setenv("ACCOUNT_MANAGER_USER_CACHE_ENABLED", "true")
+	t.Setenv("ACCOUNT_MANAGER_USER_CACHE_ADDR", "redis.platform.svc.cluster.local:6379")
+	t.Setenv("ACCOUNT_MANAGER_USER_CACHE_PREFIX", "account_manager:test_user")
 	t.Setenv("ACCOUNT_MANAGER_ENV", "staging")
 	t.Setenv("ACCOUNT_MANAGER_VERSION", "2026.06.01+test")
 	t.Setenv("ACCOUNT_MANAGER_LOG_LEVEL", "debug")
@@ -140,6 +143,9 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	}
 	if !cfg.OIDCAutoLinkEmail {
 		t.Fatal("expected OIDC auto-link to be enabled")
+	}
+	if !cfg.UserCacheEnabled || cfg.UserCacheAddr != "redis.platform.svc.cluster.local:6379" || cfg.UserCachePrefix != "account_manager:test_user" {
+		t.Fatalf("unexpected user cache config: %+v", cfg)
 	}
 	if cfg.LogEnv != "staging" || cfg.LogVersion != "2026.06.01+test" || cfg.LogLevel != "debug" || !cfg.LogDevelopment {
 		t.Fatalf("unexpected logging config: %+v", cfg)

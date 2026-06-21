@@ -2118,6 +2118,9 @@ Required configuration:
 | `PASSWORD_RESET_TTL` | Password reset token lifetime, default `30m`. |
 | `OTP_RESEND_INTERVAL` | Minimum resend interval, default `60s`. |
 | `OTP_MAX_ATTEMPTS` | Maximum wrong one-time-token attempts before lockout, default `5`. |
+| `ACCOUNT_MANAGER_USER_CACHE_ENABLED` | Enables the Redis-compatible read-through user cache. Default `false`. |
+| `ACCOUNT_MANAGER_USER_CACHE_ADDR` | Redis/Valkey address for the user cache. Default `127.0.0.1:6379`; LKE staging points this at the platform Redis service. |
+| `ACCOUNT_MANAGER_USER_CACHE_PREFIX` | Redis key prefix for user cache records. Default `account_manager:user`. |
 | `SIGNUP_CAPTCHA_REQUIRED` | Whether public signup requires a captcha token. |
 | `SIGNUP_DISPOSABLE_DOMAINS` | Comma-separated disposable email denylist override for public signup. |
 | `SMTP_HOST` | SMTP host used for quota approval/decline notifications when configured. |
@@ -2125,6 +2128,16 @@ Required configuration:
 | `SMTP_USERNAME` | Optional SMTP username. |
 | `SMTP_PASSWORD` | Optional SMTP password. |
 | `SMTP_FROM` | SMTP sender address used with `SMTP_HOST`. |
+
+When enabled, the user cache is a best-effort API Store decorator. Postgres
+remains authoritative; Redis-compatible records have no TTL and are populated
+through read-through misses or refreshed/deleted after successful Account
+Manager write paths. Redis outage or write failure must not fail a user query or
+roll back a committed mutation. The decorator covers platform/developer users,
+brand-cloud users, and end users for profile and login/auth projections. The
+`user-cache` maintenance command currently rebuilds, deletes, and inspects only
+platform users in the `users` table; brand-cloud and end-user cache repair uses
+normal read-through refill or direct key deletion.
 
 V2 cross-service configuration:
 
