@@ -3,11 +3,190 @@ package store
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"rtk_account_manager/internal/model"
 )
+
+func TestBulkBindDevicesCreatesExistingAndDuplicateResults(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	registered, err := env.store.Register(ctx, RegisterInput{
+		Email:            "bulk-bind-owner@example.com",
+		PasswordHash:     "hash",
+		OrganizationName: "Bulk Bind Org",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	existing, err := env.store.CreateDevice(ctx, registered.Organization.ID, DeviceInput{
+		Name:     "Existing",
+		Category: model.DeviceCategoryMQTT,
+		Metadata: map[string]any{
+			model.DeviceMetadataVideoCloudDevid:         "bulk-device-1",
+			model.DeviceMetadataVideoCloudActivityID:    "old-activity",
+			model.DeviceMetadataVideoCloudClipPublicKey: "old-key",
+			model.DeviceMetadataServiceOptions:          []string{"mqtt"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := env.store.BulkBindDevices(ctx, registered.Organization.ID, []BulkBindDeviceInput{
+		{
+			DeviceName:      "Existing Replacement",
+			Category:        model.DeviceCategoryMQTT,
+			VideoCloudDevid: "bulk-device-1",
+			ActivityID:      "activity-1",
+			ClipPublicKey:   "clip-key-1",
+			ServiceOptions:  []string{"mqtt"},
+		},
+		{
+			DeviceName:      "New Camera",
+			Category:        model.DeviceCategoryIPCamera,
+			VideoCloudDevid: "bulk-device-2",
+			ActivityID:      "activity-2",
+			ClipPublicKey:   "clip-key-2",
+			ServiceOptions:  []string{"video_streaming", "video_storage"},
+		},
+		{
+			DeviceName:      "Duplicate",
+			Category:        model.DeviceCategoryMQTT,
+			VideoCloudDevid: "bulk-device-2",
+			ActivityID:      "activity-dup",
+			ClipPublicKey:   "clip-key-dup",
+			ServiceOptions:  []string{"mqtt"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Requested != 3 || result.Created != 1 || result.Existing != 1 || result.Failed != 1 {
+		t.Fatalf("unexpected summary: %+v", result)
+	}
+	if result.Results[0].Status != BulkBindDeviceStatusExisting || result.Results[0].Device.ID != existing.ID {
+		t.Fatalf("expected first item existing %s, got %+v", existing.ID, result.Results[0])
+	}
+	if result.Results[1].Status != BulkBindDeviceStatusCreated || result.Results[1].Device.ID == "" {
+		t.Fatalf("expected second item created, got %+v", result.Results[1])
+	}
+	if result.Results[1].ProvisionInput.VideoCloudDevid != "bulk-device-2" ||
+		result.Results[1].ProvisionInput.ActivityID != "activity-2" ||
+		result.Results[1].ProvisionInput.ClipPublicKey != "clip-key-2" ||
+		!stringSlicesEqual(result.Results[1].ProvisionInput.ServiceOptions, []string{"video_streaming", "video_storage"}) {
+		t.Fatalf("unexpected provision input: %+v", result.Results[1].ProvisionInput)
+	}
+	if result.Results[2].Status != BulkBindDeviceStatusFailed || result.Results[2].ErrorCode != "duplicate_in_request" {
+		t.Fatalf("expected duplicate item failed, got %+v", result.Results[2])
+	}
+
+	var activeDevices int
+	if err := env.db.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM devices
+		WHERE organization_id = $1 AND disabled_at IS NULL
+	`, registered.Organization.ID).Scan(&activeDevices); err != nil {
+		t.Fatal(err)
+	}
+	if activeDevices != 2 {
+		t.Fatalf("expected two active devices, got %d", activeDevices)
+	}
+}
+
+func TestBulkBindDevicesAllowsSameVideoCloudDevidAcrossOrganizations(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	first, err := env.store.Register(ctx, RegisterInput{Email: "bulk-cross-1@example.com", PasswordHash: "hash", OrganizationName: "Bulk Cross 1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := env.store.Register(ctx, RegisterInput{Email: "bulk-cross-2@example.com", PasswordHash: "hash", OrganizationName: "Bulk Cross 2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := BulkBindDeviceInput{
+		DeviceName:      "Shared Devid",
+		Category:        model.DeviceCategoryMQTT,
+		VideoCloudDevid: "shared-video-devid",
+		ActivityID:      "activity",
+		ClipPublicKey:   "clip-key",
+		ServiceOptions:  []string{"mqtt"},
+	}
+	firstResult, err := env.store.BulkBindDevices(ctx, first.Organization.ID, []BulkBindDeviceInput{item})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondResult, err := env.store.BulkBindDevices(ctx, second.Organization.ID, []BulkBindDeviceInput{item})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstResult.Created != 1 || secondResult.Created != 1 || firstResult.Results[0].Device.ID == secondResult.Results[0].Device.ID {
+		t.Fatalf("expected independent devices per org: first=%+v second=%+v", firstResult, secondResult)
+	}
+}
+
+func TestBulkBindDevicesConcurrentRequestsCreateOneActiveDevice(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	registered, err := env.store.Register(ctx, RegisterInput{
+		Email:            "bulk-race@example.com",
+		PasswordHash:     "hash",
+		OrganizationName: "Bulk Race Org",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := BulkBindDeviceInput{
+		DeviceName:      "Race Device",
+		Category:        model.DeviceCategoryMQTT,
+		VideoCloudDevid: "race-device-1",
+		ActivityID:      "activity",
+		ClipPublicKey:   "clip-key",
+		ServiceOptions:  []string{"mqtt"},
+	}
+
+	const workers = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			result, err := env.store.BulkBindDevices(ctx, registered.Organization.ID, []BulkBindDeviceInput{item})
+			if err != nil {
+				errs <- err
+				return
+			}
+			if len(result.Results) != 1 || (result.Results[0].Status != BulkBindDeviceStatusCreated && result.Results[0].Status != BulkBindDeviceStatusExisting) {
+				errs <- errors.New("unexpected bulk bind status")
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var activeDevices int
+	if err := env.db.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM devices
+		WHERE organization_id = $1
+		  AND disabled_at IS NULL
+		  AND metadata->>$2 = $3
+	`, registered.Organization.ID, model.DeviceMetadataVideoCloudDevid, item.VideoCloudDevid).Scan(&activeDevices); err != nil {
+		t.Fatal(err)
+	}
+	if activeDevices != 1 {
+		t.Fatalf("expected one active device, got %d", activeDevices)
+	}
+}
 
 func TestResolveDeviceClaimTokenCreatesDeviceAndClaim(t *testing.T) {
 	env := newStoreIntegrationEnv(t)

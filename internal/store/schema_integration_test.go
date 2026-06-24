@@ -183,6 +183,7 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"device_operations_org_device_created_idx",
 		"device_operations_status_created_idx",
 		"devices_org_serial_unique",
+		"devices_org_video_cloud_devid_active_unique",
 		"organizations_brand_tenant_slug_key",
 		"organizations_kind_status_idx",
 		"identity_providers_enabled_unique_idx",

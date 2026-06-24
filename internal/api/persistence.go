@@ -86,6 +86,7 @@ type memberPersistence interface {
 
 type devicePersistence interface {
 	CreateDevice(ctx context.Context, orgID string, in store.DeviceInput) (model.Device, error)
+	BulkBindDevices(ctx context.Context, orgID string, items []store.BulkBindDeviceInput) (store.BulkBindDevicesResult, error)
 	ListDevices(ctx context.Context, orgID string, limit, offset int) (store.DevicePage, error)
 	GetDevice(ctx context.Context, orgID, deviceID string) (model.Device, error)
 	UpdateDevice(ctx context.Context, orgID, deviceID string, in store.DeviceInput) (model.Device, error)

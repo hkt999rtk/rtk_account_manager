@@ -4809,6 +4809,80 @@ func TestIntegrationAdminDeviceClaimTokenWorkflow(t *testing.T) {
 	assertErrorCode(t, resolveRevokedRes, http.StatusNotFound, "invalid_claim_token")
 }
 
+func TestIntegrationAdminDeviceBindJobCreatesExistingAndRejectsDuplicateItems(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+
+	admin := registerUser(t, env.router, "bind-job-admin@example.com", "Bind Job Admin Org")
+	owner := registerUser(t, env.router, "bind-job-owner@example.com", "Bind Job Owner Org")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	existingRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", map[string]any{
+		"name":     "Existing",
+		"category": "mqtt_device",
+		"metadata": map[string]any{
+			"video_cloud_devid": "bind-job-existing",
+			"service_options":   []string{"mqtt"},
+		},
+	}, owner.Tokens.AccessToken)
+	if existingRes.Code != http.StatusCreated {
+		t.Fatalf("expected existing device create 201, got %d: %s", existingRes.Code, existingRes.Body.String())
+	}
+
+	payload := map[string]any{"items": []map[string]any{
+		{
+			"device_name":       "Existing Replacement",
+			"category":          "mqtt_device",
+			"video_cloud_devid": "bind-job-existing",
+			"activity_id":       "activity-existing",
+			"clip_public_key":   "clip-existing",
+			"service_options":   []string{"mqtt"},
+		},
+		{
+			"device_name":       "New Camera",
+			"category":          "ip_camera",
+			"video_cloud_devid": "bind-job-new",
+			"activity_id":       "activity-new",
+			"clip_public_key":   "clip-new",
+			"service_options":   []string{"video_streaming", "video_storage"},
+		},
+		{
+			"device_name":       "Duplicate New Camera",
+			"category":          "ip_camera",
+			"video_cloud_devid": "bind-job-new",
+			"activity_id":       "activity-dup",
+			"clip_public_key":   "clip-dup",
+			"service_options":   []string{"video_streaming"},
+		},
+	}}
+
+	nonAdminRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+owner.Organization.ID+"/device-bind-jobs", payload, owner.Tokens.AccessToken)
+	if nonAdminRes.Code != http.StatusForbidden {
+		t.Fatalf("expected non-admin 403, got %d: %s", nonAdminRes.Code, nonAdminRes.Body.String())
+	}
+	res := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+owner.Organization.ID+"/device-bind-jobs", payload, admin.Tokens.AccessToken)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected bulk bind 200, got %d: %s", res.Code, res.Body.String())
+	}
+	body := decodeBody[deviceBindJobBody](t, res)
+	if body.Job.Status != "completed" || body.Job.Requested != 3 || body.Job.Created != 1 || body.Job.Existing != 1 || body.Job.Failed != 1 {
+		t.Fatalf("unexpected job summary: %+v", body.Job)
+	}
+	if len(body.Results) != 3 {
+		t.Fatalf("expected 3 results, got %+v", body.Results)
+	}
+	if body.Results[0].Status != "existing" || body.Results[0].AccountDeviceID == "" {
+		t.Fatalf("expected first result existing, got %+v", body.Results[0])
+	}
+	if body.Results[1].Status != "created" || body.Results[1].ProvisionInput.VideoCloudDevid != "bind-job-new" || body.Results[1].ProvisionInput.ActivityID != "activity-new" {
+		t.Fatalf("expected second result created with provision input, got %+v", body.Results[1])
+	}
+	if body.Results[2].Status != "failed" || body.Results[2].Error == nil || body.Results[2].Error.Code != "duplicate_in_request" {
+		t.Fatalf("expected duplicate item failure, got %+v", body.Results[2])
+	}
+}
+
 func TestIntegrationAdminIdentityProviderWorkflow(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()

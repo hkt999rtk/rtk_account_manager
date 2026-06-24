@@ -215,6 +215,17 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	contract.validate(t, http.MethodGet, "/v1/admin/brand-clouds", brandCloudListRes)
 	brandCloudGetRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID, nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodGet, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID, brandCloudGetRes)
+	deviceBindJobRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-bind-jobs", map[string]any{
+		"items": []map[string]any{{
+			"device_name":       "contract-bulk-device-001",
+			"category":          "ip_camera",
+			"video_cloud_devid": "contract-bulk-device-001",
+			"activity_id":       "contract-bulk-activity-001",
+			"clip_public_key":   "contract-bulk-public-key",
+			"service_options":   []string{"mqtt", "video_streaming"},
+		}},
+	}, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-bind-jobs", deviceBindJobRes)
 	deviceItemProfileCreateRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brandCloudResp.BrandCloud.ID+"/device-item-profiles", map[string]any{
 		"profile_key":       "contract-cam-v1",
 		"display_name":      "Contract Camera V1",

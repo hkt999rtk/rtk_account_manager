@@ -1198,6 +1198,38 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/admin/brand-clouds/{brandCloudId}/device-bind-jobs:
+    post:
+      tags:
+        - Brand Clouds
+      operationId: createAdminDeviceBindJob
+      security:
+        - bearerAuth: []
+      summary: Bulk lookup or create brand-cloud devices by video cloud device ID.
+      description: Platform-admin operational endpoint for staging/load setup. The request is processed synchronously and each chunk may contain at most 5000 items.
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminDeviceBindJobRequest"
+      responses:
+        "200":
+          description: Bulk bind job completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminDeviceBindJobResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
   /v1/admin/brand-clouds/{brandCloudId}/device-item-profiles:
     post:
       tags:
@@ -4130,6 +4162,94 @@ components:
           type: string
         service_options:
           $ref: "#/components/schemas/ServiceOptions"
+    AdminDeviceBindJobRequest:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 5000
+          items:
+            $ref: "#/components/schemas/AdminDeviceBindJobItem"
+    AdminDeviceBindJobItem:
+      type: object
+      required: [device_name, category, video_cloud_devid, activity_id, clip_public_key, service_options]
+      additionalProperties: false
+      properties:
+        device_name:
+          type: string
+          minLength: 1
+        category:
+          $ref: "#/components/schemas/DeviceCategory"
+        video_cloud_devid:
+          type: string
+          minLength: 1
+        activity_id:
+          type: string
+          minLength: 1
+        clip_public_key:
+          type: string
+          minLength: 1
+        service_options:
+          $ref: "#/components/schemas/ServiceOptions"
+    AdminDeviceBindJobResponse:
+      type: object
+      required: [job, results]
+      properties:
+        job:
+          $ref: "#/components/schemas/AdminDeviceBindJobSummary"
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminDeviceBindJobResult"
+    AdminDeviceBindJobSummary:
+      type: object
+      required: [status, requested, created, existing, failed]
+      properties:
+        status:
+          type: string
+          enum: [completed]
+        requested:
+          type: integer
+          minimum: 0
+        created:
+          type: integer
+          minimum: 0
+        existing:
+          type: integer
+          minimum: 0
+        failed:
+          type: integer
+          minimum: 0
+    AdminDeviceBindJobResult:
+      type: object
+      required: [video_cloud_devid, status, error]
+      properties:
+        video_cloud_devid:
+          type: string
+        status:
+          type: string
+          enum: [created, existing, failed]
+        account_device_id:
+          type: string
+          format: uuid
+        device:
+          $ref: "#/components/schemas/Device"
+        provision_input:
+          $ref: "#/components/schemas/ClaimProvisionInput"
+        error:
+          nullable: true
+          $ref: "#/components/schemas/AdminDeviceBindJobItemError"
+    AdminDeviceBindJobItemError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
     ClaimResolveResponse:
       type: object
       required: [claim_id, device, provision_input]
