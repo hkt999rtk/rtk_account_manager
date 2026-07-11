@@ -1857,7 +1857,7 @@ func (s *Store) ListDeviceGroupDevices(ctx context.Context, orgID, groupID strin
 		return DevicePage{}, err
 	}
 	rows, err := s.db.Query(ctx, `
-		SELECT d.id::text, d.organization_id::text, d.name, d.category, d.serial_number, d.mac_address, d.manufacturer, d.model, d.status, d.last_seen_at, d.metadata, d.created_at, d.updated_at, d.disabled_at
+		SELECT d.id::text, d.organization_id::text, d.name, d.category, d.serial_number, d.mac_address, d.manufacturer, d.model, d.status, d.last_seen_at, d.metadata, d.created_at, d.updated_at, d.disabled_at, d.device_item_profile_id::text
 		FROM device_group_members m
 		JOIN devices d ON d.organization_id = m.organization_id AND d.id = m.device_id
 		WHERE m.organization_id = $1 AND m.group_id = $2
@@ -2011,6 +2011,7 @@ func scanDevice(row rowScanner) (model.Device, error) {
 		&device.CreatedAt,
 		&device.UpdatedAt,
 		&device.DisabledAt,
+		&device.DeviceItemProfileID,
 	)
 	if err != nil {
 		return model.Device{}, err

@@ -2506,6 +2506,7 @@ paths:
     get:
       tags: [Devices]
       operationId: listOrganizationTags
+      summary: List organization tags.
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/OrgId"
@@ -2536,6 +2537,7 @@ paths:
     get:
       tags: [ACL]
       operationId: checkOrganizationResourceAccess
+      summary: Check scoped organization resource access.
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/OrgId"
@@ -2570,6 +2572,7 @@ paths:
     get:
       tags: [ACL]
       operationId: listOrganizationRoles
+      summary: List organization-visible roles.
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/OrgId"
@@ -2588,6 +2591,7 @@ paths:
     get:
       tags: [ACL]
       operationId: listOrganizationPermissions
+      summary: List organization-visible permissions.
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/OrgId"
@@ -2606,6 +2610,7 @@ paths:
     get:
       tags: [ACL]
       operationId: listOrganizationRoleAssignments
+      summary: List organization role assignments.
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/OrgId"
@@ -2622,6 +2627,7 @@ paths:
     post:
       tags: [ACL]
       operationId: createOrganizationRoleAssignment
+      summary: Create an organization role assignment.
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/OrgId"
@@ -2644,6 +2650,7 @@ paths:
     delete:
       tags: [ACL]
       operationId: deleteOrganizationRoleAssignment
+      summary: Delete an organization role assignment.
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/OrgId"
@@ -2661,6 +2668,7 @@ paths:
     get:
       tags: [Devices]
       operationId: listOrganizationProductionRuns
+      summary: List production runs for an organization SKU profile.
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/OrgId"
@@ -2685,6 +2693,7 @@ paths:
     post:
       tags: [Devices]
       operationId: createOrganizationProductionRun
+      summary: Create a production run for an organization SKU profile.
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/OrgId"

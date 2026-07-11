@@ -110,7 +110,7 @@ func (s *Server) createCustomerACLAssignment(c *gin.Context) {
 func (s *Server) deleteCustomerACLAssignment(c *gin.Context) {
 	actor := currentUserID(c)
 	var actorID *string
-	if actor != "" {
+	if actor != "" && currentSubjectType(c) != auth.SubjectTypeBrandCloudUser {
 		actorID = &actor
 	}
 	if err := s.store.DisableRoleAssignmentForOrganization(c.Request.Context(), c.Param("orgId"), c.Param("assignmentId"), actorID); err != nil {
