@@ -2804,6 +2804,112 @@ func TestIntegrationACLAdminWorkflow(t *testing.T) {
 	}
 }
 
+func TestIntegrationBrandCloudScopedRoleAssignmentWorkflow(t *testing.T) {
+	env := newIntegrationEnv(t)
+	admin := registerUser(t, env.router, "scoped-acl-platform-admin@example.com", "Scoped ACL Platform Admin")
+	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	brand := createBrandCloudForTest(t, env, admin.Tokens.AccessToken, "Scoped ACL Brand", "scoped-acl-brand")
+	userRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
+		"email": "scoped-acl-operator@example.com", "password": "scoped-acl-password123", "role": "admin",
+	}, admin.Tokens.AccessToken)
+	if userRes.Code != http.StatusCreated {
+		t.Fatalf("expected brand user create 201, got %d: %s", userRes.Code, userRes.Body.String())
+	}
+	brandUser := decodeBody[brandCloudUserBody](t, userRes)
+	loginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/scoped-acl-brand/auth/login", map[string]any{
+		"email": "scoped-acl-operator@example.com", "password": "scoped-acl-password123",
+	}, "")
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("expected brand login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
+	}
+	login := decodeBody[brandCloudLoginBody](t, loginRes)
+	listRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/role-assignments", nil, login.Tokens.AccessToken)
+	if listRes.Code != http.StatusOK {
+		t.Fatalf("expected scoped assignment list 200, got %d: %s", listRes.Code, listRes.Body.String())
+	}
+	assignmentRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+brand.BrandCloud.ID+"/role-assignments", map[string]any{
+		"role_name": "firmware_operator", "actor_id": brandUser.BrandCloudUser.ID, "scope_type": "sku", "scope_id": "sku-camera-pro",
+	}, login.Tokens.AccessToken)
+	if assignmentRes.Code != http.StatusCreated {
+		t.Fatalf("expected scoped assignment create 201, got %d: %s", assignmentRes.Code, assignmentRes.Body.String())
+	}
+	assignment := decodeBody[aclRoleAssignmentBody](t, assignmentRes)
+	if assignment.RoleAssignment.ScopeType != "sku" || assignment.RoleAssignment.ScopeID == nil || *assignment.RoleAssignment.ScopeID != "sku-camera-pro" {
+		t.Fatalf("unexpected scoped assignment: %+v", assignment.RoleAssignment)
+	}
+	deleteRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+brand.BrandCloud.ID+"/role-assignments/"+assignment.RoleAssignment.ID, nil, login.Tokens.AccessToken)
+	if deleteRes.Code != http.StatusNoContent {
+		t.Fatalf("expected scoped assignment delete 204, got %d: %s", deleteRes.Code, deleteRes.Body.String())
+	}
+}
+
+func TestIntegrationBrandCloudResourceScopeFiltersFleetQueries(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+	admin := registerUser(t, env.router, "resource-scope-platform-admin@example.com", "Resource Scope Platform Admin")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	brand := createBrandCloudForTest(t, env, admin.Tokens.AccessToken, "Resource Scope Brand", "resource-scope-brand")
+	ownerRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
+		"email": "resource-scope-owner@example.com", "password": "resource-scope-owner123", "role": "admin",
+	}, admin.Tokens.AccessToken)
+	if ownerRes.Code != http.StatusCreated {
+		t.Fatalf("expected owner create 201, got %d: %s", ownerRes.Code, ownerRes.Body.String())
+	}
+	ownerLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/resource-scope-brand/auth/login", map[string]any{
+		"email": "resource-scope-owner@example.com", "password": "resource-scope-owner123",
+	}, "")
+	if ownerLoginRes.Code != http.StatusOK {
+		t.Fatalf("expected owner login 200, got %d: %s", ownerLoginRes.Code, ownerLoginRes.Body.String())
+	}
+	ownerLogin := decodeBody[brandCloudLoginBody](t, ownerLoginRes)
+	createDevice := func(name string) deviceBody {
+		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+brand.BrandCloud.ID+"/devices", map[string]any{"name": name, "category": "generic"}, ownerLogin.Tokens.AccessToken)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("expected device create 201, got %d: %s", res.Code, res.Body.String())
+		}
+		return decodeBody[deviceBody](t, res)
+	}
+	scopedDevice := createDevice("Scoped Device")
+	otherDevice := createDevice("Other Device")
+	memberRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
+		"email": "resource-scope-member@example.com", "password": "resource-scope-member123", "role": "member",
+	}, admin.Tokens.AccessToken)
+	if memberRes.Code != http.StatusCreated {
+		t.Fatalf("expected member create 201, got %d: %s", memberRes.Code, memberRes.Body.String())
+	}
+	member := decodeBody[brandCloudUserBody](t, memberRes)
+	if _, err := env.db.Exec(ctx, `UPDATE role_assignments SET disabled_at = now() WHERE actor_type = 'brand_cloud_user' AND actor_id = $1 AND scope_type = 'organization'`, member.BrandCloudUser.ID); err != nil {
+		t.Fatal(err)
+	}
+	scopeID := scopedDevice.Device.ID
+	if _, err := store.New(env.db).CreateRoleAssignment(ctx, store.RoleAssignmentCreateInput{RoleName: "read_only_observer", ActorType: store.ActorTypeBrandCloudUser, ActorID: member.BrandCloudUser.ID, ScopeType: store.ScopeTypeDevice, ScopeID: &scopeID, OrganizationID: &brand.BrandCloud.ID}); err != nil {
+		t.Fatal(err)
+	}
+	memberLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/resource-scope-brand/auth/login", map[string]any{
+		"email": "resource-scope-member@example.com", "password": "resource-scope-member123",
+	}, "")
+	if memberLoginRes.Code != http.StatusOK {
+		t.Fatalf("expected member login 200, got %d: %s", memberLoginRes.Code, memberLoginRes.Body.String())
+	}
+	memberLogin := decodeBody[brandCloudLoginBody](t, memberLoginRes)
+	fleetRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/fleet/devices?limit=100", nil, memberLogin.Tokens.AccessToken)
+	if fleetRes.Code != http.StatusOK {
+		t.Fatalf("expected scoped fleet query 200, got %d: %s", fleetRes.Code, fleetRes.Body.String())
+	}
+	fleet := decodeBody[struct {
+		Devices []struct {
+			ID string `json:"id"`
+		} `json:"devices"`
+	}](t, fleetRes)
+	if len(fleet.Devices) != 1 || fleet.Devices[0].ID != scopedDevice.Device.ID || fleet.Devices[0].ID == otherDevice.Device.ID {
+		t.Fatalf("resource scope leaked devices: %+v", fleet.Devices)
+	}
+}
+
 func TestIntegrationAdminMetricsIncludesLifecycleVisibility(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
@@ -3856,6 +3962,38 @@ func TestIntegrationMigrationsAreIdempotent(t *testing.T) {
 
 	if err := database.Migrate(context.Background(), env.db); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestIntegrationFleetDeviceQueryAndSummaryAreServerSide(t *testing.T) {
+	env := newIntegrationEnv(t)
+	owner := registerUser(t, env.router, "fleet-query-owner@example.com", "Fleet Query Org")
+	for _, serial := range []string{"FLEET-A", "FLEET-B"} {
+		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("fleet-"+serial, serial), owner.Tokens.AccessToken)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("create device status = %d: %s", res.Code, res.Body.String())
+		}
+	}
+	filtered := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/fleet/devices?q=FLEET-A&limit=100", nil, owner.Tokens.AccessToken)
+	if filtered.Code != http.StatusOK {
+		t.Fatalf("fleet query status = %d: %s", filtered.Code, filtered.Body.String())
+	}
+	var page struct {
+		Devices []struct {
+			ID string `json:"id"`
+		} `json:"devices"`
+		Pagination paginationBody `json:"pagination"`
+		Query      map[string]any `json:"query"`
+	}
+	if err := json.Unmarshal(filtered.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Devices) != 1 || page.Pagination.Total != 1 || page.Query["server_side"] != true {
+		t.Fatalf("unexpected fleet query response: %+v", page)
+	}
+	summary := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/fleet/summary", nil, owner.Tokens.AccessToken)
+	if summary.Code != http.StatusOK || !strings.Contains(summary.Body.String(), `"total":2`) {
+		t.Fatalf("unexpected fleet summary: %d %s", summary.Code, summary.Body.String())
 	}
 }
 

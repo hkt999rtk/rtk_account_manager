@@ -545,6 +545,13 @@ func (s *Server) Router() *gin.Engine {
 	protected.PATCH("/orgs/:orgId/members/:userId/disable", s.requirePermission("membership.manage"), s.disableMemberUser)
 	protected.PATCH("/orgs/:orgId/members/:userId/enable", s.requirePermission("membership.manage"), s.enableMemberUser)
 	protected.DELETE("/orgs/:orgId/members/:userId", s.requirePermission("membership.manage"), s.removeMember)
+	protected.GET("/orgs/:orgId/tags", s.requirePermission("device_tag.read"), s.listOrganizationTags)
+	protected.GET("/orgs/:orgId/access/check", s.checkOrganizationAccess)
+	protected.GET("/orgs/:orgId/roles", s.requirePermission("role_assignment.read"), s.listCustomerACLRoles)
+	protected.GET("/orgs/:orgId/permissions", s.requirePermission("role_assignment.read"), s.listCustomerACLPermissions)
+	protected.GET("/orgs/:orgId/role-assignments", s.requirePermission("role_assignment.read"), s.listCustomerACLAssignments)
+	protected.POST("/orgs/:orgId/role-assignments", s.requirePermission("role_assignment.manage"), s.createCustomerACLAssignment)
+	protected.DELETE("/orgs/:orgId/role-assignments/:assignmentId", s.requirePermission("role_assignment.manage"), s.deleteCustomerACLAssignment)
 
 	protected.GET("/orgs/:orgId/device-groups", s.requirePermission("device_group.read"), s.listDeviceGroups)
 	protected.POST("/orgs/:orgId/device-groups", s.requirePermission("device_group.manage"), s.createDeviceGroup)
@@ -554,9 +561,16 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/orgs/:orgId/device-groups/:groupId/devices", s.requirePermission("device_group.read"), s.listDeviceGroupDevices)
 	protected.PUT("/orgs/:orgId/device-groups/:groupId/devices/:deviceId", s.requirePermission("device_group.assign"), s.addDeviceToGroup)
 	protected.DELETE("/orgs/:orgId/device-groups/:groupId/devices/:deviceId", s.requirePermission("device_group.assign"), s.removeDeviceFromGroup)
+	protected.GET("/orgs/:orgId/device-item-profiles", s.requirePermission("registry_device.read"), s.listDeviceItemProfiles)
+	protected.GET("/orgs/:orgId/device-item-profiles/:profileId", s.requirePermission("registry_device.read"), s.getDeviceItemProfile)
+	protected.POST("/orgs/:orgId/device-item-profiles", s.requirePermission("registry_device.manage"), s.createDeviceItemProfile)
+	protected.PATCH("/orgs/:orgId/device-item-profiles/:profileId", s.requirePermission("registry_device.manage"), s.updateDeviceItemProfile)
+	protected.POST("/orgs/:orgId/device-item-profiles/:profileId/disable", s.requirePermission("registry_device.manage"), s.disableDeviceItemProfile)
 
 	protected.POST("/orgs/:orgId/devices", s.requirePermission("registry_device.manage"), s.createDevice)
 	protected.GET("/orgs/:orgId/devices", s.requirePermission("registry_device.read"), s.listDevices)
+	protected.GET("/orgs/:orgId/fleet/devices", s.requirePermission("registry_device.read"), s.listFleetDevices)
+	protected.GET("/orgs/:orgId/fleet/summary", s.requirePermission("registry_device.read"), s.fleetSummary)
 	protected.POST("/orgs/:orgId/devices/claim/resolve", s.requirePermission("claim.resolve"), s.resolveDeviceClaim)
 	protected.GET("/orgs/:orgId/devices/:deviceId", s.requirePermission("registry_device.read"), s.getDevice)
 	protected.GET("/orgs/:orgId/devices/:deviceId/tags", s.requirePermission("device_tag.read"), s.listDeviceTags)
@@ -583,6 +597,8 @@ func (s *Server) Router() *gin.Engine {
 	protected.PATCH("/admin/brand-clouds/:brandCloudId/device-item-profiles/:profileId", s.requirePlatformAdmin(), s.updateDeviceItemProfile)
 	protected.POST("/admin/brand-clouds/:brandCloudId/device-item-profiles/:profileId/disable", s.requirePlatformAdmin(), s.disableDeviceItemProfile)
 	protected.POST("/admin/brand-clouds/:brandCloudId/device-item-profiles/:profileId/production-runs", s.requirePlatformAdmin(), s.createProductionRun)
+	protected.GET("/orgs/:orgId/device-item-profiles/:profileId/production-runs", s.requirePermission("registry_device.read"), s.listOrganizationProductionRuns)
+	protected.POST("/orgs/:orgId/device-item-profiles/:profileId/production-runs", s.requirePermission("registry_device.manage"), s.createProductionRun)
 	protected.POST("/admin/brand-clouds/:brandCloudId/members", s.requirePlatformAdmin(), s.assignBrandCloudMember)
 	protected.POST("/admin/brand-clouds/:brandCloudId/users", s.requirePlatformAdmin(), s.createBrandCloudUser)
 	protected.GET("/admin/brand-clouds/:brandCloudId/users", s.requirePlatformAdmin(), s.listBrandCloudUsers)
@@ -1558,12 +1574,71 @@ func (s *Server) createDevice(c *gin.Context) {
 
 func (s *Server) listDevices(c *gin.Context) {
 	limit, offset := pagination(c)
-	devicePage, err := s.store.ListDevices(c.Request.Context(), c.Param("orgId"), limit, offset)
+	filter := store.DeviceListFilter{OrganizationID: c.Param("orgId"), Limit: limit, Offset: offset}
+	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
+		filter.BrandCloudUserID = currentBrandCloudUserID(c)
+		filter.ScopePermission = "registry_device.read"
+	}
+	devicePage, err := s.store.ListDevicesFiltered(c.Request.Context(), filter)
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"devices": devicePage.Devices, "pagination": devicePage.Page})
+}
+
+func (s *Server) listFleetDevices(c *gin.Context) {
+	limit := queryInt(c, "limit", 100)
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 250 {
+		limit = 250
+	}
+	filter := store.DeviceListFilter{
+		OrganizationID: c.Param("orgId"),
+		Query:          c.Query("q"),
+		SKU:            c.Query("sku_id"),
+		GroupID:        c.Query("group_id"),
+		Region:         c.Query("region"),
+		Category:       c.Query("category"),
+		Model:          c.Query("model"),
+		Status:         c.Query("status"),
+		Readiness:      c.Query("readiness"),
+		Firmware:       c.Query("firmware"),
+		Sort:           c.Query("sort"),
+		Direction:      c.Query("direction"),
+		Limit:          limit,
+		Offset:         queryInt(c, "offset", 0),
+	}
+	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
+		filter.BrandCloudUserID = currentBrandCloudUserID(c)
+		filter.ScopePermission = "registry_device.read"
+	}
+	page, err := s.store.ListDevicesFiltered(c.Request.Context(), filter)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"devices": page.Devices, "pagination": page.Page, "query": gin.H{
+		"server_side": true,
+		"q":           c.Query("q"), "sku_id": c.Query("sku_id"), "group_id": c.Query("group_id"), "region": c.Query("region"), "category": c.Query("category"), "model": c.Query("model"), "status": c.Query("status"),
+	}})
+}
+
+func (s *Server) fleetSummary(c *gin.Context) {
+	var summary store.FleetSummary
+	var err error
+	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
+		summary, err = s.store.FleetSummaryForBrandCloudUser(c.Request.Context(), c.Param("orgId"), currentBrandCloudUserID(c))
+	} else {
+		summary, err = s.store.FleetSummary(c.Request.Context(), c.Param("orgId"))
+	}
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, summary)
 }
 
 func (s *Server) getDevice(c *gin.Context) {
@@ -1749,6 +1824,16 @@ func (s *Server) listDeviceTags(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"tags": tagPage.Tags, "pagination": tagPage.Page})
 }
 
+func (s *Server) listOrganizationTags(c *gin.Context) {
+	limit, offset := pagination(c)
+	page, err := s.store.ListOrganizationTags(c.Request.Context(), c.Param("orgId"), limit, offset)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"tags": page.Tags, "pagination": page.Page})
+}
+
 func (s *Server) requireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
@@ -1814,10 +1899,39 @@ func (s *Server) requirePermission(permission string) gin.HandlerFunc {
 				c.Abort()
 				return
 			}
+			if !allowed && (permission == "registry_device.read" || permission == "device_group.read" || permission == "device_tag.read") && c.Param("deviceId") == "" && c.Param("profileId") == "" {
+				allowed, err = s.store.HasBrandCloudPermissionAnyResource(c.Request.Context(), currentBrandCloudUserID(c), orgID, permission)
+			}
 			if !allowed {
 				writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
 				c.Abort()
 				return
+			}
+			if deviceID := c.Param("deviceId"); deviceID != "" {
+				allowed, err = s.store.HasBrandCloudDevicePermission(c.Request.Context(), currentBrandCloudUserID(c), orgID, permission, deviceID)
+				if err != nil {
+					writeError(c, http.StatusNotFound, "not_found", "Resource not found")
+					c.Abort()
+					return
+				}
+				if !allowed {
+					writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
+					c.Abort()
+					return
+				}
+			}
+			if profileID := c.Param("profileId"); profileID != "" {
+				allowed, err = s.store.HasBrandCloudPermissionForResource(c.Request.Context(), currentBrandCloudUserID(c), orgID, permission, store.ScopeTypeSKU, profileID)
+				if err != nil {
+					writeError(c, http.StatusNotFound, "not_found", "Resource not found")
+					c.Abort()
+					return
+				}
+				if !allowed {
+					writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
+					c.Abort()
+					return
+				}
 			}
 			c.Set("permission", permission)
 			c.Next()

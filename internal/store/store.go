@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -145,6 +147,196 @@ type DevicePage struct {
 	Page    Page
 }
 
+type DeviceListFilter struct {
+	OrganizationID   string
+	Query            string
+	SKU              string
+	GroupID          string
+	Region           string
+	Category         string
+	Model            string
+	Status           string
+	Readiness        string
+	Firmware         string
+	Sort             string
+	Direction        string
+	Limit            int
+	Offset           int
+	BrandCloudUserID string
+	ScopePermission  string
+}
+
+type FleetSummary struct {
+	Total          int                       `json:"total"`
+	ByStatus       map[string]int            `json:"by_status"`
+	BySKU          map[string]int            `json:"by_sku"`
+	ByModel        map[string]int            `json:"by_model"`
+	ByFirmware     map[string]int            `json:"by_firmware"`
+	ByRegion       map[string]int            `json:"by_region"`
+	ServiceEnabled map[string]int            `json:"service_enabled"`
+	BySKURegion    map[string]map[string]int `json:"by_sku_region"`
+	BySKUFirmware  map[string]map[string]int `json:"by_sku_firmware"`
+	UpdatedAt      time.Time                 `json:"updated_at"`
+}
+
+func (s *Store) FleetSummary(ctx context.Context, orgID string) (FleetSummary, error) {
+	return s.fleetSummary(ctx, orgID, "", "")
+}
+
+func (s *Store) FleetSummaryForBrandCloudUser(ctx context.Context, orgID, brandCloudUserID string) (FleetSummary, error) {
+	return s.fleetSummary(ctx, orgID, brandCloudUserID, "registry_device.read")
+}
+
+func (s *Store) fleetSummary(ctx context.Context, orgID, brandCloudUserID, permission string) (FleetSummary, error) {
+	accessClause, accessArgs := fleetAccessPredicate(brandCloudUserID, permission)
+	queryArgs := append([]any{orgID}, accessArgs...)
+	result := FleetSummary{
+		ByStatus:       map[string]int{},
+		BySKU:          map[string]int{},
+		ByModel:        map[string]int{},
+		ByFirmware:     map[string]int{},
+		ByRegion:       map[string]int{},
+		ServiceEnabled: map[string]int{},
+		BySKURegion:    map[string]map[string]int{},
+		BySKUFirmware:  map[string]map[string]int{},
+		UpdatedAt:      time.Now().UTC(),
+	}
+	if err := s.db.QueryRow(ctx, "SELECT count(*) FROM devices d WHERE d.organization_id = $1"+accessClause, queryArgs...).Scan(&result.Total); err != nil {
+		return FleetSummary{}, err
+	}
+	if err := scanDeviceAggregate(ctx, s.db, "SELECT d.status, count(*) FROM devices d WHERE d.organization_id = $1"+accessClause+" GROUP BY d.status", result.ByStatus, queryArgs...); err != nil {
+		return FleetSummary{}, err
+	}
+	if err := scanDeviceAggregate(ctx, s.db, "SELECT COALESCE(d.device_item_profile_id::text, '未設定'), count(*) FROM devices d WHERE d.organization_id = $1"+accessClause+" GROUP BY d.device_item_profile_id", result.BySKU, queryArgs...); err != nil {
+		return FleetSummary{}, err
+	}
+	if err := scanDeviceAggregate(ctx, s.db, "SELECT COALESCE(NULLIF(d.model, ''), '未提供'), count(*) FROM devices d WHERE d.organization_id = $1"+accessClause+" GROUP BY d.model", result.ByModel, queryArgs...); err != nil {
+		return FleetSummary{}, err
+	}
+	if err := scanDeviceAggregate(ctx, s.db, "SELECT COALESCE(NULLIF(d.metadata ->> 'firmware_version', ''), '未提供'), count(*) FROM devices d WHERE d.organization_id = $1"+accessClause+" GROUP BY d.metadata ->> 'firmware_version'", result.ByFirmware, queryArgs...); err != nil {
+		return FleetSummary{}, err
+	}
+	if err := scanDeviceAggregate(ctx, s.db, "SELECT COALESCE(NULLIF(d.metadata ->> 'region', ''), '未設定'), count(*) FROM devices d WHERE d.organization_id = $1"+accessClause+" GROUP BY d.metadata ->> 'region'", result.ByRegion, queryArgs...); err != nil {
+		return FleetSummary{}, err
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT COALESCE(device_item_profile_id::text, '未設定'), COALESCE(NULLIF(metadata ->> 'region', ''), '未設定'), count(*)
+		FROM devices d WHERE d.organization_id = $1`+accessClause+` GROUP BY d.device_item_profile_id, d.metadata ->> 'region'
+	`, queryArgs...)
+	if err != nil {
+		return FleetSummary{}, err
+	}
+	for rows.Next() {
+		var sku, region string
+		var count int
+		if err := rows.Scan(&sku, &region, &count); err != nil {
+			rows.Close()
+			return FleetSummary{}, err
+		}
+		if result.BySKURegion[sku] == nil {
+			result.BySKURegion[sku] = map[string]int{}
+		}
+		result.BySKURegion[sku][region] = count
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return FleetSummary{}, err
+	}
+	rows.Close()
+	rows, err = s.db.Query(ctx, `
+		SELECT COALESCE(device_item_profile_id::text, '未設定'), COALESCE(NULLIF(metadata ->> 'firmware_version', ''), '未提供'), count(*)
+		FROM devices d WHERE d.organization_id = $1`+accessClause+` GROUP BY d.device_item_profile_id, d.metadata ->> 'firmware_version'
+	`, queryArgs...)
+	if err != nil {
+		return FleetSummary{}, err
+	}
+	for rows.Next() {
+		var sku, firmware string
+		var count int
+		if err := rows.Scan(&sku, &firmware, &count); err != nil {
+			rows.Close()
+			return FleetSummary{}, err
+		}
+		if result.BySKUFirmware[sku] == nil {
+			result.BySKUFirmware[sku] = map[string]int{}
+		}
+		result.BySKUFirmware[sku][firmware] = count
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return FleetSummary{}, err
+	}
+	rows.Close()
+	rows, err = s.db.Query(ctx, `
+		SELECT option_name, count(*)
+		FROM devices d
+		JOIN device_item_profiles p ON p.id = d.device_item_profile_id
+		CROSS JOIN LATERAL jsonb_array_elements_text(p.service_options) AS option_name
+		WHERE d.organization_id = $1`+accessClause+`
+		GROUP BY option_name
+	`, queryArgs...)
+	if err != nil {
+		return FleetSummary{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		var count int
+		if err := rows.Scan(&name, &count); err != nil {
+			return FleetSummary{}, err
+		}
+		result.ServiceEnabled[name] = count
+	}
+	if err := rows.Err(); err != nil {
+		return FleetSummary{}, err
+	}
+	return result, nil
+}
+
+func fleetAccessPredicate(brandCloudUserID, permission string) (string, []any) {
+	if strings.TrimSpace(brandCloudUserID) == "" {
+		return "", nil
+	}
+	return ` AND EXISTS (
+		SELECT 1 FROM role_assignments ra
+		JOIN roles r ON r.id = ra.role_id AND r.disabled_at IS NULL
+		JOIN role_permissions rp ON rp.role_id = r.id
+		JOIN permissions p ON p.id = rp.permission_id
+		JOIN brand_cloud_users bcu ON bcu.id::text = ra.actor_id AND bcu.disabled_at IS NULL
+		WHERE ra.actor_type = 'brand_cloud_user' AND ra.actor_id = $2 AND p.name = $3
+		  AND ra.disabled_at IS NULL AND ra.organization_id = d.organization_id
+		  AND bcu.brand_cloud_id = d.organization_id
+		  AND (
+		    ra.scope_type = 'organization'
+		    OR (ra.scope_type = 'sku' AND ra.scope_id = d.device_item_profile_id::text)
+		    OR (ra.scope_type = 'region' AND ra.scope_id = COALESCE(NULLIF(d.metadata ->> 'region', ''), '未設定'))
+		    OR (ra.scope_type = 'device' AND ra.scope_id = d.id::text)
+		    OR (ra.scope_type = 'group' AND EXISTS (SELECT 1 FROM device_group_members dgm WHERE dgm.device_id = d.id AND dgm.group_id::text = ra.scope_id))
+		  )
+	)`, []any{brandCloudUserID, permission}
+}
+
+type aggregateScanner interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func scanDeviceAggregate(ctx context.Context, db aggregateScanner, query string, out map[string]int, args ...any) error {
+	rows, err := db.Query(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		var count int
+		if err := rows.Scan(&key, &count); err != nil {
+			return err
+		}
+		out[key] = count
+	}
+	return rows.Err()
+}
+
 type DeviceGroupPage struct {
 	Groups []model.DeviceGroup
 	Page   Page
@@ -152,6 +344,16 @@ type DeviceGroupPage struct {
 
 type DeviceTagPage struct {
 	Tags []model.DeviceTag
+	Page Page
+}
+
+type DeviceTagSummary struct {
+	Tag         string `json:"tag"`
+	DeviceCount int    `json:"device_count"`
+}
+
+type DeviceTagSummaryPage struct {
+	Tags []DeviceTagSummary
 	Page Page
 }
 
@@ -1272,7 +1474,7 @@ func (s *Store) CreateDevice(ctx context.Context, orgID string, in DeviceInput) 
 	device, err := s.scanDevice(tx.QueryRow(ctx, `
 		INSERT INTO devices (organization_id, name, category, serial_number, mac_address, manufacturer, model, metadata)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
+		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
 	`, orgID, in.Name, in.Category, in.SerialNumber, in.MACAddress, in.Manufacturer, in.Model, metadata))
 	if err != nil {
 		return model.Device{}, err
@@ -1284,17 +1486,95 @@ func (s *Store) CreateDevice(ctx context.Context, orgID string, in DeviceInput) 
 }
 
 func (s *Store) ListDevices(ctx context.Context, orgID string, limit, offset int) (DevicePage, error) {
-	total, err := s.countDevices(ctx, orgID)
-	if err != nil {
+	return s.ListDevicesFiltered(ctx, DeviceListFilter{OrganizationID: orgID, Limit: limit, Offset: offset})
+}
+
+func (s *Store) ListDevicesFiltered(ctx context.Context, in DeviceListFilter) (DevicePage, error) {
+	where := []string{"d.organization_id = $1"}
+	args := []any{in.OrganizationID}
+	if strings.TrimSpace(in.BrandCloudUserID) != "" {
+		permission := strings.TrimSpace(in.ScopePermission)
+		if permission == "" {
+			permission = "registry_device.read"
+		}
+		args = append(args, in.BrandCloudUserID, permission)
+		userPlaceholder := "$" + strconv.Itoa(len(args)-1)
+		permissionPlaceholder := "$" + strconv.Itoa(len(args))
+		where = append(where, fmt.Sprintf(`EXISTS (
+			SELECT 1 FROM role_assignments ra
+			JOIN roles r ON r.id = ra.role_id AND r.disabled_at IS NULL
+			JOIN role_permissions rp ON rp.role_id = r.id
+			JOIN permissions p ON p.id = rp.permission_id
+			JOIN brand_cloud_users bcu ON bcu.id::text = ra.actor_id AND bcu.disabled_at IS NULL
+			WHERE ra.actor_type = 'brand_cloud_user'
+			  AND ra.actor_id = %s AND p.name = %s AND ra.disabled_at IS NULL
+			  AND ra.organization_id = d.organization_id AND bcu.brand_cloud_id = d.organization_id
+			  AND (
+			    ra.scope_type = 'organization'
+			    OR (ra.scope_type = 'sku' AND ra.scope_id = d.device_item_profile_id::text)
+			    OR (ra.scope_type = 'region' AND ra.scope_id = COALESCE(NULLIF(d.metadata ->> 'region', ''), '未設定'))
+			    OR (ra.scope_type = 'device' AND ra.scope_id = d.id::text)
+			    OR (ra.scope_type = 'group' AND EXISTS (SELECT 1 FROM device_group_members dgm WHERE dgm.device_id = d.id AND dgm.group_id::text = ra.scope_id))
+			  )
+		)`, userPlaceholder, permissionPlaceholder))
+	}
+	if value := strings.TrimSpace(in.Query); value != "" {
+		args = append(args, "%"+value+"%")
+		placeholder := "$" + strconv.Itoa(len(args))
+		where = append(where, "(d.name ILIKE "+placeholder+" OR d.id::text ILIKE "+placeholder+" OR COALESCE(d.serial_number, '') ILIKE "+placeholder+")")
+	}
+	for _, filter := range []struct{ value, column string }{
+		{in.SKU, "d.device_item_profile_id"}, {in.Category, "d.category"}, {in.Model, "d.model"}, {in.Status, "d.status"},
+	} {
+		if value := strings.TrimSpace(filter.value); value != "" {
+			args = append(args, value)
+			where = append(where, fmt.Sprintf("%s = $%d", filter.column, len(args)))
+		}
+	}
+	if value := strings.TrimSpace(in.GroupID); value != "" {
+		args = append(args, value)
+		where = append(where, fmt.Sprintf("EXISTS (SELECT 1 FROM device_group_members dgm_filter WHERE dgm_filter.device_id = d.id AND dgm_filter.group_id::text = $%d)", len(args)))
+	}
+	if value := strings.TrimSpace(in.Region); value != "" {
+		args = append(args, value)
+		where = append(where, fmt.Sprintf("COALESCE(NULLIF(d.metadata ->> 'region', ''), '未設定') = $%d", len(args)))
+	}
+	for _, filter := range []struct{ value, key string }{{in.Readiness, "readiness"}, {in.Firmware, "firmware_version"}} {
+		if value := strings.TrimSpace(filter.value); value != "" {
+			args = append(args, value)
+			where = append(where, fmt.Sprintf("d.metadata ->> '%s' = $%d", filter.key, len(args)))
+		}
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRow(ctx, "SELECT count(*) FROM devices d WHERE "+whereSQL, args...).Scan(&total); err != nil {
 		return DevicePage{}, err
 	}
-	rows, err := s.db.Query(ctx, `
-		SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
-		FROM devices
-		WHERE organization_id = $1
-		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3
-	`, orgID, limit, offset)
+	sortColumn := "created_at"
+	switch strings.TrimSpace(in.Sort) {
+	case "name", "model", "status", "updated_at", "last_seen_at", "created_at":
+		sortColumn = "d." + strings.TrimSpace(in.Sort)
+	case "sku":
+		sortColumn = "d.device_item_profile_id"
+	}
+	direction := "DESC"
+	if strings.EqualFold(strings.TrimSpace(in.Direction), "asc") {
+		direction = "ASC"
+	}
+	limit := in.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 250 {
+		limit = 250
+	}
+	offset := in.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	args = append(args, limit, offset)
+	query := "SELECT d.id::text, d.organization_id::text, d.name, d.category, d.serial_number, d.mac_address, d.manufacturer, d.model, d.status, d.last_seen_at, d.metadata, d.created_at, d.updated_at, d.disabled_at, d.device_item_profile_id::text FROM devices d WHERE " + whereSQL + " ORDER BY " + sortColumn + " " + direction + " NULLS LAST, d.id LIMIT $" + strconv.Itoa(len(args)-1) + " OFFSET $" + strconv.Itoa(len(args))
+	rows, err := s.db.Query(ctx, query, args...)
 	if err != nil {
 		return DevicePage{}, err
 	}
@@ -1381,7 +1661,7 @@ func (s *Store) countDeviceTags(ctx context.Context, orgID, deviceID string) (in
 
 func (s *Store) GetDevice(ctx context.Context, orgID, deviceID string) (model.Device, error) {
 	device, err := s.scanDevice(s.db.QueryRow(ctx, `
-		SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
+		SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
 		FROM devices
 		WHERE organization_id = $1 AND id = $2
 	`, orgID, deviceID))
@@ -1400,7 +1680,7 @@ func (s *Store) UpdateDevice(ctx context.Context, orgID, deviceID string, in Dev
 		UPDATE devices
 		SET name = $3, category = $4, serial_number = $5, mac_address = $6, manufacturer = $7, model = $8, metadata = $9, updated_at = now()
 		WHERE organization_id = $1 AND id = $2 AND disabled_at IS NULL
-		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
+		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
 	`, orgID, deviceID, in.Name, in.Category, in.SerialNumber, in.MACAddress, in.Manufacturer, in.Model, metadata))
 	if errors.Is(err, pgx.ErrNoRows) {
 		if existing, getErr := s.GetDevice(ctx, orgID, deviceID); getErr == nil && existing.DisabledAt != nil {
@@ -1431,7 +1711,7 @@ func (s *Store) UpdateDeviceStatus(ctx context.Context, orgID, deviceID string, 
 		UPDATE devices
 		SET status = $3, last_seen_at = COALESCE($4, last_seen_at), disabled_at = CASE WHEN $3 = 'disabled' THEN now() ELSE disabled_at END, updated_at = now()
 		WHERE organization_id = $1 AND id = $2 AND (disabled_at IS NULL OR status <> 'disabled')
-		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
+		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
 	`, orgID, deviceID, status, lastSeenAt))
 	if errors.Is(err, pgx.ErrNoRows) {
 		if existing, getErr := s.GetDevice(ctx, orgID, deviceID); getErr == nil && existing.DisabledAt != nil {
@@ -1664,6 +1944,34 @@ func (s *Store) ListDeviceTags(ctx context.Context, orgID, deviceID string, limi
 		return DeviceTagPage{}, err
 	}
 	return DeviceTagPage{Tags: tags, Page: Page{Limit: limit, Offset: offset, Total: total}}, nil
+}
+
+func (s *Store) ListOrganizationTags(ctx context.Context, orgID string, limit, offset int) (DeviceTagSummaryPage, error) {
+	var total int
+	if err := s.db.QueryRow(ctx, `SELECT count(DISTINCT tag)::int FROM device_tags WHERE organization_id = $1`, orgID).Scan(&total); err != nil {
+		return DeviceTagSummaryPage{}, err
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT tag, count(DISTINCT device_id)::int
+		FROM device_tags WHERE organization_id = $1
+		GROUP BY tag ORDER BY tag ASC LIMIT $2 OFFSET $3
+	`, orgID, limit, offset)
+	if err != nil {
+		return DeviceTagSummaryPage{}, err
+	}
+	defer rows.Close()
+	tags := []DeviceTagSummary{}
+	for rows.Next() {
+		var item DeviceTagSummary
+		if err := rows.Scan(&item.Tag, &item.DeviceCount); err != nil {
+			return DeviceTagSummaryPage{}, err
+		}
+		tags = append(tags, item)
+	}
+	if err := rows.Err(); err != nil {
+		return DeviceTagSummaryPage{}, err
+	}
+	return DeviceTagSummaryPage{Tags: tags, Page: Page{Limit: limit, Offset: offset, Total: total}}, nil
 }
 
 func defaultMetadata(metadata map[string]any) map[string]any {

@@ -23,6 +23,36 @@ type ProductionRunCreateInput struct {
 	Now                 time.Time
 }
 
+func (s *Store) ListProductionRuns(ctx context.Context, brandCloudID, profileID string, limit, offset int) (ProductionRunPage, error) {
+	var total int
+	if err := s.db.QueryRow(ctx, `SELECT count(*)::int FROM factory_production_runs WHERE brand_cloud_id = $1 AND ($2 = '' OR device_item_profile_id::text = $2)`, brandCloudID, strings.TrimSpace(profileID)).Scan(&total); err != nil {
+		return ProductionRunPage{}, err
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT id::text, brand_cloud_id::text, device_item_profile_id::text, factory_id, batch_id,
+			status, allowed_quantity, issued_quantity, valid_from, valid_until, created_by::text, created_at, updated_at
+		FROM factory_production_runs
+		WHERE brand_cloud_id = $1 AND ($2 = '' OR device_item_profile_id::text = $2)
+		ORDER BY created_at DESC, id DESC LIMIT $3 OFFSET $4
+	`, brandCloudID, strings.TrimSpace(profileID), limit, offset)
+	if err != nil {
+		return ProductionRunPage{}, err
+	}
+	defer rows.Close()
+	runs := []model.ProductionRun{}
+	for rows.Next() {
+		run, err := scanProductionRun(rows)
+		if err != nil {
+			return ProductionRunPage{}, err
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return ProductionRunPage{}, err
+	}
+	return ProductionRunPage{Runs: runs, Page: Page{Limit: limit, Offset: offset, Total: total}}, nil
+}
+
 func (s *Store) CreateProductionRun(ctx context.Context, in ProductionRunCreateInput) (model.ProductionRun, error) {
 	if err := validateProductionRunCreate(in); err != nil {
 		return model.ProductionRun{}, err

@@ -470,7 +470,7 @@ func (s *Store) overrideDeviceClaim(ctx context.Context, in claimOverrideInput) 
 		UPDATE devices
 		SET organization_id = $2, updated_at = $3
 		WHERE id = $1
-		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
+		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
 	`, claim.DeviceID, in.TargetOrganizationID, now))
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -589,7 +589,7 @@ func getClaimTokenForUpdateTx(ctx context.Context, tx pgx.Tx, tokenID string) (m
 
 func getDeviceByIDForUpdateTx(ctx context.Context, tx pgx.Tx, deviceID string) (model.Device, error) {
 	device, err := scanDevice(tx.QueryRow(ctx, `
-		SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
+		SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
 		FROM devices
 		WHERE id = $1
 		FOR UPDATE
@@ -602,7 +602,7 @@ func getDeviceByIDForUpdateTx(ctx context.Context, tx pgx.Tx, deviceID string) (
 
 func getClaimedDeviceByVideoDevidTx(ctx context.Context, tx pgx.Tx, orgID, videoCloudDevid string) (model.Device, error) {
 	device, err := scanDevice(tx.QueryRow(ctx, `
-		SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
+		SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
 		FROM devices
 		WHERE organization_id = $1
 			AND disabled_at IS NULL
@@ -635,10 +635,10 @@ func createClaimedDeviceTx(ctx context.Context, tx pgx.Tx, orgID, name string, t
 		return model.Device{}, err
 	}
 	return scanDevice(tx.QueryRow(ctx, `
-		INSERT INTO devices (organization_id, name, category, manufacturer, model, metadata)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
-	`, orgID, name, token.Category, manufacturer, deviceModel, metadataJSON))
+		INSERT INTO devices (organization_id, name, category, manufacturer, model, metadata, device_item_profile_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
+	`, orgID, name, token.Category, manufacturer, deviceModel, metadataJSON, token.DeviceItemProfileID))
 }
 
 func validateClaimServiceOptions(options []string) error {
