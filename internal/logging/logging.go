@@ -23,6 +23,7 @@ func New(service string, cfg config.Config) (*zap.Logger, error) {
 		Service:     service,
 		Env:         cfg.LogEnv,
 		Version:     cfg.LogVersion,
+		Unit:        unitName(service),
 		Level:       cfg.LogLevel,
 		Development: cfg.LogDevelopment,
 	})
@@ -33,6 +34,7 @@ func NewFromEnv(service string) *zap.Logger {
 		Service:     service,
 		Env:         getenv("ACCOUNT_MANAGER_ENV", "local"),
 		Version:     getenv("ACCOUNT_MANAGER_VERSION", "dev"),
+		Unit:        unitName(service),
 		Level:       getenv("ACCOUNT_MANAGER_LOG_LEVEL", "info"),
 		Development: boolValue("ACCOUNT_MANAGER_LOG_DEVELOPMENT", false),
 	})
@@ -40,6 +42,23 @@ func NewFromEnv(service string) *zap.Logger {
 		return zap.NewNop()
 	}
 	return logger
+}
+
+func unitName(service string) string {
+	switch service {
+	case ServiceAPI:
+		return "rtk_account_manager_api.service"
+	case ServiceMigrate:
+		return "rtk_account_manager_migrate.service"
+	case ServiceOutboxWorker:
+		return "rtk_account_manager_outbox_worker.service"
+	case ServiceInboxWorker:
+		return "rtk_account_manager_inbox_worker.service"
+	case ServiceCleanupTokens:
+		return "rtk_account_manager_cleanup_tokens.service"
+	default:
+		return service + ".service"
+	}
 }
 
 func Sync(logger *zap.Logger) {

@@ -25,6 +25,21 @@ func TestNewBuildsServiceLoggerFromConfig(t *testing.T) {
 	}
 }
 
+func TestServiceUnitMapping(t *testing.T) {
+	tests := map[string]string{
+		ServiceAPI:           "rtk_account_manager_api.service",
+		ServiceMigrate:       "rtk_account_manager_migrate.service",
+		ServiceOutboxWorker:  "rtk_account_manager_outbox_worker.service",
+		ServiceInboxWorker:   "rtk_account_manager_inbox_worker.service",
+		ServiceCleanupTokens: "rtk_account_manager_cleanup_tokens.service",
+	}
+	for service, want := range tests {
+		if got := unitName(service); got != want {
+			t.Fatalf("unitName(%q) = %q, want %q", service, got, want)
+		}
+	}
+}
+
 func TestNewFromEnvReadsLoggingConfigWithFallbacks(t *testing.T) {
 	t.Setenv("ACCOUNT_MANAGER_ENV", "staging")
 	t.Setenv("ACCOUNT_MANAGER_VERSION", "build-2")
