@@ -60,9 +60,16 @@ func (s *Server) createProductionRun(c *gin.Context) {
 	}
 
 	brandCloudID := c.Param("brandCloudId")
+	if brandCloudID == "" {
+		brandCloudID = c.Param("orgId")
+	}
 	profileID := c.Param("profileId")
+	var actorUserID *string
+	if actor := currentUserID(c); actor != "" {
+		actorUserID = &actor
+	}
 	run, err := s.store.CreateProductionRun(c.Request.Context(), store.ProductionRunCreateInput{
-		ActorUserID:         stringPtr(currentUserID(c)),
+		ActorUserID:         actorUserID,
 		BrandCloudID:        brandCloudID,
 		DeviceItemProfileID: profileID,
 		FactoryID:           req.FactoryID,
@@ -92,6 +99,16 @@ func (s *Server) createProductionRun(c *gin.Context) {
 		ExpiresAt:     run.ValidUntil,
 		Audience:      s.productionJWTAudience,
 	})
+}
+
+func (s *Server) listOrganizationProductionRuns(c *gin.Context) {
+	limit, offset := pagination(c)
+	page, err := s.store.ListProductionRuns(c.Request.Context(), c.Param("orgId"), c.Param("profileId"), limit, offset)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"production_runs": page.Runs, "pagination": page.Page})
 }
 
 func (s *Server) signProductionJWT(run model.ProductionRun, profile model.DeviceItemProfile) (string, error) {

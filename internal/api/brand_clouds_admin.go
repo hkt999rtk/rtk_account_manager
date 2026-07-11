@@ -65,6 +65,16 @@ type brandCloudUserResponse struct {
 	BrandCloudUser model.BrandCloudUser `json:"brand_cloud_user"`
 }
 
+func profileBrandCloudID(c *gin.Context) string {
+	if id := currentBrandCloudID(c); id != "" {
+		return id
+	}
+	if id := c.Param("brandCloudId"); id != "" {
+		return id
+	}
+	return c.Param("orgId")
+}
+
 func (s *Server) createBrandCloud(c *gin.Context) {
 	var req brandCloudRequest
 	if !bind(c, &req) {
@@ -148,7 +158,7 @@ func (s *Server) createDeviceItemProfile(c *gin.Context) {
 	}
 	profile, err := s.store.CreateDeviceItemProfile(c.Request.Context(), store.DeviceItemProfileCreateInput{
 		ActorUserID:        stringPtr(currentUserID(c)),
-		BrandCloudID:       c.Param("brandCloudId"),
+		BrandCloudID:       profileBrandCloudID(c),
 		ProfileKey:         req.ProfileKey,
 		DisplayName:        req.DisplayName,
 		Category:           category,
@@ -177,7 +187,7 @@ func (s *Server) listDeviceItemProfiles(c *gin.Context) {
 		return
 	}
 	page, err := s.store.ListDeviceItemProfiles(c.Request.Context(), store.DeviceItemProfileListFilter{
-		BrandCloudID: c.Param("brandCloudId"),
+		BrandCloudID: profileBrandCloudID(c),
 		Status:       status,
 		Limit:        limit,
 		Offset:       offset,
@@ -190,7 +200,7 @@ func (s *Server) listDeviceItemProfiles(c *gin.Context) {
 }
 
 func (s *Server) getDeviceItemProfile(c *gin.Context) {
-	profile, err := s.store.GetDeviceItemProfile(c.Request.Context(), c.Param("brandCloudId"), c.Param("profileId"))
+	profile, err := s.store.GetDeviceItemProfile(c.Request.Context(), profileBrandCloudID(c), c.Param("profileId"))
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -242,7 +252,7 @@ func (s *Server) updateDeviceItemProfile(c *gin.Context) {
 	}
 	profile, err := s.store.UpdateDeviceItemProfile(c.Request.Context(), store.DeviceItemProfileUpdateInput{
 		ActorUserID:        stringPtr(currentUserID(c)),
-		BrandCloudID:       c.Param("brandCloudId"),
+		BrandCloudID:       profileBrandCloudID(c),
 		ProfileID:          c.Param("profileId"),
 		DisplayName:        displayName,
 		Status:             status,
@@ -265,7 +275,7 @@ func (s *Server) updateDeviceItemProfile(c *gin.Context) {
 }
 
 func (s *Server) disableDeviceItemProfile(c *gin.Context) {
-	profile, err := s.store.DisableDeviceItemProfile(c.Request.Context(), c.Param("brandCloudId"), c.Param("profileId"), stringPtr(currentUserID(c)))
+	profile, err := s.store.DisableDeviceItemProfile(c.Request.Context(), profileBrandCloudID(c), c.Param("profileId"), stringPtr(currentUserID(c)))
 	if err != nil {
 		writeStoreError(c, err)
 		return

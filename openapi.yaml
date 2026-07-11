@@ -2502,6 +2502,212 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/tags:
+    get:
+      tags: [Devices]
+      operationId: listOrganizationTags
+      summary: List organization tags.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Tag usage summary.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tags, pagination]
+                properties:
+                  tags:
+                    type: array
+                    items:
+                      type: object
+                      required: [tag, device_count]
+                      properties:
+                        tag: { type: string }
+                        device_count: { type: integer, minimum: 0 }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /v1/orgs/{orgId}/access/check:
+    get:
+      tags: [ACL]
+      operationId: checkOrganizationResourceAccess
+      summary: Check scoped organization resource access.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - name: permission
+          in: query
+          required: true
+          schema: { type: string }
+        - name: scope_type
+          in: query
+          required: true
+          schema: { type: string, enum: [sku, region, group, device] }
+        - name: scope_id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Effective scoped access decision.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [allowed, scope_type, scope_id]
+                properties:
+                  allowed: { type: boolean }
+                  scope_type: { type: string }
+                  scope_id: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/orgs/{orgId}/roles:
+    get:
+      tags: [ACL]
+      operationId: listOrganizationRoles
+      summary: List organization-visible roles.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Organization-visible role catalog.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ACLRolesResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /v1/orgs/{orgId}/permissions:
+    get:
+      tags: [ACL]
+      operationId: listOrganizationPermissions
+      summary: List organization-visible permissions.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Organization-visible permission catalog.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ACLPermissionsResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /v1/orgs/{orgId}/role-assignments:
+    get:
+      tags: [ACL]
+      operationId: listOrganizationRoleAssignments
+      summary: List organization role assignments.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Scoped role assignments for the organization.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ACLRoleAssignmentsResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [ACL]
+      operationId: createOrganizationRoleAssignment
+      summary: Create an organization role assignment.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ACLRoleAssignmentCreateRequest" }
+      responses:
+        "201":
+          description: Scoped assignment created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ACLRoleAssignmentResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /v1/orgs/{orgId}/role-assignments/{assignmentId}:
+    delete:
+      tags: [ACL]
+      operationId: deleteOrganizationRoleAssignment
+      summary: Delete an organization role assignment.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - name: assignmentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { description: Scoped assignment removed. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/orgs/{orgId}/device-item-profiles/{profileId}/production-runs:
+    get:
+      tags: [Devices]
+      operationId: listOrganizationProductionRuns
+      summary: List production runs for an organization SKU profile.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/ProfileId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Production runs for a SKU.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [production_runs, pagination]
+                properties:
+                  production_runs:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProductionRun" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Devices]
+      operationId: createOrganizationProductionRun
+      summary: Create a production run for an organization SKU profile.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/ProfileId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProductionRunRequest" }
+      responses:
+        "201": { description: Production run created. }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
   /v1/orgs/{orgId}/device-groups:
     get:
       tags:
@@ -2703,6 +2909,122 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/device-item-profiles:
+    get:
+      tags:
+        - Devices
+      operationId: listOrganizationDeviceItemProfiles
+      security:
+        - bearerAuth: []
+      summary: List SKU profiles available to an organization.
+      description: >
+        Returns the organization's Device Item Profiles (the canonical SKU
+        profiles) for Brand Fleet management. The response includes service
+        options and device/firmware policy fields; callers must translate
+        internal service identifiers into customer-facing labels.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/DeviceItemProfileStatus"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Organization SKU profile list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceItemProfilesResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Devices]
+      operationId: createOrganizationDeviceItemProfile
+      security: [{ bearerAuth: [] }]
+      summary: Create a SKU profile for the organization.
+      parameters: [{ $ref: "#/components/parameters/OrgId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeviceItemProfileRequest" }
+      responses:
+        "201":
+          description: SKU profile created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceItemProfileResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/orgs/{orgId}/device-item-profiles/{profileId}:
+    get:
+      tags:
+        - Devices
+      operationId: getOrganizationDeviceItemProfile
+      security:
+        - bearerAuth: []
+      summary: Get an organization SKU profile.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/ProfileId"
+      responses:
+        "200":
+          description: Organization SKU profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceItemProfileResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      tags: [Devices]
+      operationId: updateOrganizationDeviceItemProfile
+      security: [{ bearerAuth: [] }]
+      summary: Update a SKU profile for the organization.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/ProfileId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeviceItemProfileRequest" }
+      responses:
+        "200":
+          description: SKU profile updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceItemProfileResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Devices]
+      operationId: disableOrganizationDeviceItemProfile
+      security: [{ bearerAuth: [] }]
+      summary: Disable a SKU profile for the organization.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/ProfileId"
+      responses:
+        "200":
+          description: SKU profile disabled.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceItemProfileResponse" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /v1/orgs/{orgId}/devices:
     get:
       tags:
@@ -2760,6 +3082,80 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/fleet/devices:
+    get:
+      tags: [Devices]
+      operationId: listFleetDevices
+      security:
+        - bearerAuth: []
+      summary: Search and sort organization devices on the server.
+      description: Large-fleet query boundary. The service never requires the browser to load the full organization fleet.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: sku_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: group_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: region
+          in: query
+          schema: { type: string }
+        - name: category
+          in: query
+          schema: { type: string }
+        - name: model
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: readiness
+          in: query
+          schema: { type: string }
+        - name: firmware
+          in: query
+          schema: { type: string }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [name, model, sku, status, updated_at, last_seen_at, created_at] }
+        - name: direction
+          in: query
+          schema: { type: string, enum: [asc, desc], default: desc }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 250, default: 100 }
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Bounded server-side fleet page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DevicesResponse"
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/orgs/{orgId}/fleet/summary:
+    get:
+      tags: [Devices]
+      operationId: getFleetSummary
+      security:
+        - bearerAuth: []
+      summary: Get indexed fleet aggregates.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      responses:
+        "200":
+          description: Fleet counts aggregated by status, SKU, model, region, and service.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FleetSummary"
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
   /v1/orgs/{orgId}/devices/claim/resolve:
     post:
       tags:
@@ -3602,12 +3998,12 @@ components:
           type: string
         actor_type:
           type: string
-          enum: [user, service_account]
+          enum: [user, brand_cloud_user, service_account]
         actor_id:
           type: string
         scope_type:
           type: string
-          enum: [platform, organization]
+          enum: [platform, organization, sku, region, group, device]
         scope_id:
           type: string
         organization_id:
@@ -3633,15 +4029,12 @@ components:
         role_name:
           type: string
           minLength: 1
-        actor_type:
-          type: string
-          enum: [user, service_account]
         actor_id:
           type: string
           minLength: 1
         scope_type:
           type: string
-          enum: [platform, organization]
+          enum: [organization, sku, region, group, device]
         scope_id:
           type: string
         organization_id:
@@ -5243,6 +5636,10 @@ components:
         organization_id:
           type: string
           format: uuid
+        device_item_profile_id:
+          type: string
+          format: uuid
+          description: Canonical SKU/device profile assigned during the provision or claim flow.
         name:
           type: string
         category:
@@ -5270,6 +5667,42 @@ components:
           type: string
           format: date-time
         disabled_at:
+          type: string
+          format: date-time
+    FleetSummary:
+      type: object
+      required: [total, by_status, by_sku, by_model, by_firmware, by_region, service_enabled, updated_at]
+      properties:
+        total: { type: integer, minimum: 0 }
+        by_status:
+          type: object
+          additionalProperties: { type: integer, minimum: 0 }
+        by_sku:
+          type: object
+          additionalProperties: { type: integer, minimum: 0 }
+        by_model:
+          type: object
+          additionalProperties: { type: integer, minimum: 0 }
+        by_firmware:
+          type: object
+          additionalProperties: { type: integer, minimum: 0 }
+        by_region:
+          type: object
+          additionalProperties: { type: integer, minimum: 0 }
+        service_enabled:
+          type: object
+          additionalProperties: { type: integer, minimum: 0 }
+        by_sku_region:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: { type: integer, minimum: 0 }
+        by_sku_firmware:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: { type: integer, minimum: 0 }
+        updated_at:
           type: string
           format: date-time
     DeviceGroup:

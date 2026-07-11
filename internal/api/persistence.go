@@ -87,6 +87,9 @@ type memberPersistence interface {
 type devicePersistence interface {
 	CreateDevice(ctx context.Context, orgID string, in store.DeviceInput) (model.Device, error)
 	ListDevices(ctx context.Context, orgID string, limit, offset int) (store.DevicePage, error)
+	ListDevicesFiltered(ctx context.Context, in store.DeviceListFilter) (store.DevicePage, error)
+	FleetSummary(ctx context.Context, orgID string) (store.FleetSummary, error)
+	FleetSummaryForBrandCloudUser(ctx context.Context, orgID, brandCloudUserID string) (store.FleetSummary, error)
 	GetDevice(ctx context.Context, orgID, deviceID string) (model.Device, error)
 	UpdateDevice(ctx context.Context, orgID, deviceID string, in store.DeviceInput) (model.Device, error)
 	DeleteDevice(ctx context.Context, orgID, deviceID string) error
@@ -108,6 +111,7 @@ type deviceTagPersistence interface {
 	AddDeviceTag(ctx context.Context, orgID, deviceID, tag string) (model.DeviceTag, error)
 	DeleteDeviceTag(ctx context.Context, orgID, deviceID, tag string) error
 	ListDeviceTags(ctx context.Context, orgID, deviceID string, limit, offset int) (store.DeviceTagPage, error)
+	ListOrganizationTags(ctx context.Context, orgID string, limit, offset int) (store.DeviceTagSummaryPage, error)
 }
 
 type appCertificatePersistence interface {
@@ -161,6 +165,9 @@ type evaluationPersistence interface {
 type aclPersistence interface {
 	HasPermission(ctx context.Context, userID, orgID, permission string) (bool, error)
 	HasBrandCloudPermission(ctx context.Context, brandCloudUserID, orgID, permission string) (bool, error)
+	HasBrandCloudPermissionForResource(ctx context.Context, brandCloudUserID, orgID, permission, scopeType, scopeID string) (bool, error)
+	HasBrandCloudPermissionAnyResource(ctx context.Context, brandCloudUserID, orgID, permission string) (bool, error)
+	HasBrandCloudDevicePermission(ctx context.Context, brandCloudUserID, orgID, permission, deviceID string) (bool, error)
 	ListPermissions(ctx context.Context, limit, offset int) (store.PermissionPage, error)
 	GetRoleByName(ctx context.Context, name string) (model.ProductRole, error)
 	UpdateRole(ctx context.Context, in store.RoleUpdateInput) (model.ProductRole, error)
@@ -170,7 +177,9 @@ type aclPersistence interface {
 	BindRolePermission(ctx context.Context, roleName, permissionName string, actorUserID *string) error
 	CreateRoleAssignment(ctx context.Context, in store.RoleAssignmentCreateInput) (model.RoleAssignment, error)
 	ListRoleAssignments(ctx context.Context, limit, offset int) (store.RoleAssignmentPage, error)
+	ListRoleAssignmentsForOrganization(ctx context.Context, organizationID string, limit, offset int) (store.RoleAssignmentPage, error)
 	DisableRoleAssignment(ctx context.Context, assignmentID string, actorUserID *string) error
+	DisableRoleAssignmentForOrganization(ctx context.Context, organizationID, assignmentID string, actorUserID *string) error
 	CreateExternalGroupMapping(ctx context.Context, in store.ExternalGroupMappingCreateInput) (model.ExternalGroupMapping, error)
 	ListExternalGroupMappings(ctx context.Context, limit, offset int) (store.ExternalGroupMappingPage, error)
 	DisableExternalGroupMapping(ctx context.Context, mappingID string, actorUserID *string) error
@@ -217,6 +226,7 @@ type brandCloudPersistence interface {
 	UpdateDeviceItemProfile(ctx context.Context, in store.DeviceItemProfileUpdateInput) (model.DeviceItemProfile, error)
 	DisableDeviceItemProfile(ctx context.Context, brandCloudID, profileID string, actorUserID *string) (model.DeviceItemProfile, error)
 	CreateProductionRun(ctx context.Context, in store.ProductionRunCreateInput) (model.ProductionRun, error)
+	ListProductionRuns(ctx context.Context, brandCloudID, profileID string, limit, offset int) (store.ProductionRunPage, error)
 }
 
 type auditPersistence interface {
