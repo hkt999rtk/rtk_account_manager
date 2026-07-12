@@ -32,6 +32,7 @@ func TestServiceUnitMapping(t *testing.T) {
 		ServiceOutboxWorker:  "rtk_account_manager_outbox_worker.service",
 		ServiceInboxWorker:   "rtk_account_manager_inbox_worker.service",
 		ServiceCleanupTokens: "rtk_account_manager_cleanup_tokens.service",
+		"custom_worker":      "custom_worker.service",
 	}
 	for service, want := range tests {
 		if got := unitName(service); got != want {
@@ -54,6 +55,29 @@ func TestNewFromEnvReadsLoggingConfigWithFallbacks(t *testing.T) {
 	}
 	if !logger.Core().Enabled(zapcore.WarnLevel) {
 		t.Fatal("expected warn logging to be enabled")
+	}
+}
+
+func TestNewFromEnvReadsDevelopmentFlag(t *testing.T) {
+	t.Setenv("ACCOUNT_MANAGER_LOG_LEVEL", "debug")
+	t.Setenv("ACCOUNT_MANAGER_LOG_DEVELOPMENT", "true")
+
+	logger := NewFromEnv("custom_worker")
+	defer Sync(logger)
+
+	if !logger.Core().Enabled(zapcore.DebugLevel) {
+		t.Fatal("expected debug logging to be enabled")
+	}
+}
+
+func TestEnvHelpersUseFallbacks(t *testing.T) {
+	t.Setenv("ACCOUNT_MANAGER_LOG_DEVELOPMENT", "")
+
+	if got := getenv("ACCOUNT_MANAGER_MISSING", "fallback"); got != "fallback" {
+		t.Fatalf("getenv fallback = %q, want fallback", got)
+	}
+	if got := boolValue("ACCOUNT_MANAGER_LOG_DEVELOPMENT", true); !got {
+		t.Fatal("expected empty bool env to use true fallback")
 	}
 }
 
