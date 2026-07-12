@@ -18,8 +18,10 @@ const (
 	ServiceCleanupTokens = "rtk_account_manager_cleanup_tokens"
 )
 
+var newCloudLogger = cloudlogger.New
+
 func New(service string, cfg config.Config) (*zap.Logger, error) {
-	return cloudlogger.New(cloudlogger.Config{
+	return newCloudLogger(cloudlogger.Config{
 		Service:     service,
 		Env:         cfg.LogEnv,
 		Version:     cfg.LogVersion,
@@ -30,7 +32,7 @@ func New(service string, cfg config.Config) (*zap.Logger, error) {
 }
 
 func NewFromEnv(service string) *zap.Logger {
-	logger, err := cloudlogger.New(cloudlogger.Config{
+	logger, err := newCloudLogger(cloudlogger.Config{
 		Service:     service,
 		Env:         getenv("ACCOUNT_MANAGER_ENV", "local"),
 		Version:     getenv("ACCOUNT_MANAGER_VERSION", "dev"),

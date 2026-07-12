@@ -1,8 +1,11 @@
 package logging
 
 import (
+	"errors"
 	"testing"
 
+	"github.com/hkt999rtk/rtk_cloud_logger"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
 	"rtk_account_manager/internal/config"
@@ -67,6 +70,23 @@ func TestNewFromEnvReadsDevelopmentFlag(t *testing.T) {
 
 	if !logger.Core().Enabled(zapcore.DebugLevel) {
 		t.Fatal("expected debug logging to be enabled")
+	}
+}
+
+func TestNewFromEnvFallsBackToNopLoggerOnConstructorError(t *testing.T) {
+	original := newCloudLogger
+	newCloudLogger = func(cloudlogger.Config) (*zap.Logger, error) {
+		return nil, errors.New("boom")
+	}
+	t.Cleanup(func() {
+		newCloudLogger = original
+	})
+
+	logger := NewFromEnv(ServiceAPI)
+	defer Sync(logger)
+
+	if logger.Core().Enabled(zapcore.ErrorLevel) {
+		t.Fatal("expected constructor error to fall back to a nop logger")
 	}
 }
 
