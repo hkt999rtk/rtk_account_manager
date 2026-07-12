@@ -475,20 +475,21 @@ type BrandCloudOwnerTransfer struct {
 }
 
 type Device struct {
-	ID             string         `json:"id"`
-	OrganizationID string         `json:"organization_id"`
-	Name           string         `json:"name"`
-	Category       DeviceCategory `json:"category"`
-	SerialNumber   *string        `json:"serial_number,omitempty"`
-	MACAddress     *string        `json:"mac_address,omitempty"`
-	Manufacturer   *string        `json:"manufacturer,omitempty"`
-	Model          *string        `json:"model,omitempty"`
-	Status         DeviceStatus   `json:"status"`
-	LastSeenAt     *time.Time     `json:"last_seen_at,omitempty"`
-	Metadata       map[string]any `json:"metadata"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
-	DisabledAt     *time.Time     `json:"disabled_at,omitempty"`
+	ID                  string         `json:"id"`
+	OrganizationID      string         `json:"organization_id"`
+	DeviceItemProfileID *string        `json:"device_item_profile_id,omitempty"`
+	Name                string         `json:"name"`
+	Category            DeviceCategory `json:"category"`
+	SerialNumber        *string        `json:"serial_number,omitempty"`
+	MACAddress          *string        `json:"mac_address,omitempty"`
+	Manufacturer        *string        `json:"manufacturer,omitempty"`
+	Model               *string        `json:"model,omitempty"`
+	Status              DeviceStatus   `json:"status"`
+	LastSeenAt          *time.Time     `json:"last_seen_at,omitempty"`
+	Metadata            map[string]any `json:"metadata"`
+	CreatedAt           time.Time      `json:"created_at"`
+	UpdatedAt           time.Time      `json:"updated_at"`
+	DisabledAt          *time.Time     `json:"disabled_at,omitempty"`
 }
 
 type DeviceGroup struct {

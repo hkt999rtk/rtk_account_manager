@@ -173,7 +173,7 @@ func (s *Store) UnprovisionDevice(ctx context.Context, in DeviceUnprovisionInput
 
 func getDeviceForUnprovisionTx(ctx context.Context, tx pgx.Tx, orgID, deviceID string, platformOverride bool) (model.Device, error) {
 	query := `
-		SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
+		SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
 		FROM devices
 		WHERE organization_id = $1 AND id = $2
 		FOR UPDATE
@@ -181,7 +181,7 @@ func getDeviceForUnprovisionTx(ctx context.Context, tx pgx.Tx, orgID, deviceID s
 	args := []any{orgID, deviceID}
 	if platformOverride {
 		query = `
-			SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at
+			SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
 			FROM devices
 			WHERE id = $1
 			FOR UPDATE

@@ -18,6 +18,10 @@ const (
 	ActorTypeBrandCloudUser = "brand_cloud_user"
 	ScopeTypePlatform       = "platform"
 	ScopeTypeOrganization   = "organization"
+	ScopeTypeSKU            = "sku"
+	ScopeTypeRegion         = "region"
+	ScopeTypeGroup          = "group"
+	ScopeTypeDevice         = "device"
 	PermissionACLRead       = "acl.read"
 	PermissionACLManage     = "acl.manage"
 	PermissionPlatformRead  = "platform_metrics.read"
@@ -140,12 +144,18 @@ func (s *Store) HasPermission(ctx context.Context, userID, orgID, permission str
 }
 
 func (s *Store) HasBrandCloudPermission(ctx context.Context, brandCloudUserID, orgID, permission string) (bool, error) {
+	return s.HasBrandCloudPermissionForResource(ctx, brandCloudUserID, orgID, permission, "", "")
+}
+
+func (s *Store) HasBrandCloudPermissionForResource(ctx context.Context, brandCloudUserID, orgID, permission, scopeType, scopeID string) (bool, error) {
 	permission = strings.TrimSpace(permission)
 	orgID = strings.TrimSpace(orgID)
+	scopeType = strings.TrimSpace(scopeType)
+	scopeID = strings.TrimSpace(scopeID)
 	if permission == "" || orgID == "" {
 		return false, nil
 	}
-	if isPlatformPermission(permission) {
+	if isPlatformPermission(permission) && scopeType == "" {
 		return false, nil
 	}
 
@@ -162,11 +172,61 @@ func (s *Store) HasBrandCloudPermission(ctx context.Context, brandCloudUserID, o
 			  AND ra.actor_id = $1
 			  AND ra.disabled_at IS NULL
 			  AND p.name = $2
-			  AND ra.scope_type = 'organization'
-			  AND ra.scope_id = $3
+			  AND ra.organization_id::text = $3
 			  AND bcu.brand_cloud_id::text = $3
+			  AND (
+			      ra.scope_type = 'organization'
+			      OR ($4 <> '' AND $5 <> '' AND ra.scope_type = $4 AND ra.scope_id = $5)
+			  )
 		)
-	`, brandCloudUserID, permission, orgID).Scan(&allowed)
+	`, brandCloudUserID, permission, orgID, scopeType, scopeID).Scan(&allowed)
+	return allowed, err
+}
+
+func (s *Store) HasBrandCloudPermissionAnyResource(ctx context.Context, brandCloudUserID, orgID, permission string) (bool, error) {
+	var allowed bool
+	err := s.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM role_assignments ra
+			JOIN roles r ON r.id = ra.role_id AND r.disabled_at IS NULL
+			JOIN role_permissions rp ON rp.role_id = r.id
+			JOIN permissions p ON p.id = rp.permission_id AND p.name = $3
+			JOIN brand_cloud_users bcu ON bcu.id::text = ra.actor_id AND bcu.disabled_at IS NULL
+			WHERE ra.actor_type = 'brand_cloud_user' AND ra.actor_id = $1
+			  AND ra.organization_id::text = $2 AND bcu.brand_cloud_id::text = $2 AND ra.disabled_at IS NULL
+		)
+	`, strings.TrimSpace(brandCloudUserID), strings.TrimSpace(orgID), strings.TrimSpace(permission)).Scan(&allowed)
+	return allowed, err
+}
+
+func (s *Store) HasBrandCloudDevicePermission(ctx context.Context, brandCloudUserID, orgID, permission, deviceID string) (bool, error) {
+	permission = strings.TrimSpace(permission)
+	orgID = strings.TrimSpace(orgID)
+	brandCloudUserID = strings.TrimSpace(brandCloudUserID)
+	deviceID = strings.TrimSpace(deviceID)
+	if permission == "" || orgID == "" || brandCloudUserID == "" || deviceID == "" {
+		return false, nil
+	}
+	var allowed bool
+	err := s.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM devices d
+			JOIN brand_cloud_users bcu ON bcu.id::text = $1 AND bcu.brand_cloud_id = d.organization_id AND bcu.disabled_at IS NULL
+			JOIN role_assignments ra ON ra.actor_type = 'brand_cloud_user' AND ra.actor_id = bcu.id::text AND ra.organization_id = d.organization_id AND ra.disabled_at IS NULL
+			JOIN roles r ON r.id = ra.role_id AND r.disabled_at IS NULL
+			JOIN role_permissions rp ON rp.role_id = r.id
+			JOIN permissions p ON p.id = rp.permission_id AND p.name = $3
+			WHERE d.id::text = $2 AND d.organization_id::text = $4
+			  AND (
+			    ra.scope_type = 'organization'
+			    OR (ra.scope_type = 'sku' AND ra.scope_id = d.device_item_profile_id::text)
+			    OR (ra.scope_type = 'region' AND ra.scope_id = COALESCE(NULLIF(d.metadata ->> 'region', ''), '未設定'))
+			    OR (ra.scope_type = 'device' AND ra.scope_id = d.id::text)
+			    OR (ra.scope_type = 'group' AND EXISTS (SELECT 1 FROM device_group_members dgm WHERE dgm.device_id = d.id AND dgm.group_id::text = ra.scope_id))
+			  )
+		)
+	`, brandCloudUserID, deviceID, permission, orgID).Scan(&allowed)
 	return allowed, err
 }
 
@@ -425,6 +485,38 @@ func (s *Store) ListRoleAssignments(ctx context.Context, limit, offset int) (Rol
 	return RoleAssignmentPage{Assignments: assignments, Page: Page{Limit: limit, Offset: offset, Total: total}}, nil
 }
 
+func (s *Store) ListRoleAssignmentsForOrganization(ctx context.Context, organizationID string, limit, offset int) (RoleAssignmentPage, error) {
+	organizationID = strings.TrimSpace(organizationID)
+	var total int
+	if err := s.db.QueryRow(ctx, `SELECT count(*)::int FROM role_assignments WHERE disabled_at IS NULL AND organization_id::text = $1`, organizationID).Scan(&total); err != nil {
+		return RoleAssignmentPage{}, err
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT ra.id::text, ra.role_id::text, r.name, ra.actor_type, ra.actor_id, ra.scope_type, ra.scope_id, ra.organization_id::text, ra.created_by::text, ra.created_at, ra.updated_at, ra.disabled_at
+		FROM role_assignments ra
+		JOIN roles r ON r.id = ra.role_id
+		WHERE ra.disabled_at IS NULL AND ra.organization_id::text = $1
+		ORDER BY ra.created_at ASC, ra.id ASC
+		LIMIT $2 OFFSET $3
+	`, organizationID, limit, offset)
+	if err != nil {
+		return RoleAssignmentPage{}, err
+	}
+	defer rows.Close()
+	assignments := []model.RoleAssignment{}
+	for rows.Next() {
+		var assignment model.RoleAssignment
+		if err := rows.Scan(&assignment.ID, &assignment.RoleID, &assignment.RoleName, &assignment.ActorType, &assignment.ActorID, &assignment.ScopeType, &assignment.ScopeID, &assignment.OrganizationID, &assignment.CreatedBy, &assignment.CreatedAt, &assignment.UpdatedAt, &assignment.DisabledAt); err != nil {
+			return RoleAssignmentPage{}, err
+		}
+		assignments = append(assignments, assignment)
+	}
+	if err := rows.Err(); err != nil {
+		return RoleAssignmentPage{}, err
+	}
+	return RoleAssignmentPage{Assignments: assignments, Page: Page{Limit: limit, Offset: offset, Total: total}}, nil
+}
+
 func (s *Store) DisableRoleAssignment(ctx context.Context, assignmentID string, actorUserID *string) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -451,6 +543,37 @@ func (s *Store) DisableRoleAssignment(ctx context.Context, assignmentID string, 
 		SubjectType:    "role_assignment",
 		SubjectID:      strings.TrimSpace(assignmentID),
 		Payload:        map[string]any{},
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) DisableRoleAssignmentForOrganization(ctx context.Context, organizationID, assignmentID string, actorUserID *string) error {
+	organizationID = strings.TrimSpace(organizationID)
+	assignmentID = strings.TrimSpace(assignmentID)
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var orgID *string
+	err = tx.QueryRow(ctx, `
+		UPDATE role_assignments
+		SET disabled_at = now()
+		WHERE id::text = $1 AND organization_id::text = $2 AND disabled_at IS NULL
+		RETURNING organization_id::text
+	`, assignmentID, organizationID).Scan(&orgID)
+	if err == pgx.ErrNoRows {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if err := createACLAuditEventTx(ctx, tx, ACLAuditEventInput{
+		EventType: "role_assignment_disabled", ActorUserID: actorUserID, OrganizationID: orgID,
+		SubjectType: "role_assignment", SubjectID: assignmentID,
+		Payload: map[string]any{"organization_id": organizationID},
 	}); err != nil {
 		return err
 	}
@@ -677,13 +800,18 @@ func (s *Store) ListACLAuditEvents(ctx context.Context, in ACLAuditEventListFilt
 }
 
 func normalizeScope(scopeType string, scopeID, orgID *string) (*string, *string) {
-	if scopeType != ScopeTypeOrganization {
+	if scopeType == ScopeTypePlatform {
 		return nil, nil
 	}
-	if orgID == nil && scopeID != nil {
-		orgID = scopeID
+	if scopeType != ScopeTypeOrganization && scopeType != ScopeTypeSKU && scopeType != ScopeTypeRegion && scopeType != ScopeTypeGroup && scopeType != ScopeTypeDevice {
+		return scopeID, orgID
 	}
-	if scopeID == nil && orgID != nil {
+	if orgID == nil && scopeID != nil {
+		if scopeType == ScopeTypeOrganization {
+			orgID = scopeID
+		}
+	}
+	if scopeType == ScopeTypeOrganization && scopeID == nil && orgID != nil {
 		scopeID = orgID
 	}
 	return scopeID, orgID
