@@ -4913,6 +4913,8 @@ components:
         status: { type: string, enum: [draft, published, unpublished] }
         manifest_version: { type: string }
         manifest_sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        etag: { type: string }
+        last_modified: { type: string }
         chipset_count: { type: integer, minimum: 0 }
         sdk_release_count: { type: integer, minimum: 0 }
         last_refresh_attempt_at: { type: string, format: date-time }
