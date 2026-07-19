@@ -14,17 +14,20 @@ import (
 )
 
 const (
-	ActorTypeUser           = "user"
-	ActorTypeBrandCloudUser = "brand_cloud_user"
-	ScopeTypePlatform       = "platform"
-	ScopeTypeOrganization   = "organization"
-	ScopeTypeSKU            = "sku"
-	ScopeTypeRegion         = "region"
-	ScopeTypeGroup          = "group"
-	ScopeTypeDevice         = "device"
-	PermissionACLRead       = "acl.read"
-	PermissionACLManage     = "acl.manage"
-	PermissionPlatformRead  = "platform_metrics.read"
+	ActorTypeUser                    = "user"
+	ActorTypeBrandCloudUser          = "brand_cloud_user"
+	ScopeTypePlatform                = "platform"
+	ScopeTypeOrganization            = "organization"
+	ScopeTypeSKU                     = "sku"
+	ScopeTypeRegion                  = "region"
+	ScopeTypeGroup                   = "group"
+	ScopeTypeDevice                  = "device"
+	PermissionACLRead                = "acl.read"
+	PermissionACLManage              = "acl.manage"
+	PermissionPlatformRead           = "platform_metrics.read"
+	PermissionChipsetProviderRead    = "platform.chipset_sdk.read"
+	PermissionChipsetProviderEdit    = "platform.chipset_sdk.edit"
+	PermissionChipsetProviderPublish = "platform.chipset_sdk.publish"
 )
 
 type PermissionPage struct {
@@ -237,7 +240,10 @@ func isPlatformPermission(permission string) bool {
 		permission == "platform_metrics.read" ||
 		permission == "device.unprovision_override" ||
 		permission == "acl.read" ||
-		permission == "acl.manage"
+		permission == "acl.manage" ||
+		permission == PermissionChipsetProviderRead ||
+		permission == PermissionChipsetProviderEdit ||
+		permission == PermissionChipsetProviderPublish
 }
 
 func (s *Store) ListPermissions(ctx context.Context, limit, offset int) (PermissionPage, error) {

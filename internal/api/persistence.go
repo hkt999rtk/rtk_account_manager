@@ -25,6 +25,7 @@ type Store interface {
 	identityProviderPersistence
 	brandCloudPersistence
 	auditPersistence
+	chipsetProviderPersistence
 }
 
 type authPersistence interface {
@@ -232,4 +233,16 @@ type brandCloudPersistence interface {
 type auditPersistence interface {
 	CreateAuditEvent(ctx context.Context, in store.AuditEventInput) error
 	ListAuditEvents(ctx context.Context, in store.AuditEventListFilter) (store.AuditEventPage, error)
+}
+
+type chipsetProviderPersistence interface {
+	CreateChipsetProvider(context.Context, store.ChipsetProviderWriteInput) (model.ChipsetProvider, error)
+	UpdateChipsetProvider(context.Context, string, store.ChipsetProviderWriteInput) (model.ChipsetProvider, error)
+	GetChipsetProvider(context.Context, string) (model.ChipsetProvider, []model.DeveloperChipset, error)
+	ListChipsetProviders(context.Context) ([]model.ChipsetProvider, error)
+	ListPublishedChipsets(context.Context) ([]model.DeveloperChipset, error)
+	CommitChipsetProviderRefresh(context.Context, store.ChipsetProviderRefreshInput) (model.ChipsetProvider, error)
+	MarkChipsetProviderNotModified(context.Context, string, time.Time) (model.ChipsetProvider, error)
+	MarkChipsetProviderRefreshFailed(context.Context, string, string, time.Time) (model.ChipsetProvider, error)
+	SetChipsetProviderStatus(context.Context, string, model.ChipsetProviderStatus) (model.ChipsetProvider, error)
 }

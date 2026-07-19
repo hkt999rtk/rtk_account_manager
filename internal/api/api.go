@@ -42,6 +42,7 @@ type Server struct {
 	productionJWTSecret        string
 	productionJWTAudience      string
 	logger                     *zap.Logger
+	chipsetManifestFetcher     ChipsetManifestFetcher
 }
 
 var ErrAuthTokenSinkUnavailable = errors.New("auth token sink unavailable")
@@ -533,6 +534,8 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/developer/brand-clouds", s.createDeveloperBrandCloud)
 	protected.POST("/developer/brand-clouds/:brandCloudId/owner-transfer", s.createBrandCloudOwnerTransfer)
 	protected.POST("/developer/brand-cloud-owner-transfers/accept", s.acceptBrandCloudOwnerTransfer)
+	protected.GET("/developer/chipsets", s.listDeveloperChipsets)
+	protected.GET("/developer/chipsets/:chipsetId", s.getDeveloperChipset)
 
 	protected.GET("/orgs", s.listOrganizations)
 	protected.POST("/orgs", s.createOrganization)
@@ -622,6 +625,11 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/admin/quota-raise-requests", s.requirePlatformAdmin(), s.listAdminQuotaRaiseRequests)
 	protected.GET("/admin/quota-raise-requests/:requestId", s.requirePlatformAdmin(), s.getAdminQuotaRaiseRequest)
 	protected.GET("/admin/audit-events", s.requirePlatformAdmin(), s.listAdminAuditEvents)
+	protected.GET("/admin/chipset-providers", s.requirePermission(permissionChipsetProviderRead), s.listChipsetProviders)
+	protected.POST("/admin/chipset-providers", s.requirePermission(permissionChipsetProviderEdit), s.createChipsetProvider)
+	protected.GET("/admin/chipset-providers/:providerId", s.requirePermission(permissionChipsetProviderRead), s.getChipsetProvider)
+	protected.PATCH("/admin/chipset-providers/:providerId", s.requirePermission(permissionChipsetProviderEdit), s.updateChipsetProvider)
+	protected.POST("/admin/chipset-providers/:providerId/:action", s.requirePermission(permissionChipsetProviderPublish), s.actOnChipsetProvider)
 	protected.GET("/admin/acl/permissions", s.requirePlatformAdmin(), s.listACLPermissions)
 	protected.GET("/admin/acl/roles", s.requirePlatformAdmin(), s.listACLRoles)
 	protected.POST("/admin/acl/roles", s.requirePlatformAdmin(), s.createACLRole)
