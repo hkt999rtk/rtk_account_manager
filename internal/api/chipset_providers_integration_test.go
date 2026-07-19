@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/model"
 	"rtk_account_manager/internal/store"
 )
@@ -97,6 +98,12 @@ func TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit(t *testing.T) {
 		t.Fatalf("malformed provider create = %d: %s", malformedCreate.Code, malformedCreate.Body.String())
 	}
 	updatedBody := map[string]any{"name": "Ameba IoT Updated", "manifest_url": "https://provider.example.com/amebapro2.json"}
+	if res := chipsetRequest(env.router, http.MethodPatch, "/v1/admin/chipset-providers/"+created.Provider.ID, updatedBody, editUser.Tokens.AccessToken, "", "req-update-no-key"); res.Code != http.StatusBadRequest {
+		t.Fatalf("update without idempotency key = %d: %s", res.Code, res.Body.String())
+	}
+	if res := chipsetRequest(env.router, http.MethodPatch, "/v1/admin/chipset-providers/"+created.Provider.ID, "not-an-object", editUser.Tokens.AccessToken, "malformed-update", "req-malformed-update"); res.Code != http.StatusBadRequest {
+		t.Fatalf("malformed provider update = %d: %s", res.Code, res.Body.String())
+	}
 	updated := chipsetRequest(env.router, http.MethodPatch, "/v1/admin/chipset-providers/"+created.Provider.ID, updatedBody, editUser.Tokens.AccessToken, "update-draft", "req-update-draft")
 	if updated.Code != http.StatusOK || !bytes.Contains(updated.Body.Bytes(), []byte(`"name":"Ameba IoT Updated"`)) {
 		t.Fatalf("draft provider update = %d: %s", updated.Code, updated.Body.String())
@@ -122,6 +129,9 @@ func TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit(t *testing.T) {
 	if res := chipsetRequest(env.router, http.MethodPost, "/v1/admin/chipset-providers/"+created.Provider.ID+"/publish", nil, readUser.Tokens.AccessToken, "read-cannot-publish", "req-read"); res.Code != http.StatusForbidden {
 		t.Fatalf("read-only publish = %d: %s", res.Code, res.Body.String())
 	}
+	if res := chipsetRequest(env.router, http.MethodPost, "/v1/admin/chipset-providers/"+created.Provider.ID+"/refresh", nil, publishUser.Tokens.AccessToken, "", "req-action-no-key"); res.Code != http.StatusBadRequest {
+		t.Fatalf("action without idempotency key = %d: %s", res.Code, res.Body.String())
+	}
 	if res := chipsetRequest(env.router, http.MethodPost, "/v1/admin/chipset-providers/"+created.Provider.ID+"/invalid", nil, publishUser.Tokens.AccessToken, "invalid-action", "req-invalid-action"); res.Code != http.StatusBadRequest {
 		t.Fatalf("invalid provider action = %d: %s", res.Code, res.Body.String())
 	}
@@ -134,6 +144,11 @@ func TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit(t *testing.T) {
 	if res := chipsetRequest(env.router, http.MethodPost, "/v1/admin/chipset-providers/00000000-0000-0000-0000-000000000000/unpublish", nil, publishUser.Tokens.AccessToken, "unpublish-missing", "req-unpublish-missing"); res.Code != http.StatusNotFound {
 		t.Fatalf("missing provider unpublish = %d: %s", res.Code, res.Body.String())
 	}
+	env.server.ConfigureChipsetManifestFetcher(nil)
+	if res := chipsetRequest(env.router, http.MethodPost, "/v1/admin/chipset-providers/"+created.Provider.ID+"/refresh", nil, publishUser.Tokens.AccessToken, "refresh-no-fetcher", "req-refresh-no-fetcher"); res.Code != http.StatusBadRequest {
+		t.Fatalf("refresh without configured fetcher = %d: %s", res.Code, res.Body.String())
+	}
+	env.server.ConfigureChipsetManifestFetcher(fetcher)
 	second := chipsetRequest(env.router, http.MethodPost, "/v1/admin/chipset-providers", map[string]any{"name": "Ameba no snapshot", "manifest_url": "https://provider.example.com/amebapro2-no-snapshot.json"}, editUser.Tokens.AccessToken, "create-no-snapshot", "req-create-no-snapshot")
 	if second.Code != http.StatusCreated {
 		t.Fatalf("create no-snapshot provider = %d: %s", second.Code, second.Body.String())
@@ -212,6 +227,72 @@ func TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit(t *testing.T) {
 		t.Fatalf("unpublish = %d: %s", unpublish.Code, unpublish.Body.String())
 	}
 	assertDeveloperChipsets(t, env.router, developer.Tokens.AccessToken, 0, "", false)
+}
+
+func TestChipsetDeveloperHandlersRejectBrandCloudSubject(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	server := &Server{}
+	for name, handler := range map[string]func(*gin.Context){
+		"list":   server.listDeveloperChipsets,
+		"detail": server.getDeveloperChipset,
+	} {
+		t.Run(name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			requestContext, _ := gin.CreateTestContext(recorder)
+			requestContext.Set("subjectType", auth.SubjectTypeBrandCloudUser)
+			requestContext.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+			handler(requestContext)
+			if recorder.Code != http.StatusForbidden {
+				t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestChipsetProviderHandlersSurfaceCanceledStoreOperations(t *testing.T) {
+	env := newIntegrationEnv(t)
+	env.server.ConfigureChipsetManifestFetcher(&integrationChipsetFetcher{})
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	requestContext := func(method, target string, body any) (*gin.Context, *httptest.ResponseRecorder) {
+		var payload []byte
+		if body != nil {
+			payload, _ = json.Marshal(body)
+		}
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(method, target, bytes.NewReader(payload)).WithContext(canceled)
+		c.Request.Header.Set("Content-Type", "application/json")
+		c.Request.Header.Set("Idempotency-Key", "canceled-operation")
+		return c, recorder
+	}
+
+	for name, handler := range map[string]func(*gin.Context){
+		"admin list":       env.server.listChipsetProviders,
+		"developer list":   env.server.listDeveloperChipsets,
+		"developer detail": env.server.getDeveloperChipset,
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, recorder := requestContext(http.MethodGet, "/", nil)
+			handler(c)
+			if recorder.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+
+	c, recorder := requestContext(http.MethodPost, "/", providerWriteBody())
+	env.server.createChipsetProvider(c)
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("create status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if _, _, err := env.server.refreshChipsetProvider(canceled, "missing", "", "", ""); err == nil {
+		t.Fatal("expected canceled refresh lookup to fail")
+	}
+	if result := env.server.auditChipsetProvider(canceled, "", "provider", "test", "failed", "", "", ""); result != "failed" {
+		t.Fatalf("audit result = %q", result)
+	}
 }
 
 func integrationManifestResult(version string) ChipsetManifestFetchResult {

@@ -275,6 +275,7 @@ func TestChipsetProviderURLPolicyEdgeCasesAndDefaults(t *testing.T) {
 		"userinfo":     "https://user@example.com/manifest.json",
 		"fragment":     "https://example.com/manifest.json#fragment",
 		"missing host": "https:///manifest.json",
+		"malformed":    "https://%",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := fetcher.ValidateURL(raw); !errors.Is(err, errChipsetProviderURLInvalid) {
@@ -292,15 +293,28 @@ func TestChipsetProviderURLPolicyEdgeCasesAndDefaults(t *testing.T) {
 	if err := defaultFetcher.ValidateURL("https://localhost/manifest.json"); !errors.Is(err, errChipsetProviderAddressNotPublic) {
 		t.Fatalf("default resolver localhost = %v", err)
 	}
+	directIPFetcher := &httpChipsetManifestFetcher{allowedHosts: []string{"8.8.8.8", "127.0.0.1"}}
+	if err := directIPFetcher.ValidateURL("https://8.8.8.8/manifest.json"); err != nil {
+		t.Fatalf("public IP URL rejected: %v", err)
+	}
+	if err := directIPFetcher.ValidateURL("https://127.0.0.1/manifest.json"); !errors.Is(err, errChipsetProviderAddressNotPublic) {
+		t.Fatalf("private IP URL error = %v", err)
+	}
+	if _, err := fetcher.Fetch(t.Context(), model.ChipsetProvider{ManifestURL: "http://example.com/manifest.json"}); !errors.Is(err, errChipsetProviderURLInvalid) {
+		t.Fatalf("invalid fetch URL error = %v", err)
+	}
 }
 
 func TestParseChipsetManifestRejectsStructuralLimits(t *testing.T) {
 	tests := map[string]string{
-		"missing provider":  `{"manifest_version":"1","provider":{"name":"","updated_at":""},"chipsets":[]}`,
-		"bad timestamp":     `{"manifest_version":"1","provider":{"name":"P","updated_at":"today"},"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","sdk_releases":[]}]}`,
-		"duplicate chipset": `{"manifest_version":"1","provider":{"name":"P","updated_at":"2026-07-19T00:00:00Z"},"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","sdk_releases":[]},{"chipset_key":"c","vendor":"V","name":"C2","sdk_releases":[]}]}`,
-		"blank model":       `{"manifest_version":"1","provider":{"name":"P","updated_at":"2026-07-19T00:00:00Z"},"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","sdk_releases":[{"name":"SDK","version":"1","recommended":false,"supported_models":[" "],"endpoints":[]}]}]}`,
-		"endpoint userinfo": `{"manifest_version":"1","provider":{"name":"P","updated_at":"2026-07-19T00:00:00Z"},"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","sdk_releases":[{"name":"SDK","version":"1","recommended":false,"supported_models":[],"endpoints":[{"type":"support","title":"Support","url":"https://user@example.com"}]}]}]}`,
+		"missing provider":   `{"manifest_version":"1","provider":{"name":"","updated_at":""},"chipsets":[]}`,
+		"bad timestamp":      `{"manifest_version":"1","provider":{"name":"P","updated_at":"today"},"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","sdk_releases":[]}]}`,
+		"duplicate chipset":  `{"manifest_version":"1","provider":{"name":"P","updated_at":"2026-07-19T00:00:00Z"},"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","sdk_releases":[]},{"chipset_key":"c","vendor":"V","name":"C2","sdk_releases":[]}]}`,
+		"blank model":        `{"manifest_version":"1","provider":{"name":"P","updated_at":"2026-07-19T00:00:00Z"},"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","sdk_releases":[{"name":"SDK","version":"1","recommended":false,"supported_models":[" "],"endpoints":[]}]}]}`,
+		"endpoint userinfo":  `{"manifest_version":"1","provider":{"name":"P","updated_at":"2026-07-19T00:00:00Z"},"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","sdk_releases":[{"name":"SDK","version":"1","recommended":false,"supported_models":[],"endpoints":[{"type":"support","title":"Support","url":"https://user@example.com"}]}]}]}`,
+		"blank chipset key":  `{"manifest_version":"1","provider":{"name":"P","updated_at":"2026-07-19T00:00:00Z"},"chipsets":[{"chipset_key":" ","vendor":"V","name":"C","sdk_releases":[]}]}`,
+		"blank release name": `{"manifest_version":"1","provider":{"name":"P","updated_at":"2026-07-19T00:00:00Z"},"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","sdk_releases":[{"name":" ","version":"1","recommended":false,"supported_models":[],"endpoints":[]}]}]}`,
+		"invalid JSON token": `{"manifest_version":"1"`,
 	}
 	for name, raw := range tests {
 		t.Run(name, func(t *testing.T) {
