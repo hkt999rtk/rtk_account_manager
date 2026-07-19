@@ -17,6 +17,8 @@ DOTENV_ALPHA=from-file
 DOTENV_BETA="quoted value"
 DOTENV_GAMMA='single quoted'
 export DOTENV_EXISTING=from-file
+DOTENV_SHORT=x
+MALFORMED_LINE
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -37,6 +39,9 @@ export DOTENV_EXISTING=from-file
 	}
 	if got := os.Getenv("DOTENV_EXISTING"); got != "from-env" {
 		t.Fatalf("expected existing env to win, got %q", got)
+	}
+	if got := os.Getenv("DOTENV_SHORT"); got != "x" {
+		t.Fatalf("expected one-character value, got %q", got)
 	}
 }
 

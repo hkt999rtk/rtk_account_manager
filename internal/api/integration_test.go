@@ -81,7 +81,7 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-				TRUNCATE acl_audit_events, external_group_mappings, role_assignments, oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_user_bindings, brand_cloud_end_users, end_user_refresh_tokens, end_user_identities, device_claims, device_claim_tokens, device_item_profiles, device_message_inbox, device_message_outbox, device_operations, app_certificates, brand_cloud_refresh_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, brand_cloud_memberships, organization_members, brand_cloud_users, end_users, organizations, users
+				TRUNCATE chipset_information_providers, acl_audit_events, external_group_mappings, role_assignments, oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_user_bindings, brand_cloud_end_users, end_user_refresh_tokens, end_user_identities, device_claims, device_claim_tokens, device_item_profiles, device_message_inbox, device_message_outbox, device_operations, app_certificates, brand_cloud_refresh_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, brand_cloud_memberships, organization_members, brand_cloud_users, end_users, organizations, users
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatal(err)
@@ -2680,9 +2680,55 @@ func TestIntegrationACLAdminWorkflow(t *testing.T) {
 	if permissionsRes.Code != http.StatusOK {
 		t.Fatalf("expected ACL permissions 200, got %d: %s", permissionsRes.Code, permissionsRes.Body.String())
 	}
+	for _, permission := range []string{store.PermissionChipsetProviderRead, store.PermissionChipsetProviderEdit, store.PermissionChipsetProviderPublish} {
+		if !bytes.Contains(permissionsRes.Body.Bytes(), []byte(`"name":"`+permission+`"`)) {
+			t.Fatalf("ACL permission catalog is missing %q: %s", permission, permissionsRes.Body.String())
+		}
+	}
 	rolesRes := performJSON(env.router, http.MethodGet, "/v1/admin/acl/roles", nil, admin.Tokens.AccessToken)
 	if rolesRes.Code != http.StatusOK {
 		t.Fatalf("expected ACL roles 200, got %d: %s", rolesRes.Code, rolesRes.Body.String())
+	}
+	for path, label := range map[string]string{
+		"/v1/orgs/" + tenant.Organization.ID + "/roles":       "customer ACL roles",
+		"/v1/orgs/" + tenant.Organization.ID + "/permissions": "customer ACL permissions",
+	} {
+		res := performJSON(env.router, http.MethodGet, path, nil, tenant.Tokens.AccessToken)
+		if res.Code != http.StatusOK {
+			t.Fatalf("expected %s 200, got %d: %s", label, res.Code, res.Body.String())
+		}
+	}
+	accessRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+tenant.Organization.ID+"/access/check?permission=organization.update&scope_type=organization&scope_id="+tenant.Organization.ID, nil, tenant.Tokens.AccessToken)
+	if accessRes.Code != http.StatusNotFound {
+		t.Fatalf("platform subject customer access check = %d: %s", accessRes.Code, accessRes.Body.String())
+	}
+	for name, target := range map[string]string{
+		"missing scope":  "/v1/orgs/brand-cloud/access/check",
+		"lookup failure": "/v1/orgs/brand-cloud/access/check?permission=organization.update&scope_type=organization&scope_id=brand-cloud",
+	} {
+		t.Run(name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			requestContext, _ := gin.CreateTestContext(recorder)
+			requestContext.Params = gin.Params{{Key: "orgId", Value: "brand-cloud"}}
+			requestContext.Set("subjectType", auth.SubjectTypeBrandCloudUser)
+			requestContext.Set("brandCloudID", "brand-cloud")
+			requestContext.Set("brandCloudUserID", "brand-user")
+			request := httptest.NewRequest(http.MethodGet, target, nil)
+			if name == "lookup failure" {
+				canceled, cancel := context.WithCancel(request.Context())
+				cancel()
+				request = request.WithContext(canceled)
+			}
+			requestContext.Request = request
+			env.server.checkOrganizationAccess(requestContext)
+			want := http.StatusBadRequest
+			if name == "lookup failure" {
+				want = http.StatusNotFound
+			}
+			if recorder.Code != want {
+				t.Fatalf("status = %d, want %d: %s", recorder.Code, want, recorder.Body.String())
+			}
+		})
 	}
 
 	roleName := fmt.Sprintf("custom_installer_%s", admin.User.ID[:8])

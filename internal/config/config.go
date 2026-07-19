@@ -74,6 +74,8 @@ type Config struct {
 	FactoryProductionJWTAudience   string
 	BootstrapPlatformAdminEmail    string
 	BootstrapPlatformAdminPassword string
+	ChipsetProviderAllowedHosts    []string
+	ChipsetProviderRefreshInterval time.Duration
 	LogEnv                         string
 	LogVersion                     string
 	LogLevel                       string
@@ -202,6 +204,8 @@ func load() (Config, error) {
 		FactoryProductionJWTAudience:   getenv("FACTORY_PRODUCTION_JWT_AUDIENCE", "factory-enroll"),
 		BootstrapPlatformAdminEmail:    os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL"),
 		BootstrapPlatformAdminPassword: os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD"),
+		ChipsetProviderAllowedHosts:    stringList("CHIPSET_PROVIDER_ALLOWED_HOSTS", nil),
+		ChipsetProviderRefreshInterval: duration("CHIPSET_PROVIDER_REFRESH_INTERVAL", time.Hour),
 		LogEnv:                         getenv("ACCOUNT_MANAGER_ENV", "local"),
 		LogVersion:                     getenv("ACCOUNT_MANAGER_VERSION", "dev"),
 		LogLevel:                       getenv("ACCOUNT_MANAGER_LOG_LEVEL", "info"),

@@ -87,6 +87,10 @@ func main() {
 	server.SetLogger(logger)
 	server.ConfigureInternalAuthToken(cfg.InternalAuthToken)
 	server.ConfigureProductionJWT(cfg.FactoryProductionJWTSecret, cfg.FactoryProductionJWTAudience)
+	server.ConfigureChipsetManifestFetcher(api.NewChipsetManifestFetcher(api.ChipsetManifestFetcherConfig{AllowedHosts: cfg.ChipsetProviderAllowedHosts}))
+	if cfg.ChipsetProviderRefreshInterval > 0 {
+		go server.RunChipsetProviderRefresh(ctx, cfg.ChipsetProviderRefreshInterval)
+	}
 	server.ConfigureOIDC(api.OIDCOptions{
 		Env: auth.OIDCEnvConfig{
 			Enabled:       cfg.OIDCEnabled,

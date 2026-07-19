@@ -2325,3 +2325,35 @@ Remaining post-v2 follow-up items:
 - Retry and dead-letter rows are inspectable in Postgres, and `cmd/lifecycle-admin` exposes list, inspect, and safe requeue workflows for operators. A future operational visibility surface should summarize queue health, dead-letter counts, and latency without requiring direct SQL.
 - Account registry soft-delete and product-level video deactivation remain separate. Product teardown requires explicit `POST /deactivate`; `DELETE /devices/:deviceId` only disables the account-side registry record.
 - Account manager exposes an account-side readiness projection on `GET /provisioning`, but it still does not own a final cross-service "product ready" boolean. Any future unified readiness surface must compose account record, device activation, service-options ACL enforcement, subject-bound token issuance, device info/config, and transport ownership across service boundaries.
+
+## 13. ChipSet and SDK Information Providers
+
+Account Manager is the authoritative persistence and normalization boundary for
+the platform ChipSet and SDK resource catalog. The normative manifest,
+lifecycle, security, API, and error contract is
+`rtk_cloud_contracts_doc/CHIPSET_SDK_INFORMATION_PROVIDER.md`.
+
+- Platform providers are stored as `draft`, `published`, or `unpublished`.
+- Publishing synchronously fetches and validates a version-1 HTTPS manifest;
+  a provider without a valid snapshot cannot be published.
+- Successful refreshes atomically replace the normalized JSON snapshot and
+  retain conditional-fetch metadata. Failed refreshes retain last-known-good
+  data and mark the provider stale.
+- Developer routes return only normalized snapshots from published providers;
+  they never expose the provider URL or raw manifest.
+- `platform.chipset_sdk.read`, `platform.chipset_sdk.edit`, and
+  `platform.chipset_sdk.publish` are independent platform capabilities.
+- Create, update, publish, unpublish, and refresh mutations require
+  `Idempotency-Key` and emit audit events.
+
+Runtime configuration:
+
+- `CHIPSET_PROVIDER_ALLOWED_HOSTS`: required comma-separated hostname allowlist
+  for manifest providers. A leading `*.` allows subdomains only.
+- `CHIPSET_PROVIDER_REFRESH_INTERVAL`: periodic refresh interval; default
+  `1h`. Set to `0` to disable the background worker.
+
+The fetcher rejects non-HTTPS URLs, userinfo, non-default ports, disallowed
+hosts, private/reserved DNS results, unsafe redirects, oversized responses, and
+manifests beyond the documented JSON limits. Parsed endpoint URLs are validated
+as HTTPS links but are not fetched by Account Manager.

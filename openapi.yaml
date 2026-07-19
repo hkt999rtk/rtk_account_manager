@@ -55,6 +55,8 @@ tags:
     description: Platform-admin role, permission, assignment, mapping, and ACL audit operations.
   - name: Audit
     description: Platform-admin audit event listing.
+  - name: ChipSet SDK Providers
+    description: Platform-published external ChipSet and SDK information manifests.
 servers:
   - url: http://localhost:8080
 paths:
@@ -1626,6 +1628,91 @@ paths:
           $ref: "#/components/responses/Error"
         "403":
           $ref: "#/components/responses/Error"
+  /v1/admin/chipset-providers:
+    get:
+      tags: [ChipSet SDK Providers]
+      operationId: listChipsetProviders
+      summary: List information providers and refresh state.
+      security: [{ bearerAuth: [] }]
+      x-required-permission: platform.chipset_sdk.read
+      responses:
+        "200": { description: Provider list., content: { application/json: { schema: { $ref: "#/components/schemas/ChipsetProviderListResponse" } } } }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [ChipSet SDK Providers]
+      operationId: createChipsetProvider
+      summary: Create a draft information provider.
+      security: [{ bearerAuth: [] }]
+      x-required-permission: platform.chipset_sdk.edit
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ChipsetProviderWriteRequest" } } } }
+      responses:
+        "201": { description: Provider created., content: { application/json: { schema: { $ref: "#/components/schemas/ChipsetProviderResponse" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/admin/chipset-providers/{providerId}:
+    get:
+      tags: [ChipSet SDK Providers]
+      operationId: getChipsetProvider
+      summary: Read provider configuration and normalized preview.
+      security: [{ bearerAuth: [] }]
+      x-required-permission: platform.chipset_sdk.read
+      parameters: [{ $ref: "#/components/parameters/ProviderId" }]
+      responses:
+        "200": { description: Provider detail., content: { application/json: { schema: { $ref: "#/components/schemas/ChipsetProviderResponse" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [ChipSet SDK Providers]
+      operationId: updateChipsetProvider
+      summary: Update draft or unpublished provider configuration.
+      security: [{ bearerAuth: [] }]
+      x-required-permission: platform.chipset_sdk.edit
+      parameters: [{ $ref: "#/components/parameters/ProviderId" }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ChipsetProviderWriteRequest" } } } }
+      responses:
+        "200": { description: Provider updated., content: { application/json: { schema: { $ref: "#/components/schemas/ChipsetProviderResponse" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/admin/chipset-providers/{providerId}/{action}:
+    post:
+      tags: [ChipSet SDK Providers]
+      operationId: actOnChipsetProvider
+      summary: Publish, unpublish, or refresh a provider.
+      security: [{ bearerAuth: [] }]
+      x-required-permission: platform.chipset_sdk.publish
+      parameters:
+        - $ref: "#/components/parameters/ProviderId"
+        - { name: action, in: path, required: true, schema: { type: string, enum: [publish, unpublish, refresh] } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200": { description: Provider action completed., content: { application/json: { schema: { $ref: "#/components/schemas/ChipsetProviderResponse" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+  /v1/developer/chipsets:
+    get:
+      tags: [ChipSet SDK Providers]
+      operationId: listDeveloperChipsets
+      summary: List normalized resources from published providers.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: Published resources., content: { application/json: { schema: { $ref: "#/components/schemas/DeveloperChipsetListResponse" } } } }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/developer/chipsets/{chipsetId}:
+    get:
+      tags: [ChipSet SDK Providers]
+      operationId: getDeveloperChipset
+      summary: Read one normalized resource from a published provider.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/ChipsetId" }]
+      responses:
+        "200": { description: Published resource., content: { application/json: { schema: { $ref: "#/components/schemas/DeveloperChipsetResponse" } } } }
+        "404": { $ref: "#/components/responses/Error" }
   /v1/admin/acl/permissions:
     get:
       tags:
@@ -3551,6 +3638,14 @@ components:
       scheme: bearer
       bearerFormat: JWT
   parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Stable client key used to safely replay a mutation.
+      schema:
+        type: string
+        minLength: 1
     OrgId:
       name: orgId
       in: path
@@ -3572,6 +3667,16 @@ components:
       schema:
         type: string
         format: uuid
+    ProviderId:
+      name: providerId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ChipsetId:
+      name: chipsetId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
     TenantSlug:
       name: tenantSlug
       in: path
@@ -4791,6 +4896,89 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Organization"
+    ChipsetProviderWriteRequest:
+      type: object
+      additionalProperties: false
+      required: [name, manifest_url]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        manifest_url: { type: string, format: uri, pattern: '^https://' }
+    ChipsetProvider:
+      type: object
+      required: [id, name, manifest_url, status, chipset_count, sdk_release_count, stale, unavailable, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        manifest_url: { type: string, format: uri }
+        status: { type: string, enum: [draft, published, unpublished] }
+        manifest_version: { type: string }
+        manifest_sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        etag: { type: string }
+        last_modified: { type: string }
+        chipset_count: { type: integer, minimum: 0 }
+        sdk_release_count: { type: integer, minimum: 0 }
+        last_refresh_attempt_at: { type: string, format: date-time }
+        last_successful_refresh_at: { type: string, format: date-time }
+        stale: { type: boolean }
+        unavailable: { type: boolean, description: True until the provider has committed its first valid snapshot. }
+        validation_error: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ChipsetEndpoint:
+      type: object
+      additionalProperties: false
+      required: [type, title, url]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        url: { type: string, format: uri, pattern: '^https://' }
+        metadata: { type: object, additionalProperties: true }
+    ChipsetSDKRelease:
+      type: object
+      required: [name, version, recommended, supported_models, endpoints]
+      properties:
+        name: { type: string }
+        version: { type: string }
+        summary: { type: string }
+        recommended: { type: boolean }
+        supported_models: { type: array, items: { type: string } }
+        endpoints: { type: array, maxItems: 64, items: { $ref: "#/components/schemas/ChipsetEndpoint" } }
+    DeveloperChipset:
+      type: object
+      required: [id, provider_name, chipset_key, vendor, name, sdk_releases, stale, last_successful_refresh_at]
+      properties:
+        id: { type: string, format: uuid }
+        provider_name: { type: string }
+        chipset_key: { type: string }
+        vendor: { type: string }
+        name: { type: string }
+        family: { type: string }
+        description: { type: string }
+        sdk_releases: { type: array, items: { $ref: "#/components/schemas/ChipsetSDKRelease" } }
+        stale: { type: boolean }
+        last_successful_refresh_at: { type: string, format: date-time }
+    ChipsetProviderResponse:
+      type: object
+      required: [provider]
+      properties:
+        provider: { $ref: "#/components/schemas/ChipsetProvider" }
+        chipsets: { type: array, items: { $ref: "#/components/schemas/DeveloperChipset" } }
+        audit_result: { type: string, enum: [accepted, failed] }
+    ChipsetProviderListResponse:
+      type: object
+      required: [providers]
+      properties:
+        providers: { type: array, items: { $ref: "#/components/schemas/ChipsetProvider" } }
+    DeveloperChipsetListResponse:
+      type: object
+      required: [chipsets]
+      properties:
+        chipsets: { type: array, items: { $ref: "#/components/schemas/DeveloperChipset" } }
+    DeveloperChipsetResponse:
+      type: object
+      required: [chipset]
+      properties:
+        chipset: { $ref: "#/components/schemas/DeveloperChipset" }
     UserResponse:
       type: object
       required: [user]
