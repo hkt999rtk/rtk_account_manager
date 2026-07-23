@@ -25,6 +25,7 @@ type Store interface {
 	identityProviderPersistence
 	brandCloudPersistence
 	auditPersistence
+	chipsetProviderPersistence
 }
 
 type authPersistence interface {
@@ -76,12 +77,16 @@ type organizationPersistence interface {
 
 type memberPersistence interface {
 	GetRole(ctx context.Context, orgID, userID string) (model.Role, error)
+	GetDeveloperBrandCloudMember(ctx context.Context, brandCloudID, userID string) (model.Member, error)
 	ListMembers(ctx context.Context, orgID string, limit, offset int) (store.MemberPage, error)
+	ListDeveloperBrandCloudMembers(ctx context.Context, brandCloudID string, limit, offset int) (store.MemberPage, error)
 	AddMember(ctx context.Context, orgID, email string, role model.Role) (model.Member, error)
 	UpdateMemberRole(ctx context.Context, orgID, userID string, role model.Role) (model.Member, error)
 	DisableMemberUser(ctx context.Context, orgID, userID string) (model.Member, error)
 	EnableMemberUser(ctx context.Context, orgID, userID string) (model.Member, error)
 	RemoveMember(ctx context.Context, orgID, userID string) error
+	DisableDeveloperBrandCloudMember(ctx context.Context, brandCloudID, userID string) (model.Member, error)
+	EnableDeveloperBrandCloudMember(ctx context.Context, brandCloudID, userID string) (model.Member, error)
 }
 
 type devicePersistence interface {
@@ -164,6 +169,7 @@ type evaluationPersistence interface {
 
 type aclPersistence interface {
 	HasPermission(ctx context.Context, userID, orgID, permission string) (bool, error)
+	ListUserPlatformPermissions(ctx context.Context, userID string) ([]string, error)
 	HasBrandCloudPermission(ctx context.Context, brandCloudUserID, orgID, permission string) (bool, error)
 	HasBrandCloudPermissionForResource(ctx context.Context, brandCloudUserID, orgID, permission, scopeType, scopeID string) (bool, error)
 	HasBrandCloudPermissionAnyResource(ctx context.Context, brandCloudUserID, orgID, permission string) (bool, error)
@@ -209,6 +215,8 @@ type brandCloudPersistence interface {
 	ListDeveloperBrandClouds(ctx context.Context, userID string, limit, offset int) (store.OrganizationPage, error)
 	CreateBrandCloudOwnerTransfer(ctx context.Context, in store.BrandCloudOwnerTransferInput) (model.BrandCloudOwnerTransfer, error)
 	AcceptBrandCloudOwnerTransfer(ctx context.Context, targetUserID, tokenHash string, now time.Time) (model.BrandCloudOwnerTransfer, error)
+	GetBrandCloudOwnerTransfer(ctx context.Context, in store.BrandCloudOwnerTransferQuery, now time.Time) (model.BrandCloudOwnerTransfer, error)
+	CancelBrandCloudOwnerTransfer(ctx context.Context, in store.BrandCloudOwnerTransferQuery, now time.Time) (model.BrandCloudOwnerTransfer, error)
 	ListBrandClouds(ctx context.Context, limit, offset int) (store.OrganizationPage, error)
 	GetBrandCloud(ctx context.Context, orgID string) (model.Organization, error)
 	GetBrandCloudByTenantSlug(ctx context.Context, tenantSlug string) (model.Organization, error)
@@ -232,4 +240,16 @@ type brandCloudPersistence interface {
 type auditPersistence interface {
 	CreateAuditEvent(ctx context.Context, in store.AuditEventInput) error
 	ListAuditEvents(ctx context.Context, in store.AuditEventListFilter) (store.AuditEventPage, error)
+}
+
+type chipsetProviderPersistence interface {
+	CreateChipsetProvider(context.Context, store.ChipsetProviderWriteInput) (model.ChipsetProvider, error)
+	UpdateChipsetProvider(context.Context, string, store.ChipsetProviderWriteInput) (model.ChipsetProvider, error)
+	GetChipsetProvider(context.Context, string) (model.ChipsetProvider, []model.DeveloperChipset, error)
+	ListChipsetProviders(context.Context) ([]model.ChipsetProvider, error)
+	ListPublishedChipsets(context.Context) ([]model.DeveloperChipset, error)
+	CommitChipsetProviderRefresh(context.Context, store.ChipsetProviderRefreshInput) (model.ChipsetProvider, error)
+	MarkChipsetProviderNotModified(context.Context, string, time.Time) (model.ChipsetProvider, error)
+	MarkChipsetProviderRefreshFailed(context.Context, string, string, time.Time) (model.ChipsetProvider, error)
+	SetChipsetProviderStatus(context.Context, string, model.ChipsetProviderStatus) (model.ChipsetProvider, error)
 }

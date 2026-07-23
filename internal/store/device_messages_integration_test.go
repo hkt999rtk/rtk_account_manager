@@ -43,7 +43,7 @@ func newStoreIntegrationEnv(t *testing.T) storeIntegrationEnv {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-			TRUNCATE acl_audit_events, external_group_mappings, role_assignments, oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_user_bindings, brand_cloud_end_users, end_user_refresh_tokens, end_user_identities, device_claims, device_claim_tokens, device_item_profiles, device_message_inbox, device_message_outbox, device_operations, brand_cloud_refresh_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, brand_cloud_memberships, organization_members, brand_cloud_users, end_users, organizations, users
+			TRUNCATE chipset_information_providers, acl_audit_events, external_group_mappings, role_assignments, oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_user_bindings, brand_cloud_end_users, end_user_refresh_tokens, end_user_identities, device_claims, device_claim_tokens, device_item_profiles, device_message_inbox, device_message_outbox, device_operations, brand_cloud_refresh_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, brand_cloud_memberships, organization_members, brand_cloud_users, end_users, organizations, users
 			RESTART IDENTITY CASCADE
 		`); err != nil {
 		t.Fatal(err)

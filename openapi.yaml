@@ -55,6 +55,8 @@ tags:
     description: Platform-admin role, permission, assignment, mapping, and ACL audit operations.
   - name: Audit
     description: Platform-admin audit event listing.
+  - name: ChipSet SDK Providers
+    description: Platform-published external ChipSet and SDK information manifests.
 servers:
   - url: http://localhost:8080
 paths:
@@ -528,6 +530,136 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+  /v1/developer/brand-clouds/{brandCloudId}:
+    get:
+      tags: [Developer Brand Clouds]
+      operationId: getDeveloperBrandCloud
+      summary: Get a Brand Cloud and the current developer membership.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+      responses:
+        "200":
+          description: Developer Brand Cloud detail and current membership.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [brand_cloud, membership]
+                properties:
+                  brand_cloud: { $ref: "#/components/schemas/Organization" }
+                  membership: { $ref: "#/components/schemas/Member" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/members:
+    get:
+      tags: [Developer Brand Clouds]
+      operationId: listDeveloperBrandCloudMembers
+      summary: List members of a developer Brand Cloud.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Developer Brand Cloud members.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [members, pagination]
+                properties:
+                  members: { type: array, items: { $ref: "#/components/schemas/Member" } }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/members/{userId}:
+    patch:
+      tags: [Developer Brand Clouds]
+      operationId: updateDeveloperBrandCloudMember
+      summary: Update a Developer Brand Cloud member role.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [owner, admin, member] }
+      responses:
+        "200": { description: Member updated. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/members/{userId}/disable:
+    patch:
+      tags: [Developer Brand Clouds]
+      operationId: disableDeveloperBrandCloudMember
+      summary: Disable a member in this Brand Cloud without disabling the global account.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200": { description: Member disabled. }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/members/{userId}/enable:
+    patch:
+      tags: [Developer Brand Clouds]
+      operationId: enableDeveloperBrandCloudMember
+      summary: Re-enable a member in this Brand Cloud.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200": { description: Member enabled. }
+    delete:
+      tags: [Developer Brand Clouds]
+      operationId: removeDeveloperBrandCloudMember
+      summary: Remove a Developer Brand Cloud member.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204": { description: Member removed. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/members/invitations:
+    post:
+      tags: [Developer Brand Clouds]
+      operationId: inviteDeveloperBrandCloudMember
+      summary: Invite an existing developer account to a Brand Cloud.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              properties:
+                email: { type: string, format: email }
+                role: { type: string, enum: [owner, admin, member] }
+      responses:
+        "202": { description: Invitation accepted for an existing account. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
   /v1/developer/brand-clouds/{brandCloudId}/owner-transfer:
     post:
       tags:
@@ -584,6 +716,31 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/developer/brand-clouds/{brandCloudId}/owner-transfer/{transferId}:
+    get:
+      tags: [Developer Brand Clouds]
+      operationId: getBrandCloudOwnerTransfer
+      summary: Get the status of an owner transfer requested by the current developer.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - { name: transferId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Owner transfer status. }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Developer Brand Clouds]
+      operationId: cancelBrandCloudOwnerTransfer
+      summary: Cancel a pending owner transfer.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - { name: transferId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Owner transfer canceled. }
+        "404": { $ref: "#/components/responses/Error" }
   /v1/brand-clouds/{tenantSlug}/me:
     get:
       tags:
@@ -1626,6 +1783,91 @@ paths:
           $ref: "#/components/responses/Error"
         "403":
           $ref: "#/components/responses/Error"
+  /v1/admin/chipset-providers:
+    get:
+      tags: [ChipSet SDK Providers]
+      operationId: listChipsetProviders
+      summary: List information providers and refresh state.
+      security: [{ bearerAuth: [] }]
+      x-required-permission: platform.chipset_sdk.read
+      responses:
+        "200": { description: Provider list., content: { application/json: { schema: { $ref: "#/components/schemas/ChipsetProviderListResponse" } } } }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [ChipSet SDK Providers]
+      operationId: createChipsetProvider
+      summary: Create a draft information provider.
+      security: [{ bearerAuth: [] }]
+      x-required-permission: platform.chipset_sdk.edit
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ChipsetProviderWriteRequest" } } } }
+      responses:
+        "201": { description: Provider created., content: { application/json: { schema: { $ref: "#/components/schemas/ChipsetProviderResponse" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/admin/chipset-providers/{providerId}:
+    get:
+      tags: [ChipSet SDK Providers]
+      operationId: getChipsetProvider
+      summary: Read provider configuration and normalized preview.
+      security: [{ bearerAuth: [] }]
+      x-required-permission: platform.chipset_sdk.read
+      parameters: [{ $ref: "#/components/parameters/ProviderId" }]
+      responses:
+        "200": { description: Provider detail., content: { application/json: { schema: { $ref: "#/components/schemas/ChipsetProviderResponse" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [ChipSet SDK Providers]
+      operationId: updateChipsetProvider
+      summary: Update draft or unpublished provider configuration.
+      security: [{ bearerAuth: [] }]
+      x-required-permission: platform.chipset_sdk.edit
+      parameters: [{ $ref: "#/components/parameters/ProviderId" }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ChipsetProviderWriteRequest" } } } }
+      responses:
+        "200": { description: Provider updated., content: { application/json: { schema: { $ref: "#/components/schemas/ChipsetProviderResponse" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/admin/chipset-providers/{providerId}/{action}:
+    post:
+      tags: [ChipSet SDK Providers]
+      operationId: actOnChipsetProvider
+      summary: Publish, unpublish, or refresh a provider.
+      security: [{ bearerAuth: [] }]
+      x-required-permission: platform.chipset_sdk.publish
+      parameters:
+        - $ref: "#/components/parameters/ProviderId"
+        - { name: action, in: path, required: true, schema: { type: string, enum: [publish, unpublish, refresh] } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200": { description: Provider action completed., content: { application/json: { schema: { $ref: "#/components/schemas/ChipsetProviderResponse" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+  /v1/developer/chipsets:
+    get:
+      tags: [ChipSet SDK Providers]
+      operationId: listDeveloperChipsets
+      summary: List normalized resources from published providers.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: Published resources., content: { application/json: { schema: { $ref: "#/components/schemas/DeveloperChipsetListResponse" } } } }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/developer/chipsets/{chipsetId}:
+    get:
+      tags: [ChipSet SDK Providers]
+      operationId: getDeveloperChipset
+      summary: Read one normalized resource from a published provider.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/ChipsetId" }]
+      responses:
+        "200": { description: Published resource., content: { application/json: { schema: { $ref: "#/components/schemas/DeveloperChipsetResponse" } } } }
+        "404": { $ref: "#/components/responses/Error" }
   /v1/admin/acl/permissions:
     get:
       tags:
@@ -3101,8 +3343,16 @@ paths:
         - name: group_id
           in: query
           schema: { type: string, format: uuid }
+        - name: group_ids
+          in: query
+          description: Comma-separated group IDs; matched as an OR filter.
+          schema: { type: string }
         - name: region
           in: query
+          schema: { type: string }
+        - name: regions
+          in: query
+          description: Comma-separated regions; matched as an OR filter.
           schema: { type: string }
         - name: category
           in: query
@@ -3113,11 +3363,19 @@ paths:
         - name: status
           in: query
           schema: { type: string }
+        - name: statuses
+          in: query
+          description: Comma-separated statuses; matched as an OR filter.
+          schema: { type: string }
         - name: readiness
           in: query
           schema: { type: string }
         - name: firmware
           in: query
+          schema: { type: string }
+        - name: firmwares
+          in: query
+          description: Comma-separated firmware versions; matched as an OR filter.
           schema: { type: string }
         - name: sort
           in: query
@@ -3551,6 +3809,14 @@ components:
       scheme: bearer
       bearerFormat: JWT
   parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Stable client key used to safely replay a mutation.
+      schema:
+        type: string
+        minLength: 1
     OrgId:
       name: orgId
       in: path
@@ -3572,6 +3838,16 @@ components:
       schema:
         type: string
         format: uuid
+    ProviderId:
+      name: providerId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ChipsetId:
+      name: chipsetId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
     TenantSlug:
       name: tenantSlug
       in: path
@@ -4791,6 +5067,91 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Organization"
+        capabilities:
+          type: array
+          description: Effective global platform capabilities for the current user.
+          items: { type: string }
+    ChipsetProviderWriteRequest:
+      type: object
+      additionalProperties: false
+      required: [name, manifest_url]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        manifest_url: { type: string, format: uri, pattern: '^https://' }
+    ChipsetProvider:
+      type: object
+      required: [id, name, manifest_url, status, chipset_count, sdk_release_count, stale, unavailable, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        manifest_url: { type: string, format: uri }
+        status: { type: string, enum: [draft, published, unpublished] }
+        manifest_version: { type: string }
+        manifest_sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        chipset_count: { type: integer, minimum: 0 }
+        sdk_release_count: { type: integer, minimum: 0 }
+        last_refresh_attempt_at: { type: string, format: date-time }
+        last_successful_refresh_at: { type: string, format: date-time }
+        stale: { type: boolean }
+        unavailable: { type: boolean, description: True until the provider has committed its first valid snapshot. }
+        validation_error: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ChipsetEndpoint:
+      type: object
+      additionalProperties: false
+      required: [type, title, url]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        url: { type: string, format: uri, pattern: '^https://' }
+        metadata: { type: object, additionalProperties: true }
+    ChipsetSDKRelease:
+      type: object
+      required: [name, version, recommended, supported_models, endpoints]
+      properties:
+        name: { type: string }
+        version: { type: string }
+        summary: { type: string }
+        recommended: { type: boolean }
+        supported_models: { type: array, items: { type: string } }
+        endpoints: { type: array, maxItems: 64, items: { $ref: "#/components/schemas/ChipsetEndpoint" } }
+    DeveloperChipset:
+      type: object
+      required: [id, provider_name, chipset_key, vendor, name, sdk_releases, stale, last_successful_refresh_at]
+      properties:
+        id: { type: string, format: uuid }
+        provider_name: { type: string }
+        chipset_key: { type: string }
+        vendor: { type: string }
+        name: { type: string }
+        family: { type: string }
+        description: { type: string }
+        sdk_releases: { type: array, items: { $ref: "#/components/schemas/ChipsetSDKRelease" } }
+        stale: { type: boolean }
+        last_successful_refresh_at: { type: string, format: date-time }
+    ChipsetProviderResponse:
+      type: object
+      required: [provider]
+      properties:
+        provider: { $ref: "#/components/schemas/ChipsetProvider" }
+        chipsets: { type: array, items: { $ref: "#/components/schemas/DeveloperChipset" } }
+        audit_result: { type: string, enum: [accepted, failed] }
+    ChipsetProviderListResponse:
+      type: object
+      required: [providers]
+      properties:
+        providers: { type: array, items: { $ref: "#/components/schemas/ChipsetProvider" } }
+    DeveloperChipsetListResponse:
+      type: object
+      required: [chipsets]
+      properties:
+        chipsets: { type: array, items: { $ref: "#/components/schemas/DeveloperChipset" } }
+    DeveloperChipsetResponse:
+      type: object
+      required: [chipset]
+      properties:
+        chipset: { $ref: "#/components/schemas/DeveloperChipset" }
     UserResponse:
       type: object
       required: [user]
@@ -4882,6 +5243,9 @@ components:
             $ref: "#/components/schemas/Organization"
         pagination:
           $ref: "#/components/schemas/Pagination"
+        developer_cloud_limit:
+          type: integer
+          minimum: 1
     BrandCloudOwnerTransferResponse:
       type: object
       required: [owner_transfer]
@@ -5482,6 +5846,9 @@ components:
           pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
         role:
           $ref: "#/components/schemas/Role"
+        capabilities:
+          type: array
+          items: { type: string }
         organization_kind:
           $ref: "#/components/schemas/OrganizationKind"
         status:
@@ -5527,6 +5894,9 @@ components:
           type: string
         role:
           $ref: "#/components/schemas/Role"
+        capabilities:
+          type: array
+          items: { type: string }
         created_at:
           type: string
           format: date-time

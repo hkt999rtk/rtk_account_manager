@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -24,6 +25,28 @@ type brandCloudOwnerTransferResponse struct {
 	OwnerTransfer model.BrandCloudOwnerTransfer `json:"owner_transfer"`
 }
 
+type developerBrandCloudMemberRequest struct {
+	Role model.Role `json:"role" binding:"required"`
+}
+
+type developerBrandCloudInvitationRequest struct {
+	Email string     `json:"email" binding:"required,email"`
+	Role  model.Role `json:"role" binding:"required"`
+}
+
+func developerBrandCloudManager(c *gin.Context, s *Server) (model.Member, bool) {
+	member, err := s.store.GetDeveloperBrandCloudMember(c.Request.Context(), c.Param("brandCloudId"), currentUserID(c))
+	if err != nil {
+		writeStoreError(c, err)
+		return model.Member{}, false
+	}
+	if member.Role != model.RoleOwner && member.Role != model.RoleAdmin {
+		writeError(c, http.StatusForbidden, "developer_brand_cloud_membership_required", "Brand Cloud membership management requires owner or admin role")
+		return model.Member{}, false
+	}
+	return member, true
+}
+
 func (s *Server) listDeveloperBrandClouds(c *gin.Context) {
 	limit, offset := pagination(c)
 	page, err := s.store.ListDeveloperBrandClouds(c.Request.Context(), currentUserID(c), limit, offset)
@@ -31,7 +54,15 @@ func (s *Server) listDeveloperBrandClouds(c *gin.Context) {
 		writeStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"brand_clouds": page.Organizations, "pagination": page.Page})
+	for i := range page.Organizations {
+		page.Organizations[i].Capabilities = developerCapabilitiesForRole(page.Organizations[i].Role)
+	}
+	user, err := s.store.GetUser(c.Request.Context(), currentUserID(c))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"brand_clouds": page.Organizations, "pagination": page.Page, "developer_cloud_limit": user.DeveloperCloudLimit})
 }
 
 func (s *Server) createDeveloperBrandCloud(c *gin.Context) {
@@ -54,7 +85,135 @@ func (s *Server) createDeveloperBrandCloud(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"brand_cloud": org})
 }
 
+func (s *Server) getDeveloperBrandCloud(c *gin.Context) {
+	org, err := s.store.GetOrganization(c.Request.Context(), c.Param("brandCloudId"), currentUserID(c))
+	if err != nil || org.OrganizationKind != model.OrganizationKindBrandCloud {
+		if err == nil {
+			err = store.ErrNotFound
+		}
+		writeStoreError(c, err)
+		return
+	}
+	member, err := s.store.GetDeveloperBrandCloudMember(c.Request.Context(), org.ID, currentUserID(c))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	org.Capabilities = developerCapabilitiesForRole(member.Role)
+	c.JSON(http.StatusOK, gin.H{"brand_cloud": org, "membership": member})
+}
+
+func developerCapabilitiesForRole(role model.Role) []string {
+	read := []string{"fleet.read", "sku.read", "firmware.release.read", "ota.plan.read", "reports.read", "team.read", "provisioning.read"}
+	if role == model.RoleMember {
+		return read
+	}
+	return append(read, "fleet.device.manage", "fleet.batch.manage", "sku.manage", "sku.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "team.manage", "provisioning.create")
+}
+
+func (s *Server) listDeveloperBrandCloudMembers(c *gin.Context) {
+	if _, err := s.store.GetDeveloperBrandCloudMember(c.Request.Context(), c.Param("brandCloudId"), currentUserID(c)); err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	limit, offset := pagination(c)
+	page, err := s.store.ListDeveloperBrandCloudMembers(c.Request.Context(), c.Param("brandCloudId"), limit, offset)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	for i := range page.Members {
+		page.Members[i].Capabilities = developerCapabilitiesForRole(page.Members[i].Role)
+	}
+	c.JSON(http.StatusOK, gin.H{"members": page.Members, "pagination": page.Page})
+}
+
+func (s *Server) inviteDeveloperBrandCloudMember(c *gin.Context) {
+	if _, ok := developerBrandCloudManager(c, s); !ok {
+		return
+	}
+	var req developerBrandCloudInvitationRequest
+	if !bind(c, &req) || !validRole(c, req.Role) {
+		return
+	}
+	member, err := s.store.AddMember(c.Request.Context(), c.Param("brandCloudId"), strings.ToLower(strings.TrimSpace(req.Email)), req.Role)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"invitation": gin.H{"email": member.Email, "role": member.Role, "state": "accepted"}, "member": member})
+}
+
+func (s *Server) updateDeveloperBrandCloudMember(c *gin.Context) {
+	if _, ok := developerBrandCloudManager(c, s); !ok {
+		return
+	}
+	var req developerBrandCloudMemberRequest
+	if !bind(c, &req) || !validRole(c, req.Role) {
+		return
+	}
+	member, err := s.store.UpdateMemberRole(c.Request.Context(), c.Param("brandCloudId"), c.Param("userId"), req.Role)
+	if err != nil {
+		if errors.Is(err, store.ErrLastOwner) {
+			writeError(c, http.StatusConflict, "last_owner", err.Error())
+			return
+		}
+		writeStoreError(c, err)
+		return
+	}
+	member.Capabilities = developerCapabilitiesForRole(member.Role)
+	c.JSON(http.StatusOK, gin.H{"member": member})
+}
+
+func (s *Server) removeDeveloperBrandCloudMember(c *gin.Context) {
+	if _, ok := developerBrandCloudManager(c, s); !ok {
+		return
+	}
+	if err := s.store.RemoveMember(c.Request.Context(), c.Param("brandCloudId"), c.Param("userId")); err != nil {
+		if errors.Is(err, store.ErrLastOwner) {
+			writeError(c, http.StatusConflict, "last_owner", err.Error())
+			return
+		}
+		writeStoreError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (s *Server) disableDeveloperBrandCloudMember(c *gin.Context) {
+	if _, ok := developerBrandCloudManager(c, s); !ok {
+		return
+	}
+	member, err := s.store.DisableDeveloperBrandCloudMember(c.Request.Context(), c.Param("brandCloudId"), c.Param("userId"))
+	if err != nil {
+		if errors.Is(err, store.ErrLastOwner) {
+			writeError(c, http.StatusConflict, "last_owner", err.Error())
+			return
+		}
+		writeStoreError(c, err)
+		return
+	}
+	member.Capabilities = developerCapabilitiesForRole(member.Role)
+	c.JSON(http.StatusOK, gin.H{"member": member})
+}
+
+func (s *Server) enableDeveloperBrandCloudMember(c *gin.Context) {
+	if _, ok := developerBrandCloudManager(c, s); !ok {
+		return
+	}
+	member, err := s.store.EnableDeveloperBrandCloudMember(c.Request.Context(), c.Param("brandCloudId"), c.Param("userId"))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	member.Capabilities = developerCapabilitiesForRole(member.Role)
+	c.JSON(http.StatusOK, gin.H{"member": member})
+}
+
 func (s *Server) createBrandCloudOwnerTransfer(c *gin.Context) {
+	if _, ok := developerBrandCloudManager(c, s); !ok {
+		return
+	}
 	var req brandCloudOwnerTransferRequest
 	if !bind(c, &req) {
 		return
@@ -89,6 +248,30 @@ func (s *Server) acceptBrandCloudOwnerTransfer(c *gin.Context) {
 		return
 	}
 	transfer, err := s.store.AcceptBrandCloudOwnerTransfer(c.Request.Context(), currentUserID(c), auth.HashToken(req.Token), time.Now().UTC())
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, brandCloudOwnerTransferResponse{OwnerTransfer: transfer})
+}
+
+func (s *Server) getBrandCloudOwnerTransfer(c *gin.Context) {
+	if _, ok := developerBrandCloudManager(c, s); !ok {
+		return
+	}
+	transfer, err := s.store.GetBrandCloudOwnerTransfer(c.Request.Context(), store.BrandCloudOwnerTransferQuery{BrandCloudID: c.Param("brandCloudId"), TransferID: c.Param("transferId"), RequesterID: currentUserID(c)}, time.Now().UTC())
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, brandCloudOwnerTransferResponse{OwnerTransfer: transfer})
+}
+
+func (s *Server) cancelBrandCloudOwnerTransfer(c *gin.Context) {
+	if _, ok := developerBrandCloudManager(c, s); !ok {
+		return
+	}
+	transfer, err := s.store.CancelBrandCloudOwnerTransfer(c.Request.Context(), store.BrandCloudOwnerTransferQuery{BrandCloudID: c.Param("brandCloudId"), TransferID: c.Param("transferId"), RequesterID: currentUserID(c)}, time.Now().UTC())
 	if err != nil {
 		writeStoreError(c, err)
 		return

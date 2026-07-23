@@ -71,6 +71,7 @@ Generated: ci-candidate
 | Brand-cloud scoped user namespace | `TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug` | PASS |
 | Developer-owned brand clouds | `TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit` | PASS |
 | Brand-cloud owner transfer | `TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession` | PASS |
+| ChipSet SDK provider lifecycle and ACL | `TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit` | PASS |
 | OIDC provider persistence | `TestIdentityProviderStoreCRUDAndEnabledInvariant` | PASS |
 | OIDC provider admin CRUD | `TestIntegrationAdminIdentityProviderWorkflow` | PASS |
 | OIDC state and nonce replay guards | `TestOIDCLoginStateStoresHashesAndRejectsReplay` | PASS |
@@ -131,6 +132,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Brand-cloud scoped user namespace | `TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug`, `TestIntegrationPlatformAdminBrandCloudLifecycle`, `TestIntegrationPlatformAdminCreatesActiveBrandCloudUser`, `TestIntegrationDatabaseSchemaInvariants`, and brand-cloud token/helper unit tests verify tenant slug uniqueness, brand-scoped user storage, same-email cross-brand login isolation, brand-only refresh/logout handling, platform-login rejection for brand users, and brand-cloud membership authorization. |
 | Developer-owned brand clouds | `TestDeveloperSignupCreatesDefaultBrandCloudAndEnforcesCloudLimit`, `TestEnsurePlatformAdminCreatesRealtekConnectBrandCloud`, and `TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit` verify global developer signup, default brand cloud creation, root `Realtek Connect+` bootstrap, and developer cloud limits. |
 | Brand-cloud owner transfer | `TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper` and `TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession` verify existing-target checks, email token delivery, target-session acceptance, old-owner downgrade, and replay rejection. |
+| ChipSet SDK information providers | `TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit`, `TestChipsetProviderSnapshotLifecycle`, and manifest fetch security tests verify independent read/edit/publish ACLs, draft/published/unpublished visibility, synchronous and background refresh, ETag 304, atomic snapshots, stale last-known-good fallback, audit correlation, SSRF controls, timeout, redirect, response-size, and JSON-complexity limits. |
 | OIDC provider persistence | `TestIdentityProviderStoreCRUDAndEnabledInvariant`, `TestIdentityProviderRejectsRawClientSecretRef`, and `TestIntegrationDatabaseSchemaInvariants` verify provider CRUD, the one-enabled-provider invariant, secret-reference-only storage, identity link uniqueness, and OIDC schema/index presence. |
 | OIDC provider admin CRUD | `TestIntegrationAdminIdentityProviderWorkflow` verifies platform-admin-only create/list/show/update/disable, pagination, second-enabled-provider conflict handling, audit events, `env:VAR_NAME` secret references, and raw-secret non-persistence/non-response behavior. |
 | OIDC state and nonce replay guards | `TestOIDCLoginStateStoresHashesAndRejectsReplay`, `TestOIDCLoginStateRejectsExpiredState`, and `TestIntegrationOIDCProviderLoginAndCallback` verify raw state/nonce non-persistence, one-time state consumption, replay rejection, and callback nonce validation through hashed state records. |
@@ -181,6 +183,17 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestBrandCloudContextHelpers`
 - `rtk_account_manager/internal/api`: `TestBrandCloudLogoutAndMeRejectMismatchedSubject`
 - `rtk_account_manager/internal/api`: `TestBrandCloudRefreshRejectsPlatformAndWrongTenantTokens`
+- `rtk_account_manager/internal/api`: `TestChipsetProviderErrorsAreStableAndSanitized`
+- `rtk_account_manager/internal/api`: `TestChipsetProviderFetchRejectsDNSRebinding`
+- `rtk_account_manager/internal/api`: `TestChipsetProviderFetchTimeoutOversizeAndConditional304/conditional_304`
+- `rtk_account_manager/internal/api`: `TestChipsetProviderFetchTimeoutOversizeAndConditional304/malformed_JSON`
+- `rtk_account_manager/internal/api`: `TestChipsetProviderFetchTimeoutOversizeAndConditional304/oversized_response`
+- `rtk_account_manager/internal/api`: `TestChipsetProviderFetchTimeoutOversizeAndConditional304/response_read_failure`
+- `rtk_account_manager/internal/api`: `TestChipsetProviderFetchTimeoutOversizeAndConditional304/timeout`
+- `rtk_account_manager/internal/api`: `TestChipsetProviderFetchTimeoutOversizeAndConditional304/upstream_status`
+- `rtk_account_manager/internal/api`: `TestChipsetProviderFetchTimeoutOversizeAndConditional304`
+- `rtk_account_manager/internal/api`: `TestChipsetProviderRedirectPolicy`
+- `rtk_account_manager/internal/api`: `TestChipsetProviderURLPolicy`
 - `rtk_account_manager/internal/api`: `TestFailureFromMetadataUsesProjectedErrorFacts`
 - `rtk_account_manager/internal/api`: `TestHTTPAppCertificateIssuerIssuesAndReportsErrors`
 - `rtk_account_manager/internal/api`: `TestHealthRequestEmitsStructuredLog`
@@ -223,7 +236,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix/platform_admin_can_show_quota_request`
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix`
 - `rtk_account_manager/internal/api`: `TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession`
+- `rtk_account_manager/internal/api`: `TestIntegrationBrandCloudResourceScopeFiltersFleetQueries`
+- `rtk_account_manager/internal/api`: `TestIntegrationBrandCloudScopedRoleAssignmentWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug`
+- `rtk_account_manager/internal/api`: `TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit`
 - `rtk_account_manager/internal/api`: `TestIntegrationClaimResolveEndpoint`
 - `rtk_account_manager/internal/api`: `TestIntegrationCleanupRefreshTokensRemovesExpiredAndRevokedRows`
 - `rtk_account_manager/internal/api`: `TestIntegrationCurrentUserCanChangePassword`
@@ -238,6 +254,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationDisabledUserCannotUseExistingTokens`
 - `rtk_account_manager/internal/api`: `TestIntegrationEmailSignInValidationPaths`
 - `rtk_account_manager/internal/api`: `TestIntegrationEmailVerificationAndPasswordRecovery`
+- `rtk_account_manager/internal/api`: `TestIntegrationFleetDeviceQueryAndSummaryAreServerSide`
 - `rtk_account_manager/internal/api`: `TestIntegrationFleetGroupsAndTags`
 - `rtk_account_manager/internal/api`: `TestIntegrationInternalAppTokenAuthorization`
 - `rtk_account_manager/internal/api`: `TestIntegrationInternalDeviceProvisioningResult`
@@ -260,6 +277,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminCreatesActiveBrandCloudUser`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminCreatesProductionRunJWT`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminDeviceItemProfileLifecycle`
+- `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminMissingBrandResourcesReturnNotFound`
 - `rtk_account_manager/internal/api`: `TestIntegrationPrometheusMetricsReportsEmptySnapshot`
 - `rtk_account_manager/internal/api`: `TestIntegrationProvisioningEndpoints`
 - `rtk_account_manager/internal/api`: `TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness`
@@ -288,6 +306,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes/unsupported`
 - `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes`
 - `rtk_account_manager/internal/api`: `TestPaginationClampsAndDefaultsValues`
+- `rtk_account_manager/internal/api`: `TestParseChipsetManifestRejectsInvalidSnapshots/duplicate_release`
+- `rtk_account_manager/internal/api`: `TestParseChipsetManifestRejectsInvalidSnapshots/non_HTTPS_endpoint`
+- `rtk_account_manager/internal/api`: `TestParseChipsetManifestRejectsInvalidSnapshots/two_recommended_releases`
+- `rtk_account_manager/internal/api`: `TestParseChipsetManifestRejectsInvalidSnapshots`
+- `rtk_account_manager/internal/api`: `TestParseChipsetManifestRejectsUnsupportedVersionAndExcessiveDepth`
+- `rtk_account_manager/internal/api`: `TestParseChipsetManifestV1`
 - `rtk_account_manager/internal/api`: `TestPostgresStoreSatisfiesAPIPersistenceBoundaries`
 - `rtk_account_manager/internal/api`: `TestPrometheusMetricHelpersFormatLabelsDeterministically`
 - `rtk_account_manager/internal/api`: `TestPrometheusMetricsRoute`
@@ -521,6 +545,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper`
 - `rtk_account_manager/internal/store`: `TestBrandCloudStoreCRUDAndErrorPaths`
 - `rtk_account_manager/internal/store`: `TestBrandCloudUserProvisioningUsesBrandScopedIdentityOnly`
+- `rtk_account_manager/internal/store`: `TestChipsetProviderSnapshotLifecycle`
 - `rtk_account_manager/internal/store`: `TestClaimOutboxMessagesReadyLeasesRows`
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshotWithLossyUTF8`
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshot`

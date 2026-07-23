@@ -187,6 +187,21 @@ func TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeve
 	if transfer.Status != "pending" || transfer.TargetUserID != target.User.ID {
 		t.Fatalf("unexpected owner transfer: %+v", transfer)
 	}
+	status, err := env.store.GetBrandCloudOwnerTransfer(ctx, BrandCloudOwnerTransferQuery{BrandCloudID: source.BrandCloud.ID, TransferID: transfer.ID, RequesterID: source.User.ID}, time.Now())
+	if err != nil || status.Status != "pending" {
+		t.Fatalf("expected pending transfer status, got %+v, %v", status, err)
+	}
+	cancelled, err := env.store.CancelBrandCloudOwnerTransfer(ctx, BrandCloudOwnerTransferQuery{BrandCloudID: source.BrandCloud.ID, TransferID: transfer.ID, RequesterID: source.User.ID}, time.Now())
+	if err != nil || cancelled.Status != "canceled" {
+		t.Fatalf("expected canceled transfer, got %+v, %v", cancelled, err)
+	}
+	if _, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, target.User.ID, "transfer-token-hash", time.Now()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("canceled transfer must reject, got %v", err)
+	}
+	transfer, err = env.store.CreateBrandCloudOwnerTransfer(ctx, BrandCloudOwnerTransferInput{BrandCloudID: source.BrandCloud.ID, RequestedByUserID: source.User.ID, TargetEmail: "target-owner@example.com", TokenHash: "transfer-token-hash-2", ExpiresAt: time.Now().Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := env.store.CreateBrandCloudOwnerTransfer(ctx, BrandCloudOwnerTransferInput{
 		BrandCloudID:      source.BrandCloud.ID,
 		RequestedByUserID: source.User.ID,
@@ -199,10 +214,10 @@ func TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeve
 	if _, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, target.User.ID, "expired-token-hash", time.Now()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expired transfer token must reject, got %v", err)
 	}
-	if _, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, source.User.ID, "transfer-token-hash", time.Now()); !errors.Is(err, ErrNotFound) {
+	if _, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, source.User.ID, "transfer-token-hash-2", time.Now()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("non-target developer must not accept transfer, got %v", err)
 	}
-	accepted, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, target.User.ID, "transfer-token-hash", time.Now())
+	accepted, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, target.User.ID, "transfer-token-hash-2", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +236,7 @@ func TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeve
 	if sourceMember.Role != model.RoleAdmin || targetMember.Role != model.RoleOwner {
 		t.Fatalf("expected source admin and target owner after transfer, source=%+v target=%+v", sourceMember, targetMember)
 	}
-	if _, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, target.User.ID, "transfer-token-hash", time.Now()); !errors.Is(err, ErrNotFound) {
+	if _, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, target.User.ID, "transfer-token-hash-2", time.Now()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("accepted transfer token must reject replay, got %v", err)
 	}
 }

@@ -102,6 +102,12 @@ type BrandCloudOwnerTransferInput struct {
 	ExpiresAt         time.Time
 }
 
+type BrandCloudOwnerTransferQuery struct {
+	BrandCloudID string
+	TransferID   string
+	RequesterID  string
+}
+
 type BrandCloudUserInput struct {
 	Email          string
 	PasswordHash   string
@@ -152,12 +158,16 @@ type DeviceListFilter struct {
 	Query            string
 	SKU              string
 	GroupID          string
+	GroupIDs         []string
 	Region           string
+	Regions          []string
 	Category         string
 	Model            string
 	Status           string
+	Statuses         []string
 	Readiness        string
 	Firmware         string
+	Firmwares        []string
 	Sort             string
 	Direction        string
 	Limit            int
@@ -1056,7 +1066,7 @@ func (s *Store) ListOrganizations(ctx context.Context, userID string, limit, off
 		FROM organizations o
 		JOIN organization_members m ON m.organization_id = o.id
 		JOIN users u ON u.id = m.user_id
-		WHERE m.user_id = $1 AND u.disabled_at IS NULL
+		WHERE m.user_id = $1 AND m.disabled_at IS NULL AND u.disabled_at IS NULL
 		ORDER BY o.created_at ASC
 		LIMIT $2 OFFSET $3
 	`, userID, limit, offset)
@@ -1389,7 +1399,7 @@ func ensureNotLastActiveOwnerTx(ctx context.Context, tx pgx.Tx, orgID, userID st
 		SELECT m.user_id::text, u.disabled_at
 		FROM organization_members m
 		JOIN users u ON u.id = m.user_id
-		WHERE m.organization_id = $1 AND m.role = 'owner'
+		WHERE m.organization_id = $1 AND m.role = 'owner' AND m.disabled_at IS NULL
 		FOR UPDATE OF m, u
 	`, orgID)
 	if err != nil {
@@ -1523,28 +1533,48 @@ func (s *Store) ListDevicesFiltered(ctx context.Context, in DeviceListFilter) (D
 		placeholder := "$" + strconv.Itoa(len(args))
 		where = append(where, "(d.name ILIKE "+placeholder+" OR d.id::text ILIKE "+placeholder+" OR COALESCE(d.serial_number, '') ILIKE "+placeholder+")")
 	}
-	for _, filter := range []struct{ value, column string }{
-		{in.SKU, "d.device_item_profile_id"}, {in.Category, "d.category"}, {in.Model, "d.model"}, {in.Status, "d.status"},
-	} {
-		if value := strings.TrimSpace(filter.value); value != "" {
+	addAnyFilter := func(column string, values []string) {
+		clean := make([]string, 0, len(values))
+		for _, value := range values {
+			if value = strings.TrimSpace(value); value != "" {
+				clean = append(clean, value)
+			}
+		}
+		if len(clean) == 0 {
+			return
+		}
+		placeholders := make([]string, 0, len(clean))
+		for _, value := range clean {
 			args = append(args, value)
-			where = append(where, fmt.Sprintf("%s = $%d", filter.column, len(args)))
+			placeholders = append(placeholders, "$"+strconv.Itoa(len(args)))
+		}
+		where = append(where, fmt.Sprintf("%s IN (%s)", column, strings.Join(placeholders, ",")))
+	}
+	addAnyFilter("d.device_item_profile_id", []string{in.SKU})
+	addAnyFilter("d.category", []string{in.Category})
+	addAnyFilter("d.model", []string{in.Model})
+	addAnyFilter("d.status", append([]string{in.Status}, in.Statuses...))
+	groupIDs := append([]string{in.GroupID}, in.GroupIDs...)
+	if len(groupIDs) > 0 {
+		clean := make([]string, 0, len(groupIDs))
+		for _, value := range groupIDs {
+			if value = strings.TrimSpace(value); value != "" {
+				clean = append(clean, value)
+			}
+		}
+		if len(clean) > 0 {
+			placeholders := make([]string, 0, len(clean))
+			for _, value := range clean {
+				args = append(args, value)
+				placeholders = append(placeholders, "$"+strconv.Itoa(len(args)))
+			}
+			where = append(where, fmt.Sprintf("EXISTS (SELECT 1 FROM device_group_members dgm_filter WHERE dgm_filter.device_id = d.id AND dgm_filter.group_id::text IN (%s))", strings.Join(placeholders, ",")))
 		}
 	}
-	if value := strings.TrimSpace(in.GroupID); value != "" {
-		args = append(args, value)
-		where = append(where, fmt.Sprintf("EXISTS (SELECT 1 FROM device_group_members dgm_filter WHERE dgm_filter.device_id = d.id AND dgm_filter.group_id::text = $%d)", len(args)))
-	}
-	if value := strings.TrimSpace(in.Region); value != "" {
-		args = append(args, value)
-		where = append(where, fmt.Sprintf("COALESCE(NULLIF(d.metadata ->> 'region', ''), '未設定') = $%d", len(args)))
-	}
-	for _, filter := range []struct{ value, key string }{{in.Readiness, "readiness"}, {in.Firmware, "firmware_version"}} {
-		if value := strings.TrimSpace(filter.value); value != "" {
-			args = append(args, value)
-			where = append(where, fmt.Sprintf("d.metadata ->> '%s' = $%d", filter.key, len(args)))
-		}
-	}
+	regions := append([]string{in.Region}, in.Regions...)
+	addAnyFilter("COALESCE(NULLIF(d.metadata ->> 'region', ''), '未設定')", regions)
+	addAnyFilter("d.metadata ->> 'readiness'", []string{in.Readiness})
+	addAnyFilter("d.metadata ->> 'firmware_version'", append([]string{in.Firmware}, in.Firmwares...))
 	whereSQL := strings.Join(where, " AND ")
 	var total int
 	if err := s.db.QueryRow(ctx, "SELECT count(*) FROM devices d WHERE "+whereSQL, args...).Scan(&total); err != nil {
@@ -1601,7 +1631,7 @@ func (s *Store) countOrganizations(ctx context.Context, userID string) (int, err
 		FROM organizations o
 		JOIN organization_members m ON m.organization_id = o.id
 		JOIN users u ON u.id = m.user_id
-		WHERE m.user_id = $1 AND u.disabled_at IS NULL
+		WHERE m.user_id = $1 AND m.disabled_at IS NULL AND u.disabled_at IS NULL
 	`, userID).Scan(&total)
 	return total, err
 }
