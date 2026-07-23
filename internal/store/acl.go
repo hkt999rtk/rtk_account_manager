@@ -146,6 +146,33 @@ func (s *Store) HasPermission(ctx context.Context, userID, orgID, permission str
 	return allowed, err
 }
 
+func (s *Store) ListUserPlatformPermissions(ctx context.Context, userID string) ([]string, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT DISTINCT p.name
+		FROM role_assignments ra
+		JOIN roles r ON r.id = ra.role_id AND r.disabled_at IS NULL
+		JOIN role_permissions rp ON rp.role_id = r.id
+		JOIN permissions p ON p.id = rp.permission_id
+		JOIN users u ON u.id::text = ra.actor_id AND u.disabled_at IS NULL
+		WHERE ra.actor_type = 'user' AND ra.actor_id = $1
+		  AND ra.scope_type = 'platform' AND ra.disabled_at IS NULL
+		ORDER BY p.name
+	`, strings.TrimSpace(userID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	permissions := []string{}
+	for rows.Next() {
+		var permission string
+		if err := rows.Scan(&permission); err != nil {
+			return nil, err
+		}
+		permissions = append(permissions, permission)
+	}
+	return permissions, rows.Err()
+}
+
 func (s *Store) HasBrandCloudPermission(ctx context.Context, brandCloudUserID, orgID, permission string) (bool, error) {
 	return s.HasBrandCloudPermissionForResource(ctx, brandCloudUserID, orgID, permission, "", "")
 }

@@ -1327,6 +1327,18 @@ security, and test requirements are defined in
   until the target developer accepts with both a valid email token and their
   authenticated developer session.
 
+Developer dashboard membership contract:
+
+- `GET /v1/developer/brand-clouds` is the source of truth for selectable Brand
+  Clouds, bounded pagination, membership role, and cloud limit.
+- Detail, member list, invitation, role update, remove, owner-transfer status,
+  and cancellation remain under the `/v1/developer/brand-clouds/*` namespace.
+- Cloud Admin uses one global developer session with a runtime active-cloud
+  switch. Browser `brand_cloud_id` is never an authorization input to fleet
+  routes; active membership is resolved server-side.
+- Role names are display labels. Authorization is based on capabilities and
+  resource scope.
+
 ### Self-Service Evaluation Tier
 
 `rtk_cloud_workspace/docs/business-model.md` defines a public evaluation tier

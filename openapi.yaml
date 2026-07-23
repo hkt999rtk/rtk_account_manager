@@ -530,6 +530,136 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+  /v1/developer/brand-clouds/{brandCloudId}:
+    get:
+      tags: [Developer Brand Clouds]
+      operationId: getDeveloperBrandCloud
+      summary: Get a Brand Cloud and the current developer membership.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+      responses:
+        "200":
+          description: Developer Brand Cloud detail and current membership.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [brand_cloud, membership]
+                properties:
+                  brand_cloud: { $ref: "#/components/schemas/Organization" }
+                  membership: { $ref: "#/components/schemas/Member" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/members:
+    get:
+      tags: [Developer Brand Clouds]
+      operationId: listDeveloperBrandCloudMembers
+      summary: List members of a developer Brand Cloud.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Developer Brand Cloud members.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [members, pagination]
+                properties:
+                  members: { type: array, items: { $ref: "#/components/schemas/Member" } }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/members/{userId}:
+    patch:
+      tags: [Developer Brand Clouds]
+      operationId: updateDeveloperBrandCloudMember
+      summary: Update a Developer Brand Cloud member role.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [owner, admin, member] }
+      responses:
+        "200": { description: Member updated. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/members/{userId}/disable:
+    patch:
+      tags: [Developer Brand Clouds]
+      operationId: disableDeveloperBrandCloudMember
+      summary: Disable a member in this Brand Cloud without disabling the global account.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200": { description: Member disabled. }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/members/{userId}/enable:
+    patch:
+      tags: [Developer Brand Clouds]
+      operationId: enableDeveloperBrandCloudMember
+      summary: Re-enable a member in this Brand Cloud.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200": { description: Member enabled. }
+    delete:
+      tags: [Developer Brand Clouds]
+      operationId: removeDeveloperBrandCloudMember
+      summary: Remove a Developer Brand Cloud member.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204": { description: Member removed. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/members/invitations:
+    post:
+      tags: [Developer Brand Clouds]
+      operationId: inviteDeveloperBrandCloudMember
+      summary: Invite an existing developer account to a Brand Cloud.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              properties:
+                email: { type: string, format: email }
+                role: { type: string, enum: [owner, admin, member] }
+      responses:
+        "202": { description: Invitation accepted for an existing account. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
   /v1/developer/brand-clouds/{brandCloudId}/owner-transfer:
     post:
       tags:
@@ -586,6 +716,31 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/developer/brand-clouds/{brandCloudId}/owner-transfer/{transferId}:
+    get:
+      tags: [Developer Brand Clouds]
+      operationId: getBrandCloudOwnerTransfer
+      summary: Get the status of an owner transfer requested by the current developer.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - { name: transferId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Owner transfer status. }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Developer Brand Clouds]
+      operationId: cancelBrandCloudOwnerTransfer
+      summary: Cancel a pending owner transfer.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - { name: transferId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Owner transfer canceled. }
+        "404": { $ref: "#/components/responses/Error" }
   /v1/brand-clouds/{tenantSlug}/me:
     get:
       tags:
@@ -3188,8 +3343,16 @@ paths:
         - name: group_id
           in: query
           schema: { type: string, format: uuid }
+        - name: group_ids
+          in: query
+          description: Comma-separated group IDs; matched as an OR filter.
+          schema: { type: string }
         - name: region
           in: query
+          schema: { type: string }
+        - name: regions
+          in: query
+          description: Comma-separated regions; matched as an OR filter.
           schema: { type: string }
         - name: category
           in: query
@@ -3200,11 +3363,19 @@ paths:
         - name: status
           in: query
           schema: { type: string }
+        - name: statuses
+          in: query
+          description: Comma-separated statuses; matched as an OR filter.
+          schema: { type: string }
         - name: readiness
           in: query
           schema: { type: string }
         - name: firmware
           in: query
+          schema: { type: string }
+        - name: firmwares
+          in: query
+          description: Comma-separated firmware versions; matched as an OR filter.
           schema: { type: string }
         - name: sort
           in: query
@@ -4896,6 +5067,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Organization"
+        capabilities:
+          type: array
+          description: Effective global platform capabilities for the current user.
+          items: { type: string }
     ChipsetProviderWriteRequest:
       type: object
       additionalProperties: false
@@ -5070,6 +5245,9 @@ components:
             $ref: "#/components/schemas/Organization"
         pagination:
           $ref: "#/components/schemas/Pagination"
+        developer_cloud_limit:
+          type: integer
+          minimum: 1
     BrandCloudOwnerTransferResponse:
       type: object
       required: [owner_transfer]
@@ -5670,6 +5848,9 @@ components:
           pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
         role:
           $ref: "#/components/schemas/Role"
+        capabilities:
+          type: array
+          items: { type: string }
         organization_kind:
           $ref: "#/components/schemas/OrganizationKind"
         status:
@@ -5715,6 +5896,9 @@ components:
           type: string
         role:
           $ref: "#/components/schemas/Role"
+        capabilities:
+          type: array
+          items: { type: string }
         created_at:
           type: string
           format: date-time

@@ -1414,6 +1414,82 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 	if created.BrandCloud.Name != "Second Developer Cloud" || created.BrandCloud.OrganizationKind != "brand_cloud" {
 		t.Fatalf("unexpected developer brand cloud: %+v", created.BrandCloud)
 	}
+
+	detailRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID, nil, login.Tokens.AccessToken)
+	if detailRes.Code != http.StatusOK {
+		t.Fatalf("expected developer brand cloud detail 200, got %d: %s", detailRes.Code, detailRes.Body.String())
+	}
+	invalidInviteRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/invitations", map[string]any{
+		"email": "invalid-role@example.com", "role": "root",
+	}, login.Tokens.AccessToken)
+	if invalidInviteRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid developer role 400, got %d: %s", invalidInviteRes.Code, invalidInviteRes.Body.String())
+	}
+	lastOwnerUpdateRes := performJSON(env.router, http.MethodPatch, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/"+signup.User.ID, map[string]any{"role": "member"}, login.Tokens.AccessToken)
+	if lastOwnerUpdateRes.Code != http.StatusConflict {
+		t.Fatalf("expected last owner downgrade 409, got %d: %s", lastOwnerUpdateRes.Code, lastOwnerUpdateRes.Body.String())
+	}
+	lastOwnerDisableRes := performJSON(env.router, http.MethodPatch, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/"+signup.User.ID+"/disable", nil, login.Tokens.AccessToken)
+	if lastOwnerDisableRes.Code != http.StatusConflict {
+		t.Fatalf("expected last owner disable 409, got %d: %s", lastOwnerDisableRes.Code, lastOwnerDisableRes.Body.String())
+	}
+	lastOwnerRemoveRes := performJSON(env.router, http.MethodDelete, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/"+signup.User.ID, nil, login.Tokens.AccessToken)
+	if lastOwnerRemoveRes.Code != http.StatusConflict {
+		t.Fatalf("expected last owner removal 409, got %d: %s", lastOwnerRemoveRes.Code, lastOwnerRemoveRes.Body.String())
+	}
+	missingEnableRes := performJSON(env.router, http.MethodPatch, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/00000000-0000-0000-0000-000000000000/enable", nil, login.Tokens.AccessToken)
+	if missingEnableRes.Code != http.StatusNotFound {
+		t.Fatalf("expected missing member enable 404, got %d: %s", missingEnableRes.Code, missingEnableRes.Body.String())
+	}
+
+	member := verifiedDeveloperForTest(t, env, "developer-member@example.com")
+	inviteRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/invitations", map[string]any{
+		"email": "developer-member@example.com",
+		"role":  "member",
+	}, login.Tokens.AccessToken)
+	if inviteRes.Code != http.StatusAccepted {
+		t.Fatalf("expected member invitation 202, got %d: %s", inviteRes.Code, inviteRes.Body.String())
+	}
+	memberDetailRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID, nil, member.AccessToken)
+	if memberDetailRes.Code != http.StatusOK || !bytes.Contains(memberDetailRes.Body.Bytes(), []byte(`"role":"member"`)) {
+		t.Fatalf("expected member developer cloud detail 200, got %d: %s", memberDetailRes.Code, memberDetailRes.Body.String())
+	}
+	memberManageRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/invitations", map[string]any{
+		"email": "forbidden-invite@example.com", "role": "member",
+	}, member.AccessToken)
+	if memberManageRes.Code != http.StatusForbidden {
+		t.Fatalf("expected member management 403, got %d: %s", memberManageRes.Code, memberManageRes.Body.String())
+	}
+
+	membersRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members", nil, member.AccessToken)
+	if membersRes.Code != http.StatusOK {
+		t.Fatalf("expected member list 200, got %d: %s", membersRes.Code, membersRes.Body.String())
+	}
+	members := decodeBody[membersBody](t, membersRes)
+	if members.Pagination.Total != 2 || len(members.Members) != 2 {
+		t.Fatalf("expected owner and invited member, got %+v", members)
+	}
+
+	updateRes := performJSON(env.router, http.MethodPatch, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/"+member.UserID, map[string]any{"role": "admin"}, login.Tokens.AccessToken)
+	if updateRes.Code != http.StatusOK || decodeBody[memberBody](t, updateRes).Member.Role != "admin" {
+		t.Fatalf("expected member role update 200, got %d: %s", updateRes.Code, updateRes.Body.String())
+	}
+	disableRes := performJSON(env.router, http.MethodPatch, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/"+member.UserID+"/disable", nil, login.Tokens.AccessToken)
+	if disableRes.Code != http.StatusOK || decodeBody[memberBody](t, disableRes).Member.DisabledAt == nil {
+		t.Fatalf("expected member disable 200, got %d: %s", disableRes.Code, disableRes.Body.String())
+	}
+	enableRes := performJSON(env.router, http.MethodPatch, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/"+member.UserID+"/enable", nil, login.Tokens.AccessToken)
+	if enableRes.Code != http.StatusOK || decodeBody[memberBody](t, enableRes).Member.DisabledAt != nil {
+		t.Fatalf("expected member enable 200, got %d: %s", enableRes.Code, enableRes.Body.String())
+	}
+	removeRes := performJSON(env.router, http.MethodDelete, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/"+member.UserID, nil, login.Tokens.AccessToken)
+	if removeRes.Code != http.StatusNoContent {
+		t.Fatalf("expected member removal 204, got %d: %s", removeRes.Code, removeRes.Body.String())
+	}
+	removedMemberListRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members", nil, member.AccessToken)
+	if removedMemberListRes.Code != http.StatusNotFound {
+		t.Fatalf("expected removed member list 404, got %d: %s", removedMemberListRes.Code, removedMemberListRes.Body.String())
+	}
 }
 
 func TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession(t *testing.T) {
@@ -1458,6 +1534,22 @@ func TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession(t 
 	if transfer.OwnerTransfer.Status != "pending" || transfer.OwnerTransfer.TargetUserID != target.UserID {
 		t.Fatalf("unexpected pending transfer: %+v", transfer.OwnerTransfer)
 	}
+	getTransferRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer/"+transfer.OwnerTransfer.ID, nil, source.AccessToken)
+	if getTransferRes.Code != http.StatusOK || decodeBody[brandCloudOwnerTransferBody](t, getTransferRes).OwnerTransfer.Status != "pending" {
+		t.Fatalf("expected pending owner transfer detail 200, got %d: %s", getTransferRes.Code, getTransferRes.Body.String())
+	}
+	cancelRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer/"+transfer.OwnerTransfer.ID+"/cancel", map[string]any{}, source.AccessToken)
+	if cancelRes.Code != http.StatusOK || decodeBody[brandCloudOwnerTransferBody](t, cancelRes).OwnerTransfer.Status != "canceled" {
+		t.Fatalf("expected owner transfer cancellation 200, got %d: %s", cancelRes.Code, cancelRes.Body.String())
+	}
+
+	requestRes = performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer", map[string]any{
+		"target_email": "target-transfer@example.com",
+	}, source.AccessToken)
+	if requestRes.Code != http.StatusAccepted {
+		t.Fatalf("expected replacement owner transfer request 202, got %d: %s", requestRes.Code, requestRes.Body.String())
+	}
+	transfer = decodeBody[brandCloudOwnerTransferBody](t, requestRes)
 	token := latestAuthToken(t, env.tokenSink, "target-transfer@example.com", "brand_cloud_owner_transfer")
 
 	wrongAcceptRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-cloud-owner-transfers/accept", map[string]any{
@@ -1519,6 +1611,53 @@ func TestIntegrationAdminMetricsReportsEmptySnapshot(t *testing.T) {
 	}
 	if metricsBody.Lifecycle.Outbox.ByStatus == nil || metricsBody.Lifecycle.Inbox.ByStatus == nil || metricsBody.Lifecycle.Operations.ByStatus == nil {
 		t.Fatalf("expected lifecycle maps in empty metrics response, got %+v", metricsBody.Lifecycle)
+	}
+}
+
+func TestIntegrationPlatformAdminMissingBrandResourcesReturnNotFound(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+	admin := registerUser(t, env.router, "missing-brand-root@example.com", "Missing Brand Root")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	brandID := "00000000-0000-0000-0000-000000000000"
+	profileID := "00000000-0000-0000-0000-000000000001"
+	userID := "00000000-0000-0000-0000-000000000002"
+	profileBody := map[string]any{
+		"profile_key": "missing-profile", "display_name": "Missing Profile", "category": "ip_camera",
+		"ca_profile": "missing-ca", "issuer_profile": "missing-issuer", "service_options": []string{"video_streaming"},
+	}
+	userBody := map[string]any{"email": "missing-user@example.com", "password": "password123", "role": "member"}
+	tests := []struct {
+		method string
+		path   string
+		body   any
+	}{
+		{http.MethodGet, "/v1/admin/brand-clouds/" + brandID, nil},
+		{http.MethodPatch, "/v1/admin/brand-clouds/" + brandID, map[string]any{"name": "Still Missing"}},
+		{http.MethodGet, "/v1/admin/brand-clouds/" + brandID + "/device-item-profiles", nil},
+		{http.MethodPost, "/v1/admin/brand-clouds/" + brandID + "/device-item-profiles", profileBody},
+		{http.MethodGet, "/v1/admin/brand-clouds/" + brandID + "/device-item-profiles/" + profileID, nil},
+		{http.MethodPatch, "/v1/admin/brand-clouds/" + brandID + "/device-item-profiles/" + profileID, map[string]any{"display_name": "Still Missing"}},
+		{http.MethodPost, "/v1/admin/brand-clouds/" + brandID + "/device-item-profiles/" + profileID + "/disable", nil},
+		{http.MethodGet, "/v1/admin/brand-clouds/" + brandID + "/users", nil},
+		{http.MethodPost, "/v1/admin/brand-clouds/" + brandID + "/users", userBody},
+		{http.MethodPost, "/v1/admin/brand-clouds/" + brandID + "/users/" + userID + "/disable", nil},
+		{http.MethodPost, "/v1/admin/brand-clouds/" + brandID + "/users/" + userID + "/enable", nil},
+		{http.MethodPost, "/v1/admin/brand-clouds/" + brandID + "/users/" + userID + "/approve", nil},
+		{http.MethodPost, "/v1/admin/brand-clouds/" + brandID + "/users/" + userID + "/app-certificate/revoke", nil},
+		{http.MethodDelete, "/v1/admin/brand-clouds/" + brandID + "/users/" + userID, nil},
+	}
+	for _, tt := range tests {
+		res := performJSON(env.router, tt.method, tt.path, tt.body, admin.Tokens.AccessToken)
+		want := http.StatusNotFound
+		if strings.HasSuffix(tt.path, "/app-certificate/revoke") {
+			want = http.StatusOK
+		}
+		if res.Code != want {
+			t.Errorf("%s %s = %d, want %d: %s", tt.method, tt.path, res.Code, want, res.Body.String())
+		}
 	}
 }
 
@@ -1957,6 +2096,14 @@ func TestIntegrationPlatformAdminCreatesProductionRunJWT(t *testing.T) {
 		claims.BatchID != "batch-20260617" ||
 		claims.AllowedQuantity != 250 {
 		t.Fatalf("unexpected production JWT claims: %+v", claims)
+	}
+	if _, err := store.New(env.db).AddMember(ctx, brand.BrandCloud.ID, admin.User.Email, model.RoleOwner); err != nil {
+		t.Fatalf("add production-run reader membership: %v", err)
+	}
+	listPath := "/v1/orgs/" + brand.BrandCloud.ID + "/device-item-profiles/" + profile.DeviceItemProfile.ID + "/production-runs"
+	listRes := performJSON(env.router, http.MethodGet, listPath, nil, admin.Tokens.AccessToken)
+	if listRes.Code != http.StatusOK || !bytes.Contains(listRes.Body.Bytes(), []byte(body.ProductionRun.ID)) {
+		t.Fatalf("expected production run list 200 with created run, got %d: %s", listRes.Code, listRes.Body.String())
 	}
 }
 
@@ -2871,6 +3018,28 @@ func TestIntegrationBrandCloudScopedRoleAssignmentWorkflow(t *testing.T) {
 		t.Fatalf("expected brand login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
 	}
 	login := decodeBody[brandCloudLoginBody](t, loginRes)
+	if res := performJSON(env.router, http.MethodGet, "/v1/developer/chipsets", nil, login.Tokens.AccessToken); res.Code != http.StatusForbidden {
+		t.Fatalf("expected brand session developer chipset list 403, got %d: %s", res.Code, res.Body.String())
+	}
+	if res := performJSON(env.router, http.MethodGet, "/v1/developer/chipsets/missing", nil, login.Tokens.AccessToken); res.Code != http.StatusForbidden {
+		t.Fatalf("expected brand session developer chipset detail 403, got %d: %s", res.Code, res.Body.String())
+	}
+	rolesRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/roles", nil, login.Tokens.AccessToken)
+	if rolesRes.Code != http.StatusOK || !bytes.Contains(rolesRes.Body.Bytes(), []byte("firmware_operator")) {
+		t.Fatalf("expected customer ACL role catalog 200, got %d: %s", rolesRes.Code, rolesRes.Body.String())
+	}
+	permissionsRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/permissions", nil, login.Tokens.AccessToken)
+	if permissionsRes.Code != http.StatusOK || !bytes.Contains(permissionsRes.Body.Bytes(), []byte("registry_device.read")) {
+		t.Fatalf("expected customer ACL permission catalog 200, got %d: %s", permissionsRes.Code, permissionsRes.Body.String())
+	}
+	missingScopeRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/access/check", nil, login.Tokens.AccessToken)
+	if missingScopeRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected incomplete access check 400, got %d: %s", missingScopeRes.Code, missingScopeRes.Body.String())
+	}
+	accessRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/access/check?permission=registry_device.read&scope_type=organization&scope_id="+brand.BrandCloud.ID, nil, login.Tokens.AccessToken)
+	if accessRes.Code != http.StatusOK || !bytes.Contains(accessRes.Body.Bytes(), []byte(`"allowed":true`)) {
+		t.Fatalf("expected organization access check 200, got %d: %s", accessRes.Code, accessRes.Body.String())
+	}
 	listRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/role-assignments", nil, login.Tokens.AccessToken)
 	if listRes.Code != http.StatusOK {
 		t.Fatalf("expected scoped assignment list 200, got %d: %s", listRes.Code, listRes.Body.String())
@@ -2942,6 +3111,18 @@ func TestIntegrationBrandCloudResourceScopeFiltersFleetQueries(t *testing.T) {
 		t.Fatalf("expected member login 200, got %d: %s", memberLoginRes.Code, memberLoginRes.Body.String())
 	}
 	memberLogin := decodeBody[brandCloudLoginBody](t, memberLoginRes)
+	scopedDeviceRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/devices/"+scopedDevice.Device.ID, nil, memberLogin.Tokens.AccessToken)
+	if scopedDeviceRes.Code != http.StatusOK {
+		t.Fatalf("expected scoped device read 200, got %d: %s", scopedDeviceRes.Code, scopedDeviceRes.Body.String())
+	}
+	otherDeviceRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/devices/"+otherDevice.Device.ID, nil, memberLogin.Tokens.AccessToken)
+	if otherDeviceRes.Code != http.StatusForbidden {
+		t.Fatalf("expected out-of-scope device read 403, got %d: %s", otherDeviceRes.Code, otherDeviceRes.Body.String())
+	}
+	deviceTagsRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/devices/"+scopedDevice.Device.ID+"/tags", nil, memberLogin.Tokens.AccessToken)
+	if deviceTagsRes.Code != http.StatusOK {
+		t.Fatalf("expected scoped device tags read 200, got %d: %s", deviceTagsRes.Code, deviceTagsRes.Body.String())
+	}
 	fleetRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/fleet/devices?limit=100", nil, memberLogin.Tokens.AccessToken)
 	if fleetRes.Code != http.StatusOK {
 		t.Fatalf("expected scoped fleet query 200, got %d: %s", fleetRes.Code, fleetRes.Body.String())
@@ -2953,6 +3134,10 @@ func TestIntegrationBrandCloudResourceScopeFiltersFleetQueries(t *testing.T) {
 	}](t, fleetRes)
 	if len(fleet.Devices) != 1 || fleet.Devices[0].ID != scopedDevice.Device.ID || fleet.Devices[0].ID == otherDevice.Device.ID {
 		t.Fatalf("resource scope leaked devices: %+v", fleet.Devices)
+	}
+	summaryRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/fleet/summary", nil, memberLogin.Tokens.AccessToken)
+	if summaryRes.Code != http.StatusOK || !bytes.Contains(summaryRes.Body.Bytes(), []byte(`"total":1`)) {
+		t.Fatalf("expected scoped fleet summary 200 with one device, got %d: %s", summaryRes.Code, summaryRes.Body.String())
 	}
 }
 
@@ -3865,6 +4050,10 @@ func TestIntegrationFleetGroupsAndTags(t *testing.T) {
 	tags := decodeBody[deviceTagsBody](t, tagsRes)
 	if len(tags.Tags) != 1 || tags.Tags[0].Tag != "lobby" || tags.Pagination.Total != 1 {
 		t.Fatalf("unexpected tags response: %+v", tags)
+	}
+	organizationTagsRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/tags", nil, member.Tokens.AccessToken)
+	if organizationTagsRes.Code != http.StatusOK || !bytes.Contains(organizationTagsRes.Body.Bytes(), []byte(`"tag":"lobby"`)) {
+		t.Fatalf("expected organization tag list 200, got %d: %s", organizationTagsRes.Code, organizationTagsRes.Body.String())
 	}
 
 	deleteTagRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+owner.Organization.ID+"/devices/"+device.Device.ID+"/tags/lobby", nil, admin.Tokens.AccessToken)

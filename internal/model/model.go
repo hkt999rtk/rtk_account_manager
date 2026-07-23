@@ -417,6 +417,7 @@ type Organization struct {
 	Name                  string             `json:"name"`
 	TenantSlug            *string            `json:"tenant_slug,omitempty"`
 	Role                  Role               `json:"role,omitempty"`
+	Capabilities          []string           `json:"capabilities,omitempty"`
 	OrganizationKind      OrganizationKind   `json:"organization_kind"`
 	Status                OrganizationStatus `json:"status"`
 	Tier                  OrganizationTier   `json:"tier"`
@@ -432,6 +433,7 @@ type Member struct {
 	Email          string     `json:"email"`
 	DisplayName    *string    `json:"display_name,omitempty"`
 	Role           Role       `json:"role"`
+	Capabilities   []string   `json:"capabilities,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 	DisabledAt     *time.Time `json:"disabled_at,omitempty"`

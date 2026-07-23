@@ -531,8 +531,17 @@ func (s *Server) Router() *gin.Engine {
 	protected.DELETE("/me/identities/:identityId", s.deleteCurrentUserIdentity)
 
 	protected.GET("/developer/brand-clouds", s.listDeveloperBrandClouds)
+	protected.GET("/developer/brand-clouds/:brandCloudId", s.getDeveloperBrandCloud)
 	protected.POST("/developer/brand-clouds", s.createDeveloperBrandCloud)
+	protected.GET("/developer/brand-clouds/:brandCloudId/members", s.listDeveloperBrandCloudMembers)
+	protected.POST("/developer/brand-clouds/:brandCloudId/members/invitations", s.inviteDeveloperBrandCloudMember)
+	protected.PATCH("/developer/brand-clouds/:brandCloudId/members/:userId/disable", s.disableDeveloperBrandCloudMember)
+	protected.PATCH("/developer/brand-clouds/:brandCloudId/members/:userId/enable", s.enableDeveloperBrandCloudMember)
+	protected.PATCH("/developer/brand-clouds/:brandCloudId/members/:userId", s.updateDeveloperBrandCloudMember)
+	protected.DELETE("/developer/brand-clouds/:brandCloudId/members/:userId", s.removeDeveloperBrandCloudMember)
 	protected.POST("/developer/brand-clouds/:brandCloudId/owner-transfer", s.createBrandCloudOwnerTransfer)
+	protected.GET("/developer/brand-clouds/:brandCloudId/owner-transfer/:transferId", s.getBrandCloudOwnerTransfer)
+	protected.POST("/developer/brand-clouds/:brandCloudId/owner-transfer/:transferId/cancel", s.cancelBrandCloudOwnerTransfer)
 	protected.POST("/developer/brand-cloud-owner-transfers/accept", s.acceptBrandCloudOwnerTransfer)
 	protected.GET("/developer/chipsets", s.listDeveloperChipsets)
 	protected.GET("/developer/chipsets/:chipsetId", s.getDeveloperChipset)
@@ -1345,7 +1354,17 @@ func (s *Server) me(c *gin.Context) {
 		writeStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"user": user, "organizations": orgPage.Organizations})
+	for i := range orgPage.Organizations {
+		if orgPage.Organizations[i].OrganizationKind == model.OrganizationKindBrandCloud {
+			orgPage.Organizations[i].Capabilities = developerCapabilitiesForRole(orgPage.Organizations[i].Role)
+		}
+	}
+	capabilities, err := s.store.ListUserPlatformPermissions(c.Request.Context(), userID)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"user": user, "organizations": orgPage.Organizations, "capabilities": capabilities})
 }
 
 func (s *Server) deleteCurrentUser(c *gin.Context) {
@@ -1608,12 +1627,16 @@ func (s *Server) listFleetDevices(c *gin.Context) {
 		Query:          c.Query("q"),
 		SKU:            c.Query("sku_id"),
 		GroupID:        c.Query("group_id"),
+		GroupIDs:       splitCSVQuery(c.Query("group_ids")),
 		Region:         c.Query("region"),
+		Regions:        splitCSVQuery(c.Query("regions")),
 		Category:       c.Query("category"),
 		Model:          c.Query("model"),
 		Status:         c.Query("status"),
+		Statuses:       splitCSVQuery(c.Query("statuses")),
 		Readiness:      c.Query("readiness"),
 		Firmware:       c.Query("firmware"),
+		Firmwares:      splitCSVQuery(c.Query("firmwares")),
 		Sort:           c.Query("sort"),
 		Direction:      c.Query("direction"),
 		Limit:          limit,
@@ -1632,6 +1655,17 @@ func (s *Server) listFleetDevices(c *gin.Context) {
 		"server_side": true,
 		"q":           c.Query("q"), "sku_id": c.Query("sku_id"), "group_id": c.Query("group_id"), "region": c.Query("region"), "category": c.Query("category"), "model": c.Query("model"), "status": c.Query("status"),
 	}})
+}
+
+func splitCSVQuery(value string) []string {
+	parts := strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ' ' })
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
 }
 
 func (s *Server) fleetSummary(c *gin.Context) {
@@ -1910,7 +1944,7 @@ func (s *Server) requirePermission(permission string) gin.HandlerFunc {
 			if !allowed && (permission == "registry_device.read" || permission == "device_group.read" || permission == "device_tag.read") && c.Param("deviceId") == "" && c.Param("profileId") == "" {
 				allowed, err = s.store.HasBrandCloudPermissionAnyResource(c.Request.Context(), currentBrandCloudUserID(c), orgID, permission)
 			}
-			if !allowed {
+			if !allowed && c.Param("deviceId") == "" && c.Param("profileId") == "" {
 				writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
 				c.Abort()
 				return
