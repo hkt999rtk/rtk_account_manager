@@ -867,12 +867,6 @@ func randomTenantSlugSuffix() (string, error) {
 	return hex.EncodeToString(data[:]), nil
 }
 
-func scanMember(row scanner) (model.Member, error) {
-	var member model.Member
-	err := row.Scan(&member.OrganizationID, &member.UserID, &member.Role, &member.CreatedAt, &member.UpdatedAt)
-	return member, err
-}
-
 func scanBrandCloudUser(row scanner) (model.BrandCloudUser, error) {
 	var user model.BrandCloudUser
 	err := row.Scan(
@@ -894,17 +888,4 @@ func scanBrandCloudMember(row scanner) (model.BrandCloudMember, error) {
 	var member model.BrandCloudMember
 	err := row.Scan(&member.BrandCloudID, &member.BrandCloudUserID, &member.Role, &member.CreatedAt, &member.UpdatedAt)
 	return member, err
-}
-
-func getUserTx(ctx context.Context, tx pgx.Tx, userID string) (model.User, error) {
-	var user model.User
-	err := tx.QueryRow(ctx, `
-		SELECT id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
-		FROM users
-		WHERE id = $1 AND disabled_at IS NULL
-	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return model.User{}, ErrNotFound
-	}
-	return user, err
 }

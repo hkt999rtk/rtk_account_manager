@@ -306,6 +306,13 @@ func TestACLPlatformAssignmentsAuditAndErrorPaths(t *testing.T) {
 	if _, err := env.store.ListRoleAssignments(ctx, 10, 0); err != nil {
 		t.Fatal(err)
 	}
+	platformPermissions, err := env.store.ListUserPlatformPermissions(ctx, registered.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(platformPermissions) == 0 {
+		t.Fatal("expected support_operator platform permissions")
+	}
 	if err := env.store.DisableRoleAssignment(ctx, assignment.ID, &registered.User.ID); err != nil {
 		t.Fatal(err)
 	}

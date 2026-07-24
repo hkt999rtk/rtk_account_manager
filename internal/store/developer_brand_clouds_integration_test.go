@@ -202,14 +202,30 @@ func TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeve
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := env.store.CreateBrandCloudOwnerTransfer(ctx, BrandCloudOwnerTransferInput{
+	expiredTransfer, err := env.store.CreateBrandCloudOwnerTransfer(ctx, BrandCloudOwnerTransferInput{
 		BrandCloudID:      source.BrandCloud.ID,
 		RequestedByUserID: source.User.ID,
 		TargetEmail:       "target-owner@example.com",
 		TokenHash:         "expired-token-hash",
 		ExpiresAt:         time.Now().Add(-time.Hour),
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
+	}
+	expiredStatus, err := env.store.GetBrandCloudOwnerTransfer(ctx, BrandCloudOwnerTransferQuery{
+		BrandCloudID: source.BrandCloud.ID,
+		TransferID:   expiredTransfer.ID,
+		RequesterID:  source.User.ID,
+	}, time.Now())
+	if err != nil || expiredStatus.Status != "expired" {
+		t.Fatalf("expected expired transfer status, got %+v, %v", expiredStatus, err)
+	}
+	if _, err := env.store.GetBrandCloudOwnerTransfer(ctx, BrandCloudOwnerTransferQuery{
+		BrandCloudID: source.BrandCloud.ID,
+		TransferID:   "00000000-0000-0000-0000-000000000000",
+		RequesterID:  source.User.ID,
+	}, time.Now()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing transfer status error = %v, want ErrNotFound", err)
 	}
 	if _, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, target.User.ID, "expired-token-hash", time.Now()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expired transfer token must reject, got %v", err)

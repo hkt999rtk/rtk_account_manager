@@ -207,13 +207,23 @@ func TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit(t *testing.T) {
 		close(done)
 	}()
 	deadline := time.Now().Add(time.Second)
-	for fetcher.callCount() == before && time.Now().Before(deadline) {
+	refreshed := false
+	for time.Now().Before(deadline) {
+		var stale bool
+		err := env.db.QueryRow(ctx, `SELECT stale FROM chipset_information_providers WHERE id::text = $1`, created.Provider.ID).Scan(&stale)
+		if err == nil && !stale {
+			refreshed = true
+			break
+		}
 		time.Sleep(time.Millisecond)
 	}
 	cancel()
 	<-done
 	if fetcher.callCount() == before {
 		t.Fatal("background refresh did not fetch a published provider")
+	}
+	if !refreshed {
+		t.Fatal("background refresh did not persist the successful refresh")
 	}
 	assertDeveloperChipsets(t, env.router, developer.Tokens.AccessToken, 1, "2.0.0", false)
 

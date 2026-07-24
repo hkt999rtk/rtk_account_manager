@@ -544,6 +544,9 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/config`: `TestLoadUsesOIDCDefaultsAndBooleanFallbacks`
 - `rtk_account_manager/internal/config`: `TestLoadWorkerAllowsMissingJWTSecrets`
 - `rtk_account_manager/internal/config`: `TestLoadWorkerFallsBackForInvalidMaxAttempts`
+- `rtk_account_manager/internal/database`: `TestConnectAppliesPoolTuningIntegration`
+- `rtk_account_manager/internal/database`: `TestConnectRejectsInvalidConfig`
+- `rtk_account_manager/internal/database`: `TestConnectRejectsUnreachableDatabase`
 - `rtk_account_manager/internal/database`: `TestEnvDurationFallback`
 - `rtk_account_manager/internal/database`: `TestEnvIntFallback`
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirCandidates`
@@ -602,6 +605,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestDeviceClaimReclaimRequiresEvidenceAndRejectsInvalidTransitions`
 - `rtk_account_manager/internal/store`: `TestDeviceClaimTokenAdminLifecycle`
 - `rtk_account_manager/internal/store`: `TestDeviceClaimTransferMovesOwnershipAndAudits`
+- `rtk_account_manager/internal/store`: `TestDeviceInventoryFiltersAndConveniencePathsIntegration`
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileBacksClaimTokenSnapshotAndResolve`
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileCRUDAndAudit`
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
@@ -641,6 +645,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestRecordOutboxPublishTransitionRejectsStaleLease`
 - `rtk_account_manager/internal/store`: `TestRecordOutboxPublishTransitionUpdatesOperationState`
 - `rtk_account_manager/internal/store`: `TestRequeueInboxMessageReopensDeadLetteredRow`
+- `rtk_account_manager/internal/store`: `TestRequeueMessageNoopConflictAndMissingPaths`
 - `rtk_account_manager/internal/store`: `TestRequeueOutboxMessageRejectsCompletedLifecycleOperation`
 - `rtk_account_manager/internal/store`: `TestRequeueOutboxMessageResetsRetryState`
 - `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenCreatesDeviceAndClaim`
@@ -656,6 +661,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationRejectsMissingProjectedMetadata`
 - `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationUsesProjectedMetadata`
 - `rtk_account_manager/internal/store`: `TestStartDeviceLifecycleOperationPersistsPendingProvisionMetadata`
+- `rtk_account_manager/internal/store`: `TestStoreOperationsRespectCanceledContextIntegration`
 - `rtk_account_manager/internal/store`: `TestUnprovisionDeviceRetainsClaimHistoryAndAllowsReplacementClaim`
 - `rtk_account_manager/internal/store`: `TestUserIdentityStoreEnforcesUniquenessAndListsByUser`
 - `rtk_account_manager/internal/store`: `TestValidateDeviceItemProfileRejectsInvalidFields/duplicate_service`
