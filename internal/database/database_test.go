@@ -1,11 +1,56 @@
 package database
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestConnectRejectsInvalidConfig(t *testing.T) {
+	if _, err := Connect(context.Background(), "://invalid"); err == nil {
+		t.Fatal("expected invalid database URL to fail")
+	}
+}
+
+func TestConnectRejectsUnreachableDatabase(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if pool, err := Connect(ctx, "postgres://coverage:coverage@127.0.0.1:1/coverage?sslmode=disable&connect_timeout=1"); err == nil {
+		pool.Close()
+		t.Fatal("expected unreachable database to fail ping")
+	}
+}
+
+func TestConnectAppliesPoolTuningIntegration(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is required")
+	}
+	t.Setenv("DATABASE_MAX_CONNS", "7")
+	t.Setenv("DATABASE_MIN_CONNS", "2")
+	t.Setenv("DATABASE_MAX_CONN_LIFETIME", "11m")
+	t.Setenv("DATABASE_MAX_CONN_IDLE_TIME", "90s")
+
+	pool, err := Connect(context.Background(), databaseURL)
+	if err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	defer pool.Close()
+
+	config := pool.Config()
+	if config.MaxConns != 7 || config.MinConns != 2 {
+		t.Fatalf("pool connection bounds = %d/%d, want 7/2", config.MaxConns, config.MinConns)
+	}
+	if config.MaxConnLifetime != 11*time.Minute {
+		t.Fatalf("MaxConnLifetime = %v, want 11m", config.MaxConnLifetime)
+	}
+	if config.MaxConnIdleTime != 90*time.Second {
+		t.Fatalf("MaxConnIdleTime = %v, want 90s", config.MaxConnIdleTime)
+	}
+}
 
 func TestFindMigrationDirMissing(t *testing.T) {
 	t.Chdir(t.TempDir())

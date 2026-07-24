@@ -29,7 +29,7 @@ func TestStartDeviceLifecycleOperationPersistsPendingProvisionMetadata(t *testin
 		t.Fatal(err)
 	}
 
-	result, err := env.store.StartDeviceLifecycleOperation(ctx, DeviceLifecycleOperationInput{
+	input := DeviceLifecycleOperationInput{
 		OperationID:       "provision-op-1",
 		CorrelationID:     "provision-op-1",
 		MessageID:         "provision-message-1",
@@ -49,7 +49,8 @@ func TestStartDeviceLifecycleOperationPersistsPendingProvisionMetadata(t *testin
 		},
 		MetadataPatch: PendingProvisionMetadata("video-device-1", "activity-1", "clip-key-1", []string{"video_streaming"}),
 		Now:           time.Now().UTC().Truncate(time.Microsecond),
-	})
+	}
+	result, err := env.store.StartDeviceLifecycleOperation(ctx, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,6 +88,23 @@ func TestStartDeviceLifecycleOperationPersistsPendingProvisionMetadata(t *testin
 	}
 	if got := persisted.Metadata[model.DeviceMetadataVideoCloudActivationStatus]; got != string(model.VideoCloudActivationStatusPending) {
 		t.Fatalf("expected persisted pending activation status, got %+v", got)
+	}
+
+	replayed, err := env.store.StartDeviceLifecycleOperation(ctx, input)
+	if err != nil {
+		t.Fatalf("idempotent replay failed: %v", err)
+	}
+	if replayed.Created {
+		t.Fatal("idempotent replay must reuse the existing operation")
+	}
+	if replayed.Operation.ID != result.Operation.ID || replayed.Message.ID != result.Message.ID {
+		t.Fatalf("idempotent replay changed persisted rows: first=%+v replay=%+v", result, replayed)
+	}
+
+	conflicting := input
+	conflicting.CorrelationID = "different-correlation"
+	if _, err := env.store.StartDeviceLifecycleOperation(ctx, conflicting); !errors.Is(err, ErrConflict) {
+		t.Fatalf("conflicting operation replay error = %v, want ErrConflict", err)
 	}
 }
 

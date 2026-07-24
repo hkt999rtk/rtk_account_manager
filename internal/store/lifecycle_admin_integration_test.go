@@ -153,6 +153,61 @@ func TestRequeueOutboxMessageRejectsCompletedLifecycleOperation(t *testing.T) {
 	}
 }
 
+func TestRequeueMessageNoopConflictAndMissingPaths(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	fixture := createLifecycleOutboxFixture(t, env, "requeue-boundaries", time.Date(2026, 4, 29, 12, 30, 0, 0, time.UTC))
+
+	message, operation, changed, err := env.store.RequeueOutboxMessage(ctx, fixture.Message.MessageID, fixture.Message.AvailableAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed || message.Status != model.DeviceMessageOutboxStatusPending || operation == nil {
+		t.Fatalf("pending outbox requeue = changed %v, message %+v, operation %+v", changed, message, operation)
+	}
+	if _, _, _, err := env.store.RequeueOutboxMessage(ctx, "missing-outbox", time.Now()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing outbox requeue error = %v, want ErrNotFound", err)
+	}
+	if _, err := env.store.UpdateOutboxMessage(ctx, fixture.Message.MessageID, DeviceMessageOutboxUpdateInput{
+		Status:       model.DeviceMessageOutboxStatusPublished,
+		AttemptCount: 1,
+		AvailableAt:  fixture.Message.AvailableAt,
+		PublishedAt:  timePtr(fixture.Message.AvailableAt),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := env.store.RequeueOutboxMessage(ctx, fixture.Message.MessageID, time.Now()); !errors.Is(err, ErrConflict) {
+		t.Fatalf("published outbox requeue error = %v, want ErrConflict", err)
+	}
+
+	inbox, _, err := env.store.CreateOrGetInboxMessage(ctx, DeviceMessageInboxCreateInput{
+		MessageID:     "evt-requeue-boundaries",
+		OperationID:   fixture.Operation.OperationID,
+		CorrelationID: fixture.Operation.CorrelationID,
+		Stream:        "video.account.events",
+		MessageType:   string(channel.MessageTypeDeviceProvisionFailed),
+		SchemaVersion: "1.0",
+		PartitionKey:  fixture.Operation.DeviceID,
+		Payload:       map[string]any{"error_code": "temporary"},
+		Status:        model.DeviceMessageInboxStatusRetrying,
+		AttemptCount:  1,
+		ReceivedAt:    fixture.Message.AvailableAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requeuedInbox, _, changed, err := env.store.RequeueInboxMessage(ctx, inbox.MessageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed || requeuedInbox.Status != model.DeviceMessageInboxStatusRetrying {
+		t.Fatalf("retrying inbox requeue = changed %v, message %+v", changed, requeuedInbox)
+	}
+	if _, _, _, err := env.store.RequeueInboxMessage(ctx, "missing-inbox"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing inbox requeue error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestListInboxMessagesByStatusAndShowDetail(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()
