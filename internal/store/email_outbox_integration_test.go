@@ -111,6 +111,73 @@ func TestEmailOutboxClaimLeaseAndIdempotency(t *testing.T) {
 	}
 }
 
+func TestEmailOutboxTransitionsListRequeueAndCounts(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	env.store.ConfigureEmailOutboxCipher(integrationEmailCipher(t))
+	now := time.Now().UTC()
+	expiresAt := now.Add(time.Hour)
+	for _, input := range []EmailOutboxInput{
+		{IdempotencyKey: "transition:sent", MessageType: "email_verification", Payload: emaildelivery.Payload{RecipientEmail: "sent@example.com"}},
+		{IdempotencyKey: "transition:retry", MessageType: "password_reset", Payload: emaildelivery.Payload{RecipientEmail: "retry@example.com"}},
+		{IdempotencyKey: "transition:expired", MessageType: "login_activation", Payload: emaildelivery.Payload{RecipientEmail: "expired@example.com"}, ExpiresAt: &expiresAt},
+	} {
+		if err := env.store.EnqueueEmail(ctx, input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claimed, err := env.store.ClaimEmailOutboxReady(ctx, now.Add(time.Second), now.Add(time.Minute), 3)
+	if err != nil || len(claimed) != 3 {
+		t.Fatalf("claim = %+v, %v", claimed, err)
+	}
+	byKey := make(map[string]model.EmailOutbox, len(claimed))
+	for _, message := range claimed {
+		byKey[message.IdempotencyKey] = message
+	}
+	sentAt := now.Add(2 * time.Second)
+	if changed, err := env.store.TransitionEmailOutbox(ctx, EmailOutboxTransitionInput{
+		ID: byKey["transition:sent"].ID, FromAttempt: 0, Status: model.EmailOutboxStatusSent,
+		AttemptCount: 1, AvailableAt: sentAt, SentAt: &sentAt, ClearPayload: true,
+	}); err != nil || !changed {
+		t.Fatalf("mark sent = %v, %v", changed, err)
+	}
+	if changed, err := env.store.TransitionEmailOutbox(ctx, EmailOutboxTransitionInput{
+		ID: byKey["transition:sent"].ID, FromAttempt: 0, Status: model.EmailOutboxStatusSent,
+		AttemptCount: 1, AvailableAt: sentAt, SentAt: &sentAt, ClearPayload: true,
+	}); err != nil || changed {
+		t.Fatalf("stale transition = %v, %v", changed, err)
+	}
+	if changed, err := env.store.TransitionEmailOutbox(ctx, EmailOutboxTransitionInput{
+		ID: byKey["transition:retry"].ID, FromAttempt: 0, Status: model.EmailOutboxStatusDeadLettered,
+		AttemptCount: 1, AvailableAt: sentAt,
+	}); err != nil || !changed {
+		t.Fatalf("mark dead letter = %v, %v", changed, err)
+	}
+	if changed, err := env.store.TransitionEmailOutbox(ctx, EmailOutboxTransitionInput{
+		ID: byKey["transition:expired"].ID, FromAttempt: 0, Status: model.EmailOutboxStatusExpired,
+		AttemptCount: 1, AvailableAt: sentAt, ClearPayload: true,
+	}); err != nil || !changed {
+		t.Fatalf("mark expired = %v, %v", changed, err)
+	}
+	if changed, err := env.store.RequeueEmailOutbox(ctx, byKey["transition:retry"].ID, sentAt); err != nil || !changed {
+		t.Fatalf("requeue = %v, %v", changed, err)
+	}
+	if changed, err := env.store.RequeueEmailOutbox(ctx, byKey["transition:expired"].ID, sentAt); err != nil || changed {
+		t.Fatalf("requeue expired = %v, %v", changed, err)
+	}
+	retrying, err := env.store.ListEmailOutbox(ctx, model.EmailOutboxStatusRetrying, 0)
+	if err != nil || len(retrying) != 1 || retrying[0].PayloadNonce != nil || retrying[0].PayloadCiphertext != nil {
+		t.Fatalf("retrying list = %+v, %v", retrying, err)
+	}
+	counts, err := env.store.GetEmailOutboxCounts(ctx, sentAt.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Retrying != 1 || counts.Sent != 1 || counts.Expired != 1 || counts.DeadLettered != 0 || counts.OldestPendingAge <= 0 || counts.DeliveryLatency <= 0 {
+		t.Fatalf("counts = %+v", counts)
+	}
+}
+
 func TestQuotaDecisionAndEmailOutboxCommitOrRollbackTogether(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()

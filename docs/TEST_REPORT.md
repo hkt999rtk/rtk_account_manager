@@ -628,6 +628,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
 - `rtk_account_manager/internal/store`: `TestEmailOutboxClaimLeaseAndIdempotency`
 - `rtk_account_manager/internal/store`: `TestEmailOutboxTokenAndQueueAreTransactional`
+- `rtk_account_manager/internal/store`: `TestEmailOutboxTransitionsListRequeueAndCounts`
 - `rtk_account_manager/internal/store`: `TestEndUserPersistenceErrorPaths`
 - `rtk_account_manager/internal/store`: `TestEnsurePlatformAdminCreatesAndReenablesUser`
 - `rtk_account_manager/internal/store`: `TestEnsurePlatformAdminCreatesRealtekConnectBrandCloud`
