@@ -37,13 +37,8 @@ func (s *Server) brandCloudSignIn(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	token, expiresAt, err := s.newAuthToken()
-	if err != nil {
-		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue login token")
-		return
-	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	created, err := s.store.CreateBrandCloudLoginActivationTokenForEmail(c.Request.Context(), c.Param("tenantSlug"), email, auth.HashToken(token), expiresAt)
+	_, err := s.issueBrandCloudLoginToken(c, c.Param("tenantSlug"), email)
 	if err != nil {
 		if errors.Is(err, store.ErrRateLimited) {
 			c.Status(http.StatusAccepted)
@@ -51,9 +46,6 @@ func (s *Server) brandCloudSignIn(c *gin.Context) {
 		}
 		writeAuthTokenStoreError(c, err, "Could not issue login token")
 		return
-	}
-	if created {
-		_ = s.deliverAuthToken(c, email, "login_activation", token, expiresAt)
 	}
 	c.Status(http.StatusAccepted)
 }

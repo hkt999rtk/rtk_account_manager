@@ -22,6 +22,8 @@ for binary in \
   rtk-account-manager-migrate \
   rtk-account-manager-outbox-worker \
   rtk-account-manager-inbox-worker \
+  rtk-account-manager-email-worker \
+  rtk-account-manager-email-outbox-admin \
   rtk-account-manager-cleanup-tokens; do
   test -x "$prefix/bin/$binary"
 done

@@ -273,6 +273,11 @@ func (s *Store) CreateBrandCloudOwnerTransfer(ctx context.Context, in BrandCloud
 	}); err != nil {
 		return model.BrandCloudOwnerTransfer{}, err
 	}
+	if in.Email != nil {
+		if err := s.enqueueEmailTx(ctx, tx, *in.Email); err != nil {
+			return model.BrandCloudOwnerTransfer{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return model.BrandCloudOwnerTransfer{}, err
 	}

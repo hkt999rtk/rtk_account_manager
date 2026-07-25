@@ -224,20 +224,28 @@ func (s *Server) createBrandCloudOwnerTransfer(c *gin.Context) {
 		return
 	}
 	targetEmail := strings.ToLower(strings.TrimSpace(req.TargetEmail))
+	var emailOutbox *store.EmailOutboxInput
+	if s.emailOutboxStore != nil {
+		value := authTokenEmailOutbox(targetEmail, "brand_cloud_owner_transfer", token, expiresAt)
+		emailOutbox = &value
+	}
 	transfer, err := s.store.CreateBrandCloudOwnerTransfer(c.Request.Context(), store.BrandCloudOwnerTransferInput{
 		BrandCloudID:      c.Param("brandCloudId"),
 		RequestedByUserID: currentUserID(c),
 		TargetEmail:       targetEmail,
 		TokenHash:         auth.HashToken(token),
 		ExpiresAt:         expiresAt,
+		Email:             emailOutbox,
 	})
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	if err := s.deliverAuthToken(c, targetEmail, "brand_cloud_owner_transfer", token, expiresAt); err != nil {
-		writeError(c, http.StatusInternalServerError, "token_delivery_failed", "Could not deliver owner transfer token")
-		return
+	if s.emailOutboxStore == nil {
+		if err := s.deliverAuthToken(c, targetEmail, "brand_cloud_owner_transfer", token, expiresAt); err != nil {
+			writeError(c, http.StatusInternalServerError, "token_delivery_failed", "Could not deliver owner transfer token")
+			return
+		}
 	}
 	c.JSON(http.StatusAccepted, brandCloudOwnerTransferResponse{OwnerTransfer: transfer})
 }

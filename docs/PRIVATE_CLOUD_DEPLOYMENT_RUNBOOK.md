@@ -86,6 +86,8 @@ The service package should contain:
 | `rtk-account-manager-migrate` | Migration binary built from `./cmd/migrate`. |
 | `rtk-account-manager-outbox-worker` | Outbox worker binary built from `./cmd/outbox-worker`. |
 | `rtk-account-manager-inbox-worker` | Inbox worker binary built from `./cmd/inbox-worker`. |
+| `rtk-account-manager-email-worker` | SMTP email outbox worker built from `./cmd/email-worker`. |
+| `rtk-account-manager-email-outbox-admin` | Safe email queue list/requeue command built from `./cmd/email-outbox-admin`. |
 | `rtk-account-manager-cleanup-tokens` | Token cleanup binary built from `./cmd/cleanup-tokens`. |
 | `migrations/` | SQL migration files installed beside the binaries' working directory. |
 | `deploy/account-manager.env.example` | Non-secret environment key inventory for operator-owned env files. |
@@ -99,6 +101,8 @@ go build -trimpath -o dist/rtk-account-manager ./cmd/server
 go build -trimpath -o dist/rtk-account-manager-migrate ./cmd/migrate
 go build -trimpath -o dist/rtk-account-manager-outbox-worker ./cmd/outbox-worker
 go build -trimpath -o dist/rtk-account-manager-inbox-worker ./cmd/inbox-worker
+go build -trimpath -o dist/rtk-account-manager-email-worker ./cmd/email-worker
+go build -trimpath -o dist/rtk-account-manager-email-outbox-admin ./cmd/email-outbox-admin
 go build -trimpath -o dist/rtk-account-manager-cleanup-tokens ./cmd/cleanup-tokens
 ```
 
@@ -288,8 +292,9 @@ Default restart units are:
 rtk-account-manager.service rtk-account-manager-cleanup-tokens.timer
 ```
 
-Enable `rtk-account-manager-outbox-worker.service` and
-`rtk-account-manager-inbox-worker.service` in `restart_units` only when the
+Enable `rtk-account-manager-outbox-worker.service`,
+`rtk-account-manager-inbox-worker.service`, and
+`rtk-account-manager-email-worker.service` in `restart_units` only when the
 cross-service lifecycle channel is deliberately enabled for the environment.
 
 ## Environment Variables
@@ -312,7 +317,7 @@ It intentionally contains placeholders only.
 | `PORT` | API bind port. | `8080` by code default; staging deploy uses `18081` to avoid `rtk_video_cloud` on `18080`. |
 | `ACCESS_TOKEN_TTL` | Access token lifetime. | `15m` |
 | `REFRESH_TOKEN_TTL` | Refresh token lifetime. | `720h` |
-| `AUTH_TOKEN_DELIVERY` | Verification/reset token delivery adapter. | `log` is currently supported by the server entrypoint. |
+| `AUTH_TOKEN_DELIVERY` | Verification/reset token delivery adapter. | `log` for local/test; production requires `smtp`. |
 | `EMAIL_VERIFICATION_TTL` | Email verification OTP lifetime. | `30m` |
 | `PASSWORD_RESET_TTL` | Password reset OTP lifetime. | `30m` |
 | `OTP_RESEND_INTERVAL` | Minimum resend interval. | `60s` |
@@ -345,20 +350,31 @@ database rows, issue comments, reports, or deployment evidence.
 
 ### SMTP And Quota Notifications
 
-Quota-raise approval and decline notifications use SMTP when `SMTP_HOST` and
-`SMTP_FROM` are configured. Otherwise the service falls back to a log adapter.
+Auth-token, owner-transfer, and quota-decision notifications use an encrypted
+PostgreSQL outbox. Run `rtk-account-manager-email-worker` alongside the API.
+Temporary SMTP failure is retried independently and does not roll back the API
+mutation.
 
 | Variable | Purpose | Secret |
 | --- | --- | --- |
 | `SMTP_HOST` | SMTP host or host:port. | No |
 | `SMTP_PORT` | SMTP port when not embedded in `SMTP_HOST`. | No |
-| `SMTP_USERNAME` | SMTP username. | Usually yes |
+| `SMTP_USERNAME` | SMTP username; required in production. | Usually yes |
 | `SMTP_PASSWORD` | SMTP password. | Yes |
 | `SMTP_FROM` | Sender address. | No |
+| `SMTP_FROM_NAME` | Sender display name. | No; default `Realtek Connect` |
+| `SMTP_ENCRYPTION` | SMTP transport policy. | No; production requires `starttls` |
+| `AUTH_TOKEN_BASE_URL` | Browser origin used to build token links. | No |
+| `EMAIL_OUTBOX_ENCRYPTION_KEY` | Base64-encoded 32-byte AES-GCM key. | Yes |
+| `EMAIL_OUTBOX_POLL_INTERVAL` | Worker polling interval. | No; default `5s` |
+| `EMAIL_OUTBOX_BATCH_SIZE` | Maximum rows claimed per poll. | No; default `20` |
+| `EMAIL_OUTBOX_MAX_ATTEMPTS` | Delivery attempt limit. | No; default `8` |
+| `EMAIL_OUTBOX_RETRY_BASE` | Initial retry delay. | No; default `30s` |
+| `EMAIL_OUTBOX_RETRY_MAX` | Retry ceiling. | No; default `30m` |
 
-Evaluation deployments may use log-only notifications if that is recorded in
-the readiness evidence. Production-like deployments should configure SMTP or an
-operator-approved mail relay.
+Evaluation deployments may use log-only delivery. Production must configure
+verified STARTTLS and must not reuse or rotate the encryption key until the
+queue has been drained.
 
 ### Cross-Service Channel
 
@@ -437,6 +453,8 @@ sudo install -m 0755 dist/rtk-account-manager /opt/rtk-account-manager/bin/
 sudo install -m 0755 dist/rtk-account-manager-migrate /opt/rtk-account-manager/bin/
 sudo install -m 0755 dist/rtk-account-manager-outbox-worker /opt/rtk-account-manager/bin/
 sudo install -m 0755 dist/rtk-account-manager-inbox-worker /opt/rtk-account-manager/bin/
+sudo install -m 0755 dist/rtk-account-manager-email-worker /opt/rtk-account-manager/bin/
+sudo install -m 0755 dist/rtk-account-manager-email-outbox-admin /opt/rtk-account-manager/bin/
 sudo install -m 0755 dist/rtk-account-manager-cleanup-tokens /opt/rtk-account-manager/bin/
 sudo rsync -a --delete migrations/ /opt/rtk-account-manager/migrations/
 sudo install -m 0600 deploy/account-manager.env.example /etc/rtk-account-manager/account-manager.env

@@ -102,13 +102,47 @@ Linode staging runtime is K8s-only and is operated from the workspace; see `docs
 Auth verification, email sign-in, and password reset tokens use `AUTH_TOKEN_DELIVERY`.
 Set `AUTH_TOKEN_DELIVERY=log` for dev/test to write generated one-time tokens to
 the API server log. Set `AUTH_TOKEN_DELIVERY=smtp` plus `SMTP_HOST`,
-`SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, and
-`AUTH_TOKEN_BASE_URL` to send verification, login activation, and password
-reset links by email. `AUTH_TOKEN_BASE_URL` must point at the Admin Console
+`SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`,
+`SMTP_FROM_NAME`, `SMTP_ENCRYPTION=starttls`,
+`EMAIL_OUTBOX_ENCRYPTION_KEY`, and `AUTH_TOKEN_BASE_URL` to enqueue
+verification, login activation, password reset, owner-transfer, and quota
+decision email. Run `rtk-account-manager-email-worker` to deliver the durable
+PostgreSQL outbox. `AUTH_TOKEN_BASE_URL` must point at the Admin Console
 browser origin so messages can link to `/signup/verify`, `/login/activate`,
-and `/reset-password`. Quota-raise approval and decline notifications also use
-the SMTP mail path when `SMTP_HOST` and `SMTP_FROM` are configured, and
-otherwise fall back to the local log adapter for dev/test.
+and `/reset-password`. Production rejects log delivery, incomplete SMTP
+configuration, and non-STARTTLS transport.
+
+### Local SMTP + IMAP signup E2E
+
+The real-mail signup test is an explicit local-only check. It starts an
+ephemeral PostgreSQL container, Account Manager API and email worker, and the
+Admin Console; signs up through Chromium; reads the newly delivered message
+through IMAP without changing its read state; opens `/signup/verify`; and checks
+the one-time token, verified account state, session, and password login.
+
+Install the Admin Console web dependencies and Chromium once, then run:
+
+```sh
+cd ../rtk_cloud_admin/web
+npm ci
+npm run e2e:install
+cd ../../rtk_account_manager
+RUN_LIVE_EMAIL_E2E=1 make test-email-signup-e2e
+```
+
+The command reads SMTP and IMAP test credentials from `~/.env`. IMAP requires
+`IMAP_SERVER`, `IMAP_EMAIL_ADDR`, `IMAP_EMAIL_PASSWORD`, `IMAP_EMAIL_PORT`,
+`IMAP_EMAIL_SECURITY`, and `IMAP_EMAIL_FOLDER`. It also uses the test-only SMTP
+aliases `SMTP_SERVER`, `SMTP_PORT`, `SMTP_EMAIL_ADDR`, `SMTP_EMAIL_PASSWORD`,
+and `SMTP_ENCRYPTION`, mapping them to the service's canonical variables only
+inside the test process.
+
+The live test is not part of normal CI or `make test`. It must not be run
+against a shared deployment. It does not mark or delete mailbox messages and
+does not print credentials, tokens, complete verification URLs, or complete
+mailbox addresses. A timeout normally indicates SMTP delivery delay, an IMAP
+folder mismatch, or TLS/authentication failure. Run
+`make test-email-signup-helper` for the offline MIME and URL parser tests.
 Set `CROSS_SERVICE_BROKER=azure_eventhubs` plus `AZURE_EVENTHUB_CONNECTION_STRING` to run the workers against Azure Event Hubs instead of the local `log` adapter. The inbox worker persists Azure consumer checkpoints at `.state/azure_eventhubs/<stream>__<consumer-group>.json` by default; set `AZURE_EVENTHUB_CHECKPOINT_FILE` to override that path.
 
 Set `ACCOUNT_MANAGER_USER_CACHE_ENABLED=true` to enable the Redis-compatible

@@ -2,7 +2,10 @@ package config
 
 import (
 	"bufio"
+	"encoding/base64"
 	"fmt"
+	"net/mail"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -38,6 +41,14 @@ type Config struct {
 	SMTPUsername                   string
 	SMTPPassword                   string
 	SMTPFrom                       string
+	SMTPFromName                   string
+	SMTPEncryption                 string
+	EmailOutboxEncryptionKey       string
+	EmailOutboxPollInterval        time.Duration
+	EmailOutboxBatchSize           int
+	EmailOutboxMaxAttempts         int
+	EmailOutboxRetryBase           time.Duration
+	EmailOutboxRetryMax            time.Duration
 	CrossServiceBroker             string
 	AzureEventHubConnectionString  string
 	AzureEventHubCheckpointFile    string
@@ -112,11 +123,73 @@ func Load() (Config, error) {
 	default:
 		return Config{}, fmt.Errorf("JWT_SIGNER_PROVIDER must be hs256, pem, or pkcs11")
 	}
+	if err := validateEmailConfig(cfg, false); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
 func LoadWorker() (Config, error) {
 	return load()
+}
+
+func LoadEmailWorker() (Config, error) {
+	cfg, err := load()
+	if err != nil {
+		return Config{}, err
+	}
+	if err := validateEmailConfig(cfg, true); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+func validateEmailConfig(cfg Config, worker bool) error {
+	production := strings.EqualFold(strings.TrimSpace(cfg.LogEnv), "production")
+	delivery := strings.ToLower(strings.TrimSpace(cfg.AuthTokenDelivery))
+	if production && delivery != "smtp" {
+		return fmt.Errorf("AUTH_TOKEN_DELIVERY must be smtp in production")
+	}
+	if !worker && delivery != "smtp" {
+		return nil
+	}
+	if strings.TrimSpace(cfg.SMTPHost) == "" {
+		return fmt.Errorf("SMTP_HOST is required")
+	}
+	if strings.TrimSpace(cfg.SMTPFrom) == "" {
+		return fmt.Errorf("SMTP_FROM is required")
+	}
+	if _, err := mail.ParseAddress(strings.TrimSpace(cfg.SMTPFrom)); err != nil {
+		return fmt.Errorf("SMTP_FROM must be a valid mailbox: %w", err)
+	}
+	if strings.TrimSpace(cfg.AuthTokenBaseURL) == "" {
+		return fmt.Errorf("AUTH_TOKEN_BASE_URL is required")
+	}
+	baseURL, err := url.Parse(strings.TrimSpace(cfg.AuthTokenBaseURL))
+	if err != nil || baseURL.Host == "" {
+		return fmt.Errorf("AUTH_TOKEN_BASE_URL must be an absolute URL")
+	}
+	if production && baseURL.Scheme != "https" {
+		return fmt.Errorf("AUTH_TOKEN_BASE_URL must use https in production")
+	}
+	encryption := strings.ToLower(strings.TrimSpace(cfg.SMTPEncryption))
+	if encryption != "starttls" && encryption != "none" {
+		return fmt.Errorf("SMTP_ENCRYPTION must be starttls or none")
+	}
+	if production && encryption != "starttls" {
+		return fmt.Errorf("SMTP_ENCRYPTION must be starttls in production")
+	}
+	if production && (strings.TrimSpace(cfg.SMTPUsername) == "" || strings.TrimSpace(cfg.SMTPPassword) == "") {
+		return fmt.Errorf("SMTP_USERNAME and SMTP_PASSWORD are required in production")
+	}
+	if _, err := base64.StdEncoding.DecodeString(strings.TrimSpace(cfg.EmailOutboxEncryptionKey)); err != nil {
+		return fmt.Errorf("EMAIL_OUTBOX_ENCRYPTION_KEY must be base64 encoded")
+	}
+	decoded, _ := base64.StdEncoding.DecodeString(strings.TrimSpace(cfg.EmailOutboxEncryptionKey))
+	if len(decoded) != 32 {
+		return fmt.Errorf("EMAIL_OUTBOX_ENCRYPTION_KEY must decode to exactly 32 bytes")
+	}
+	return nil
 }
 
 func validatePKCS11JWTSigner(prefix, modulePath, tokenLabel, slotID, pin, keyLabel string) error {
@@ -168,6 +241,14 @@ func load() (Config, error) {
 		SMTPUsername:                   getenv("SMTP_USERNAME", ""),
 		SMTPPassword:                   getenv("SMTP_PASSWORD", ""),
 		SMTPFrom:                       getenv("SMTP_FROM", ""),
+		SMTPFromName:                   getenv("SMTP_FROM_NAME", "Realtek Connect"),
+		SMTPEncryption:                 getenv("SMTP_ENCRYPTION", "starttls"),
+		EmailOutboxEncryptionKey:       getenv("EMAIL_OUTBOX_ENCRYPTION_KEY", ""),
+		EmailOutboxPollInterval:        duration("EMAIL_OUTBOX_POLL_INTERVAL", 5*time.Second),
+		EmailOutboxBatchSize:           intValue("EMAIL_OUTBOX_BATCH_SIZE", 20),
+		EmailOutboxMaxAttempts:         intValue("EMAIL_OUTBOX_MAX_ATTEMPTS", 8),
+		EmailOutboxRetryBase:           duration("EMAIL_OUTBOX_RETRY_BASE", 30*time.Second),
+		EmailOutboxRetryMax:            duration("EMAIL_OUTBOX_RETRY_MAX", 30*time.Minute),
 		CrossServiceBroker:             getenv("CROSS_SERVICE_BROKER", "log"),
 		AzureEventHubConnectionString:  getenv("AZURE_EVENTHUB_CONNECTION_STRING", ""),
 		AzureEventHubCheckpointFile:    getenv("AZURE_EVENTHUB_CHECKPOINT_FILE", ""),
