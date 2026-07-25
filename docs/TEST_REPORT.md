@@ -26,7 +26,7 @@ Generated: ci-candidate
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 24 |
+| Go packages | 28 |
 | Test cases started | recorded in reports/test-events.json |
 | JSON pass events | recorded in reports/test-events.json |
 | JSON fail events | recorded in reports/test-events.json |
@@ -291,6 +291,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationOIDCCallbackRejectsUnknownDisabledAndUnverifiedUsers`
 - `rtk_account_manager/internal/api`: `TestIntegrationOIDCDisabledDiscoveryAndLogin`
 - `rtk_account_manager/internal/api`: `TestIntegrationOIDCProviderLoginAndCallback`
+- `rtk_account_manager/internal/api`: `TestIntegrationOutboxQueuesEveryPlatformAuthEmail`
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanDisableAndEnableMemberUser`
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanUpdateAndRemoveMember`
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanUpdateOrganization`
@@ -308,6 +309,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationResponsesMatchOpenAPIContract`
 - `rtk_account_manager/internal/api`: `TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness`
 - `rtk_account_manager/internal/api`: `TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow`
+- `rtk_account_manager/internal/api`: `TestIntegrationSignupQueuesEncryptedEmailWithoutCallingSMTP`
 - `rtk_account_manager/internal/api`: `TestIntegrationStoreRefreshTokenHelpers`
 - `rtk_account_manager/internal/api`: `TestIntegrationValidationAndNotFoundErrors`
 - `rtk_account_manager/internal/api`: `TestIsDisposableSignupEmail`
@@ -530,6 +532,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/config`: `TestLoadAcceptsPEMJWTSignerWithoutSharedSecrets`
 - `rtk_account_manager/internal/config`: `TestLoadAcceptsPKCS11JWTSignerWithoutSharedSecrets`
 - `rtk_account_manager/internal/config`: `TestLoadDotEnvSetsMissingValuesAndPreservesExistingEnv`
+- `rtk_account_manager/internal/config`: `TestLoadEmailWorkerCanonicalConfiguration`
 - `rtk_account_manager/internal/config`: `TestLoadFallsBackForInvalidDurations`
 - `rtk_account_manager/internal/config`: `TestLoadReadsEnvironmentAndDurations`
 - `rtk_account_manager/internal/config`: `TestLoadRejectsIncompletePEMJWTSigner`
@@ -544,6 +547,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/config`: `TestLoadUsesOIDCDefaultsAndBooleanFallbacks`
 - `rtk_account_manager/internal/config`: `TestLoadWorkerAllowsMissingJWTSecrets`
 - `rtk_account_manager/internal/config`: `TestLoadWorkerFallsBackForInvalidMaxAttempts`
+- `rtk_account_manager/internal/config`: `TestProductionEmailConfigurationFailsClosed`
 - `rtk_account_manager/internal/database`: `TestConnectAppliesPoolTuningIntegration`
 - `rtk_account_manager/internal/database`: `TestConnectRejectsInvalidConfig`
 - `rtk_account_manager/internal/database`: `TestConnectRejectsUnreachableDatabase`
@@ -552,6 +556,18 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirCandidates`
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirHonorsEnvOverride`
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirMissing`
+- `rtk_account_manager/internal/emaildelivery`: `TestCipherRejectsInvalidKey`
+- `rtk_account_manager/internal/emaildelivery`: `TestCipherRoundTripAndWrongKey`
+- `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/brand_cloud_owner_transfer`
+- `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/email_verification`
+- `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/login_activation`
+- `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/password_reset`
+- `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/quota_approved`
+- `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/quota_declined`
+- `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates`
+- `rtk_account_manager/internal/emaildelivery`: `TestRendererRejectsHeaderInjection`
+- `rtk_account_manager/internal/emaildelivery`: `TestSMTPClientRequiresAndUsesSTARTTLS`
+- `rtk_account_manager/internal/emaildelivery`: `TestSMTPConfigValidationAndClassification`
 - `rtk_account_manager/internal/logging`: `TestEnvHelpersUseFallbacks`
 - `rtk_account_manager/internal/logging`: `TestNewBuildsServiceLoggerFromConfig`
 - `rtk_account_manager/internal/logging`: `TestNewFromEnvFallsBackToNopLoggerOnConstructorError`
@@ -580,6 +596,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestAppCertificateCreateRotatesActiveCertificate`
 - `rtk_account_manager/internal/store`: `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`
 - `rtk_account_manager/internal/store`: `TestBrandCloudLoginActivationTokenIsTenantScoped`
+- `rtk_account_manager/internal/store`: `TestBrandCloudLoginTokenAndEmailOutboxCommitTogether`
 - `rtk_account_manager/internal/store`: `TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper`
 - `rtk_account_manager/internal/store`: `TestBrandCloudStoreCRUDAndErrorPaths`
 - `rtk_account_manager/internal/store`: `TestBrandCloudUserProvisioningUsesBrandScopedIdentityOnly`
@@ -609,6 +626,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileBacksClaimTokenSnapshotAndResolve`
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileCRUDAndAudit`
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
+- `rtk_account_manager/internal/store`: `TestEmailOutboxClaimLeaseAndIdempotency`
+- `rtk_account_manager/internal/store`: `TestEmailOutboxTokenAndQueueAreTransactional`
 - `rtk_account_manager/internal/store`: `TestEndUserPersistenceErrorPaths`
 - `rtk_account_manager/internal/store`: `TestEnsurePlatformAdminCreatesAndReenablesUser`
 - `rtk_account_manager/internal/store`: `TestEnsurePlatformAdminCreatesRealtekConnectBrandCloud`
@@ -636,8 +655,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestOIDCLoginStateStoresHashesAndRejectsReplay`
 - `rtk_account_manager/internal/store`: `TestOnlineChangedProjectionSetsStatusAndLastSeenAt`
 - `rtk_account_manager/internal/store`: `TestOutboxMessagePersistenceAndReadyList`
+- `rtk_account_manager/internal/store`: `TestOwnerTransferAndEmailOutboxCommitOrRollbackTogether`
 - `rtk_account_manager/internal/store`: `TestProjectDeviceProvisioningAndOnlineRules`
 - `rtk_account_manager/internal/store`: `TestProjectDeviceRejectsDisabledDevicesExceptDeactivateResults`
+- `rtk_account_manager/internal/store`: `TestQuotaDecisionAndEmailOutboxCommitOrRollbackTogether`
 - `rtk_account_manager/internal/store`: `TestRandomTenantSlugSuffixIsHexEightChars`
 - `rtk_account_manager/internal/store`: `TestRecordInboxProcessTransitionUpdatesOperationAndProjection`
 - `rtk_account_manager/internal/store`: `TestRecordOutboxPublishTransitionLetsPublishedOutcomeOverrideLaterFailure`
@@ -698,6 +719,11 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/usercache`: `TestStoreGetUserReadThroughCachesPostgresMiss`
 - `rtk_account_manager/internal/usercache`: `TestStoreIgnoresCacheReadAndWriteErrors`
 - `rtk_account_manager/internal/usercache`: `TestStoreRegisterRefreshesUserAuthCacheAfterCommit`
+- `rtk_account_manager/internal/worker/emailoutbox`: `TestServiceExpiresWithoutSending`
+- `rtk_account_manager/internal/worker/emailoutbox`: `TestServiceRetriesTransientAndDeadLettersPermanent/permanent`
+- `rtk_account_manager/internal/worker/emailoutbox`: `TestServiceRetriesTransientAndDeadLettersPermanent/transient`
+- `rtk_account_manager/internal/worker/emailoutbox`: `TestServiceRetriesTransientAndDeadLettersPermanent`
+- `rtk_account_manager/internal/worker/emailoutbox`: `TestServiceSendsAndClearsPayload`
 - `rtk_account_manager/internal/worker/inbox`: `TestPostgresStoreSatisfiesInboxMessageStore`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidMessages`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidPartitionKeysAfterPersistingInboxRow/blank_partition_key_is_normalized_for_storage_and_dead-lettered`
