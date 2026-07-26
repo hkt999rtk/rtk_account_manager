@@ -146,6 +146,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 
 ## Executed Test Cases
 
+- `rtk_account_manager/cmd/email-worker`: `TestEmailDeliveryKeepsSMTPCompatibility`
+- `rtk_account_manager/cmd/email-worker`: `TestEmailDeliverySelectsSendMailHTTP`
 - `rtk_account_manager/cmd/linode-object-storage`: `TestObjectExistsReportsServerError`
 - `rtk_account_manager/cmd/linode-object-storage`: `TestPutDownloadCatAndExistsUseSignedPathStyleRequests`
 - `rtk_account_manager/cmd/linode-object-storage`: `TestStoreFromEnvPrefersLinodeCredentials`
@@ -548,6 +550,11 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/config`: `TestLoadWorkerAllowsMissingJWTSecrets`
 - `rtk_account_manager/internal/config`: `TestLoadWorkerFallsBackForInvalidMaxAttempts`
 - `rtk_account_manager/internal/config`: `TestProductionEmailConfigurationFailsClosed`
+- `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration/credential_URL`
+- `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration/missing_token`
+- `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration/path_URL`
+- `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration/plaintext_production_URL`
+- `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration`
 - `rtk_account_manager/internal/database`: `TestConnectAppliesPoolTuningIntegration`
 - `rtk_account_manager/internal/database`: `TestConnectRejectsInvalidConfig`
 - `rtk_account_manager/internal/database`: `TestConnectRejectsUnreachableDatabase`
@@ -565,9 +572,21 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/quota_approved`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/quota_declined`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates`
+- `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsStructuredMessageWithoutSMTPFrom`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererRejectsHeaderInjection`
 - `rtk_account_manager/internal/emaildelivery`: `TestSMTPClientRequiresAndUsesSTARTTLS`
 - `rtk_account_manager/internal/emaildelivery`: `TestSMTPConfigValidationAndClassification`
+- `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientClassifiesResponses/SMTP_upstream_failed`
+- `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientClassifiesResponses/accepted`
+- `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientClassifiesResponses/bad_request`
+- `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientClassifiesResponses/forbidden`
+- `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientClassifiesResponses/invalid_accepted_response`
+- `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientClassifiesResponses/rate_limited`
+- `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientClassifiesResponses/timeout`
+- `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientClassifiesResponses/unauthorized`
+- `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientClassifiesResponses`
+- `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientSendsOpenAPIRequest`
+- `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientValidatesConfigurationAndMessage`
 - `rtk_account_manager/internal/logging`: `TestEnvHelpersUseFallbacks`
 - `rtk_account_manager/internal/logging`: `TestNewBuildsServiceLoggerFromConfig`
 - `rtk_account_manager/internal/logging`: `TestNewFromEnvFallsBackToNopLoggerOnConstructorError`
