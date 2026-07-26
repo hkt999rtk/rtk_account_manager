@@ -272,6 +272,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationDatabaseRejectsInvalidCoreData`
 - `rtk_account_manager/internal/api`: `TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata`
 - `rtk_account_manager/internal/api`: `TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit`
+- `rtk_account_manager/internal/api`: `TestIntegrationDeveloperSignupUsesRequestedBrandCloudNameAndEmailFallback`
 - `rtk_account_manager/internal/api`: `TestIntegrationDeviceUserUnprovisionWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationDisabledUserCannotManageOIDCIdentities`
 - `rtk_account_manager/internal/api`: `TestIntegrationDisabledUserCannotUseExistingTokens`
