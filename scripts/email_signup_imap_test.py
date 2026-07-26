@@ -57,6 +57,15 @@ class MessageInspectionTest(unittest.TestCase):
         raw = message_bytes(recipient="測試 <test@example.com>")
         self.assertIsNotNone(self.inspect(raw))
 
+    def test_accepts_a_plus_address_recipient(self):
+        result = imap_helper.inspect_message(
+            message_bytes(recipient="imap-test01+run-123@example.com"),
+            "no-reply@realtekconnect.com",
+            "imap-test01+run-123@example.com",
+            "http://127.0.0.1:18082",
+        )
+        self.assertIsNotNone(result)
+
     def test_ignores_wrong_sender_recipient_or_subject(self):
         self.assertIsNone(self.inspect(message_bytes(sender="other@example.com")))
         self.assertIsNone(self.inspect(message_bytes(recipient="other@example.com")))

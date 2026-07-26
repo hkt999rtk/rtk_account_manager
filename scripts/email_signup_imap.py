@@ -226,7 +226,12 @@ def wait_for_verification(uid_start: int, timeout_seconds: int) -> dict[str, obj
     expected_from = os.environ.get(
         "EMAIL_E2E_EXPECTED_FROM", "no-reply@realtekconnect.com"
     ).strip()
-    expected_to = _required_env("IMAP_EMAIL_ADDR")
+    # A live staging run signs up with a unique plus-address while polling the
+    # shared test mailbox.  Local E2E keeps the historical behaviour and uses
+    # the IMAP login address when no explicit recipient is supplied.
+    expected_to = os.environ.get("EMAIL_E2E_SIGNUP_EMAIL", "").strip()
+    if not expected_to:
+        expected_to = _required_env("IMAP_EMAIL_ADDR")
     expected_base_url = _required_env("AUTH_TOKEN_BASE_URL").rstrip("/")
     deadline = time.monotonic() + timeout_seconds
     client = _connect()
