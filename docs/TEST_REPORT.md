@@ -299,6 +299,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanUpdateOrganization`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminBrandCloudLifecycle`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminCreatesActiveBrandCloudUser`
+- `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminCreatesProductionRunJWT`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminDeviceItemProfileLifecycle`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminMissingBrandResourcesReturnNotFound`
@@ -566,6 +567,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/emaildelivery`: `TestCipherRejectsInvalidKey`
 - `rtk_account_manager/internal/emaildelivery`: `TestCipherRoundTripAndWrongKey`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/brand_cloud_owner_transfer`
+- `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/brand_cloud_user_activation`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/email_verification`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/login_activation`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/password_reset`
@@ -616,6 +618,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`
 - `rtk_account_manager/internal/store`: `TestBrandCloudLoginActivationTokenIsTenantScoped`
 - `rtk_account_manager/internal/store`: `TestBrandCloudLoginTokenAndEmailOutboxCommitTogether`
+- `rtk_account_manager/internal/store`: `TestBrandCloudOwnerEmailActivationIsAtomicTenantScopedAndOneTime`
 - `rtk_account_manager/internal/store`: `TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper`
 - `rtk_account_manager/internal/store`: `TestBrandCloudStoreCRUDAndErrorPaths`
 - `rtk_account_manager/internal/store`: `TestBrandCloudUserProvisioningUsesBrandScopedIdentityOnly`
