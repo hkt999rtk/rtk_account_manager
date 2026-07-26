@@ -17,6 +17,10 @@ import (
 type Message struct {
 	EnvelopeFrom string
 	Recipient    string
+	ReplyTo      string
+	Subject      string
+	Text         string
+	HTML         string
 	Data         []byte
 }
 
@@ -28,10 +32,6 @@ type Renderer struct {
 }
 
 func (r Renderer) Render(outboxID, messageType string, payload Payload) (Message, error) {
-	from, err := mailbox(r.FromName, r.From)
-	if err != nil {
-		return Message{}, fmt.Errorf("invalid SMTP_FROM: %w", err)
-	}
 	to, err := mail.ParseAddress(strings.TrimSpace(payload.RecipientEmail))
 	if err != nil {
 		return Message{}, fmt.Errorf("invalid recipient: %w", err)
@@ -42,6 +42,19 @@ func (r Renderer) Render(outboxID, messageType string, payload Payload) (Message
 	subject, textBody, htmlBody, err := r.content(messageType, payload)
 	if err != nil {
 		return Message{}, err
+	}
+	message := Message{
+		Recipient: to.Address,
+		Subject:   subject,
+		Text:      textBody,
+		HTML:      htmlBody,
+	}
+	if strings.TrimSpace(r.From) == "" {
+		return message, nil
+	}
+	from, err := mailbox(r.FromName, r.From)
+	if err != nil {
+		return Message{}, fmt.Errorf("invalid SMTP_FROM: %w", err)
 	}
 	now := time.Now().UTC()
 	if r.Now != nil {
@@ -98,7 +111,9 @@ func (r Renderer) Render(outboxID, messageType string, payload Payload) (Message
 	fmt.Fprint(&raw, "MIME-Version: 1.0\r\n")
 	fmt.Fprintf(&raw, "Content-Type: multipart/alternative; boundary=%q\r\n\r\n", writer.Boundary())
 	raw.Write(body.Bytes())
-	return Message{EnvelopeFrom: from.Address, Recipient: to.Address, Data: raw.Bytes()}, nil
+	message.EnvelopeFrom = from.Address
+	message.Data = raw.Bytes()
+	return message, nil
 }
 
 func mailbox(name, address string) (*mail.Address, error) {

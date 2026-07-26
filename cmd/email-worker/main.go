@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -41,18 +42,13 @@ func main() {
 	if err != nil {
 		fatal(logger, "email outbox cipher setup failed", err)
 	}
-	smtpClient, err := emaildelivery.NewSMTPClient(emaildelivery.SMTPConfig{
-		Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername,
-		Password: cfg.SMTPPassword, Encryption: cfg.SMTPEncryption, Timeout: 15 * time.Second,
-	})
+	deliveryClient, renderer, err := emailDelivery(cfg)
 	if err != nil {
-		fatal(logger, "SMTP client setup failed", err)
+		fatal(logger, "email delivery client setup failed", err)
 	}
 	repository := store.New(db)
 	repository.ConfigureEmailOutboxCipher(cipher)
-	service := emailoutbox.NewService(repository, cipher, emaildelivery.Renderer{
-		From: cfg.SMTPFrom, FromName: cfg.SMTPFromName, BaseURL: cfg.AuthTokenBaseURL,
-	}, smtpClient, emailoutbox.Options{
+	service := emailoutbox.NewService(repository, cipher, renderer, deliveryClient, emailoutbox.Options{
 		MaxAttempts: cfg.EmailOutboxMaxAttempts, PollInterval: cfg.EmailOutboxPollInterval,
 		RetryBase: cfg.EmailOutboxRetryBase, RetryMax: cfg.EmailOutboxRetryMax,
 		BatchSize: cfg.EmailOutboxBatchSize, Logger: logger,
@@ -60,6 +56,32 @@ func main() {
 	logger.Info("starting email worker", zap.Duration("poll_interval", cfg.EmailOutboxPollInterval))
 	if err := service.Run(ctx); err != nil {
 		fatal(logger, "email worker stopped", err)
+	}
+}
+
+type emailSender interface {
+	Send(context.Context, emaildelivery.Message) error
+}
+
+func emailDelivery(cfg config.Config) (emailSender, emaildelivery.Renderer, error) {
+	renderer := emaildelivery.Renderer{BaseURL: cfg.AuthTokenBaseURL}
+	switch cfg.AuthTokenDelivery {
+	case "smtp":
+		client, err := emaildelivery.NewSMTPClient(emaildelivery.SMTPConfig{
+			Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername,
+			Password: cfg.SMTPPassword, Encryption: cfg.SMTPEncryption, Timeout: 15 * time.Second,
+		})
+		renderer.From = cfg.SMTPFrom
+		renderer.FromName = cfg.SMTPFromName
+		return client, renderer, err
+	case "sendmail_http":
+		client, err := emaildelivery.NewSendMailHTTPClient(emaildelivery.SendMailHTTPConfig{
+			BaseURL: cfg.SendMailHTTPBaseURL, BearerToken: cfg.SendMailHTTPBearerToken,
+			Timeout: cfg.SendMailHTTPTimeout,
+		})
+		return client, renderer, err
+	default:
+		return nil, renderer, fmt.Errorf("unsupported AUTH_TOKEN_DELIVERY %q", cfg.AuthTokenDelivery)
 	}
 }
 
