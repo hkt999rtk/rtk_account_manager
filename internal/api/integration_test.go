@@ -29,6 +29,7 @@ import (
 	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/channel"
 	"rtk_account_manager/internal/database"
+	"rtk_account_manager/internal/emaildelivery"
 	"rtk_account_manager/internal/model"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/testutil"
@@ -81,7 +82,7 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-				TRUNCATE chipset_information_providers, acl_audit_events, external_group_mappings, role_assignments, oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_user_bindings, brand_cloud_end_users, end_user_refresh_tokens, end_user_identities, device_claims, device_claim_tokens, device_item_profiles, device_message_inbox, device_message_outbox, device_operations, app_certificates, brand_cloud_refresh_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, brand_cloud_memberships, organization_members, brand_cloud_users, end_users, organizations, users
+				TRUNCATE email_outbox, chipset_information_providers, acl_audit_events, external_group_mappings, role_assignments, oidc_login_states, user_identities, identity_providers, auth_tokens, quota_raise_requests, device_user_bindings, brand_cloud_end_users, end_user_refresh_tokens, end_user_identities, device_claims, device_claim_tokens, device_item_profiles, device_message_inbox, device_message_outbox, device_operations, app_certificates, brand_cloud_refresh_tokens, refresh_tokens, device_tags, device_group_members, device_groups, devices, brand_cloud_memberships, organization_members, brand_cloud_users, end_users, organizations, users
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatal(err)
@@ -99,6 +100,112 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 		db:               db,
 		tokenSink:        tokenSink,
 		notificationSink: notificationSink,
+	}
+}
+
+func TestIntegrationSignupQueuesEncryptedEmailWithoutCallingSMTP(t *testing.T) {
+	env := newIntegrationEnv(t)
+	repository, ok := env.server.store.(*store.Store)
+	if !ok {
+		t.Fatal("integration store is not the concrete store")
+	}
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = 4
+	}
+	cipher, err := emaildelivery.NewCipher(base64.StdEncoding.EncodeToString(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.ConfigureEmailOutboxCipher(cipher)
+	env.server.ConfigureEmailOutbox(repository)
+
+	response := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
+		"email": "queued-signup@example.com", "password": "password123", "display_name": "Queued Signup",
+	}, "")
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("signup status = %d: %s", response.Code, response.Body.String())
+	}
+	if len(env.tokenSink.deliveries) != 0 {
+		t.Fatalf("synchronous sink unexpectedly called: %+v", env.tokenSink.deliveries)
+	}
+	var tokenCount, outboxCount int
+	if err := env.db.QueryRow(context.Background(), `
+		SELECT
+			(SELECT count(*) FROM auth_tokens WHERE purpose = 'email_verification'),
+			(SELECT count(*) FROM email_outbox WHERE message_type = 'email_verification')
+	`).Scan(&tokenCount, &outboxCount); err != nil {
+		t.Fatal(err)
+	}
+	if tokenCount != 1 || outboxCount != 1 {
+		t.Fatalf("token=%d outbox=%d, want 1/1", tokenCount, outboxCount)
+	}
+}
+
+func TestIntegrationOutboxQueuesEveryPlatformAuthEmail(t *testing.T) {
+	env := newIntegrationEnv(t)
+	registered := registerUser(t, env.router, "queued-auth@example.com", "Queued Auth Org")
+	repository, ok := env.server.store.(*store.Store)
+	if !ok {
+		t.Fatal("integration store is not the concrete store")
+	}
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = 5
+	}
+	cipher, err := emaildelivery.NewCipher(base64.StdEncoding.EncodeToString(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.ConfigureEmailOutboxCipher(cipher)
+	env.server.ConfigureEmailOutbox(repository)
+	synchronousDeliveries := len(env.tokenSink.deliveries)
+
+	for _, request := range []struct {
+		path string
+	}{
+		{path: "/v1/auth/resend-verification"},
+		{path: "/v1/auth/sign-in"},
+		{path: "/v1/auth/forgot-password"},
+	} {
+		response := performJSON(env.router, http.MethodPost, request.path, map[string]any{"email": registered.User.Email}, "")
+		if response.Code != http.StatusAccepted {
+			t.Fatalf("%s status = %d: %s", request.path, response.Code, response.Body.String())
+		}
+	}
+	if len(env.tokenSink.deliveries) != synchronousDeliveries {
+		t.Fatalf("synchronous sink received outbox deliveries: before=%d after=%d", synchronousDeliveries, len(env.tokenSink.deliveries))
+	}
+
+	rows, err := env.db.Query(context.Background(), `
+		SELECT message_type, count(*), bool_and(payload_nonce IS NOT NULL AND payload_ciphertext IS NOT NULL)
+		FROM email_outbox
+		GROUP BY message_type
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	got := map[string]int{}
+	for rows.Next() {
+		var messageType string
+		var count int
+		var encrypted bool
+		if err := rows.Scan(&messageType, &count, &encrypted); err != nil {
+			t.Fatal(err)
+		}
+		if !encrypted {
+			t.Fatalf("%s outbox payload is not encrypted", messageType)
+		}
+		got[messageType] = count
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	for _, messageType := range []string{"email_verification", "login_activation", "password_reset"} {
+		if got[messageType] != 1 {
+			t.Fatalf("%s outbox count = %d, want 1; all=%v", messageType, got[messageType], got)
+		}
 	}
 }
 
@@ -860,6 +967,9 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	verified := decodeBody[userBody](t, verifyRes)
 	if !verified.User.EmailVerified || verified.User.EmailVerifiedAt == nil {
 		t.Fatalf("expected verified user response, got %+v", verified.User)
+	}
+	if verified.Tokens.AccessToken == "" || verified.Tokens.RefreshToken == "" {
+		t.Fatalf("expected email verification to issue initial tokens")
 	}
 	reuseVerifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
 		"token": verificationToken,
@@ -5968,6 +6078,10 @@ type userBody struct {
 		SignupPendingVerification bool       `json:"signup_pending_verification"`
 		EmailVerifiedAt           *time.Time `json:"email_verified_at"`
 	} `json:"user"`
+	Tokens struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	} `json:"tokens"`
 }
 
 type tokenBody struct {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"rtk_account_manager/internal/emaildelivery"
 	"rtk_account_manager/internal/model"
 )
 
@@ -25,6 +26,7 @@ type QuotaRaiseDecisionInput struct {
 	ApprovedQuota  int
 	DecisionReason *string
 	Approved       bool
+	EnqueueEmail   bool
 }
 
 type QuotaRaiseRequestListFilter struct {
@@ -379,6 +381,31 @@ func (s *Store) DecideQuotaRaiseRequest(ctx context.Context, in QuotaRaiseDecisi
 		Payload:        payload,
 	}); err != nil {
 		return model.QuotaRaiseRequest{}, model.Organization{}, model.User{}, err
+	}
+	if in.EnqueueEmail {
+		messageType := "quota_declined"
+		var approvedQuotaValue *int
+		if in.Approved {
+			messageType = "quota_approved"
+			value := approvedQuota
+			approvedQuotaValue = &value
+		}
+		if err := s.enqueueEmailTx(ctx, tx, EmailOutboxInput{
+			IdempotencyKey:  "quota-decision:" + request.ID + ":" + string(decision),
+			MessageType:     messageType,
+			TemplateVersion: 1,
+			Payload: emaildelivery.Payload{
+				RecipientEmail:   requester.Email,
+				RecipientName:    requester.DisplayName,
+				OrganizationID:   org.ID,
+				OrganizationName: org.Name,
+				RequestedQuota:   request.RequestedQuota,
+				ApprovedQuota:    approvedQuotaValue,
+				DecisionReason:   in.DecisionReason,
+			},
+		}); err != nil {
+			return model.QuotaRaiseRequest{}, model.Organization{}, model.User{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return model.QuotaRaiseRequest{}, model.Organization{}, model.User{}, err

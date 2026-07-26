@@ -12,6 +12,7 @@ import (
 	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/config"
 	"rtk_account_manager/internal/database"
+	"rtk_account_manager/internal/emaildelivery"
 	"rtk_account_manager/internal/logging"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/usercache"
@@ -48,17 +49,24 @@ func main() {
 	case "log":
 		authTokenSink = api.NewLogAuthTokenSink(logger)
 	case "smtp":
-		addr, auth, err := smtpConfig(cfg)
-		if err != nil {
-			fatal(logger, "configure SMTP auth token delivery failed", err)
-		}
-		authTokenSink = api.NewSMTPAuthTokenSink(addr, cfg.SMTPFrom, cfg.AuthTokenBaseURL, auth)
+		// SMTP delivery is performed by the durable email worker.
+		authTokenSink = nil
 	default:
 		fatal(logger, "unsupported auth token delivery", nil, zap.String("delivery", cfg.AuthTokenDelivery))
 	}
-	notificationSink := quotaRaiseNotificationSink(cfg, logger)
+	var notificationSink api.QuotaRaiseNotificationSink
+	if cfg.AuthTokenDelivery == "log" {
+		notificationSink = api.NewLogQuotaRaiseNotificationSink(logger)
+	}
 	accountStore := store.New(db)
 	accountStore.ConfigureAuthTokenRateLimit(cfg.AuthTokenRateLimitMax, cfg.AuthTokenRateLimitWindow)
+	if cfg.AuthTokenDelivery == "smtp" {
+		cipher, err := emaildelivery.NewCipher(cfg.EmailOutboxEncryptionKey)
+		if err != nil {
+			fatal(logger, "configure email outbox encryption failed", err)
+		}
+		accountStore.ConfigureEmailOutboxCipher(cipher)
+	}
 	if cfg.BootstrapPlatformAdminEmail != "" || cfg.BootstrapPlatformAdminPassword != "" {
 		if cfg.BootstrapPlatformAdminEmail == "" || cfg.BootstrapPlatformAdminPassword == "" {
 			fatal(logger, "bootstrap platform admin config incomplete", nil)
@@ -84,6 +92,9 @@ func main() {
 		logger.Info("user cache enabled", zap.String("addr", cfg.UserCacheAddr), zap.String("prefix", cfg.UserCachePrefix))
 	}
 	server := api.NewWithAuthTokenAndNotificationSink(apiStore, authService, authTokenSink, notificationSink)
+	if cfg.AuthTokenDelivery == "smtp" {
+		server.ConfigureEmailOutbox(accountStore)
+	}
 	server.SetLogger(logger)
 	server.ConfigureInternalAuthToken(cfg.InternalAuthToken)
 	server.ConfigureProductionJWT(cfg.FactoryProductionJWTSecret, cfg.FactoryProductionJWTAudience)

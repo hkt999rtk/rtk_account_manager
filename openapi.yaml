@@ -221,11 +221,11 @@ paths:
               $ref: "#/components/schemas/AuthTokenRequest"
       responses:
         "200":
-          description: Email verified.
+          description: Email verified and initial tokens issued.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UserResponse"
+                $ref: "#/components/schemas/LoginResponse"
         "400":
           $ref: "#/components/responses/Error"
   /v1/auth/resend-verification:

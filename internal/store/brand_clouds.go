@@ -485,6 +485,28 @@ func (s *Store) CreateBrandCloudLoginActivationTokenForEmail(ctx context.Context
 	return true, s.createAuthTokenForSubject(ctx, "brand_cloud_user", result.BrandCloudUser.ID, "", "login_activation", brandCloudAuthTokenScope(tenantSlug), tokenHash, expiresAt)
 }
 
+func (s *Store) CreateBrandCloudLoginActivationTokenForEmailAndEmail(ctx context.Context, tenantSlug, email, tokenHash string, expiresAt time.Time, outbox EmailOutboxInput) (bool, error) {
+	result, err := s.GetBrandCloudUserPassword(ctx, tenantSlug, email)
+	if errors.Is(err, ErrNotFound) || result.BrandCloudUser.SignupPendingVerification {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	err = s.createAuthTokenForSubjectWithEmail(
+		ctx,
+		"brand_cloud_user",
+		result.BrandCloudUser.ID,
+		"",
+		"login_activation",
+		brandCloudAuthTokenScope(tenantSlug),
+		tokenHash,
+		expiresAt,
+		&outbox,
+	)
+	return true, err
+}
+
 func (s *Store) ActivateBrandCloudLoginToken(ctx context.Context, tenantSlug, tokenHash string) (BrandCloudLoginResult, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {

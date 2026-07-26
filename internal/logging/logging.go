@@ -15,6 +15,7 @@ const (
 	ServiceMigrate       = "rtk_account_manager_migrate"
 	ServiceOutboxWorker  = "rtk_account_manager_outbox_worker"
 	ServiceInboxWorker   = "rtk_account_manager_inbox_worker"
+	ServiceEmailWorker   = "rtk_account_manager_email_worker"
 	ServiceCleanupTokens = "rtk_account_manager_cleanup_tokens"
 )
 
@@ -56,6 +57,8 @@ func unitName(service string) string {
 		return "rtk_account_manager_outbox_worker.service"
 	case ServiceInboxWorker:
 		return "rtk_account_manager_inbox_worker.service"
+	case ServiceEmailWorker:
+		return "rtk_account_manager_email_worker.service"
 	case ServiceCleanupTokens:
 		return "rtk_account_manager_cleanup_tokens.service"
 	default:

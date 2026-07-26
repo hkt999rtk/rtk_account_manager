@@ -73,6 +73,8 @@ for executable in \
 	bin/rtk-account-manager-migrate \
 	bin/rtk-account-manager-outbox-worker \
 	bin/rtk-account-manager-inbox-worker \
+	bin/rtk-account-manager-email-worker \
+	bin/rtk-account-manager-email-outbox-admin \
 	bin/rtk-account-manager-cleanup-tokens \
 	deploy/install.sh \
 	deploy/verify.sh; do
@@ -85,6 +87,7 @@ for file in \
 	deploy/systemd/rtk-account-manager-migrate.service \
 	deploy/systemd/rtk-account-manager-outbox-worker.service \
 	deploy/systemd/rtk-account-manager-inbox-worker.service \
+	deploy/systemd/rtk-account-manager-email-worker.service \
 	deploy/systemd/rtk-account-manager-cleanup-tokens.service \
 	deploy/systemd/rtk-account-manager-cleanup-tokens.timer \
 	release-manifest.txt \

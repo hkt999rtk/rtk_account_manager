@@ -1,16 +1,22 @@
 REPORT_DIR ?= reports
 VERSION ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo dev)
-UNIT_TEST_PACKAGES := ./internal/api ./internal/auth ./internal/broker ./internal/channel ./internal/config ./internal/database ./internal/openapi ./internal/readiness ./internal/store ./internal/worker/inbox ./internal/worker/outbox
+PYTHON ?= python3
+ADMIN_REPO ?= ../rtk_cloud_admin
+UNIT_TEST_PACKAGES := ./internal/api ./internal/auth ./internal/broker ./internal/channel ./internal/config ./internal/database ./internal/emaildelivery ./internal/openapi ./internal/readiness ./internal/store ./internal/worker/emailoutbox ./internal/worker/inbox ./internal/worker/outbox
 RACE_TEST_PACKAGES := ./internal/channel ./internal/broker ./internal/worker/... ./internal/auth ./internal/config ./internal/readiness
 FUZZ_SMOKE_TIME ?= 2s
 
-.PHONY: tidy test integration-test test-report check-report-candidates test-race test-repeat fuzz-smoke build release check-release readiness-smoke run run-outbox-worker run-inbox-worker db-up db-down migrate cleanup-tokens
+.PHONY: tidy test test-email-signup-helper integration-test test-report check-report-candidates test-race test-repeat fuzz-smoke build release check-release readiness-smoke test-email-signup-e2e run run-outbox-worker run-inbox-worker run-email-worker db-up db-down migrate cleanup-tokens
 
 tidy:
 	go mod tidy
 
 test:
 	go test ./...
+	$(PYTHON) ./scripts/email_signup_imap_test.py
+
+test-email-signup-helper:
+	$(PYTHON) ./scripts/email_signup_imap_test.py
 
 integration-test:
 	TEST_DATABASE_URL='postgres://rtk:rtk_password@localhost:5432/rtk_account_manager?sslmode=disable' go test ./...
@@ -40,6 +46,8 @@ build:
 	go build -trimpath -o dist/rtk-account-manager-migrate ./cmd/migrate
 	go build -trimpath -o dist/rtk-account-manager-outbox-worker ./cmd/outbox-worker
 	go build -trimpath -o dist/rtk-account-manager-inbox-worker ./cmd/inbox-worker
+	go build -trimpath -o dist/rtk-account-manager-email-worker ./cmd/email-worker
+	go build -trimpath -o dist/rtk-account-manager-email-outbox-admin ./cmd/email-outbox-admin
 	go build -trimpath -o dist/rtk-account-manager-cleanup-tokens ./cmd/cleanup-tokens
 
 release:
@@ -49,6 +57,8 @@ release:
 	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-migrate" ./cmd/migrate
 	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-outbox-worker" ./cmd/outbox-worker
 	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-inbox-worker" ./cmd/inbox-worker
+	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-email-worker" ./cmd/email-worker
+	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-email-outbox-admin" ./cmd/email-outbox-admin
 	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-cleanup-tokens" ./cmd/cleanup-tokens
 	cp -R migrations "dist/rtk_account_manager-$(VERSION)/migrations"
 	cp -R deploy/systemd "dist/rtk_account_manager-$(VERSION)/deploy/systemd"
@@ -69,6 +79,9 @@ check-release: release
 readiness-smoke:
 	go run ./cmd/readiness-smoke
 
+test-email-signup-e2e:
+	$(PYTHON) ./scripts/email_signup_e2e.py --admin-repo "$(ADMIN_REPO)"
+
 run:
 	go run ./cmd/server
 
@@ -77,6 +90,9 @@ run-outbox-worker:
 
 run-inbox-worker:
 	go run ./cmd/inbox-worker
+
+run-email-worker:
+	go run ./cmd/email-worker
 
 db-up:
 	docker compose up -d postgres

@@ -205,12 +205,11 @@ configured `AuthTokenSink`. Supported adapters are:
 
 - `AUTH_TOKEN_DELIVERY=log`: dev/test adapter that records the raw token in
   server logs. Logs are sensitive operational material.
-- `AUTH_TOKEN_DELIVERY=smtp`: production email adapter that sends
-  email-verification, login-activation, and password-reset links. It requires
-  `SMTP_HOST`, `SMTP_FROM`, and any provider-required `SMTP_USERNAME` /
-  `SMTP_PASSWORD` values. `AUTH_TOKEN_BASE_URL` should point at the Admin
-  Console browser origin so messages can link to `/signup/verify`,
-  `/login/activate`, and `/reset-password`.
+- `AUTH_TOKEN_DELIVERY=smtp`: production adapter that transactionally writes
+  encrypted jobs to `email_outbox`. `rtk-account-manager-email-worker`
+  delivers them over verified STARTTLS with bounded retry and dead-letter
+  handling. Production requires the canonical SMTP variables,
+  `EMAIL_OUTBOX_ENCRYPTION_KEY`, and `AUTH_TOKEN_BASE_URL`.
 
 `auth_tokens` stores only token hashes. Tenant-scoped login tokens also carry a
 server-side `scope` value such as `brand_cloud:<tenantSlug>`; console login,
@@ -1245,18 +1244,11 @@ Constraints:
 - Verification, login activation, and password reset tokens expire after 30 minutes, are stored
   hashed, become one-time-use after consumption, and are throttled to five
   issued tokens per user/purpose per hour.
-- Auth token delivery is an explicit adapter boundary. The API process accepts
-  an `AuthTokenSink` implementation for email/SMS/dev-test delivery. The
-  production server entrypoint wires `AUTH_TOKEN_DELIVERY=log` as the local
-  dev/test adapter so one-time verification and reset tokens are emitted to the
-  server log; `AUTH_TOKEN_DELIVERY=smtp` sends verification, sign-in, and reset
-  links through the configured SMTP account.
-- Quota-raise decision delivery is also an explicit adapter boundary. The API
-  process accepts a `QuotaRaiseNotificationSink` for approval/decline
-  notifications. The production server entrypoint wires SMTP delivery when
-  `SMTP_HOST` and `SMTP_FROM` are configured, and otherwise falls back to the
-  local log adapter so quota decisions are observable in dev/test until a real
-  mail adapter is configured.
+- Auth token and quota-decision email are committed to `email_outbox` in the
+  same PostgreSQL transaction as the associated token or quota mutation.
+  Temporary SMTP failure therefore does not fail the API request. The worker
+  claims rows with leases, retries transient failures, expires stale token
+  email, and dead-letters permanent failures. Log sinks remain local/test-only.
 - Keycloak/OIDC SSO is available as an external authentication option when
   enabled through environment or platform-admin provider configuration.
 - Expired or revoked refresh tokens may be removed by an explicit maintenance command.
@@ -2137,9 +2129,17 @@ Required configuration:
 | `SIGNUP_DISPOSABLE_DOMAINS` | Comma-separated disposable email denylist override for public signup. |
 | `SMTP_HOST` | SMTP host used for quota approval/decline notifications when configured. |
 | `SMTP_PORT` | SMTP port, default `587`. |
-| `SMTP_USERNAME` | Optional SMTP username. |
-| `SMTP_PASSWORD` | Optional SMTP password. |
+| `SMTP_USERNAME` | SMTP username; required in production. |
+| `SMTP_PASSWORD` | SMTP password; required in production. |
 | `SMTP_FROM` | SMTP sender address used with `SMTP_HOST`. |
+| `SMTP_FROM_NAME` | Sender display name, default `Realtek Connect`. |
+| `SMTP_ENCRYPTION` | `starttls` in production; `none` is local/test-only. |
+| `EMAIL_OUTBOX_ENCRYPTION_KEY` | Base64-encoded 32-byte AES-256-GCM key for encrypted outbox payloads. |
+| `EMAIL_OUTBOX_POLL_INTERVAL` | Worker polling interval, default `5s`. |
+| `EMAIL_OUTBOX_BATCH_SIZE` | Worker claim batch size, default `20`. |
+| `EMAIL_OUTBOX_MAX_ATTEMPTS` | Maximum delivery attempts, default `8`. |
+| `EMAIL_OUTBOX_RETRY_BASE` | Initial retry delay, default `30s`. |
+| `EMAIL_OUTBOX_RETRY_MAX` | Retry delay ceiling, default `30m`. |
 
 When enabled, the user cache is a best-effort API Store decorator. Postgres
 remains authoritative; Redis-compatible records have no TTL and are populated

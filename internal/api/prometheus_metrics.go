@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -58,6 +59,32 @@ func (s *Server) prometheusMetrics(c *gin.Context) {
 	writeMetric(&b, "rtk_account_manager_quota_raise_requests", map[string]string{"status": "pending"}, pending)
 	writeMetric(&b, "rtk_account_manager_quota_raise_requests", map[string]string{"status": "approved"}, approved)
 	writeMetric(&b, "rtk_account_manager_quota_raise_requests", map[string]string{"status": "declined"}, declined)
+
+	if s.emailOutboxStore != nil {
+		emailCounts, err := s.emailOutboxStore.GetEmailOutboxCounts(ctx, time.Now().UTC())
+		if err != nil {
+			c.String(http.StatusInternalServerError, b.String())
+			return
+		}
+		writeMetricHelp(&b, "rtk_account_manager_email_outbox", "Email outbox messages by status.")
+		writeMetricType(&b, "rtk_account_manager_email_outbox", "gauge")
+		writeMetric(&b, "rtk_account_manager_email_outbox", map[string]string{"status": "pending"}, emailCounts.Pending)
+		writeMetric(&b, "rtk_account_manager_email_outbox", map[string]string{"status": "retrying"}, emailCounts.Retrying)
+		writeMetric(&b, "rtk_account_manager_email_outbox", map[string]string{"status": "sent"}, emailCounts.Sent)
+		writeMetric(&b, "rtk_account_manager_email_outbox", map[string]string{"status": "dead_lettered"}, emailCounts.DeadLettered)
+		writeMetric(&b, "rtk_account_manager_email_outbox", map[string]string{"status": "expired"}, emailCounts.Expired)
+		writeMetricHelp(&b, "rtk_account_manager_email_outbox_oldest_pending_seconds", "Age of the oldest deliverable email.")
+		writeMetricType(&b, "rtk_account_manager_email_outbox_oldest_pending_seconds", "gauge")
+		writeMetric(&b, "rtk_account_manager_email_outbox_oldest_pending_seconds", nil, int64(emailCounts.OldestPendingAge.Seconds()))
+		writeMetricHelp(&b, "rtk_account_manager_email_delivery_total", "Terminal email delivery outcomes.")
+		writeMetricType(&b, "rtk_account_manager_email_delivery_total", "counter")
+		writeMetric(&b, "rtk_account_manager_email_delivery_total", map[string]string{"outcome": "sent"}, emailCounts.Sent)
+		writeMetric(&b, "rtk_account_manager_email_delivery_total", map[string]string{"outcome": "dead_lettered"}, emailCounts.DeadLettered)
+		writeMetric(&b, "rtk_account_manager_email_delivery_total", map[string]string{"outcome": "expired"}, emailCounts.Expired)
+		writeMetricHelp(&b, "rtk_account_manager_email_delivery_latency_seconds", "Average end-to-end latency for sent email.")
+		writeMetricType(&b, "rtk_account_manager_email_delivery_latency_seconds", "gauge")
+		writeMetric(&b, "rtk_account_manager_email_delivery_latency_seconds", nil, int64(emailCounts.DeliveryLatency.Seconds()))
+	}
 
 	writeMetricHelp(&b, "rtk_account_manager_lifecycle_messages", "Lifecycle message counts by queue and status.")
 	writeMetricType(&b, "rtk_account_manager_lifecycle_messages", "gauge")

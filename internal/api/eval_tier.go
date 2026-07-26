@@ -162,12 +162,7 @@ func (s *Server) signup(c *gin.Context) {
 		writeStoreError(c, err)
 		return
 	}
-	token, expiresAt, err := s.createAuthToken(c, result.User.ID, "email_verification")
-	if err != nil {
-		writeAuthTokenStoreError(c, err, "Could not issue verification token")
-		return
-	}
-	if err := s.deliverAuthToken(c, result.User.Email, "email_verification", token, expiresAt); err != nil {
+	if _, _, err := s.issueAuthToken(c, result.User.ID, result.User.Email, "email_verification"); err != nil {
 		writeError(c, http.StatusInternalServerError, "token_delivery_failed", "Could not deliver verification token")
 		return
 	}
@@ -282,6 +277,7 @@ func (s *Server) decideQuotaRaiseRequest(c *gin.Context, approved bool) {
 		DecidedBy:      currentUserID(c),
 		DecisionReason: req.DecisionReason,
 		Approved:       approved,
+		EnqueueEmail:   s.emailOutboxStore != nil,
 	}
 	if approved {
 		if req.ApprovedQuota != nil {
@@ -293,7 +289,7 @@ func (s *Server) decideQuotaRaiseRequest(c *gin.Context, approved bool) {
 		writeStoreError(c, err)
 		return
 	}
-	if s.quotaRaiseNotificationSink != nil {
+	if s.emailOutboxStore == nil && s.quotaRaiseNotificationSink != nil {
 		if err := s.quotaRaiseNotificationSink.DeliverQuotaRaiseNotification(c.Request.Context(), QuotaRaiseNotificationDelivery{
 			RecipientEmail:   requester.Email,
 			RecipientName:    requester.DisplayName,

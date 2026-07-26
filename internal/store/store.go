@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"rtk_account_manager/internal/emaildelivery"
 	"rtk_account_manager/internal/model"
 )
 
@@ -43,6 +44,11 @@ type Store struct {
 
 	authTokenRateLimitMax    int
 	authTokenRateLimitWindow time.Duration
+	emailOutboxCipher        *emaildelivery.Cipher
+}
+
+func (s *Store) ConfigureEmailOutboxCipher(cipher *emaildelivery.Cipher) {
+	s.emailOutboxCipher = cipher
 }
 
 func New(db *pgxpool.Pool) *Store {
@@ -100,6 +106,7 @@ type BrandCloudOwnerTransferInput struct {
 	TargetEmail       string
 	TokenHash         string
 	ExpiresAt         time.Time
+	Email             *EmailOutboxInput
 }
 
 type BrandCloudOwnerTransferQuery struct {
@@ -593,6 +600,10 @@ func (s *Store) CreateLoginActivationToken(ctx context.Context, userID, tokenHas
 	return s.createAuthToken(ctx, userID, "login_activation", "", tokenHash, expiresAt)
 }
 
+func (s *Store) CreateAuthTokenAndEmail(ctx context.Context, userID, purpose, tokenHash string, expiresAt time.Time, email EmailOutboxInput) error {
+	return s.createAuthTokenForSubjectWithEmail(ctx, "platform_user", userID, userID, purpose, "", tokenHash, expiresAt, &email)
+}
+
 func (s *Store) createScopedLoginActivationToken(ctx context.Context, userID, scope, tokenHash string, expiresAt time.Time) error {
 	return s.createAuthToken(ctx, userID, "login_activation", scope, tokenHash, expiresAt)
 }
@@ -632,6 +643,37 @@ func (s *Store) CreateLoginActivationTokenForEmail(ctx context.Context, email, t
 	return true, s.CreateLoginActivationToken(ctx, userID, tokenHash, expiresAt)
 }
 
+func (s *Store) CreateLoginActivationTokenForEmailAndEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time, outbox EmailOutboxInput) (bool, error) {
+	var userID string
+	err := s.db.QueryRow(ctx, `
+		SELECT id::text
+		FROM users
+		WHERE email = $1
+		  AND disabled_at IS NULL
+		  AND signup_pending_verification = false
+		  AND (
+		      platform_admin = true
+		      OR EXISTS (
+		          SELECT 1 FROM organization_members m
+		          JOIN organizations o ON o.id = m.organization_id
+		          WHERE m.user_id = users.id AND o.organization_kind = 'customer_org'
+		      )
+		      OR NOT EXISTS (
+		          SELECT 1 FROM organization_members m
+		          JOIN organizations o ON o.id = m.organization_id
+		          WHERE m.user_id = users.id AND o.organization_kind = 'brand_cloud'
+		      )
+		  )
+	`, strings.ToLower(strings.TrimSpace(email))).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, s.createAuthTokenForSubjectWithEmail(ctx, "platform_user", userID, userID, "login_activation", "", tokenHash, expiresAt, &outbox)
+}
+
 func (s *Store) CreatePasswordResetTokenForEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error) {
 	var userID string
 	err := s.db.QueryRow(ctx, `
@@ -646,6 +688,18 @@ func (s *Store) CreatePasswordResetTokenForEmail(ctx context.Context, email, tok
 		return false, err
 	}
 	return true, s.CreatePasswordResetToken(ctx, userID, tokenHash, expiresAt)
+}
+
+func (s *Store) CreatePasswordResetTokenForEmailAndEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time, outbox EmailOutboxInput) (bool, error) {
+	var userID string
+	err := s.db.QueryRow(ctx, `SELECT id::text FROM users WHERE email = $1 AND disabled_at IS NULL`, email).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, s.createAuthTokenForSubjectWithEmail(ctx, "platform_user", userID, userID, "password_reset", "", tokenHash, expiresAt, &outbox)
 }
 
 func (s *Store) CreateEmailVerificationTokenForEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error) {
@@ -663,6 +717,23 @@ func (s *Store) CreateEmailVerificationTokenForEmail(ctx context.Context, email,
 		return false, err
 	}
 	return true, s.CreateEmailVerificationToken(ctx, userID, tokenHash, expiresAt)
+}
+
+func (s *Store) CreateEmailVerificationTokenForEmailAndEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time, outbox EmailOutboxInput) (bool, error) {
+	var userID string
+	var verified bool
+	err := s.db.QueryRow(ctx, `
+		SELECT id::text, email_verified
+		FROM users
+		WHERE email = $1 AND disabled_at IS NULL
+	`, email).Scan(&userID, &verified)
+	if errors.Is(err, pgx.ErrNoRows) || verified {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, s.createAuthTokenForSubjectWithEmail(ctx, "platform_user", userID, userID, "email_verification", "", tokenHash, expiresAt, &outbox)
 }
 
 func (s *Store) ActivateLoginToken(ctx context.Context, tokenHash string) (model.User, error) {
@@ -801,6 +872,10 @@ func (s *Store) createAuthToken(ctx context.Context, userID, purpose, scope, tok
 }
 
 func (s *Store) createAuthTokenForSubject(ctx context.Context, subjectType, subjectID, userID, purpose, scope, tokenHash string, expiresAt time.Time) error {
+	return s.createAuthTokenForSubjectWithEmail(ctx, subjectType, subjectID, userID, purpose, scope, tokenHash, expiresAt, nil)
+}
+
+func (s *Store) createAuthTokenForSubjectWithEmail(ctx context.Context, subjectType, subjectID, userID, purpose, scope, tokenHash string, expiresAt time.Time, email *EmailOutboxInput) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -830,6 +905,11 @@ func (s *Store) createAuthTokenForSubject(ctx context.Context, subjectType, subj
 		VALUES (NULLIF($1, '')::uuid, $2, $3, $4, $5, $6, $7)
 	`, userID, subjectType, subjectID, purpose, scope, tokenHash, expiresAt); err != nil {
 		return err
+	}
+	if email != nil {
+		if err := s.enqueueEmailTx(ctx, tx, *email); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }
