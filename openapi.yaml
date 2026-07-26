@@ -4070,8 +4070,7 @@ components:
         organization_name:
           type: string
           minLength: 1
-          deprecated: true
-          description: Ignored by developer signup; the default brand cloud name is the developer email.
+          description: Optional initial Brand Cloud name. Blank or omitted values fall back to the normalized developer email.
         captcha_token:
           type: string
     LoginRequest:

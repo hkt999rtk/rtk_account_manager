@@ -1575,6 +1575,38 @@ func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
 	}
 }
 
+func TestIntegrationDeveloperSignupUsesRequestedBrandCloudNameAndEmailFallback(t *testing.T) {
+	env := newIntegrationEnv(t)
+
+	namedRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
+		"email":             "named-developer@example.com",
+		"password":          "password123",
+		"display_name":      "Named Developer",
+		"organization_name": "Requested Developer Cloud",
+	}, "")
+	if namedRes.Code != http.StatusAccepted {
+		t.Fatalf("expected named developer signup 202, got %d: %s", namedRes.Code, namedRes.Body.String())
+	}
+	named := decodeBody[developerSignupBody](t, namedRes)
+	if named.BrandCloud.Name != "Requested Developer Cloud" {
+		t.Fatalf("expected requested Brand Cloud name, got %+v", named.BrandCloud)
+	}
+
+	fallbackRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
+		"email":             "Fallback-Developer@Example.COM",
+		"password":          "password123",
+		"display_name":      "Fallback Developer",
+		"organization_name": "   ",
+	}, "")
+	if fallbackRes.Code != http.StatusAccepted {
+		t.Fatalf("expected fallback developer signup 202, got %d: %s", fallbackRes.Code, fallbackRes.Body.String())
+	}
+	fallback := decodeBody[developerSignupBody](t, fallbackRes)
+	if fallback.BrandCloud.Name != "fallback-developer@example.com" {
+		t.Fatalf("expected normalized email Brand Cloud fallback, got %+v", fallback.BrandCloud)
+	}
+}
+
 func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit(t *testing.T) {
 	env := newIntegrationEnv(t)
 
