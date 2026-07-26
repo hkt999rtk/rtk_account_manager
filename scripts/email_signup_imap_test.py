@@ -3,6 +3,7 @@
 import importlib.util
 import pathlib
 import unittest
+from unittest import mock
 from email.message import EmailMessage
 
 
@@ -95,6 +96,28 @@ class MessageInspectionTest(unittest.TestCase):
             imap_helper.IMAPTestError, "SSL/TLS or STARTTLS"
         ):
             imap_helper._security_mode("none")
+
+    def test_connect_host_override_preserves_tls_server_name(self):
+        context = mock.Mock()
+        wrapped = mock.Mock()
+        context.wrap_socket.return_value = wrapped
+        raw = mock.Mock()
+        client = imap_helper._IMAP4SSLWithConnectHost.__new__(
+            imap_helper._IMAP4SSLWithConnectHost
+        )
+        client._connect_host = "192.0.2.10"
+        client.host = "mail.example.com"
+        client.port = 993
+        client.ssl_context = context
+        with mock.patch.object(
+            imap_helper.socket, "create_connection", return_value=raw
+        ) as connect:
+            result = client._create_socket(15)
+        connect.assert_called_once_with(("192.0.2.10", 993), timeout=15)
+        context.wrap_socket.assert_called_once_with(
+            raw, server_hostname="mail.example.com"
+        )
+        self.assertIs(result, wrapped)
 
 
 if __name__ == "__main__":
