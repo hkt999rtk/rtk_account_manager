@@ -17,6 +17,7 @@ func TestDeveloperSignupCreatesDefaultBrandCloudAndEnforcesCloudLimit(t *testing
 		Email:                     " Dev.Owner@Example.COM ",
 		PasswordHash:              "hash",
 		DisplayName:               stringPtr("Dev Owner"),
+		OrganizationName:          "Developer Named Cloud",
 		SignupPendingVerification: true,
 	})
 	if err != nil {
@@ -25,7 +26,7 @@ func TestDeveloperSignupCreatesDefaultBrandCloudAndEnforcesCloudLimit(t *testing
 	if result.User.Email != "dev.owner@example.com" || result.User.DeveloperCloudLimit != 8 {
 		t.Fatalf("unexpected developer user: %+v", result.User)
 	}
-	if result.BrandCloud.Name != "dev.owner@example.com" ||
+	if result.BrandCloud.Name != "Developer Named Cloud" ||
 		result.BrandCloud.OrganizationKind != model.OrganizationKindBrandCloud ||
 		result.BrandCloud.Role != model.RoleOwner {
 		t.Fatalf("unexpected default brand cloud: %+v", result.BrandCloud)

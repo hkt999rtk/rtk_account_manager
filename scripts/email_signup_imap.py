@@ -25,7 +25,8 @@ from email.utils import getaddresses
 from urllib.parse import parse_qs, urlparse
 
 
-EXPECTED_SUBJECT = "Verify your Realtek Connect account"
+DEFAULT_EXPECTED_SUBJECT = "Verify your Realtek Connect account"
+EXPECTED_SUBJECT = DEFAULT_EXPECTED_SUBJECT
 URL_RE = re.compile(r"https?://[^\s<>\"']+")
 
 
@@ -198,7 +199,13 @@ def inspect_message(
     expected_base_url: str,
 ) -> dict[str, object] | None:
     message = email.message_from_bytes(raw_message)
-    if _decoded_header(message, "Subject").strip() != EXPECTED_SUBJECT:
+    expected_subject = os.environ.get(
+        "EMAIL_E2E_EXPECTED_SUBJECT", DEFAULT_EXPECTED_SUBJECT
+    ).strip()
+    expected_path = os.environ.get(
+        "EMAIL_E2E_EXPECTED_PATH", "/signup/verify"
+    ).strip()
+    if _decoded_header(message, "Subject").strip() != expected_subject:
         return None
     if expected_from.lower() not in _addresses(message, ("From",)):
         return None
@@ -223,7 +230,7 @@ def inspect_message(
             if (
                 parsed.scheme == base.scheme
                 and parsed.netloc == base.netloc
-                and parsed.path.rstrip("/") == "/signup/verify"
+                and parsed.path.rstrip("/") == expected_path.rstrip("/")
                 and parse_qs(parsed.query).get("token", [""])[0]
             ):
                 candidates.add(candidate.rstrip(".,);"))

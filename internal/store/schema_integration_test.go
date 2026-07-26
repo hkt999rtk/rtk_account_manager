@@ -101,6 +101,7 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		{table: "organizations", name: "organizations_kind_check"},
 		{table: "organizations", name: "organizations_status_check"},
 		{table: "auth_tokens", name: "auth_tokens_purpose_check"},
+		{table: "email_outbox", name: "email_outbox_message_type_check"},
 		{table: "users", name: "users_email_normalized"},
 		{table: "users", name: "users_developer_cloud_limit_check"},
 		{table: "brand_cloud_owner_transfers", name: "brand_cloud_owner_transfers_status_check"},

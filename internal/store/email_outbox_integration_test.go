@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -362,6 +363,66 @@ func TestBrandCloudLoginTokenAndEmailOutboxCommitTogether(t *testing.T) {
 	}
 	if tokenCount != 1 || outboxCount != 1 {
 		t.Fatalf("brand login token=%d outbox=%d, want 1/1", tokenCount, outboxCount)
+	}
+}
+
+func TestBrandCloudOwnerEmailActivationIsAtomicTenantScopedAndOneTime(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	owner, err := env.store.SignupDeveloper(ctx, DeveloperSignupInput{
+		Email: "load-owner-admin@example.com", PasswordHash: "hash",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.store.ConfigureEmailOutboxCipher(integrationEmailCipher(t))
+	expiresAt := time.Now().UTC().Add(time.Hour)
+	pending, err := env.store.CreateBrandCloudUser(ctx, owner.User.ID, owner.BrandCloud.ID, BrandCloudUserInput{
+		Email: "imap-test01+load-run-b01@realtekconnect.com", PasswordHash: "inaccessible-hash",
+		DisplayName: stringPtr("RTK Load 50K run Brand 01 Owner"), Role: model.RoleOwner,
+		ActivationMode: "email", ActivationTokenHash: "owner-activation-token-hash",
+		ActivationExpiresAt: expiresAt,
+		ActivationEmail: &EmailOutboxInput{
+			IdempotencyKey: "load-owner:token-hash", MessageType: "brand_cloud_user_activation",
+			Payload: emaildelivery.Payload{
+				RecipientEmail: "imap-test01+load-run-b01@realtekconnect.com",
+				Token:          "raw-owner-activation-token", ExpiresAt: expiresAt.Format(time.RFC3339),
+			},
+			ExpiresAt: &expiresAt,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.BrandCloudUser.EmailVerified || !pending.BrandCloudUser.SignupPendingVerification {
+		t.Fatalf("email activation user must start pending: %+v", pending.BrandCloudUser)
+	}
+	var tokenCount, outboxCount int
+	if err := env.db.QueryRow(ctx, `
+		SELECT
+			(SELECT count(*) FROM auth_tokens WHERE token_hash = 'owner-activation-token-hash' AND purpose = 'brand_cloud_user_activation'),
+			(SELECT count(*) FROM email_outbox WHERE idempotency_key = 'load-owner:token-hash' AND message_type = 'brand_cloud_user_activation')
+	`).Scan(&tokenCount, &outboxCount); err != nil {
+		t.Fatal(err)
+	}
+	if tokenCount != 1 || outboxCount != 1 {
+		t.Fatalf("token/outbox counts = %d/%d, want 1/1", tokenCount, outboxCount)
+	}
+	if _, err := env.store.ActivateBrandCloudUser(ctx, "wrong-tenant", "owner-activation-token-hash", "new-password-hash"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("wrong tenant activation error = %v, want not found", err)
+	}
+	if owner.BrandCloud.TenantSlug == nil {
+		t.Fatal("brand cloud tenant slug is missing")
+	}
+	activated, err := env.store.ActivateBrandCloudUser(ctx, *owner.BrandCloud.TenantSlug, "owner-activation-token-hash", "new-password-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !activated.BrandCloudUser.EmailVerified || activated.BrandCloudUser.SignupPendingVerification || activated.PasswordHash != "new-password-hash" {
+		t.Fatalf("activated state is inconsistent: %+v", activated)
+	}
+	if _, err := env.store.ActivateBrandCloudUser(ctx, *owner.BrandCloud.TenantSlug, "owner-activation-token-hash", "another-hash"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("replay activation error = %v, want not found", err)
 	}
 }
 

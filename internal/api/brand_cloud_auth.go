@@ -66,6 +66,32 @@ func (s *Server) brandCloudActivateLogin(c *gin.Context) {
 	s.writeBrandCloudLoginResponse(c, req.AppCSRPem, result)
 }
 
+type brandCloudUserActivationRequest struct {
+	Token     string `json:"token" binding:"required"`
+	Password  string `json:"password" binding:"required,min=8"`
+	AppCSRPem string `json:"app_csr_pem"`
+}
+
+func (s *Server) brandCloudActivateUser(c *gin.Context) {
+	var req brandCloudUserActivationRequest
+	if !bind(c, &req) {
+		return
+	}
+	hash, err := auth.HashPassword(req.Password)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not hash password")
+		return
+	}
+	result, err := s.store.ActivateBrandCloudUser(
+		c.Request.Context(), c.Param("tenantSlug"), auth.HashToken(req.Token), hash,
+	)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "invalid_token", "Invalid or expired activation token")
+		return
+	}
+	s.writeBrandCloudLoginResponse(c, req.AppCSRPem, result)
+}
+
 func (s *Server) writeBrandCloudLoginResponse(c *gin.Context, appCSRPem string, result store.BrandCloudLoginResult) {
 	tokens, err := s.issueBrandCloudTokens(c, result.BrandCloudUser.ID, result.BrandCloudUser.ID, result.BrandCloud.ID, valueOrEmpty(result.BrandCloud.TenantSlug))
 	if err != nil {

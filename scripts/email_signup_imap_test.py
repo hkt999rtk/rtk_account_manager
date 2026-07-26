@@ -67,6 +67,26 @@ class MessageInspectionTest(unittest.TestCase):
         )
         self.assertIsNotNone(result)
 
+    def test_accepts_brand_owner_activation_subject_and_path(self):
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "EMAIL_E2E_EXPECTED_SUBJECT": "Activate your Realtek Connect brand account",
+                "EMAIL_E2E_EXPECTED_PATH": "/brand-cloud/activate",
+            },
+        ):
+            result = imap_helper.inspect_message(
+                message_bytes(
+                    recipient="imap-test01+load-run-b01@example.com",
+                    subject="Activate your Realtek Connect brand account",
+                    text_url="https://admin.example.com/brand-cloud/activate?tenant=load-run-b01&token=secret-token",
+                ),
+                "no-reply@realtekconnect.com",
+                "imap-test01+load-run-b01@example.com",
+                "https://admin.example.com",
+            )
+        self.assertIsNotNone(result)
+
     def test_ignores_wrong_sender_recipient_or_subject(self):
         self.assertIsNone(self.inspect(message_bytes(sender="other@example.com")))
         self.assertIsNone(self.inspect(message_bytes(recipient="other@example.com")))
