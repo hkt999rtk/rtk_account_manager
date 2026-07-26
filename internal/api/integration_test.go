@@ -142,6 +142,130 @@ func TestIntegrationSignupQueuesEncryptedEmailWithoutCallingSMTP(t *testing.T) {
 	}
 }
 
+func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+	admin := registerUser(t, env.router, "load-owner-admin@example.com", "Load Owner Admin")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	repository := env.server.store.(*store.Store)
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = 9
+	}
+	cipher, err := emaildelivery.NewCipher(base64.StdEncoding.EncodeToString(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.ConfigureEmailOutboxCipher(cipher)
+	env.server.ConfigureEmailOutbox(repository)
+	brandRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
+		"name": "RTK-LOAD-CANARY-run-b01", "tenant_slug": "load-run-b01",
+	}, admin.Tokens.AccessToken)
+	if brandRes.Code != http.StatusCreated {
+		t.Fatalf("brand create status = %d: %s", brandRes.Code, brandRes.Body.String())
+	}
+	brand := decodeBody[brandCloudBody](t, brandRes)
+	createRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
+		"email": "imap-test01+load-run-b01@realtekconnect.com", "display_name": "Load Owner",
+		"role": "owner", "activation_mode": "email",
+	}, admin.Tokens.AccessToken)
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("email owner create status = %d: %s", createRes.Code, createRes.Body.String())
+	}
+	created := decodeBody[brandCloudUserBody](t, createRes)
+	if created.BrandCloudUser.EmailVerified || !created.BrandCloudUser.SignupPendingVerification {
+		t.Fatalf("email owner did not start pending: %+v", created)
+	}
+	duplicateRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
+		"email": "imap-test01+load-run-b01@realtekconnect.com", "display_name": "Load Owner",
+		"role": "owner", "activation_mode": "email",
+	}, admin.Tokens.AccessToken)
+	if duplicateRes.Code != http.StatusConflict {
+		t.Fatalf("duplicate email activation status = %d, want 409", duplicateRes.Code)
+	}
+	beforeLogin := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/load-run-b01/auth/login", map[string]any{
+		"email": "imap-test01+load-run-b01@realtekconnect.com", "password": "not-activated",
+	}, "")
+	if beforeLogin.Code != http.StatusUnauthorized {
+		t.Fatalf("pending owner login status = %d, want 401", beforeLogin.Code)
+	}
+	var nonce, ciphertext []byte
+	if err := env.db.QueryRow(ctx, `
+		SELECT payload_nonce, payload_ciphertext
+		FROM email_outbox
+		WHERE message_type = 'brand_cloud_user_activation'
+	`).Scan(&nonce, &ciphertext); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := cipher.Decrypt(nonce, ciphertext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.TenantSlug != "load-run-b01" || payload.RecipientEmail != "imap-test01+load-run-b01@realtekconnect.com" || payload.Token == "" {
+		t.Fatalf("activation outbox payload = %+v", payload)
+	}
+	wrongTenant := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/wrong-tenant/auth/activate", map[string]any{
+		"token": payload.Token, "password": "activated-password123",
+	}, "")
+	if wrongTenant.Code != http.StatusBadRequest {
+		t.Fatalf("wrong tenant activation status = %d, want 400", wrongTenant.Code)
+	}
+	activateRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/load-run-b01/auth/activate", map[string]any{
+		"token": payload.Token, "password": "activated-password123",
+	}, "")
+	if activateRes.Code != http.StatusOK {
+		t.Fatalf("owner activation status = %d: %s", activateRes.Code, activateRes.Body.String())
+	}
+	activated := decodeBody[tokenBody](t, activateRes)
+	if !activated.User.EmailVerified || activated.User.SignupPendingVerification || activated.Tokens.AccessToken == "" {
+		t.Fatalf("activated owner response = %+v", activated)
+	}
+	replay := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/load-run-b01/auth/activate", map[string]any{
+		"token": payload.Token, "password": "another-password123",
+	}, "")
+	if replay.Code != http.StatusBadRequest || strings.Contains(replay.Body.String(), payload.Token) {
+		t.Fatalf("replay status/body = %d/%s", replay.Code, replay.Body.String())
+	}
+	passwordLogin := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/load-run-b01/auth/login", map[string]any{
+		"email": "imap-test01+load-run-b01@realtekconnect.com", "password": "activated-password123",
+	}, "")
+	if passwordLogin.Code != http.StatusOK {
+		t.Fatalf("activated owner password login status = %d: %s", passwordLogin.Code, passwordLogin.Body.String())
+	}
+
+	expiredCreate := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
+		"email": "imap-test01+load-run-b02@realtekconnect.com", "display_name": "Expired Load Owner",
+		"role": "owner", "activation_mode": "email",
+	}, admin.Tokens.AccessToken)
+	if expiredCreate.Code != http.StatusCreated {
+		t.Fatalf("expired owner create status = %d: %s", expiredCreate.Code, expiredCreate.Body.String())
+	}
+	if err := env.db.QueryRow(ctx, `
+		SELECT payload_nonce, payload_ciphertext
+		FROM email_outbox
+		WHERE message_type = 'brand_cloud_user_activation'
+		ORDER BY created_at DESC
+		LIMIT 1
+	`).Scan(&nonce, &ciphertext); err != nil {
+		t.Fatal(err)
+	}
+	expiredPayload, err := cipher.Decrypt(nonce, ciphertext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE auth_tokens SET expires_at = now() - interval '1 minute' WHERE token_hash = $1`, auth.HashToken(expiredPayload.Token)); err != nil {
+		t.Fatal(err)
+	}
+	expiredActivate := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/load-run-b01/auth/activate", map[string]any{
+		"token": expiredPayload.Token, "password": "expired-password123",
+	}, "")
+	if expiredActivate.Code != http.StatusBadRequest {
+		t.Fatalf("expired activation status = %d, want 400", expiredActivate.Code)
+	}
+}
+
 func TestIntegrationOutboxQueuesEveryPlatformAuthEmail(t *testing.T) {
 	env := newIntegrationEnv(t)
 	registered := registerUser(t, env.router, "queued-auth@example.com", "Queued Auth Org")
@@ -6085,6 +6209,10 @@ type userBody struct {
 }
 
 type tokenBody struct {
+	User struct {
+		EmailVerified             bool `json:"email_verified"`
+		SignupPendingVerification bool `json:"signup_pending_verification"`
+	} `json:"user"`
 	Tokens struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`

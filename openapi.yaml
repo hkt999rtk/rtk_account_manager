@@ -436,6 +436,30 @@ paths:
           $ref: "#/components/responses/Error"
         "401":
           $ref: "#/components/responses/Error"
+  /v1/brand-clouds/{tenantSlug}/auth/activate:
+    post:
+      tags:
+        - Brand Cloud Auth
+      operationId: activateBrandCloudUser
+      summary: Set a password and activate a pending brand-cloud user.
+      description: Consumes a tenant-scoped one-time `brand_cloud_user_activation` token, verifies the email, clears pending status, and issues a tenant-scoped session. Replay, expiry, and tenant mismatch are rejected.
+      parameters:
+        - $ref: "#/components/parameters/TenantSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandCloudUserActivationRequest"
+      responses:
+        "200":
+          description: Brand-cloud user activation succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandCloudLoginResponse"
+        "400":
+          $ref: "#/components/responses/Error"
   /v1/brand-clouds/{tenantSlug}/auth/refresh:
     post:
       tags:
@@ -1605,7 +1629,8 @@ paths:
       operationId: createBrandCloudUser
       security:
         - bearerAuth: []
-      summary: Create or activate a user and assign them to a brand cloud.
+      summary: Create a user and assign them to a brand cloud.
+      description: "`activation_mode=immediate` preserves the compatible verified-password flow. `activation_mode=email` forbids an admin-supplied password, creates a pending user, and atomically queues a one-time activation email."
       parameters:
         - $ref: "#/components/parameters/BrandCloudId"
       requestBody:
@@ -4608,7 +4633,7 @@ components:
           $ref: "#/components/schemas/Role"
     BrandCloudUserRequest:
       type: object
-      required: [email, password, role]
+      required: [email, role]
       properties:
         email:
           type: string
@@ -4616,6 +4641,7 @@ components:
         password:
           type: string
           minLength: 8
+          description: Required for immediate activation and forbidden for email activation.
         display_name:
           type: string
         role:
@@ -4623,6 +4649,22 @@ components:
         rotate_password:
           type: boolean
           default: false
+        activation_mode:
+          type: string
+          enum: [immediate, email]
+          default: immediate
+    BrandCloudUserActivationRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token:
+          type: string
+          minLength: 1
+        password:
+          type: string
+          minLength: 8
+        app_csr_pem:
+          type: string
     BrandCloudOwnerTransferRequest:
       type: object
       required: [target_email]

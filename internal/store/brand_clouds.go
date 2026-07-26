@@ -266,17 +266,15 @@ func (s *Store) CreateBrandCloudUser(ctx context.Context, actorUserID, orgID str
 	}
 	defer tx.Rollback(ctx)
 
-	var exists bool
+	var tenantSlug, brandCloudName string
 	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM organizations
-			WHERE id = $1 AND organization_kind = 'brand_cloud'
-		)
-	`, orgID).Scan(&exists); err != nil {
-		return BrandCloudUserResult{}, err
-	}
-	if !exists {
+		SELECT tenant_slug, name
+		FROM organizations
+		WHERE id = $1 AND organization_kind = 'brand_cloud'
+	`, orgID).Scan(&tenantSlug, &brandCloudName); errors.Is(err, pgx.ErrNoRows) {
 		return BrandCloudUserResult{}, ErrNotFound
+	} else if err != nil {
+		return BrandCloudUserResult{}, err
 	}
 
 	email := strings.ToLower(strings.TrimSpace(in.Email))
@@ -289,14 +287,18 @@ func (s *Store) CreateBrandCloudUser(ctx context.Context, actorUserID, orgID str
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return BrandCloudUserResult{}, err
 	}
+	if in.ActivationMode == "email" && err == nil {
+		return BrandCloudUserResult{}, ErrConflict
+	}
 	action := "assigned"
 	if errors.Is(err, pgx.ErrNoRows) {
 		action = "created"
 	}
 
+	emailVerified := in.ActivationMode != "email"
 	brandCloudUser, err := scanBrandCloudUser(tx.QueryRow(ctx, `
 		INSERT INTO brand_cloud_users (brand_cloud_id, email, password_hash, display_name, email_verified, email_verified_at, signup_pending_verification, disabled_at)
-		VALUES ($1, $2, $3, $4, true, now(), false, NULL)
+		VALUES ($1, $2, $3, $4, $6, CASE WHEN $6 THEN now() ELSE NULL END, NOT $6, NULL)
 		ON CONFLICT ON CONSTRAINT brand_cloud_users_brand_email_key
 		DO UPDATE SET
 			password_hash = CASE WHEN $5 THEN EXCLUDED.password_hash ELSE brand_cloud_users.password_hash END,
@@ -307,7 +309,7 @@ func (s *Store) CreateBrandCloudUser(ctx context.Context, actorUserID, orgID str
 			disabled_at = NULL,
 			updated_at = now()
 		RETURNING id::text, brand_cloud_id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
-	`, orgID, email, in.PasswordHash, in.DisplayName, in.RotatePassword))
+	`, orgID, email, in.PasswordHash, in.DisplayName, in.RotatePassword, emailVerified))
 	if err != nil {
 		return BrandCloudUserResult{}, err
 	}
@@ -323,6 +325,22 @@ func (s *Store) CreateBrandCloudUser(ctx context.Context, actorUserID, orgID str
 	}
 	brandCloudMember.Email = brandCloudUser.Email
 	brandCloudMember.DisplayName = brandCloudUser.DisplayName
+	if in.ActivationMode == "email" {
+		if in.ActivationTokenHash == "" || in.ActivationExpiresAt.IsZero() || in.ActivationEmail == nil {
+			return BrandCloudUserResult{}, errors.New("email activation token and outbox are required")
+		}
+		outbox := *in.ActivationEmail
+		outbox.Payload.TenantSlug = normalizeTenantSlug(tenantSlug)
+		outbox.Payload.OrganizationID = orgID
+		outbox.Payload.OrganizationName = brandCloudName
+		if err := s.createAuthTokenForSubjectWithEmailTx(
+			ctx, tx, "brand_cloud_user", brandCloudUser.ID, "",
+			"brand_cloud_user_activation", brandCloudAuthTokenScope(tenantSlug),
+			in.ActivationTokenHash, in.ActivationExpiresAt, &outbox,
+		); err != nil {
+			return BrandCloudUserResult{}, err
+		}
+	}
 
 	eventType := "brand_cloud_user_assigned"
 	if action == "created" {
@@ -339,6 +357,7 @@ func (s *Store) CreateBrandCloudUser(ctx context.Context, actorUserID, orgID str
 			"email":               brandCloudUser.Email,
 			"role":                brandCloudMember.Role,
 			"rotate_password":     in.RotatePassword,
+			"activation_mode":     in.ActivationMode,
 		},
 	}); err != nil {
 		return BrandCloudUserResult{}, err
@@ -347,6 +366,76 @@ func (s *Store) CreateBrandCloudUser(ctx context.Context, actorUserID, orgID str
 		return BrandCloudUserResult{}, err
 	}
 	return BrandCloudUserResult{Action: action, BrandCloudUser: brandCloudUser, BrandCloudMember: brandCloudMember}, nil
+}
+
+func (s *Store) ActivateBrandCloudUser(ctx context.Context, tenantSlug, tokenHash, passwordHash string) (BrandCloudLoginResult, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return BrandCloudLoginResult{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var brandCloudUserID string
+	err = tx.QueryRow(ctx, `
+		SELECT bcu.id::text
+		FROM auth_tokens at
+		JOIN brand_cloud_users bcu ON bcu.id = at.subject_id
+		JOIN organizations o ON o.id = bcu.brand_cloud_id
+		WHERE at.token_hash = $1
+		  AND at.subject_type = 'brand_cloud_user'
+		  AND at.purpose = 'brand_cloud_user_activation'
+		  AND at.scope = $2
+		  AND at.consumed_at IS NULL
+		  AND at.expires_at > now()
+		  AND o.organization_kind = 'brand_cloud'
+		  AND o.status = 'active'
+		  AND o.tenant_slug = $3
+		  AND bcu.disabled_at IS NULL
+		  AND bcu.signup_pending_verification = true
+		  AND bcu.email_verified = false
+		FOR UPDATE OF at, bcu
+	`, tokenHash, brandCloudAuthTokenScope(tenantSlug), normalizeTenantSlug(tenantSlug)).Scan(&brandCloudUserID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return BrandCloudLoginResult{}, ErrNotFound
+	}
+	if err != nil {
+		return BrandCloudLoginResult{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE brand_cloud_users
+		SET password_hash = $2,
+		    email_verified = true,
+		    email_verified_at = now(),
+		    signup_pending_verification = false,
+		    updated_at = now()
+		WHERE id = $1
+	`, brandCloudUserID, passwordHash); err != nil {
+		return BrandCloudLoginResult{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE auth_tokens SET consumed_at = now() WHERE token_hash = $1`, tokenHash); err != nil {
+		return BrandCloudLoginResult{}, err
+	}
+	result, err := getBrandCloudLoginResultByID(ctx, tx, tenantSlug, brandCloudUserID)
+	if err != nil {
+		return BrandCloudLoginResult{}, err
+	}
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{
+		EventType:      "brand_cloud_user_activated",
+		OrganizationID: &result.BrandCloud.ID,
+		SubjectType:    "brand_cloud_user",
+		SubjectID:      result.BrandCloudUser.ID,
+		Payload: map[string]any{
+			"token_purpose":       "brand_cloud_user_activation",
+			"tenant_slug":         normalizeTenantSlug(tenantSlug),
+			"brand_cloud_user_id": result.BrandCloudUser.ID,
+		},
+	}); err != nil {
+		return BrandCloudLoginResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return BrandCloudLoginResult{}, err
+	}
+	return result, nil
 }
 
 func (s *Store) ListBrandCloudUsers(ctx context.Context, in BrandCloudUserListFilter) (BrandCloudUserPage, error) {

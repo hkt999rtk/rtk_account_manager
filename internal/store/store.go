@@ -92,6 +92,7 @@ type DeveloperSignupInput struct {
 	Email                     string
 	PasswordHash              string
 	DisplayName               *string
+	OrganizationName          string
 	SignupPendingVerification bool
 }
 
@@ -116,11 +117,15 @@ type BrandCloudOwnerTransferQuery struct {
 }
 
 type BrandCloudUserInput struct {
-	Email          string
-	PasswordHash   string
-	DisplayName    *string
-	Role           model.Role
-	RotatePassword bool
+	Email               string
+	PasswordHash        string
+	DisplayName         *string
+	Role                model.Role
+	RotatePassword      bool
+	ActivationMode      string
+	ActivationTokenHash string
+	ActivationExpiresAt time.Time
+	ActivationEmail     *EmailOutboxInput
 }
 
 type BrandCloudUserResult struct {
@@ -881,7 +886,13 @@ func (s *Store) createAuthTokenForSubjectWithEmail(ctx context.Context, subjectT
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err := s.createAuthTokenForSubjectWithEmailTx(ctx, tx, subjectType, subjectID, userID, purpose, scope, tokenHash, expiresAt, email); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
 
+func (s *Store) createAuthTokenForSubjectWithEmailTx(ctx context.Context, tx pgx.Tx, subjectType, subjectID, userID, purpose, scope, tokenHash string, expiresAt time.Time, email *EmailOutboxInput) error {
 	var recent int
 	if err := tx.QueryRow(ctx, `
 		SELECT count(*)
@@ -911,7 +922,7 @@ func (s *Store) createAuthTokenForSubjectWithEmail(ctx context.Context, subjectT
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func consumeAuthTokenTx(ctx context.Context, tx pgx.Tx, tokenHash, purpose, scope string) (string, error) {

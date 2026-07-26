@@ -33,7 +33,11 @@ func (s *Store) SignupDeveloper(ctx context.Context, in DeveloperSignupInput) (D
 		}
 		return DeveloperSignupResult{}, err
 	}
-	brandCloud, err := createDeveloperBrandCloudTx(ctx, tx, user.ID, BrandCloudInput{Name: email}, false)
+	brandCloudName := strings.TrimSpace(in.OrganizationName)
+	if brandCloudName == "" {
+		brandCloudName = email
+	}
+	brandCloud, err := createDeveloperBrandCloudTx(ctx, tx, user.ID, BrandCloudInput{Name: brandCloudName}, false)
 	if err != nil {
 		return DeveloperSignupResult{}, err
 	}

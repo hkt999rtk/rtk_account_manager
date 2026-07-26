@@ -25,10 +25,11 @@ type brandCloudMemberRequest struct {
 
 type brandCloudUserRequest struct {
 	Email          string  `json:"email" binding:"required,email"`
-	Password       string  `json:"password" binding:"required,min=8"`
+	Password       string  `json:"password"`
 	DisplayName    *string `json:"display_name"`
 	Role           string  `json:"role" binding:"required"`
 	RotatePassword bool    `json:"rotate_password"`
+	ActivationMode string  `json:"activation_mode"`
 }
 
 type deviceItemProfileRequest struct {
@@ -316,18 +317,56 @@ func (s *Server) createBrandCloudUser(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "invalid_role", "Invalid role")
 		return
 	}
-	hash, err := auth.HashPassword(req.Password)
+	activationMode := strings.ToLower(strings.TrimSpace(req.ActivationMode))
+	if activationMode == "" {
+		activationMode = "immediate"
+	}
+	if activationMode != "immediate" && activationMode != "email" {
+		writeError(c, http.StatusBadRequest, "invalid_activation_mode", "activation_mode must be immediate or email")
+		return
+	}
+	if activationMode == "immediate" && len(req.Password) < 8 {
+		writeError(c, http.StatusBadRequest, "invalid_password", "password must be at least 8 characters")
+		return
+	}
+	if activationMode == "email" && strings.TrimSpace(req.Password) != "" {
+		writeError(c, http.StatusBadRequest, "password_not_allowed", "password must not be supplied for email activation")
+		return
+	}
+	password := req.Password
+	if activationMode == "email" {
+		var tokenErr error
+		password, tokenErr = auth.RandomToken()
+		if tokenErr != nil {
+			writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not create pending account credential")
+			return
+		}
+	}
+	hash, err := auth.HashPassword(password)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not hash password")
 		return
 	}
-	result, err := s.store.CreateBrandCloudUser(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), store.BrandCloudUserInput{
+	input := store.BrandCloudUserInput{
 		Email:          strings.ToLower(strings.TrimSpace(req.Email)),
 		PasswordHash:   hash,
 		DisplayName:    trimStringPtr(req.DisplayName),
 		Role:           role,
 		RotatePassword: req.RotatePassword,
-	})
+		ActivationMode: activationMode,
+	}
+	if activationMode == "email" {
+		token, expiresAt, tokenErr := s.newAuthToken()
+		if tokenErr != nil {
+			writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue activation token")
+			return
+		}
+		input.ActivationTokenHash = auth.HashToken(token)
+		input.ActivationExpiresAt = expiresAt
+		outbox := authTokenEmailOutbox(input.Email, "brand_cloud_user_activation", token, expiresAt)
+		input.ActivationEmail = &outbox
+	}
+	result, err := s.store.CreateBrandCloudUser(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), input)
 	if err != nil {
 		writeStoreError(c, err)
 		return

@@ -19,6 +19,7 @@ type Payload struct {
 	ExpiresAt        string  `json:"expires_at,omitempty"`
 	OrganizationID   string  `json:"organization_id,omitempty"`
 	OrganizationName string  `json:"organization_name,omitempty"`
+	TenantSlug       string  `json:"tenant_slug,omitempty"`
 	RequestedQuota   int     `json:"requested_quota,omitempty"`
 	ApprovedQuota    *int    `json:"approved_quota,omitempty"`
 	DecisionReason   *string `json:"decision_reason,omitempty"`

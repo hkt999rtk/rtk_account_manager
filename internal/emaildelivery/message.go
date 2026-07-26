@@ -141,6 +141,8 @@ func (r Renderer) content(messageType string, payload Payload) (string, string, 
 		subject, intro = "Verify your Realtek Connect account", "Verify your Realtek Connect account"
 	case "login_activation":
 		subject, intro = "Sign in to Realtek Connect", "Sign in to Realtek Connect"
+	case "brand_cloud_user_activation":
+		subject, intro = "Activate your Realtek Connect brand account", "Set a password to activate your Realtek Connect brand account"
 	case "password_reset":
 		subject, intro = "Reset your Realtek Connect password", "Reset your Realtek Connect password"
 	case "brand_cloud_owner_transfer":
@@ -160,7 +162,7 @@ func (r Renderer) content(messageType string, payload Payload) (string, string, 
 	default:
 		return "", "", "", fmt.Errorf("unsupported email message type %q", messageType)
 	}
-	link := r.authLink(messageType, payload.Token)
+	link := r.authLink(messageType, payload.Token, payload.TenantSlug)
 	text := intro + ":\r\n\r\n" + link + "\r\n"
 	if payload.Token != "" {
 		text += "\r\nToken: " + payload.Token + "\r\n"
@@ -178,7 +180,7 @@ func (r Renderer) content(messageType string, payload Payload) (string, string, 
 	return subject, text, htmlBody, nil
 }
 
-func (r Renderer) authLink(messageType, token string) string {
+func (r Renderer) authLink(messageType, token, tenantSlug string) string {
 	base := strings.TrimRight(strings.TrimSpace(r.BaseURL), "/")
 	path := "/login/activate"
 	switch messageType {
@@ -188,6 +190,8 @@ func (r Renderer) authLink(messageType, token string) string {
 		path = "/reset-password"
 	case "brand_cloud_owner_transfer":
 		path = "/brand-cloud-owner-transfer/accept"
+	case "brand_cloud_user_activation":
+		path = "/brand-cloud/activate"
 	}
 	u, err := url.Parse(base + path)
 	if err != nil {
@@ -195,6 +199,9 @@ func (r Renderer) authLink(messageType, token string) string {
 	}
 	q := u.Query()
 	q.Set("token", token)
+	if messageType == "brand_cloud_user_activation" {
+		q.Set("tenant", strings.TrimSpace(tenantSlug))
+	}
 	u.RawQuery = q.Encode()
 	return u.String()
 }

@@ -525,6 +525,7 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/brand-clouds/:tenantSlug/auth/login", s.brandCloudLogin)
 	v1.POST("/brand-clouds/:tenantSlug/auth/sign-in", s.brandCloudSignIn)
 	v1.POST("/brand-clouds/:tenantSlug/auth/login/activate", s.brandCloudActivateLogin)
+	v1.POST("/brand-clouds/:tenantSlug/auth/activate", s.brandCloudActivateUser)
 	v1.POST("/brand-clouds/:tenantSlug/auth/refresh", s.brandCloudRefresh)
 	v1.POST("/app/end-users/auth/login", s.appEndUserLogin)
 	v1.POST("/app/end-users/auth/refresh", s.appEndUserRefresh)

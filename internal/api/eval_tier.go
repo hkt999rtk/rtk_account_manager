@@ -156,6 +156,7 @@ func (s *Server) signup(c *gin.Context) {
 		Email:                     email,
 		PasswordHash:              hash,
 		DisplayName:               req.DisplayName,
+		OrganizationName:          strings.TrimSpace(req.OrganizationName),
 		SignupPendingVerification: true,
 	})
 	if err != nil {

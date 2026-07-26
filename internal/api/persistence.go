@@ -223,6 +223,7 @@ type brandCloudPersistence interface {
 	UpdateBrandCloud(ctx context.Context, actorUserID, orgID string, in store.BrandCloudInput) (model.Organization, error)
 	AssignBrandCloudMember(ctx context.Context, actorUserID, orgID, brandCloudUserID string, role model.Role) (model.BrandCloudMember, error)
 	CreateBrandCloudUser(ctx context.Context, actorUserID, orgID string, in store.BrandCloudUserInput) (store.BrandCloudUserResult, error)
+	ActivateBrandCloudUser(ctx context.Context, tenantSlug, tokenHash, passwordHash string) (store.BrandCloudLoginResult, error)
 	ListBrandCloudUsers(ctx context.Context, in store.BrandCloudUserListFilter) (store.BrandCloudUserPage, error)
 	DisableBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) (model.BrandCloudUser, error)
 	EnableBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) (model.BrandCloudUser, error)
