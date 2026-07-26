@@ -14,6 +14,7 @@ import imaplib
 import json
 import os
 import re
+import socket
 import ssl
 import subprocess
 import sys
@@ -30,6 +31,28 @@ URL_RE = re.compile(r"https?://[^\s<>\"']+")
 
 class IMAPTestError(RuntimeError):
     pass
+
+
+class _IMAP4SSLWithConnectHost(imaplib.IMAP4_SSL):
+    """Connect to an override address while preserving TLS SNI validation."""
+
+    def __init__(
+        self,
+        host: str,
+        connect_host: str,
+        port: int,
+        *,
+        ssl_context: ssl.SSLContext,
+        timeout: float,
+    ):
+        self._connect_host = connect_host
+        super().__init__(host, port, ssl_context=ssl_context, timeout=timeout)
+
+    def _create_socket(self, timeout: float | None) -> socket.socket:
+        sock = socket.create_connection(
+            (self._connect_host, self.port), timeout=timeout
+        )
+        return self.ssl_context.wrap_socket(sock, server_hostname=self.host)
 
 
 def _required_env(name: str) -> str:
@@ -59,13 +82,18 @@ def _connect() -> imaplib.IMAP4:
         raise IMAPTestError("IMAP_EMAIL_PORT must be an integer") from exc
     context = _ssl_context()
     mode = _security_mode(_required_env("IMAP_EMAIL_SECURITY"))
+    connect_host = os.environ.get("IMAP_CONNECT_HOST", "").strip() or host
     try:
         if mode == "ssl":
-            client: imaplib.IMAP4 = imaplib.IMAP4_SSL(
-                host, port, ssl_context=context, timeout=15
+            client: imaplib.IMAP4 = _IMAP4SSLWithConnectHost(
+                host,
+                connect_host,
+                port,
+                ssl_context=context,
+                timeout=15,
             )
         else:
-            client = imaplib.IMAP4(host, port, timeout=15)
+            client = imaplib.IMAP4(connect_host, port, timeout=15)
             status, _ = client.starttls(ssl_context=context)
             if status != "OK":
                 raise IMAPTestError("IMAP STARTTLS was rejected")
@@ -79,8 +107,7 @@ def _connect() -> imaplib.IMAP4:
 
 def _ssl_context() -> ssl.SSLContext:
     context = ssl.create_default_context()
-    paths = ssl.get_default_verify_paths()
-    if paths.cafile or paths.capath or sys.platform != "darwin":
+    if sys.platform != "darwin":
         return context
     certificates: list[str] = []
     for keychain in (
@@ -99,7 +126,7 @@ def _ssl_context() -> ssl.SSLContext:
             continue
         certificates.append(result.stdout)
     if not certificates:
-        raise IMAPTestError("macOS system CA certificates are unavailable")
+        return context
     try:
         context.load_verify_locations(cadata="\n".join(certificates))
     except ssl.SSLError as exc:
@@ -226,7 +253,12 @@ def wait_for_verification(uid_start: int, timeout_seconds: int) -> dict[str, obj
     expected_from = os.environ.get(
         "EMAIL_E2E_EXPECTED_FROM", "no-reply@realtekconnect.com"
     ).strip()
-    expected_to = _required_env("IMAP_EMAIL_ADDR")
+    # A live staging run signs up with a unique plus-address while polling the
+    # shared test mailbox.  Local E2E keeps the historical behaviour and uses
+    # the IMAP login address when no explicit recipient is supplied.
+    expected_to = os.environ.get("EMAIL_E2E_SIGNUP_EMAIL", "").strip()
+    if not expected_to:
+        expected_to = _required_env("IMAP_EMAIL_ADDR")
     expected_base_url = _required_env("AUTH_TOKEN_BASE_URL").rstrip("/")
     deadline = time.monotonic() + timeout_seconds
     client = _connect()

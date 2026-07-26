@@ -40,6 +40,9 @@ func TestRendererBuildsAllTemplates(t *testing.T) {
 				t.Fatal(err)
 			}
 			decoded := string(decodedBytes)
+			if message.Subject == "" || message.Text == "" || message.HTML == "" {
+				t.Fatalf("structured message fields are incomplete: %+v", message)
+			}
 			for _, want := range []string{
 				"Message-ID: <outbox-1@realtekconnect.com>",
 				`From: "Realtek Connect" <no-reply@realtekconnect.com>`,
@@ -51,6 +54,26 @@ func TestRendererBuildsAllTemplates(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRendererBuildsStructuredMessageWithoutSMTPFrom(t *testing.T) {
+	message, err := (Renderer{BaseURL: "https://account.example.com"}).Render(
+		"outbox-1",
+		"email_verification",
+		Payload{RecipientEmail: "user@example.com", Token: "token"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.Recipient != "user@example.com" ||
+		!strings.Contains(message.Subject, "Verify") ||
+		!strings.Contains(message.Text, "/signup/verify?token=token") ||
+		!strings.Contains(message.HTML, "/signup/verify?token=token") {
+		t.Fatalf("message = %+v", message)
+	}
+	if message.EnvelopeFrom != "" || len(message.Data) != 0 {
+		t.Fatalf("sendmail_http message unexpectedly contains SMTP envelope: %+v", message)
 	}
 }
 

@@ -109,8 +109,15 @@ verification, login activation, password reset, owner-transfer, and quota
 decision email. Run `rtk-account-manager-email-worker` to deliver the durable
 PostgreSQL outbox. `AUTH_TOKEN_BASE_URL` must point at the Admin Console
 browser origin so messages can link to `/signup/verify`, `/login/activate`,
-and `/reset-password`. Production rejects log delivery, incomplete SMTP
-configuration, and non-STARTTLS transport.
+and `/reset-password`.
+
+Alternatively, set `AUTH_TOKEN_DELIVERY=sendmail_http`,
+`SENDMAIL_HTTP_BASE_URL`, `SENDMAIL_HTTP_BEARER_TOKEN`, and
+`SENDMAIL_HTTP_TIMEOUT` to deliver the same outbox messages through the
+Send Mail HTTP API. The worker sends `to`, `subject`, `text`, and `html` to
+`POST /send`; the service owns the SMTP sender identity. Production rejects
+log delivery, incomplete transport configuration, non-STARTTLS SMTP, and
+non-HTTPS Send Mail origins.
 
 ### Local SMTP + IMAP signup E2E
 

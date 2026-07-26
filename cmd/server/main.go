@@ -48,8 +48,8 @@ func main() {
 	switch cfg.AuthTokenDelivery {
 	case "log":
 		authTokenSink = api.NewLogAuthTokenSink(logger)
-	case "smtp":
-		// SMTP delivery is performed by the durable email worker.
+	case "smtp", "sendmail_http":
+		// Email delivery is performed by the durable email worker.
 		authTokenSink = nil
 	default:
 		fatal(logger, "unsupported auth token delivery", nil, zap.String("delivery", cfg.AuthTokenDelivery))
@@ -60,7 +60,7 @@ func main() {
 	}
 	accountStore := store.New(db)
 	accountStore.ConfigureAuthTokenRateLimit(cfg.AuthTokenRateLimitMax, cfg.AuthTokenRateLimitWindow)
-	if cfg.AuthTokenDelivery == "smtp" {
+	if emailOutboxDelivery(cfg.AuthTokenDelivery) {
 		cipher, err := emaildelivery.NewCipher(cfg.EmailOutboxEncryptionKey)
 		if err != nil {
 			fatal(logger, "configure email outbox encryption failed", err)
@@ -92,7 +92,7 @@ func main() {
 		logger.Info("user cache enabled", zap.String("addr", cfg.UserCacheAddr), zap.String("prefix", cfg.UserCachePrefix))
 	}
 	server := api.NewWithAuthTokenAndNotificationSink(apiStore, authService, authTokenSink, notificationSink)
-	if cfg.AuthTokenDelivery == "smtp" {
+	if emailOutboxDelivery(cfg.AuthTokenDelivery) {
 		server.ConfigureEmailOutbox(accountStore)
 	}
 	server.SetLogger(logger)
@@ -138,6 +138,10 @@ func main() {
 	if err := httpServer.ListenAndServe(); err != nil {
 		fatal(logger, "server stopped", err)
 	}
+}
+
+func emailOutboxDelivery(delivery string) bool {
+	return delivery == "smtp" || delivery == "sendmail_http"
 }
 
 func newAuthService(cfg config.Config) (*auth.Service, error) {
