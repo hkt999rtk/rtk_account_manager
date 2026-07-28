@@ -1,3 +1,10 @@
+---
+rtk_spec:
+  id: SPEC-AM
+  status: normative
+  owner: rtk_account_manager
+---
+
 # Account Manager Backend Specification
 
 ## 1. Product Goal
@@ -2369,3 +2376,30 @@ The fetcher rejects non-HTTPS URLs, userinfo, non-default ports, disallowed
 hosts, private/reserved DNS results, unsafe redirects, oversized responses, and
 manifests beyond the documented JSON limits. Parsed endpoint URLs are validated
 as HTTPS links but are not fetched by Account Manager.
+
+
+## RTK Feature Requirement Inventory
+
+This machine-readable acceptance inventory is normative for feature qualification and cross-references the behavioral sections above.
+
+### [FEAT-AM-SIGNUP-001] Account signup, email activation, and session
+
+<!-- rtk-feature
+{"owner":"cloud_platform","risk":"critical","status":"active","change_paths":["repos/rtk_account_manager/**","repos/rtk_cloud_admin/**","scripts/go/rtk-cloud/main.go","scripts/staging_email_signup_e2e.py"],"commit_anchors":["workspace","account_manager","cloud_admin"],"surfaces":[{"kind":"operator-workflow","source":"scripts/staging_email_signup_e2e.py","selector":"RUN_LIVE_EMAIL_E2E=1"},{"kind":"operator-workflow","source":"scripts/go/rtk-cloud/main.go","selector":"email-activate-owners"}]}
+-->
+
+#### [REQ-E2E-CA-SIGNUP-EMAIL-001] Cloud Send Mail and IMAP customer signup activation completes
+
+<!-- rtk-requirement
+{"acceptance_layer":"live","gate":"operator-release","environments":["staging"],"evidence":["json","logs"],"freshness_hours":168,"required":true,"status":"active"}
+-->
+
+Acceptance: Cloud Send Mail and IMAP customer signup activation completes.
+
+#### [REQ-E2E-LOAD-ACCOUNT-001] Load-test Brand owners complete formal email activation
+
+<!-- rtk-requirement
+{"acceptance_layer":"live","gate":"operator-release","environments":["staging"],"evidence":["json","logs"],"freshness_hours":168,"required":true,"status":"active"}
+-->
+
+Acceptance: Load-test Brand owners complete formal email activation.

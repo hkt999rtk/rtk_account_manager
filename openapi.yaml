@@ -1,4 +1,8 @@
 openapi: 3.0.3
+x-rtk-spec:
+  id: SPEC-AM-OPENAPI
+  status: normative
+  owner: rtk_account_manager
 info:
   title: RTK Account Manager API
   version: 0.1.0
