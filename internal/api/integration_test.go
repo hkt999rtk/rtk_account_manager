@@ -2619,6 +2619,13 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 	if !hasAuditEventBody(userAudit.AuditEvents, "brand_cloud_user_approved") || !hasAuditEventBody(userAudit.AuditEvents, "brand_cloud_user_disabled") || !hasAuditEventBody(userAudit.AuditEvents, "brand_cloud_user_enabled") || !hasAuditEventBody(userAudit.AuditEvents, "brand_cloud_user_deleted") {
 		t.Fatalf("expected brand cloud user lifecycle audit events, got %+v", userAudit.AuditEvents)
 	}
+	for _, event := range userAudit.AuditEvents {
+		if event.ActorUserID == nil || *event.ActorUserID != admin.User.ID ||
+			event.OrganizationID == nil || *event.OrganizationID != brand.BrandCloud.ID ||
+			event.SubjectType != "brand_cloud_user" || event.SubjectID != created.BrandCloudUser.ID {
+			t.Fatalf("brand-cloud user audit actor or subject is misattributed: %+v", event)
+		}
+	}
 }
 
 func TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug(t *testing.T) {
@@ -3003,6 +3010,11 @@ func TestIntegrationAppEndUserClaimCreatesMultiBrandBindings(t *testing.T) {
 	if claimARes.Code != http.StatusCreated {
 		t.Fatalf("expected app claim A 201, got %d: %s", claimARes.Code, claimARes.Body.String())
 	}
+	claimA := decodeBody[endUserClaimResolveResponse](t, claimARes)
+	if claimA.BrandLink.BrandCloudID != brandA.BrandCloud.ID ||
+		bytes.Contains(claimARes.Body.Bytes(), []byte("multi-brand-consumer@example.com")) {
+		t.Fatalf("claim A leaked or mis-scoped the Brand projection: %+v", claimA.BrandLink)
+	}
 
 	rawB := "app-end-user-brand-b-claim"
 	if _, err := store.New(env.db).CreateDeviceClaimToken(ctx, store.DeviceClaimTokenCreateInput{
@@ -3025,6 +3037,12 @@ func TestIntegrationAppEndUserClaimCreatesMultiBrandBindings(t *testing.T) {
 	}, login.Tokens.AccessToken)
 	if claimBRes.Code != http.StatusCreated {
 		t.Fatalf("expected app claim B 201, got %d: %s", claimBRes.Code, claimBRes.Body.String())
+	}
+	claimB := decodeBody[endUserClaimResolveResponse](t, claimBRes)
+	if claimB.BrandLink.BrandCloudID != brandB.BrandCloud.ID ||
+		bytes.Contains(claimBRes.Body.Bytes(), []byte(brandA.BrandCloud.ID)) ||
+		bytes.Contains(claimBRes.Body.Bytes(), []byte("multi-brand-consumer@example.com")) {
+		t.Fatalf("claim B leaked or mis-scoped the Brand projection: %+v", claimB.BrandLink)
 	}
 
 	var brandLinks int
@@ -6609,9 +6627,12 @@ type quotaRaiseRequestsBody struct {
 
 type auditEventsBody struct {
 	AuditEvents []struct {
-		ID          string `json:"id"`
-		EventType   string `json:"event_type"`
-		SubjectType string `json:"subject_type"`
+		ID             string  `json:"id"`
+		EventType      string  `json:"event_type"`
+		ActorUserID    *string `json:"actor_user_id"`
+		OrganizationID *string `json:"organization_id"`
+		SubjectType    string  `json:"subject_type"`
+		SubjectID      string  `json:"subject_id"`
 	} `json:"audit_events"`
 	Pagination paginationBody `json:"pagination"`
 }
@@ -7006,9 +7027,12 @@ func hasAuditEvent(events []model.AuditEvent, eventType string) bool {
 }
 
 func hasAuditEventBody(events []struct {
-	ID          string `json:"id"`
-	EventType   string `json:"event_type"`
-	SubjectType string `json:"subject_type"`
+	ID             string  `json:"id"`
+	EventType      string  `json:"event_type"`
+	ActorUserID    *string `json:"actor_user_id"`
+	OrganizationID *string `json:"organization_id"`
+	SubjectType    string  `json:"subject_type"`
+	SubjectID      string  `json:"subject_id"`
 }, eventType string) bool {
 	for _, event := range events {
 		if event.EventType == eventType {
