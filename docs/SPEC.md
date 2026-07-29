@@ -2391,7 +2391,7 @@ This machine-readable acceptance inventory is normative for feature qualificatio
 #### [REQ-E2E-CA-SIGNUP-EMAIL-001] Cloud Send Mail and IMAP customer signup activation completes
 
 <!-- rtk-requirement
-{"acceptance_layer":"live","gate":"operator-release","environments":["staging"],"evidence":["json","logs"],"freshness_hours":168,"required":true,"status":"active"}
+{"acceptance_layer":"live","operation_model":"workflow","gate":"operator-release","environments":["staging"],"evidence":["json","logs"],"freshness_hours":168,"required":true,"status":"active"}
 -->
 
 Acceptance: Cloud Send Mail and IMAP customer signup activation completes.

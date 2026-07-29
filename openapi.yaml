@@ -69,6 +69,9 @@ paths:
       tags:
         - System
       operationId: getHealth
+      x-rtk-feature-id: FEAT-CA-OBS-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-DASH-001
       summary: Check service health.
       responses:
         "200":
@@ -82,6 +85,9 @@ paths:
       tags:
         - Auth
       operationId: registerUser
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Register a user and initial organization.
       requestBody:
         required: true
@@ -105,6 +111,9 @@ paths:
       tags:
         - Auth
       operationId: signupUser
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Create a developer account and default brand cloud.
       requestBody:
         required: true
@@ -130,6 +139,9 @@ paths:
       tags:
         - Auth
       operationId: loginUser
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Login with email and password.
       requestBody:
         required: true
@@ -153,6 +165,9 @@ paths:
       tags:
         - Auth
       operationId: requestEmailSignIn
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Request an email sign-in activation token.
       description: Returns the same `202 Accepted` status for unknown, disabled, pending, and throttled users to avoid account enumeration. Raw tokens are delivered only by the configured server-side AuthTokenSink and are never returned in the HTTP response.
       requestBody:
@@ -171,6 +186,9 @@ paths:
       tags:
         - Auth
       operationId: activateEmailSignIn
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Activate an email sign-in token.
       description: Consumes a one-time `login_activation` token and issues the normal Account Manager access and refresh token response. Invalid, expired, and replayed tokens fail without issuing a session.
       requestBody:
@@ -193,6 +211,9 @@ paths:
       tags:
         - Auth
       operationId: refreshToken
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Exchange a refresh token for new tokens.
       requestBody:
         required: true
@@ -216,6 +237,9 @@ paths:
       tags:
         - Auth
       operationId: verifyEmail
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Verify a user's email with an OTP token.
       requestBody:
         required: true
@@ -237,6 +261,9 @@ paths:
       tags:
         - Auth
       operationId: resendEmailVerification
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Issue a replacement email verification token.
       description: Returns the same status for unknown, already verified, disabled, or throttled users to avoid account enumeration. Token delivery is owned by the configured server-side AuthTokenSink adapter, not by the HTTP response body.
       requestBody:
@@ -255,6 +282,9 @@ paths:
       tags:
         - Auth
       operationId: requestPasswordReset
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Issue a self-service password reset token.
       description: Returns the same status for unknown, disabled, or throttled users to avoid account enumeration. Token delivery is owned by the configured server-side AuthTokenSink adapter, not by the HTTP response body.
       requestBody:
@@ -273,6 +303,9 @@ paths:
       tags:
         - Auth
       operationId: resetPassword
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Reset a user's password with a reset token.
       requestBody:
         required: true
@@ -290,6 +323,9 @@ paths:
       tags:
         - OIDC
       operationId: listOIDCProviders
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-ACCESS-003
       summary: List enabled public OIDC providers.
       description: Returns public provider metadata only. Client secrets and secret references are never exposed by this endpoint.
       responses:
@@ -306,6 +342,9 @@ paths:
       tags:
         - OIDC
       operationId: startOIDCLogin
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-ACCESS-003
       summary: Start an OIDC authorization-code login.
       description: Creates a short-lived hashed state/nonce record and redirects the browser to the provider authorization endpoint.
       parameters:
@@ -330,6 +369,9 @@ paths:
       tags:
         - OIDC
       operationId: handleOIDCCallback
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-ACCESS-003
       summary: Handle OIDC authorization-code callback.
       description: Validates state, nonce, issuer, audience, signature, expiry, and verified email before returning the normal account-manager token response shape.
       parameters:
@@ -374,6 +416,9 @@ paths:
       tags:
         - Brand Cloud Auth
       operationId: loginBrandCloudUser
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Login to one brand cloud namespace with email and password.
       parameters:
         - $ref: "#/components/parameters/TenantSlug"
@@ -399,6 +444,9 @@ paths:
       tags:
         - Brand Cloud Auth
       operationId: requestBrandCloudEmailSignIn
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Request a tenant-scoped brand-cloud email sign-in activation token.
       description: Returns the same `202 Accepted` status for unknown, disabled, pending, tenant-mismatched, and throttled users to avoid account enumeration. Raw tokens are delivered only by the configured server-side AuthTokenSink.
       parameters:
@@ -419,6 +467,9 @@ paths:
       tags:
         - Brand Cloud Auth
       operationId: activateBrandCloudEmailSignIn
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Activate a tenant-scoped brand-cloud email sign-in token.
       description: Consumes a one-time `login_activation` token only when the token's user is active in the requested brand-cloud tenant and issues brand-cloud scoped tokens.
       parameters:
@@ -445,6 +496,9 @@ paths:
       tags:
         - Brand Cloud Auth
       operationId: activateBrandCloudUser
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Set a password and activate a pending brand-cloud user.
       description: Consumes a tenant-scoped one-time `brand_cloud_user_activation` token, verifies the email, clears pending status, and issues a tenant-scoped session. Replay, expiry, and tenant mismatch are rejected.
       parameters:
@@ -469,6 +523,9 @@ paths:
       tags:
         - Brand Cloud Auth
       operationId: refreshBrandCloudToken
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Exchange a brand-cloud refresh token for new brand-cloud tokens.
       parameters:
         - $ref: "#/components/parameters/TenantSlug"
@@ -494,6 +551,9 @@ paths:
       tags:
         - Brand Cloud Auth
       operationId: logoutBrandCloudUser
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       security:
         - bearerAuth: []
       summary: Revoke one brand-cloud refresh token.
@@ -517,6 +577,9 @@ paths:
       tags:
         - Developer Brand Clouds
       operationId: listDeveloperBrandClouds
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-005
       security:
         - bearerAuth: []
       summary: List brand clouds visible to the current developer.
@@ -536,6 +599,9 @@ paths:
       tags:
         - Developer Brand Clouds
       operationId: createDeveloperBrandCloud
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-005
       security:
         - bearerAuth: []
       summary: Create a brand cloud owned by the current developer.
@@ -562,6 +628,9 @@ paths:
     get:
       tags: [Developer Brand Clouds]
       operationId: getDeveloperBrandCloud
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-005
       summary: Get a Brand Cloud and the current developer membership.
       security:
         - bearerAuth: []
@@ -584,6 +653,9 @@ paths:
     get:
       tags: [Developer Brand Clouds]
       operationId: listDeveloperBrandCloudMembers
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-005
       summary: List members of a developer Brand Cloud.
       security:
         - bearerAuth: []
@@ -608,6 +680,9 @@ paths:
     patch:
       tags: [Developer Brand Clouds]
       operationId: updateDeveloperBrandCloudMember
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-005
       summary: Update a Developer Brand Cloud member role.
       security:
         - bearerAuth: []
@@ -631,6 +706,9 @@ paths:
     patch:
       tags: [Developer Brand Clouds]
       operationId: disableDeveloperBrandCloudMember
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-005
       summary: Disable a member in this Brand Cloud without disabling the global account.
       security:
         - bearerAuth: []
@@ -644,6 +722,9 @@ paths:
     patch:
       tags: [Developer Brand Clouds]
       operationId: enableDeveloperBrandCloudMember
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-005
       summary: Re-enable a member in this Brand Cloud.
       security:
         - bearerAuth: []
@@ -655,6 +736,9 @@ paths:
     delete:
       tags: [Developer Brand Clouds]
       operationId: removeDeveloperBrandCloudMember
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-005
       summary: Remove a Developer Brand Cloud member.
       security:
         - bearerAuth: []
@@ -669,6 +753,9 @@ paths:
     post:
       tags: [Developer Brand Clouds]
       operationId: inviteDeveloperBrandCloudMember
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-005
       summary: Invite an existing developer account to a Brand Cloud.
       security:
         - bearerAuth: []
@@ -693,6 +780,9 @@ paths:
       tags:
         - Developer Brand Clouds
       operationId: requestBrandCloudOwnerTransfer
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-005
       security:
         - bearerAuth: []
       summary: Request transfer of brand cloud ownership to an existing developer.
@@ -722,6 +812,9 @@ paths:
       tags:
         - Developer Brand Clouds
       operationId: acceptBrandCloudOwnerTransfer
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-005
       security:
         - bearerAuth: []
       summary: Accept a pending brand cloud owner transfer as the target developer.
@@ -748,6 +841,9 @@ paths:
     get:
       tags: [Developer Brand Clouds]
       operationId: getBrandCloudOwnerTransfer
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-005
       summary: Get the status of an owner transfer requested by the current developer.
       security:
         - bearerAuth: []
@@ -760,6 +856,9 @@ paths:
     post:
       tags: [Developer Brand Clouds]
       operationId: cancelBrandCloudOwnerTransfer
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-005
       summary: Cancel a pending owner transfer.
       security:
         - bearerAuth: []
@@ -774,6 +873,9 @@ paths:
       tags:
         - Brand Cloud Auth
       operationId: getBrandCloudMe
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       security:
         - bearerAuth: []
       summary: Get the current brand-cloud account subject.
@@ -795,6 +897,9 @@ paths:
       tags:
         - App End Users
       operationId: loginAppEndUser
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Login or create a global APP end-user subject.
       requestBody:
         required: true
@@ -818,6 +923,9 @@ paths:
       tags:
         - App End Users
       operationId: refreshAppEndUserToken
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Exchange an APP end-user refresh token for new APP end-user tokens.
       requestBody:
         required: true
@@ -841,6 +949,9 @@ paths:
       tags:
         - App End Users
       operationId: logoutAppEndUser
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       security:
         - bearerAuth: []
       summary: Revoke one APP end-user refresh token.
@@ -864,6 +975,9 @@ paths:
       tags:
         - App End Users
       operationId: getAppEndUserMe
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       security:
         - bearerAuth: []
       summary: Get the current APP end-user subject.
@@ -883,6 +997,9 @@ paths:
       tags:
         - App End Users
       operationId: resolveAppEndUserDeviceClaim
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       security:
         - bearerAuth: []
       summary: Resolve a Claim Token from the APP and bind the device to the current end user.
@@ -914,6 +1031,9 @@ paths:
       tags:
         - Auth
       operationId: logoutUser
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       security:
         - bearerAuth: []
       summary: Revoke a refresh token.
@@ -935,6 +1055,9 @@ paths:
       tags:
         - Current User
       operationId: getCurrentUser
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       security:
         - bearerAuth: []
       summary: Get current user and organization memberships.
@@ -951,6 +1074,9 @@ paths:
       tags:
         - Current User
       operationId: deleteCurrentUser
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       security:
         - bearerAuth: []
       summary: Disable the current user account.
@@ -967,6 +1093,9 @@ paths:
       tags:
         - Current User
       operationId: changeCurrentUserPassword
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       security:
         - bearerAuth: []
       summary: Change the current user's password.
@@ -988,6 +1117,9 @@ paths:
       tags:
         - Current User
       operationId: listCurrentUserIdentities
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       security:
         - bearerAuth: []
       summary: List current user's external identities.
@@ -1005,6 +1137,9 @@ paths:
       tags:
         - Current User
       operationId: deleteCurrentUserIdentity
+      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-CA-SIGNUP-EMAIL-001
       security:
         - bearerAuth: []
       summary: Unlink a current-user external identity.
@@ -1022,6 +1157,9 @@ paths:
       tags:
         - Organizations
       operationId: listOrganizations
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: List current user's organizations.
@@ -1041,6 +1179,9 @@ paths:
       tags:
         - Organizations
       operationId: createOrganization
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Create an organization.
@@ -1066,6 +1207,9 @@ paths:
       tags:
         - Organizations
       operationId: getOrganization
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Get organization details.
@@ -1086,6 +1230,9 @@ paths:
       tags:
         - Organizations
       operationId: updateOrganization
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Update organization details.
@@ -1117,6 +1264,9 @@ paths:
       tags:
         - Quota
       operationId: createQuotaRaiseRequest
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Request an evaluation quota increase.
@@ -1150,6 +1300,9 @@ paths:
       tags:
         - Quota
       operationId: listAdminQuotaRaiseRequests
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: List quota-raise requests.
@@ -1179,6 +1332,9 @@ paths:
       tags:
         - Quota
       operationId: getAdminQuotaRaiseRequest
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Get a quota-raise request.
@@ -1202,6 +1358,9 @@ paths:
       tags:
         - Quota
       operationId: approveQuotaRaiseRequest
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Approve a pending quota-raise request.
@@ -1235,6 +1394,9 @@ paths:
       tags:
         - Quota
       operationId: declineQuotaRaiseRequest
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Decline a pending quota-raise request.
@@ -1268,6 +1430,9 @@ paths:
       tags:
         - Admin Metrics
       operationId: getAdminMetrics
+      x-rtk-feature-id: FEAT-CA-OBS-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-DASH-001
       security:
         - bearerAuth: []
       summary: Get evaluation-tier, quota, and lifecycle metrics.
@@ -1287,6 +1452,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: createBrandCloud
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Create a platform-managed brand cloud.
@@ -1313,6 +1481,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: listBrandClouds
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: List platform-managed brand clouds.
@@ -1335,6 +1506,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: getBrandCloud
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Get a platform-managed brand cloud.
@@ -1357,6 +1531,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: updateBrandCloud
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Update a platform-managed brand cloud.
@@ -1388,6 +1565,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: createDeviceItemProfile
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Create a brand-cloud device item profile.
@@ -1418,6 +1598,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: listDeviceItemProfiles
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: List brand-cloud device item profiles.
@@ -1447,6 +1630,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: getDeviceItemProfile
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Get a brand-cloud device item profile.
@@ -1470,6 +1656,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: updateDeviceItemProfile
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Update a brand-cloud device item profile.
@@ -1502,6 +1691,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: disableDeviceItemProfile
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Disable a brand-cloud device item profile.
@@ -1526,6 +1718,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: createProductionRun
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Create a factory production run and issue its factory enrollment JWT.
@@ -1563,6 +1758,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: assignBrandCloudMember
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Assign an existing brand-scoped user to a brand cloud.
@@ -1594,6 +1792,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: listBrandCloudUsers
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: List brand-cloud users, including pending activation and disabled users.
@@ -1631,6 +1832,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: createBrandCloudUser
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Create a user and assign them to a brand cloud.
@@ -1669,6 +1873,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: disableBrandCloudUser
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Disable a brand-cloud user and revoke their brand-cloud refresh tokens.
@@ -1693,6 +1900,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: enableBrandCloudUser
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Enable a disabled brand-cloud user.
@@ -1717,6 +1927,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: approveBrandCloudUser
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Approve a pending brand-cloud user activation.
@@ -1741,6 +1954,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: revokeBrandCloudUserAppCertificate
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Revoke active app certificates for a brand-cloud user.
@@ -1765,6 +1981,9 @@ paths:
       tags:
         - Brand Clouds
       operationId: deleteBrandCloudUser
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
       summary: Soft-delete a brand-cloud user by disabling brand-cloud access.
@@ -1785,6 +2004,9 @@ paths:
       tags:
         - Audit
       operationId: listAdminAuditEvents
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-AUDIT-001
       security:
         - bearerAuth: []
       summary: List audit events.
@@ -1816,6 +2038,9 @@ paths:
     get:
       tags: [ChipSet SDK Providers]
       operationId: listChipsetProviders
+      x-rtk-feature-id: FEAT-CA-RELEASE-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CHIPSET-004
       summary: List information providers and refresh state.
       security: [{ bearerAuth: [] }]
       x-required-permission: platform.chipset_sdk.read
@@ -1825,6 +2050,9 @@ paths:
     post:
       tags: [ChipSet SDK Providers]
       operationId: createChipsetProvider
+      x-rtk-feature-id: FEAT-CA-RELEASE-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CHIPSET-004
       summary: Create a draft information provider.
       security: [{ bearerAuth: [] }]
       x-required-permission: platform.chipset_sdk.edit
@@ -1839,6 +2067,9 @@ paths:
     get:
       tags: [ChipSet SDK Providers]
       operationId: getChipsetProvider
+      x-rtk-feature-id: FEAT-CA-RELEASE-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CHIPSET-004
       summary: Read provider configuration and normalized preview.
       security: [{ bearerAuth: [] }]
       x-required-permission: platform.chipset_sdk.read
@@ -1849,6 +2080,9 @@ paths:
     patch:
       tags: [ChipSet SDK Providers]
       operationId: updateChipsetProvider
+      x-rtk-feature-id: FEAT-CA-RELEASE-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CHIPSET-004
       summary: Update draft or unpublished provider configuration.
       security: [{ bearerAuth: [] }]
       x-required-permission: platform.chipset_sdk.edit
@@ -1864,6 +2098,9 @@ paths:
     post:
       tags: [ChipSet SDK Providers]
       operationId: actOnChipsetProvider
+      x-rtk-feature-id: FEAT-CA-RELEASE-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CHIPSET-004
       summary: Publish, unpublish, or refresh a provider.
       security: [{ bearerAuth: [] }]
       x-required-permission: platform.chipset_sdk.publish
@@ -1881,6 +2118,9 @@ paths:
     get:
       tags: [ChipSet SDK Providers]
       operationId: listDeveloperChipsets
+      x-rtk-feature-id: FEAT-CA-RELEASE-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CHIPSET-004
       summary: List normalized resources from published providers.
       security: [{ bearerAuth: [] }]
       responses:
@@ -1891,6 +2131,9 @@ paths:
     get:
       tags: [ChipSet SDK Providers]
       operationId: getDeveloperChipset
+      x-rtk-feature-id: FEAT-CA-RELEASE-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-CHIPSET-004
       summary: Read one normalized resource from a published provider.
       security: [{ bearerAuth: [] }]
       parameters: [{ $ref: "#/components/parameters/ChipsetId" }]
@@ -1902,6 +2145,9 @@ paths:
       tags:
         - ACL
       operationId: listACLPermissions
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: List product authorization permissions.
@@ -1921,6 +2167,9 @@ paths:
       tags:
         - ACL
       operationId: listACLRoles
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: List product authorization roles.
@@ -1939,6 +2188,9 @@ paths:
       tags:
         - ACL
       operationId: createACLRole
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: Create a product authorization role.
@@ -1968,6 +2220,9 @@ paths:
       tags:
         - ACL
       operationId: getACLRole
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: Show a product authorization role.
@@ -1994,6 +2249,9 @@ paths:
       tags:
         - ACL
       operationId: updateACLRole
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: Update a product authorization role.
@@ -2028,6 +2286,9 @@ paths:
       tags:
         - ACL
       operationId: deleteACLRole
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: Disable a product authorization role.
@@ -2055,6 +2316,9 @@ paths:
       tags:
         - ACL
       operationId: bindACLRolePermission
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: Bind a permission to a product authorization role.
@@ -2087,6 +2351,9 @@ paths:
       tags:
         - ACL
       operationId: listACLRoleAssignments
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: List product authorization role assignments.
@@ -2105,6 +2372,9 @@ paths:
       tags:
         - ACL
       operationId: createACLRoleAssignment
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: Assign a product authorization role to an actor and scope.
@@ -2134,6 +2404,9 @@ paths:
       tags:
         - ACL
       operationId: deleteACLRoleAssignment
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: Disable a product authorization role assignment.
@@ -2162,6 +2435,9 @@ paths:
       tags:
         - ACL
       operationId: listACLExternalGroupMappings
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: List external group mappings.
@@ -2180,6 +2456,9 @@ paths:
       tags:
         - ACL
       operationId: createACLExternalGroupMapping
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: Map an external IdP group to a product authorization role assignment template.
@@ -2209,6 +2488,9 @@ paths:
       tags:
         - ACL
       operationId: deleteACLExternalGroupMapping
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: Disable an external group mapping.
@@ -2237,6 +2519,9 @@ paths:
       tags:
         - ACL
       operationId: listACLAuditEvents
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: List ACL audit events.
@@ -2275,6 +2560,9 @@ paths:
       tags:
         - Identity Providers
       operationId: createIdentityProvider
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-ACCESS-003
       security:
         - bearerAuth: []
       summary: Create an OIDC identity provider.
@@ -2304,6 +2592,9 @@ paths:
       tags:
         - Identity Providers
       operationId: listIdentityProviders
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-ACCESS-003
       security:
         - bearerAuth: []
       summary: List OIDC identity providers.
@@ -2326,6 +2617,9 @@ paths:
       tags:
         - Identity Providers
       operationId: getIdentityProvider
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-ACCESS-003
       security:
         - bearerAuth: []
       summary: Get an OIDC identity provider.
@@ -2348,6 +2642,9 @@ paths:
       tags:
         - Identity Providers
       operationId: updateIdentityProvider
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-ACCESS-003
       security:
         - bearerAuth: []
       summary: Update an OIDC identity provider.
@@ -2381,6 +2678,9 @@ paths:
       tags:
         - Identity Providers
       operationId: deleteIdentityProvider
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-ACCESS-003
       security:
         - bearerAuth: []
       summary: Disable or remove an OIDC identity provider.
@@ -2400,6 +2700,9 @@ paths:
       tags:
         - Device Claim Tokens
       operationId: createDeviceClaimToken
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-FACTORY-ENROLL-001
       security:
         - bearerAuth: []
       summary: Create or import a device Claim Token.
@@ -2433,6 +2736,9 @@ paths:
       tags:
         - Device Claim Tokens
       operationId: listDeviceClaimTokens
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-FACTORY-ENROLL-001
       security:
         - bearerAuth: []
       summary: List device Claim Tokens.
@@ -2455,6 +2761,9 @@ paths:
       tags:
         - Device Claim Tokens
       operationId: getDeviceClaimToken
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-FACTORY-ENROLL-001
       security:
         - bearerAuth: []
       summary: Get a device Claim Token.
@@ -2478,6 +2787,9 @@ paths:
       tags:
         - Device Claim Tokens
       operationId: revokeDeviceClaimToken
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-FACTORY-ENROLL-001
       security:
         - bearerAuth: []
       summary: Revoke a device Claim Token.
@@ -2501,6 +2813,9 @@ paths:
       tags:
         - Device Claim Tokens
       operationId: reclaimDeviceClaimToken
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-FACTORY-ENROLL-001
       security:
         - bearerAuth: []
       summary: Reclaim a claimed device Claim Token.
@@ -2538,6 +2853,9 @@ paths:
       tags:
         - Device Claims
       operationId: transferDeviceClaim
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-FACTORY-ENROLL-001
       security:
         - bearerAuth: []
       summary: Transfer a resolved device claim.
@@ -2575,6 +2893,9 @@ paths:
       tags:
         - Provisioning
       operationId: adminUnprovisionDevice
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-BULK-001
       security:
         - bearerAuth: []
       summary: Platform-admin override to unprovision a normal device.
@@ -2614,6 +2935,9 @@ paths:
       tags:
         - Members
       operationId: listMembers
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: List organization members.
@@ -2638,6 +2962,9 @@ paths:
       tags:
         - Members
       operationId: addMember
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: Add an existing user to an organization.
@@ -2671,6 +2998,9 @@ paths:
       tags:
         - Members
       operationId: updateMemberRole
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: Update member role.
@@ -2705,6 +3035,9 @@ paths:
       tags:
         - Members
       operationId: removeMember
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: Remove member from organization.
@@ -2728,6 +3061,9 @@ paths:
       tags:
         - Members
       operationId: disableMemberUser
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: Disable a member user account.
@@ -2754,6 +3090,9 @@ paths:
       tags:
         - Members
       operationId: enableMemberUser
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       security:
         - bearerAuth: []
       summary: Enable a disabled member user account.
@@ -2777,6 +3116,9 @@ paths:
     get:
       tags: [Devices]
       operationId: listOrganizationTags
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
       summary: List organization tags.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -2808,6 +3150,9 @@ paths:
     get:
       tags: [ACL]
       operationId: checkOrganizationResourceAccess
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       summary: Check scoped organization resource access.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -2843,6 +3188,9 @@ paths:
     get:
       tags: [ACL]
       operationId: listOrganizationRoles
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       summary: List organization-visible roles.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -2862,6 +3210,9 @@ paths:
     get:
       tags: [ACL]
       operationId: listOrganizationPermissions
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       summary: List organization-visible permissions.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -2881,6 +3232,9 @@ paths:
     get:
       tags: [ACL]
       operationId: listOrganizationRoleAssignments
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       summary: List organization role assignments.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -2898,6 +3252,9 @@ paths:
     post:
       tags: [ACL]
       operationId: createOrganizationRoleAssignment
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       summary: Create an organization role assignment.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -2921,6 +3278,9 @@ paths:
     delete:
       tags: [ACL]
       operationId: deleteOrganizationRoleAssignment
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-TEAM-001
       summary: Delete an organization role assignment.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -2939,6 +3299,9 @@ paths:
     get:
       tags: [Devices]
       operationId: listOrganizationProductionRuns
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
       summary: List production runs for an organization SKU profile.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -2964,6 +3327,9 @@ paths:
     post:
       tags: [Devices]
       operationId: createOrganizationProductionRun
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
       summary: Create a production run for an organization SKU profile.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -2984,6 +3350,9 @@ paths:
       tags:
         - Device Groups
       operationId: listDeviceGroups
+      x-rtk-feature-id: FEAT-CA-PROV-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-FLEETPAGE-001
       security:
         - bearerAuth: []
       summary: List organization device groups.
@@ -3008,6 +3377,9 @@ paths:
       tags:
         - Device Groups
       operationId: createDeviceGroup
+      x-rtk-feature-id: FEAT-CA-PROV-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-FLEETPAGE-001
       security:
         - bearerAuth: []
       summary: Create device group.
@@ -3041,6 +3413,9 @@ paths:
       tags:
         - Device Groups
       operationId: getDeviceGroup
+      x-rtk-feature-id: FEAT-CA-PROV-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-FLEETPAGE-001
       security:
         - bearerAuth: []
       summary: Get device group.
@@ -3064,6 +3439,9 @@ paths:
       tags:
         - Device Groups
       operationId: updateDeviceGroup
+      x-rtk-feature-id: FEAT-CA-PROV-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-FLEETPAGE-001
       security:
         - bearerAuth: []
       summary: Update device group.
@@ -3097,6 +3475,9 @@ paths:
       tags:
         - Device Groups
       operationId: deleteDeviceGroup
+      x-rtk-feature-id: FEAT-CA-PROV-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-FLEETPAGE-001
       security:
         - bearerAuth: []
       summary: Delete device group.
@@ -3117,6 +3498,9 @@ paths:
       tags:
         - Device Groups
       operationId: listDeviceGroupDevices
+      x-rtk-feature-id: FEAT-CA-PROV-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-FLEETPAGE-001
       security:
         - bearerAuth: []
       summary: List devices assigned to a group.
@@ -3143,6 +3527,9 @@ paths:
       tags:
         - Device Groups
       operationId: addDeviceToGroup
+      x-rtk-feature-id: FEAT-CA-PROV-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-FLEETPAGE-001
       security:
         - bearerAuth: []
       summary: Add device to group.
@@ -3164,6 +3551,9 @@ paths:
       tags:
         - Device Groups
       operationId: removeDeviceFromGroup
+      x-rtk-feature-id: FEAT-CA-PROV-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-FLEETPAGE-001
       security:
         - bearerAuth: []
       summary: Remove device from group.
@@ -3185,6 +3575,9 @@ paths:
       tags:
         - Devices
       operationId: listOrganizationDeviceItemProfiles
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
       security:
         - bearerAuth: []
       summary: List SKU profiles available to an organization.
@@ -3217,6 +3610,9 @@ paths:
     post:
       tags: [Devices]
       operationId: createOrganizationDeviceItemProfile
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
       security: [{ bearerAuth: [] }]
       summary: Create a SKU profile for the organization.
       parameters: [{ $ref: "#/components/parameters/OrgId" }]
@@ -3239,6 +3635,9 @@ paths:
       tags:
         - Devices
       operationId: getOrganizationDeviceItemProfile
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
       security:
         - bearerAuth: []
       summary: Get an organization SKU profile.
@@ -3261,6 +3660,9 @@ paths:
     patch:
       tags: [Devices]
       operationId: updateOrganizationDeviceItemProfile
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
       security: [{ bearerAuth: [] }]
       summary: Update a SKU profile for the organization.
       parameters:
@@ -3283,6 +3685,9 @@ paths:
     post:
       tags: [Devices]
       operationId: disableOrganizationDeviceItemProfile
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
       security: [{ bearerAuth: [] }]
       summary: Disable a SKU profile for the organization.
       parameters:
@@ -3301,6 +3706,9 @@ paths:
       tags:
         - Devices
       operationId: listDevices
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
       security:
         - bearerAuth: []
       summary: List organization devices.
@@ -3325,6 +3733,9 @@ paths:
       tags:
         - Devices
       operationId: createDevice
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
       security:
         - bearerAuth: []
       summary: Create device.
@@ -3357,6 +3768,9 @@ paths:
     get:
       tags: [Devices]
       operationId: listFleetDevices
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
       security:
         - bearerAuth: []
       summary: Search and sort organization devices on the server.
@@ -3429,6 +3843,9 @@ paths:
     get:
       tags: [Devices]
       operationId: getFleetSummary
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
       security:
         - bearerAuth: []
       summary: Get indexed fleet aggregates.
@@ -3448,6 +3865,9 @@ paths:
       tags:
         - Device Claims
       operationId: resolveDeviceClaim
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-FACTORY-ENROLL-001
       security:
         - bearerAuth: []
       summary: Resolve a device Claim Token.
@@ -3493,6 +3913,9 @@ paths:
       tags:
         - Devices
       operationId: getDevice
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
       security:
         - bearerAuth: []
       summary: Get device details.
@@ -3516,6 +3939,9 @@ paths:
       tags:
         - Devices
       operationId: updateDevice
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
       security:
         - bearerAuth: []
       summary: Update device.
@@ -3549,6 +3975,9 @@ paths:
       tags:
         - Devices
       operationId: deleteDevice
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
       security:
         - bearerAuth: []
       summary: Delete device.
@@ -3570,6 +3999,9 @@ paths:
       tags:
         - Device Tags
       operationId: listDeviceTags
+      x-rtk-feature-id: FEAT-CA-PROV-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-FLEETPAGE-001
       security:
         - bearerAuth: []
       summary: List device tags.
@@ -3596,6 +4028,9 @@ paths:
       tags:
         - Device Tags
       operationId: addDeviceTag
+      x-rtk-feature-id: FEAT-CA-PROV-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-FLEETPAGE-001
       security:
         - bearerAuth: []
       summary: Add device tag.
@@ -3623,6 +4058,9 @@ paths:
       tags:
         - Device Tags
       operationId: deleteDeviceTag
+      x-rtk-feature-id: FEAT-CA-PROV-001
+      x-rtk-requirement-ids:
+        - REQ-UI-CA-FLEETPAGE-001
       security:
         - bearerAuth: []
       summary: Remove device tag.
@@ -3646,6 +4084,9 @@ paths:
       tags:
         - Provisioning
       operationId: provisionDevice
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-BULK-001
       security:
         - bearerAuth: []
       summary: Create or reuse a provisioning operation.
@@ -3697,6 +4138,9 @@ paths:
       tags:
         - Provisioning
       operationId: getProvisioningState
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-BULK-001
       security:
         - bearerAuth: []
       summary: Get latest provisioning state, account-side readiness, and projected video metadata.
@@ -3721,6 +4165,9 @@ paths:
       tags:
         - Provisioning
       operationId: deactivateDevice
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-BULK-001
       security:
         - bearerAuth: []
       summary: Create or reuse a deactivation operation.
@@ -3762,6 +4209,9 @@ paths:
       tags:
         - Provisioning
       operationId: unprovisionDevice
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-BULK-001
       security:
         - bearerAuth: []
       summary: Unprovision a normal device for resale or re-onboarding.
@@ -3802,6 +4252,9 @@ paths:
       tags:
         - Devices
       operationId: updateDeviceStatus
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
       security:
         - bearerAuth: []
       summary: Update device status.
