@@ -316,6 +316,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationSignupQueuesEncryptedEmailWithoutCallingSMTP`
 - `rtk_account_manager/internal/api`: `TestIntegrationStoreRefreshTokenHelpers`
 - `rtk_account_manager/internal/api`: `TestIntegrationValidationAndNotFoundErrors`
+- `rtk_account_manager/internal/api`: `TestIntegrationVideoCloudRuntimeScopeDoesNotGrantProductRole`
 - `rtk_account_manager/internal/api`: `TestIsDisposableSignupEmail`
 - `rtk_account_manager/internal/api`: `TestIsUniqueViolationClassifiesPostgresErrors`
 - `rtk_account_manager/internal/api`: `TestLoadSignupPolicyHonorsEnvironmentOverrides`
