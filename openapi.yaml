@@ -897,9 +897,9 @@ paths:
       tags:
         - App End Users
       operationId: loginAppEndUser
-      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-feature-id: FEAT-CA-BRAND-001
       x-rtk-requirement-ids:
-        - REQ-E2E-CA-SIGNUP-EMAIL-001
+        - REQ-CA-BRAND-IDENTITY-001
       summary: Login or create a global APP end-user subject.
       requestBody:
         required: true
@@ -997,9 +997,9 @@ paths:
       tags:
         - App End Users
       operationId: resolveAppEndUserDeviceClaim
-      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-feature-id: FEAT-CA-BRAND-001
       x-rtk-requirement-ids:
-        - REQ-E2E-CA-SIGNUP-EMAIL-001
+        - REQ-CA-BRAND-IDENTITY-001
       security:
         - bearerAuth: []
       summary: Resolve a Claim Token from the APP and bind the device to the current end user.
