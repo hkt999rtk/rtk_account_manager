@@ -1455,6 +1455,7 @@ paths:
       x-rtk-feature-id: FEAT-CA-BRAND-001
       x-rtk-requirement-ids:
         - REQ-UI-CA-CLOUD-004
+        - REQ-UI-CA-AUDIT-001
       security:
         - bearerAuth: []
       summary: Create a platform-managed brand cloud.
