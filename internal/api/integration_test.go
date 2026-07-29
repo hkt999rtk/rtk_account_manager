@@ -5319,6 +5319,28 @@ func TestIntegrationAuthorizationAndTenancyMatrix(t *testing.T) {
 	}
 }
 
+func TestIntegrationVideoCloudRuntimeScopeDoesNotGrantProductRole(t *testing.T) {
+	env := newIntegrationEnv(t)
+	runtimeToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"scope":      "admin",
+		"subject_id": "device-1",
+		"iat":        time.Now().Add(-time.Minute).Unix(),
+		"exp":        time.Now().Add(time.Hour).Unix(),
+	}).SignedString([]byte("video-cloud-runtime-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, path := range map[string]string{
+		"current product user": "/v1/me",
+		"platform ACL":         "/v1/admin/acl/permissions",
+	} {
+		response := performJSON(env.router, http.MethodGet, path, nil, runtimeToken)
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("%s accepted a video-cloud runtime scope as product authorization: status=%d body=%s", name, response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestIntegrationAdminDeviceClaimTokenWorkflow(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
