@@ -3,6 +3,7 @@ rtk_spec:
   id: SPEC-AM
   status: normative
   owner: rtk_account_manager
+  requirement_inventory: review_required
 ---
 
 # Account Manager Backend Specification
@@ -19,7 +20,12 @@ to `rtk_cloud_admin`. This service remains the authoritative backend control
 plane for identity, tenant context, authorization, entitlement, device registry,
 and provisioning intent.
 
-Provisioning and account/video event-channel integration are the v2 surface implemented by this repository. [PROVISIONING_AND_EVENT_CHANNEL_PLAN.md](PROVISIONING_AND_EVENT_CHANNEL_PLAN.md) tracks rollout history and verification status, and this spec must stay aligned with the shared contracts in `docs/rtk_cloud_contracts_doc/PROVISION.md` and `docs/rtk_cloud_contracts_doc/CROSS_SERVICE_CHANNEL.md`.
+Provisioning and account/video event-channel integration are the v2 surface
+implemented by this repository. The normative product boundary lives in
+`docs/rtk_cloud_contracts_doc/PROVISION.md` and
+`docs/rtk_cloud_contracts_doc/CROSS_SERVICE_CHANNEL.md`;
+[PROVISIONING_AND_EVENT_CHANNEL_PLAN.md](PROVISIONING_AND_EVENT_CHANNEL_PLAN.md)
+tracks rollout history and verification status.
 
 ## 2. V1 Scope
 
@@ -82,7 +88,7 @@ V2 adds:
 - Metadata merge support so cross-service projections do not overwrite unrelated device metadata.
 - A broker adapter boundary so Azure Event Hubs or an equivalent broker can be used behind the same contract.
 
-V2 must not:
+V2 excludes:
 
 - Merge the cross-service channel runtime into the account-manager API process.
 - Treat Realtek video server activation as equivalent to account-manager `online` status.
@@ -130,12 +136,12 @@ Account-manager-owned video metadata keys:
 Account Manager is the highest-priority repository for the workspace
 persistence/cache refactor because API handlers and workers currently depend on
 the concrete Postgres-backed `internal/store.Store`. Future Redis-compatible
-cache support should first introduce narrow persistence ports for auth/session,
-user, organization, device, lifecycle, and metrics reads while keeping
-`internal/store.Store` as the durable Postgres adapter. This refactor must not
-change public HTTP APIs or move correctness-critical write transactions, ACL
-permission decisions, quota mutation, or provisioning lifecycle transitions out
-of Postgres.
+cache support begins with narrow persistence ports for auth/session, user,
+organization, device, lifecycle, and metrics reads while
+`internal/store.Store` remains the durable Postgres adapter. The refactor
+preserves public HTTP APIs and keeps correctness-critical write transactions,
+ACL permission decisions, quota mutation, and provisioning lifecycle
+transitions in Postgres.
 
 The cross-repository roadmap is maintained in
 `../../docs/persistence-cache-refactor-roadmap.md`.
@@ -181,7 +187,17 @@ This scope does not:
 - Auto-link an arbitrary external identity to a local user without the configured
   account-manager policy allowing that link.
 
-## 2.4 Email Sign-In And Password Recovery
+## [FEAT-AM-SIGNUP-001] Account signup, email activation, and session
+
+<!-- rtk-feature
+{"owner":"cloud_platform","risk":"critical","status":"active","change_paths":["repos/rtk_account_manager/**","repos/rtk_cloud_admin/**","scripts/go/rtk-cloud/main.go","scripts/staging_email_signup_e2e.py"],"commit_anchors":["workspace","account_manager","cloud_admin"],"surfaces":[{"kind":"operator-workflow","source":"scripts/staging_email_signup_e2e.py","selector":"RUN_LIVE_EMAIL_E2E=1"},{"kind":"operator-workflow","source":"scripts/go/rtk-cloud/main.go","selector":"email-activate-owners"}]}
+-->
+
+### [REQ-AM-EMAIL-DELIVERY-001] One-time account email is tenant-scoped, enumeration-safe, and delivered through the configured outbox adapter
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci","staging"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 Account Manager supports an email activation lifecycle for Admin Console login
 and password recovery. The API is backend-only; `rtk_cloud_admin` owns the
@@ -212,11 +228,18 @@ configured `AuthTokenSink`. Supported adapters are:
 
 - `AUTH_TOKEN_DELIVERY=log`: dev/test adapter that records the raw token in
   server logs. Logs are sensitive operational material.
-- `AUTH_TOKEN_DELIVERY=smtp`: production adapter that transactionally writes
-  encrypted jobs to `email_outbox`. `rtk-account-manager-email-worker`
-  delivers them over verified STARTTLS with bounded retry and dead-letter
-  handling. Production requires the canonical SMTP variables,
-  `EMAIL_OUTBOX_ENCRYPTION_KEY`, and `AUTH_TOKEN_BASE_URL`.
+- `AUTH_TOKEN_DELIVERY=sendmail_http`: deployed-cloud adapter that
+  transactionally writes encrypted jobs to `email_outbox`.
+  `rtk-account-manager-email-worker` delivers them through the configured HTTPS
+  Send Mail origin with Bearer authentication, bounded retry, and dead-letter
+  handling.
+- `AUTH_TOKEN_DELIVERY=smtp`: compatibility adapter for deployments that
+  explicitly select direct SMTP; it uses verified STARTTLS in production.
+
+Both durable delivery adapters use `EMAIL_OUTBOX_ENCRYPTION_KEY` and
+`AUTH_TOKEN_BASE_URL`. The HTTPS adapter additionally uses
+`SENDMAIL_HTTP_BASE_URL`, `SENDMAIL_HTTP_BEARER_TOKEN`, and
+`SENDMAIL_HTTP_TIMEOUT`.
 
 `auth_tokens` stores only token hashes. Tenant-scoped login tokens also carry a
 server-side `scope` value such as `brand_cloud:<tenantSlug>`; console login,
@@ -237,9 +260,33 @@ Password login remains available as a migration fallback for platform,
 customer, and brand-cloud console users. APP end users are explicitly out of
 scope for this first version and keep using `/v1/app/end-users/*`.
 
-## 3. Core Concepts
+### [REQ-E2E-CA-SIGNUP-EMAIL-001] Cloud Send Mail and IMAP customer signup activation completes
 
-### Organization
+<!-- rtk-requirement
+{"acceptance_layer":"live","operation_model":"workflow","gate":"operator-release","environments":["staging"],"evidence":["json","logs"],"freshness_hours":168,"required":true,"status":"active"}
+-->
+
+Acceptance: Cloud Send Mail and IMAP customer signup activation completes.
+
+### [REQ-E2E-LOAD-ACCOUNT-001] Load-test Brand owners complete formal email activation
+
+<!-- rtk-requirement
+{"acceptance_layer":"live","gate":"operator-release","environments":["staging"],"evidence":["json","logs"],"freshness_hours":168,"required":true,"status":"active"}
+-->
+
+Acceptance: Load-test Brand owners complete formal email activation.
+
+## [FEAT-AM-IDENTITY-001] Tenant identity, membership, credentials, and registry invariants
+
+<!-- rtk-feature
+{"owner":"rtk_account_manager","risk":"critical","status":"active","change_paths":["repos/rtk_account_manager/**"],"commit_anchors":["workspace","account_manager"],"surfaces":[{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/auth/login"},{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/app/end-users/auth/login"},{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/orgs/{orgId}/devices"}]}
+-->
+
+### [REQ-AM-ORG-AUTHORITY-001] Organizations remain authoritative PostgreSQL tenant records
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 An organization represents an account boundary. Devices belong to organizations, and users gain access to devices through organization membership.
 
@@ -280,7 +327,11 @@ one active owner in the developer model. `brand_cloud_users` and tenant-scoped
 for brand-scoped accounts, but new developer signup, cloud creation, cloud
 listing, and ownership transfer use global developer sessions.
 
-### End User
+### [REQ-AM-END-USER-ISOLATION-001] APP end users retain one global subject with isolated Brand projections
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"workflow","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 An end user is a global consumer identity stored in `end_users`. The same
 consumer may bind devices from many brand clouds and must keep the same
@@ -326,7 +377,11 @@ that developer, and acceptance requires both the token and the target
 developer's authenticated session. When accepted, the target becomes `owner`
 and the previous owner becomes `admin`.
 
-### Device
+### [REQ-AM-DEVICE-IDENTITY-001] Registry UUID remains canonical over optional external device identifiers
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 A device is a registry entry owned by an organization. The server assigns each device a UUID. External identity fields such as serial number and MAC address are stored as optional metadata and must not replace the server UUID as the primary identifier.
 
@@ -346,7 +401,11 @@ All profile fields are independent settings. Account-manager registry fields are
 inventory facts, and neither `category`, `device_type`, `manufacturer`, `model`,
 nor metadata may be treated as service ACL input.
 
-### Factory Production Run
+### [REQ-AM-FACTORY-CONTEXT-001] Factory enrollment selection uses signed production context without secret leakage
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 A factory production run is the Account Manager authorization object for
 manufacturing-time device certificate enrollment. It binds a brand cloud, device
@@ -728,7 +787,11 @@ Notes:
 - Brand-cloud user identity, login, and refresh-token state are intentionally
   separated from platform `users` and `refresh_tokens`.
 
-### `organizations`
+### [REQ-AM-ORG-DATA-001] Organization records reject blank names and preserve tenant kind
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
@@ -748,7 +811,11 @@ Constraints:
 - `tenant_slug` is lowercase, trimmed, unique for brand clouds, and generated
   when omitted as a name plus generated suffix.
 
-### `users`
+### [REQ-AM-USER-CREDENTIAL-001] Local users use normalized email, modern password hashes, and fail closed when disabled
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 `users` is the platform and legacy account table. It is not the target storage
 for new brand-cloud developer/admin users or APP end-user identities.
@@ -776,7 +843,11 @@ Constraints:
 - Disabled users must not authenticate, refresh tokens, or access protected organization/device APIs with existing access tokens.
 - Self-service account deletion is implemented as account-manager user soft-disable by setting `disabled_at`; it does not remove organizations, memberships, devices, or product-level device state.
 
-### `brand_cloud_users` legacy compatibility model
+### [REQ-AM-BRAND-USER-BOUNDARY-001] Brand users remain tenant-scoped and cannot gain platform or APP identity authority
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 Brand-cloud user storage is retained for tenant-scoped legacy brand-cloud
 login. New developer ownership, developer-created clouds, cloud limits, and
@@ -854,7 +925,11 @@ social, and passkey identities.
 | `created_at` | Timestamp | Yes | Creation timestamp. |
 | `updated_at` | Timestamp | Yes | Last update timestamp. |
 
-### `brand_cloud_end_users`
+### [REQ-AM-END-USER-PROJECTION-001] Brand end-user queries expose only the current Brand projection
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 `brand_cloud_end_users` is the many-to-many brand projection table between a
 global end user and each brand cloud where that consumer has successfully
@@ -879,7 +954,11 @@ Constraints:
 - Brand developer/admin queries must filter by their own `brand_cloud_id` and
   must not return the end user's other brand projections.
 
-### `device_user_bindings`
+### [REQ-AM-DEVICE-BINDING-AUTH-001] Device control authorizes through active Brand and organization bindings
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 `device_user_bindings` authorizes which APP end user can operate which
 brand-owned device.
@@ -918,7 +997,11 @@ Constraints:
 - Membership writes are mirrored into `role_assignments` with
   `actor_type='brand_cloud_user'` and organization scope.
 
-### `organization_members`
+### [REQ-AM-MEMBERSHIP-INVARIANT-001] Every customer organization retains an active owner and denies inactive membership access
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"workflow","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
@@ -961,7 +1044,11 @@ customer-visible brand-cloud identity model.
 
 Brand-cloud sessions do not reuse `refresh_tokens.user_id`.
 
-### `devices`
+### [REQ-AM-DEVICE-DATA-001] Device records reject blank names and preserve registry state
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
@@ -989,7 +1076,11 @@ Constraints:
 - Soft-disabled devices remain readable but cannot be updated or have status changed.
 - Repeating a delete on an already disabled device is idempotent and returns success.
 
-### `device_groups`
+### [REQ-AM-FLEET-DATA-001] Fleet groups and tags reject blank selectors while retaining disabled targets for explicit policy
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
@@ -1006,7 +1097,7 @@ Constraints:
 - `(organization_id, name)` is unique.
 - Group access is always scoped by `organization_id`.
 
-### `device_group_members`
+#### `device_group_members`
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
@@ -1022,7 +1113,7 @@ Constraints:
 - Repeating the same assignment is idempotent.
 - Soft-disabled devices may remain in groups so registry selections can show disabled targets explicitly; executable operation owners must decide whether to skip them.
 
-### `device_tags`
+#### `device_tags`
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
@@ -1049,9 +1140,14 @@ Constraints:
 | `revoked_at` | Timestamp | No | Set on logout or token revocation. |
 | `created_at` | Timestamp | Yes | Creation timestamp. |
 
-Refresh tokens must be stored hashed, not in raw form.
+Refresh tokens are stored hashed rather than in raw form. Rotation and replay
+behavior are defined by [REQ-AM-PASSWORD-SESSION-001].
 
-### `auth_tokens`
+### [REQ-AM-ONE-TIME-TOKEN-001] One-time auth tokens are hashed, throttled, scoped, and purpose-bound
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 Stores one-time email verification, login activation, and password reset tokens.
 
@@ -1163,7 +1259,11 @@ Constraints:
 - Duplicate `operation_id` with the same normalized request payload returns the existing operation.
 - Duplicate `operation_id` with a conflicting payload returns `409 Conflict`.
 
-### `device_message_outbox` (V2)
+### [REQ-AM-LIFECYCLE-MESSAGE-INTEGRITY-001] Lifecycle outbox and inbox preserve device partition and reject invalid messages
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 Stores account-side commands before broker publication.
 
@@ -1192,7 +1292,7 @@ Constraints:
 - `message_id` is unique.
 - Device lifecycle `partition_key` must equal account-manager `device_id`.
 
-### `device_message_inbox` (V2)
+#### `device_message_inbox` (V2)
 
 Stores consumed video-side events and deduplication state.
 
@@ -1222,6 +1322,12 @@ Constraints:
 - Unknown message types, invalid schema versions, and unmapped devices must not be silently dropped.
 
 ## 5. Authentication
+
+### [REQ-AM-PASSWORD-SESSION-001] Password authentication uses modern hashes and rotates refresh sessions
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"workflow","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 - Users authenticate with email and password.
 - `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout`, `/v1/me`,
@@ -1276,7 +1382,11 @@ Constraints:
 - Brand-cloud user provisioning is platform-admin-only in this phase. Public
   self-service brand signup and brand-cloud password reset are follow-up scope.
 
-### APP End-User Authentication
+### [REQ-AM-APP-AUTHORIZATION-001] APP end-user authentication and device control require active Brand binding
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"workflow","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 - V1 end-user login, claim, and device-control entry is APP-required. Web
   device-control for end users is out of scope.
@@ -1360,8 +1470,8 @@ customer organizations created through legacy/internal paths:
   snapshot surfaces signup counts, verification completion, quota-raise
   status counts, and live quota utilization for evaluation organizations.
 
-The implementation in this repository should stay aligned with paired
-wire-contract updates in `rtk_cloud_contracts_doc`.
+Paired wire-contract updates in `rtk_cloud_contracts_doc` track this
+repository's evaluation-tier behavior.
 
 ## 6. Authorization
 
@@ -1400,7 +1510,10 @@ Rules:
 - Only `owner` may invite/add members, remove members, or change member roles.
 - Only `owner` may disable or enable member user accounts.
 - Only `owner` may remove another `owner`.
-- The last active `owner` in an organization must not be removed, downgraded, or disabled; disabled owner memberships do not satisfy this invariant.
+- The active-owner protection defined by
+  [REQ-AM-MEMBERSHIP-INVARIANT-001] rejects removal, downgrade, or disablement
+  of the last active `owner`; disabled owner memberships do not satisfy the
+  invariant.
 - Disabling a member user sets `users.disabled_at`, revokes that user's active refresh tokens, and prevents login, refresh, and protected API access.
 - Enabling a member user clears `users.disabled_at`.
 - `owner` and `admin` may create, update, disable, delete, and update status for devices.
@@ -2092,9 +2205,19 @@ Recommended status codes:
 - `404 Not Found` for missing resources or inaccessible scoped resources.
 - `409 Conflict` for uniqueness conflicts.
 
-## 9. Local Development
+## [FEAT-AM-OPERATIONS-001] Runtime configuration and persistence resilience
 
-The project should provide:
+<!-- rtk-feature
+{"owner":"rtk_account_manager","risk":"high","status":"active","change_paths":["repos/rtk_account_manager/**"],"commit_anchors":["workspace","account_manager"],"surfaces":[{"kind":"operator-workflow","source":"repos/rtk_account_manager/README.md","selector":"AUTH_TOKEN_DELIVERY=sendmail_http"},{"kind":"operator-workflow","source":"repos/rtk_account_manager/cmd/user-cache/main.go","selector":"user-cache"}]}
+-->
+
+### [REQ-AM-RUNTIME-CONFIG-001] Runtime validates selected signer and email-delivery configuration
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci","staging"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+Local development provides:
 
 - A Go/Gin API server.
 - A Docker Compose file for Postgres.
@@ -2107,7 +2230,7 @@ The project should provide:
   - starting the API server
   - running tests
 
-Required configuration:
+Configuration:
 
 | Variable | Description |
 | --- | --- |
@@ -2115,7 +2238,7 @@ Required configuration:
 | `JWT_SIGNER_PROVIDER` | Token signer backend. Supported values are `hs256`, `pem`, and `pkcs11`; default is `hs256`. |
 | `JWT_ACCESS_SECRET` | Secret for signing access tokens when `JWT_SIGNER_PROVIDER=hs256`. |
 | `JWT_REFRESH_SECRET` | Secret for signing or validating refresh tokens when `JWT_SIGNER_PROVIDER=hs256`. |
-| `FACTORY_PRODUCTION_JWT_SECRET` | Separate HS256 secret for signing production-run JWTs consumed by the factory enrollment daemon. Required before production-run JWT issuance is enabled. |
+| `FACTORY_PRODUCTION_JWT_SECRET` | Separate HS256 secret for signing production-run JWTs consumed by the factory enrollment daemon; production-run JWT issuance is disabled without it. |
 | `FACTORY_PRODUCTION_JWT_AUDIENCE` | Audience claim for factory enrollment production JWTs. Default `factory-enroll`. |
 | `JWT_ACCESS_PRIVATE_KEY_PATH`, `JWT_ACCESS_PUBLIC_KEY_PATH` | Access token PEM signer key paths when `JWT_SIGNER_PROVIDER=pem`. |
 | `JWT_REFRESH_PRIVATE_KEY_PATH`, `JWT_REFRESH_PUBLIC_KEY_PATH` | Refresh token PEM signer key paths when `JWT_SIGNER_PROVIDER=pem`. |
@@ -2134,10 +2257,13 @@ Required configuration:
 | `ACCOUNT_MANAGER_USER_CACHE_PREFIX` | Redis key prefix for user cache records. Default `account_manager:user`. |
 | `SIGNUP_CAPTCHA_REQUIRED` | Whether public signup requires a captcha token. |
 | `SIGNUP_DISPOSABLE_DOMAINS` | Comma-separated disposable email denylist override for public signup. |
-| `SMTP_HOST` | SMTP host used for quota approval/decline notifications when configured. |
+| `SENDMAIL_HTTP_BASE_URL` | Credential-free Send Mail origin used by `AUTH_TOKEN_DELIVERY=sendmail_http`; HTTPS in production. |
+| `SENDMAIL_HTTP_BEARER_TOKEN` | Bearer credential supplied through runtime secret management for the Send Mail service. |
+| `SENDMAIL_HTTP_TIMEOUT` | Send Mail request timeout, default `15s`. |
+| `SMTP_HOST` | SMTP host used only when the direct SMTP compatibility adapter is selected. |
 | `SMTP_PORT` | SMTP port, default `587`. |
-| `SMTP_USERNAME` | SMTP username; required in production. |
-| `SMTP_PASSWORD` | SMTP password; required in production. |
+| `SMTP_USERNAME` | SMTP username for production direct-SMTP delivery. |
+| `SMTP_PASSWORD` | SMTP password for production direct-SMTP delivery. |
 | `SMTP_FROM` | SMTP sender address used with `SMTP_HOST`. |
 | `SMTP_FROM_NAME` | Sender display name, default `Realtek Connect`. |
 | `SMTP_ENCRYPTION` | `starttls` in production; `none` is local/test-only. |
@@ -2147,6 +2273,12 @@ Required configuration:
 | `EMAIL_OUTBOX_MAX_ATTEMPTS` | Maximum delivery attempts, default `8`. |
 | `EMAIL_OUTBOX_RETRY_BASE` | Initial retry delay, default `30s`. |
 | `EMAIL_OUTBOX_RETRY_MAX` | Retry delay ceiling, default `30m`. |
+
+### [REQ-AM-CACHE-RESILIENCE-001] User cache failures cannot override PostgreSQL reads or committed mutations
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 When enabled, the user cache is a best-effort API Store decorator. Postgres
 remains authoritative; Redis-compatible records have no TTL and are populated
@@ -2158,7 +2290,7 @@ brand-cloud users, and end users for profile and login/auth projections. The
 platform users in the `users` table; brand-cloud and end-user cache repair uses
 normal read-through refill or direct key deletion.
 
-V2 cross-service configuration:
+### V2 cross-service configuration
 
 | Variable | Description |
 | --- | --- |
@@ -2170,6 +2302,12 @@ V2 cross-service configuration:
 | `CROSS_SERVICE_POLL_INTERVAL` | Worker polling interval. |
 | `AZURE_EVENTHUB_CONNECTION_STRING` | Azure Event Hubs connection string when using Azure. |
 | `AZURE_EVENTHUB_CHECKPOINT_FILE` | Optional durable checkpoint file for the Azure inbox consumer. Defaults to `.state/azure_eventhubs/<stream>__<consumer-group>.json`. |
+
+### [REQ-AM-OIDC-SECRET-001] OIDC client secrets stay in runtime secret management and out of logs
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci","staging"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 Keycloak/OIDC configuration:
 
@@ -2187,7 +2325,7 @@ Keycloak/OIDC configuration:
 
 ## 10. Testing Expectations
 
-Tests should cover:
+Test coverage areas:
 
 - User registration creates a user, organization, and owner membership.
 - Login succeeds with valid credentials.
@@ -2260,7 +2398,7 @@ The v1 backend is acceptable when:
 
 - The API server can run locally.
 - Postgres can run locally through Docker Compose.
-- Migrations create the required schema.
+- Migrations create the declared schema.
 - OpenAPI YAML describes the implemented REST API.
 - Auth, organization, member, and device APIs are implemented.
 - Role-based authorization is enforced.
@@ -2324,7 +2462,12 @@ The account-manager implementation owns the account-side API, persistence, outbo
 
 Current external dependency:
 
-- The previous video-side lifecycle integration runtime has been retired from the supported cloud deployment. Account manager keeps the account-side outbox/inbox vocabulary for compatibility and local tests, but product-level account/video coordination should use explicit service APIs plus DB-backed outbox/retry until a new cross-service runtime is deliberately designed.
+- The previous video-side lifecycle integration runtime has been retired from
+  the supported cloud deployment. Account manager keeps the account-side
+  outbox/inbox vocabulary for compatibility and local tests; current
+  product-level account/video coordination uses explicit service APIs plus
+  DB-backed outbox/retry until a new cross-service runtime is deliberately
+  designed.
 
 Current verified behavior:
 
@@ -2341,9 +2484,17 @@ Current verified behavior:
 Remaining post-v2 follow-up items:
 
 - Implement the documented transfer, reclaim, and factory-reset policy for already-claimed devices.
-- Retry and dead-letter rows are inspectable in Postgres, and `cmd/lifecycle-admin` exposes list, inspect, and safe requeue workflows for operators. A future operational visibility surface should summarize queue health, dead-letter counts, and latency without requiring direct SQL.
+- Retry and dead-letter rows are inspectable in Postgres, and
+  `cmd/lifecycle-admin` exposes list, inspect, and safe requeue workflows for
+  operators. A future operational visibility surface is expected to summarize
+  queue health, dead-letter counts, and latency without direct SQL.
 - Account registry soft-delete and product-level video deactivation remain separate. Product teardown requires explicit `POST /deactivate`; `DELETE /devices/:deviceId` only disables the account-side registry record.
-- Account manager exposes an account-side readiness projection on `GET /provisioning`, but it still does not own a final cross-service "product ready" boolean. Any future unified readiness surface must compose account record, device activation, service-options ACL enforcement, subject-bound token issuance, device info/config, and transport ownership across service boundaries.
+- Account manager exposes an account-side readiness projection on
+  `GET /provisioning`, but it still does not own a final cross-service
+  "product ready" boolean. A future unified readiness surface composes account
+  record, device activation, service-options ACL enforcement, subject-bound
+  token issuance, device info/config, and transport ownership across service
+  boundaries.
 
 ## 13. ChipSet and SDK Information Providers
 
@@ -2367,7 +2518,7 @@ lifecycle, security, API, and error contract is
 
 Runtime configuration:
 
-- `CHIPSET_PROVIDER_ALLOWED_HOSTS`: required comma-separated hostname allowlist
+- `CHIPSET_PROVIDER_ALLOWED_HOSTS`: comma-separated hostname allowlist
   for manifest providers. A leading `*.` allows subdomains only.
 - `CHIPSET_PROVIDER_REFRESH_INTERVAL`: periodic refresh interval; default
   `1h`. Set to `0` to disable the background worker.
@@ -2376,30 +2527,3 @@ The fetcher rejects non-HTTPS URLs, userinfo, non-default ports, disallowed
 hosts, private/reserved DNS results, unsafe redirects, oversized responses, and
 manifests beyond the documented JSON limits. Parsed endpoint URLs are validated
 as HTTPS links but are not fetched by Account Manager.
-
-
-## RTK Feature Requirement Inventory
-
-This machine-readable acceptance inventory is normative for feature qualification and cross-references the behavioral sections above.
-
-### [FEAT-AM-SIGNUP-001] Account signup, email activation, and session
-
-<!-- rtk-feature
-{"owner":"cloud_platform","risk":"critical","status":"active","change_paths":["repos/rtk_account_manager/**","repos/rtk_cloud_admin/**","scripts/go/rtk-cloud/main.go","scripts/staging_email_signup_e2e.py"],"commit_anchors":["workspace","account_manager","cloud_admin"],"surfaces":[{"kind":"operator-workflow","source":"scripts/staging_email_signup_e2e.py","selector":"RUN_LIVE_EMAIL_E2E=1"},{"kind":"operator-workflow","source":"scripts/go/rtk-cloud/main.go","selector":"email-activate-owners"}]}
--->
-
-#### [REQ-E2E-CA-SIGNUP-EMAIL-001] Cloud Send Mail and IMAP customer signup activation completes
-
-<!-- rtk-requirement
-{"acceptance_layer":"live","operation_model":"workflow","gate":"operator-release","environments":["staging"],"evidence":["json","logs"],"freshness_hours":168,"required":true,"status":"active"}
--->
-
-Acceptance: Cloud Send Mail and IMAP customer signup activation completes.
-
-#### [REQ-E2E-LOAD-ACCOUNT-001] Load-test Brand owners complete formal email activation
-
-<!-- rtk-requirement
-{"acceptance_layer":"live","gate":"operator-release","environments":["staging"],"evidence":["json","logs"],"freshness_hours":168,"required":true,"status":"active"}
--->
-
-Acceptance: Load-test Brand owners complete formal email activation.

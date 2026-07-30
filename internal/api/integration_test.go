@@ -2363,6 +2363,19 @@ func TestIntegrationPlatformAdminCreatesProductionRunJWT(t *testing.T) {
 		claims.AllowedQuantity != 250 {
 		t.Fatalf("unexpected production JWT claims: %+v", claims)
 	}
+	var auditPayload string
+	if err := env.db.QueryRow(ctx, `
+		SELECT payload::text
+		FROM audit_events
+		WHERE subject_type = 'factory_production_run' AND subject_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, body.ProductionRun.ID).Scan(&auditPayload); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(auditPayload, body.FactoryJWT) || strings.Contains(auditPayload, "factory-production-secret") {
+		t.Fatal("factory production audit payload leaked bearer or signing secret material")
+	}
 	if _, err := store.New(env.db).AddMember(ctx, brand.BrandCloud.ID, admin.User.Email, model.RoleOwner); err != nil {
 		t.Fatalf("add production-run reader membership: %v", err)
 	}
@@ -2432,6 +2445,10 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 	brandLogin := decodeBody[tokenBody](t, brandLoginRes)
 	if brandLogin.AppCertificate.Status != "csr_required" {
 		t.Fatalf("brand-cloud app certificate status = %q", brandLogin.AppCertificate.Status)
+	}
+	brandAsEndUserRes := performJSON(env.router, http.MethodGet, "/v1/app/end-users/me", nil, brandLogin.Tokens.AccessToken)
+	if brandAsEndUserRes.Code != http.StatusNotFound {
+		t.Fatalf("expected brand-cloud token rejected by APP end-user route, got %d: %s", brandAsEndUserRes.Code, brandAsEndUserRes.Body.String())
 	}
 	issuer := &fakeAppCertificateIssuer{}
 	env.server.ConfigureAppCertificateIssuer(issuer)

@@ -139,9 +139,9 @@ paths:
       tags:
         - Auth
       operationId: loginUser
-      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
       x-rtk-requirement-ids:
-        - REQ-E2E-CA-SIGNUP-EMAIL-001
+        - REQ-AM-PASSWORD-SESSION-001
       summary: Login with email and password.
       requestBody:
         required: true
@@ -167,6 +167,7 @@ paths:
       operationId: requestEmailSignIn
       x-rtk-feature-id: FEAT-AM-SIGNUP-001
       x-rtk-requirement-ids:
+        - REQ-AM-EMAIL-DELIVERY-001
         - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Request an email sign-in activation token.
       description: Returns the same `202 Accepted` status for unknown, disabled, pending, and throttled users to avoid account enumeration. Raw tokens are delivered only by the configured server-side AuthTokenSink and are never returned in the HTTP response.
@@ -188,6 +189,7 @@ paths:
       operationId: activateEmailSignIn
       x-rtk-feature-id: FEAT-AM-SIGNUP-001
       x-rtk-requirement-ids:
+        - REQ-AM-EMAIL-DELIVERY-001
         - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Activate an email sign-in token.
       description: Consumes a one-time `login_activation` token and issues the normal Account Manager access and refresh token response. Invalid, expired, and replayed tokens fail without issuing a session.
@@ -211,9 +213,9 @@ paths:
       tags:
         - Auth
       operationId: refreshToken
-      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
       x-rtk-requirement-ids:
-        - REQ-E2E-CA-SIGNUP-EMAIL-001
+        - REQ-AM-PASSWORD-SESSION-001
       summary: Exchange a refresh token for new tokens.
       requestBody:
         required: true
@@ -897,9 +899,10 @@ paths:
       tags:
         - App End Users
       operationId: loginAppEndUser
-      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
       x-rtk-requirement-ids:
-        - REQ-CA-BRAND-IDENTITY-001
+        - REQ-AM-END-USER-ISOLATION-001
+        - REQ-AM-APP-AUTHORIZATION-001
       summary: Login or create a global APP end-user subject.
       requestBody:
         required: true
@@ -923,9 +926,9 @@ paths:
       tags:
         - App End Users
       operationId: refreshAppEndUserToken
-      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
       x-rtk-requirement-ids:
-        - REQ-E2E-CA-SIGNUP-EMAIL-001
+        - REQ-AM-APP-AUTHORIZATION-001
       summary: Exchange an APP end-user refresh token for new APP end-user tokens.
       requestBody:
         required: true
@@ -949,9 +952,9 @@ paths:
       tags:
         - App End Users
       operationId: logoutAppEndUser
-      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
       x-rtk-requirement-ids:
-        - REQ-E2E-CA-SIGNUP-EMAIL-001
+        - REQ-AM-APP-AUTHORIZATION-001
       security:
         - bearerAuth: []
       summary: Revoke one APP end-user refresh token.
@@ -975,9 +978,9 @@ paths:
       tags:
         - App End Users
       operationId: getAppEndUserMe
-      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
       x-rtk-requirement-ids:
-        - REQ-E2E-CA-SIGNUP-EMAIL-001
+        - REQ-AM-END-USER-ISOLATION-001
       security:
         - bearerAuth: []
       summary: Get the current APP end-user subject.
@@ -997,9 +1000,10 @@ paths:
       tags:
         - App End Users
       operationId: resolveAppEndUserDeviceClaim
-      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
       x-rtk-requirement-ids:
-        - REQ-CA-BRAND-IDENTITY-001
+        - REQ-AM-END-USER-ISOLATION-001
+        - REQ-AM-APP-AUTHORIZATION-001
       security:
         - bearerAuth: []
       summary: Resolve a Claim Token from the APP and bind the device to the current end user.
@@ -1031,9 +1035,9 @@ paths:
       tags:
         - Auth
       operationId: logoutUser
-      x-rtk-feature-id: FEAT-AM-SIGNUP-001
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
       x-rtk-requirement-ids:
-        - REQ-E2E-CA-SIGNUP-EMAIL-001
+        - REQ-AM-PASSWORD-SESSION-001
       security:
         - bearerAuth: []
       summary: Revoke a refresh token.
@@ -2963,9 +2967,9 @@ paths:
       tags:
         - Members
       operationId: addMember
-      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
       x-rtk-requirement-ids:
-        - REQ-UI-CA-TEAM-001
+        - REQ-AM-MEMBERSHIP-INVARIANT-001
       security:
         - bearerAuth: []
       summary: Add an existing user to an organization.
@@ -2999,9 +3003,9 @@ paths:
       tags:
         - Members
       operationId: updateMemberRole
-      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
       x-rtk-requirement-ids:
-        - REQ-UI-CA-TEAM-001
+        - REQ-AM-MEMBERSHIP-INVARIANT-001
       security:
         - bearerAuth: []
       summary: Update member role.
@@ -3036,9 +3040,9 @@ paths:
       tags:
         - Members
       operationId: removeMember
-      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
       x-rtk-requirement-ids:
-        - REQ-UI-CA-TEAM-001
+        - REQ-AM-MEMBERSHIP-INVARIANT-001
       security:
         - bearerAuth: []
       summary: Remove member from organization.
@@ -3062,9 +3066,9 @@ paths:
       tags:
         - Members
       operationId: disableMemberUser
-      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
       x-rtk-requirement-ids:
-        - REQ-UI-CA-TEAM-001
+        - REQ-AM-MEMBERSHIP-INVARIANT-001
       security:
         - bearerAuth: []
       summary: Disable a member user account.
@@ -3091,9 +3095,9 @@ paths:
       tags:
         - Members
       operationId: enableMemberUser
-      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
       x-rtk-requirement-ids:
-        - REQ-UI-CA-TEAM-001
+        - REQ-AM-MEMBERSHIP-INVARIANT-001
       security:
         - bearerAuth: []
       summary: Enable a disabled member user account.
