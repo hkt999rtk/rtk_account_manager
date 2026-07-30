@@ -3120,6 +3120,8 @@ paths:
       x-rtk-feature-id: FEAT-PROV-ONBOARD-001
       x-rtk-requirement-ids:
         - REQ-E2E-PROV-ACCOUNT-001
+        - REQ-CONTRACT-PROV-IDENTITY-MAP-001
+        - REQ-CONTRACT-PROV-SIGNOFF-001
       summary: List organization tags.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -3869,6 +3871,10 @@ paths:
       x-rtk-feature-id: FEAT-PROV-ONBOARD-001
       x-rtk-requirement-ids:
         - REQ-E2E-FACTORY-ENROLL-001
+        - REQ-CONTRACT-PROV-CLAIM-BOUNDARY-001
+        - REQ-CONTRACT-PROV-SIGNOFF-001
+        - REQ-E2E-PROV-ACCOUNT-001
+        - REQ-LIVE-STG-ONBOARD-001
       security:
         - bearerAuth: []
       summary: Resolve a device Claim Token.
@@ -4088,6 +4094,8 @@ paths:
       x-rtk-feature-id: FEAT-PROV-ONBOARD-001
       x-rtk-requirement-ids:
         - REQ-E2E-PROV-BULK-001
+        - REQ-CONTRACT-PROV-CLAIM-BOUNDARY-001
+        - REQ-CONTRACT-PROV-SIGNOFF-001
       security:
         - bearerAuth: []
       summary: Create or reuse a provisioning operation.
@@ -4142,6 +4150,8 @@ paths:
       x-rtk-feature-id: FEAT-PROV-ONBOARD-001
       x-rtk-requirement-ids:
         - REQ-E2E-PROV-BULK-001
+        - REQ-CONTRACT-PROV-SIGNOFF-001
+        - REQ-LIVE-STG-ONBOARD-001
       security:
         - bearerAuth: []
       summary: Get latest provisioning state, account-side readiness, and projected video metadata.
@@ -4169,6 +4179,8 @@ paths:
       x-rtk-feature-id: FEAT-PROV-ONBOARD-001
       x-rtk-requirement-ids:
         - REQ-E2E-PROV-BULK-001
+        - REQ-CONTRACT-PROV-DEACTIVATION-001
+        - REQ-CONTRACT-PROV-SIGNOFF-001
       security:
         - bearerAuth: []
       summary: Create or reuse a deactivation operation.
@@ -4213,6 +4225,8 @@ paths:
       x-rtk-feature-id: FEAT-PROV-ONBOARD-001
       x-rtk-requirement-ids:
         - REQ-E2E-PROV-BULK-001
+        - REQ-CONTRACT-PROV-UNPROVISION-001
+        - REQ-CONTRACT-PROV-SIGNOFF-001
       security:
         - bearerAuth: []
       summary: Unprovision a normal device for resale or re-onboarding.
