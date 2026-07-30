@@ -3,7 +3,7 @@ rtk_spec:
   id: SPEC-AM
   status: normative
   owner: rtk_account_manager
-  requirement_inventory: review_required
+  requirement_inventory: complete
 ---
 
 # Account Manager Backend Specification
@@ -1657,6 +1657,12 @@ All endpoints are versioned under `/v1`.
 
 Fleet registry APIs are selection primitives only. Account manager owns group, tag, and device UUID facts; OTA campaign execution, command dispatch, firmware rollout policy, certificate lifecycle, video-side operations, and frontend console workflows remain outside this repository until a linked follow-up deliberately adds that scope.
 
+## [FEAT-AM-PROVISIONING-001] Account-side claim, lifecycle, and readiness projection
+
+<!-- rtk-feature
+{"owner":"rtk_account_manager","risk":"critical","status":"active","change_paths":["repos/rtk_account_manager/**"],"commit_anchors":["workspace","account_manager","contracts"],"surfaces":[{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/orgs/{orgId}/devices/claim/resolve"},{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/orgs/{orgId}/devices/{deviceId}/provision"},{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/orgs/{orgId}/devices/{deviceId}/provisioning"},{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/orgs/{orgId}/devices/{deviceId}/unprovision"}]}
+-->
+
 ### Device Provisioning (V2)
 
 | Method | Path | Auth | Role | Description |
@@ -1677,6 +1683,12 @@ Provision request body:
   "operation_id": "optional-client-idempotency-key"
 }
 ```
+
+### [REQ-AM-CLAIM-RESOLUTION-001] Claim resolution makes one account-authoritative ownership decision
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 Current claim, bind, and possession-proof policy:
 
@@ -1736,6 +1748,12 @@ Raw claim-material endpoint decision:
   account-manager registry device or create an explicit pending claim record
   before the caller may start cloud provisioning.
 
+### [REQ-AM-SERVICE-ENTITLEMENT-BOUNDARY-001] Registry categories remain separate from canonical service entitlements
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
 Device categories, service options, and activation scope:
 
 Account-manager device categories (`ip_camera`, `mqtt_device`, and `generic`)
@@ -1776,6 +1794,12 @@ Accepted lifecycle input in the current API:
 | `mqtt_device` | `video_cloud_devid`, `activity_id`, `clip_public_key`, `service_options` | The category may describe the product registry entry or preferred transport. Device activation can still run, but service access must be limited to the canonical service options, such as MQTT-only. |
 | `generic` | `video_cloud_devid`, `activity_id`, `clip_public_key`, `service_options` | Generic registry entries can still be bound to a cloud device identity. Serial-number, QR-code, activation-code, MAC-address, and future factory-identity claim flows remain out of scope unless a later endpoint explicitly accepts them. |
 
+### [REQ-AM-DEVICE-OWNERSHIP-001] Organization ownership and lifecycle idempotency use the registry device UUID
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
 Ownership consequences:
 
 - `owner`, `admin`, and `member` members of the target organization may
@@ -1806,6 +1830,12 @@ Ownership consequences:
   the account-manager registry device disables that registry record only; it
   does not transfer ownership, factory-reset the product, or enqueue product
   teardown.
+
+### [REQ-AM-USER-UNPROVISION-001] User unprovision atomically releases only the current account binding
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"workflow","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 User unprovision / factory-ready resale policy:
 
@@ -1844,6 +1874,12 @@ calls `POST /api/devices/{devid}/unprovision`, clears only the
 `video_cloud_devid` binding fields such as `org_id` and `account_device_id`,
 and publishes `DeviceUnprovisionSucceeded` or `DeviceUnprovisionFailed`.
 
+### [REQ-AM-ADMIN-UNPROVISION-001] Platform support unprovision requires evidence and redacted audit
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
 The platform-admin support override endpoint is:
 
 ```http
@@ -1864,7 +1900,13 @@ Existing lifecycle routes must not be used as unprovision substitutes:
   soft-disable only. It does not release factory identity, claim ownership, or
   user/org binding for resale.
 
-Claim transfer, reclaim, and factory-reset policy:
+### [REQ-AM-CLAIM-TRANSFER-001] Claim transfer requires a platform operator and preserves ownership audit
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+Claim transfer policy:
 
 - Already-claimed Claim Tokens remain rejected by `POST
   /v1/orgs/:orgId/devices/claim/resolve`. This applies to both the same
@@ -1880,12 +1922,9 @@ Claim transfer, reclaim, and factory-reset policy:
 - Product-level deactivation does not release Claim Token material by itself.
   It proves product teardown was requested/completed; it does not authorize a
   new account owner.
-- Factory reset does not allow automatic reclaim in account manager. Reclaim
-  requires an explicit platform-admin account-manager operation with operator
-  authorization, reason, and audit evidence.
-- Operator override, transfer, or reclaim must require `platform_admin` unless
-  a later product policy deliberately defines a narrower self-service path.
-- Every transfer/reclaim/override operation must emit an audit event
+- Operator transfer must require `platform_admin` unless a later product policy
+  deliberately defines a narrower self-service path.
+- Every transfer operation must emit an audit event
   with actor user id, source organization, target organization when known,
   claim token id or device id, reason, and before/after ownership facts.
 
@@ -1894,12 +1933,27 @@ Implemented platform-admin override endpoints:
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
 | `POST` | `/v1/admin/device-claims/:claimId/transfer` | Platform admin | Transfer an already-resolved claim to another organization after product-policy checks. |
-| `POST` | `/v1/admin/device-claim-tokens/:tokenId/reclaim` | Platform admin | Mark a claimed token/device eligible for a controlled reclaim flow after factory-reset or support verification. |
 
-These override endpoints require `target_organization_id`, `reason`, and
-non-empty `evidence`. They update account-manager claim/token/device ownership
-and write an audit event. They do not reveal raw Claim Token values and do not
+The transfer endpoint requires `target_organization_id`, `reason`, and
+non-empty `evidence`. It updates account-manager claim/token/device ownership,
+writes an audit event, does not reveal raw Claim Token values, and does not
 publish lifecycle outbox commands.
+
+### [REQ-AM-CLAIM-RECLAIM-001] Claim reclaim requires platform evidence and never follows reset implicitly
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+Factory reset does not allow automatic reclaim in account manager. Reclaim
+requires an explicit platform-admin account-manager operation with operator
+authorization, reason, and audit evidence. The reclaim endpoint requires
+`reason` and non-empty `evidence`, writes an audit event, does not reveal raw
+Claim Token values, and does not publish lifecycle outbox commands.
+
+```http
+POST /v1/admin/device-claim-tokens/:tokenId/reclaim
+```
 
 Normal claim resolve must continue to reject:
 
@@ -1971,6 +2025,12 @@ Provisioning-state response body for `GET .../provisioning`:
 }
 ```
 
+### [REQ-AM-LIFECYCLE-OPERATION-001] Lifecycle operations persist before publish and project terminal state without inventing online status
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"workflow","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
 Provisioning rules:
 
 - The API writes the operation row and outbox row transactionally.
@@ -1993,6 +2053,12 @@ Provisioning rules:
 - `DeviceOnlineChanged` is the only video-side event that may project account-manager `status=online|offline`.
 
 ### Product Readiness Contract
+
+#### [REQ-AM-READINESS-PROJECTION-001] Provisioning reads expose only authorized account-owned readiness facts
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 `rtk_account_manager` exposes an account-side readiness projection on
 `GET /v1/orgs/:orgId/devices/:deviceId/provisioning`. This is not a final
@@ -2018,6 +2084,12 @@ Current readiness inputs:
 | Subject-bound token issuance completed | Video-side or integration-service auth surface | The device or app has the scoped credentials required for product use. These credentials are bound to the device subject such as `video_cloud_devid` and must enforce canonical `service_options`; account-manager category names do not define credential scope. |
 | Video-side bootstrap prerequisites completed when required | Video-side APIs | Device info/config setup or equivalent downstream bootstrap state is available. |
 | Owner transport connected | Account-manager device `status`, projected from `DeviceOnlineChanged` | The mapped device has come online through a supported owner transport, currently websocket or MQTT in the video transport contract. |
+
+### [REQ-AM-UNIFIED-READINESS-001] A future unified readiness API composes explicitly owned source states
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"operator-release","environments":["ci","staging"],"evidence":["json","junit"],"required":false,"status":"planned"}
+-->
 
 Unified product-readiness source ownership:
 
@@ -2100,6 +2172,12 @@ Unified readiness failure semantics:
   retryability, and occurrence time.
 - If any required source is `unknown`, the final product state must not be
   reported as ready.
+
+### [REQ-AM-READINESS-STATES-001] Account readiness derives explicit lifecycle, activation, transport, and failure states
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
 
 Account-side readiness projection rules:
 
