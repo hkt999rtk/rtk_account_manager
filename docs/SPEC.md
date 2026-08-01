@@ -2372,7 +2372,7 @@ brand-cloud users, and end users for profile and login/auth projections. The
 platform users in the `users` table; brand-cloud and end-user cache repair uses
 normal read-through refill or direct key deletion.
 
-### V2 cross-service configuration
+#### V2 cross-service configuration
 
 | Variable | Description |
 | --- | --- |
