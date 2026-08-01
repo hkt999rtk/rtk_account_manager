@@ -60,6 +60,9 @@ type Config struct {
 	CrossServiceConsumerGroup      string
 	CrossServiceMaxAttempts        int
 	CrossServicePollInterval       time.Duration
+	VideoCloudLifecycleBaseURL     string
+	VideoCloudLifecycleToken       string
+	VideoCloudLifecycleTimeout     time.Duration
 	EmailVerificationTTL           time.Duration
 	PasswordResetTTL               time.Duration
 	OTPResendInterval              time.Duration
@@ -133,7 +136,26 @@ func Load() (Config, error) {
 }
 
 func LoadWorker() (Config, error) {
-	return load()
+	cfg, err := load()
+	if err != nil {
+		return Config{}, err
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.CrossServiceBroker), "direct_http") {
+		endpoint, err := url.Parse(strings.TrimSpace(cfg.VideoCloudLifecycleBaseURL))
+		if err != nil || endpoint.Scheme == "" || endpoint.Host == "" {
+			return Config{}, fmt.Errorf("VIDEO_CLOUD_LIFECYCLE_BASE_URL must be an absolute URL when CROSS_SERVICE_BROKER=direct_http")
+		}
+		if endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || (endpoint.Path != "" && endpoint.Path != "/") {
+			return Config{}, fmt.Errorf("VIDEO_CLOUD_LIFECYCLE_BASE_URL must be a credential-free origin")
+		}
+		if strings.TrimSpace(cfg.VideoCloudLifecycleToken) == "" {
+			return Config{}, fmt.Errorf("VIDEO_CLOUD_LIFECYCLE_TOKEN is required when CROSS_SERVICE_BROKER=direct_http")
+		}
+		if cfg.VideoCloudLifecycleTimeout <= 0 {
+			return Config{}, fmt.Errorf("VIDEO_CLOUD_LIFECYCLE_TIMEOUT must be positive")
+		}
+	}
+	return cfg, nil
 }
 
 func LoadEmailWorker() (Config, error) {
@@ -291,6 +313,9 @@ func load() (Config, error) {
 		CrossServiceConsumerGroup:      getenv("CROSS_SERVICE_CONSUMER_GROUP", "rtk_account_manager"),
 		CrossServiceMaxAttempts:        intValue("CROSS_SERVICE_MAX_ATTEMPTS", 5),
 		CrossServicePollInterval:       duration("CROSS_SERVICE_POLL_INTERVAL", 5*time.Second),
+		VideoCloudLifecycleBaseURL:     getenv("VIDEO_CLOUD_LIFECYCLE_BASE_URL", ""),
+		VideoCloudLifecycleToken:       os.Getenv("VIDEO_CLOUD_LIFECYCLE_TOKEN"),
+		VideoCloudLifecycleTimeout:     duration("VIDEO_CLOUD_LIFECYCLE_TIMEOUT", 10*time.Second),
 		EmailVerificationTTL:           duration("EMAIL_VERIFICATION_TTL", 30*time.Minute),
 		PasswordResetTTL:               duration("PASSWORD_RESET_TTL", 30*time.Minute),
 		OTPResendInterval:              duration("OTP_RESEND_INTERVAL", 60*time.Second),

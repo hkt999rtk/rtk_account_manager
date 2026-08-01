@@ -4,11 +4,13 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"rtk_account_manager/internal/broker"
 	"rtk_account_manager/internal/config"
 	"rtk_account_manager/internal/database"
+	"rtk_account_manager/internal/lifecyclehttp"
 	"rtk_account_manager/internal/logging"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/worker/outbox"
@@ -38,11 +40,24 @@ func main() {
 	}
 	defer db.Close()
 
-	publisher, err := broker.NewPublisher(cfg.CrossServiceBroker, broker.PublisherOptions{
-		LogWriter:                      os.Stdout,
-		AzureEventHubsConnectionString: cfg.AzureEventHubConnectionString,
-		Stream:                         cfg.AccountVideoCommandsStream,
-	})
+	messageStore := store.New(db)
+	var publisher broker.Publisher
+	if strings.EqualFold(cfg.CrossServiceBroker, lifecyclehttp.AdapterDirectHTTP) {
+		publisher, err = lifecyclehttp.NewPublisher(lifecyclehttp.Options{
+			BaseURL:     cfg.VideoCloudLifecycleBaseURL,
+			Token:       cfg.VideoCloudLifecycleToken,
+			Timeout:     cfg.VideoCloudLifecycleTimeout,
+			Store:       messageStore,
+			MaxAttempts: cfg.CrossServiceMaxAttempts,
+			Logger:      logger,
+		})
+	} else {
+		publisher, err = broker.NewPublisher(cfg.CrossServiceBroker, broker.PublisherOptions{
+			LogWriter:                      os.Stdout,
+			AzureEventHubsConnectionString: cfg.AzureEventHubConnectionString,
+			Stream:                         cfg.AccountVideoCommandsStream,
+		})
+	}
 	if err != nil {
 		fatal(logger, "publisher creation failed", err)
 	}
@@ -52,7 +67,7 @@ func main() {
 		}
 	}()
 
-	service := outbox.NewService(store.New(db), publisher, outbox.Options{
+	service := outbox.NewService(messageStore, publisher, outbox.Options{
 		MaxAttempts:  cfg.CrossServiceMaxAttempts,
 		PollInterval: cfg.CrossServicePollInterval,
 		RetryDelay:   cfg.CrossServicePollInterval,

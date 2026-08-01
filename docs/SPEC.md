@@ -71,22 +71,22 @@ tracks rollout history and verification status.
 - Custom RBAC permissions.
 - Multi-region deployment concerns.
 
-## 2.1 V2 Scope: Provisioning And Cross-Service Channel
+## 2.1 V2 Scope: Provisioning And Cross-Service Lifecycle Delivery
 
-The shared contracts in `docs/rtk_cloud_contracts_doc/` define the product-level integration boundary between account manager, Realtek video server, and an independent cross-service channel runtime.
+The shared contracts in `docs/rtk_cloud_contracts_doc/` define the product-level integration boundary between account manager and Realtek video server.
 
 V2 adds:
 
 - Account-side provisioning operation APIs for organization-owned registry devices.
 - Explicit account-manager to Realtek video server identity mapping, especially `video_cloud_devid`.
-- Cross-service command publication to `account.video.commands`.
-- Cross-service event consumption from `video.account.events`.
+- Durable lifecycle command delivery from the Account Manager outbox to the authenticated Video service API.
+- Transactional result projection through the Account Manager inbox.
 - Idempotent operation tracking with `operation_id`.
 - Outbox/inbox persistence for at-least-once delivery.
 - Retry and dead-letter state for failed cross-service messages.
 - Account-side projection of provisioning, deactivation, online-state, and selected metadata events.
 - Metadata merge support so cross-service projections do not overwrite unrelated device metadata.
-- A broker adapter boundary so Azure Event Hubs or an equivalent broker can be used behind the same contract.
+- A `direct_http` production adapter plus legacy broker adapters for compatibility and local channel testing.
 
 V2 excludes:
 
@@ -99,8 +99,8 @@ V2 logical streams:
 
 | Stream | Direction | Purpose |
 | --- | --- | --- |
-| `account.video.commands` | Account manager to video-side integration worker | Device lifecycle commands that request Realtek video server side effects. |
-| `video.account.events` | Video-side integration worker to account manager | Device lifecycle results and state projections consumed by account manager. |
+| `account.video.commands` | Account Manager durable outbox to Video service API | Device lifecycle commands that request Realtek video server side effects. |
+| `video.account.events` | Video result to Account Manager inbox projection | Device lifecycle results and state projections consumed by account manager. |
 
 V2 message types:
 
@@ -1265,7 +1265,10 @@ Constraints:
 {"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
 -->
 
-Stores account-side commands before broker publication.
+Stores account-side commands before durable delivery. With `direct_http`, the
+outbox worker calls the authenticated Video lifecycle API and only marks a
+message published after the result has been applied through the inbox
+projection transaction.
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
@@ -1299,7 +1302,7 @@ Stores consumed video-side events and deduplication state.
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `id` | UUID | Yes | Primary key. |
-| `message_id` | Text | Yes | Unique broker message ID used for deduplication. |
+| `message_id` | Text | Yes | Unique lifecycle result message ID used for deduplication. |
 | `operation_id` | Text | Yes | Business operation ID. |
 | `correlation_id` | Text | Yes | Cross-service workflow correlation ID. |
 | `causation_id` | Text | No | Message that caused this event, when known. |
@@ -1318,7 +1321,7 @@ Stores consumed video-side events and deduplication state.
 
 Constraints:
 
-- `message_id` is unique and deduplicates broker redelivery.
+- `message_id` is unique and deduplicates result redelivery or HTTP retry.
 - Unknown message types, invalid schema versions, and unmapped devices must not be silently dropped.
 
 ## 5. Authentication
@@ -1869,10 +1872,11 @@ the device, does not imply compromise, and does not authorize service access for
 the next owner until that owner completes possession proof, claim/bind, and a
 new device activation/provisioning flow.
 
-The Video Cloud cross-service worker consumes `DeviceUnprovisionRequested`,
-calls `POST /api/devices/{devid}/unprovision`, clears only the
+The Account Manager outbox worker delivers `DeviceUnprovisionRequested` to
+`POST /v1/internal/account-manager/devices/{devid}/unprovision`, which clears only the
 `video_cloud_devid` binding fields such as `org_id` and `account_device_id`,
-and publishes `DeviceUnprovisionSucceeded` or `DeviceUnprovisionFailed`.
+and records `DeviceUnprovisionSucceeded` or `DeviceUnprovisionFailed` through
+the inbox projection transaction.
 
 ### [REQ-AM-ADMIN-UNPROVISION-001] Platform support unprovision requires evidence and redacted audit
 
@@ -2372,7 +2376,7 @@ normal read-through refill or direct key deletion.
 
 | Variable | Description |
 | --- | --- |
-| `CROSS_SERVICE_BROKER` | Broker adapter. Supported values are `log` and `azure_eventhubs`. |
+| `CROSS_SERVICE_BROKER` | Lifecycle delivery adapter. `direct_http` is the supported cloud mode; `log` and `azure_eventhubs` remain compatibility adapters. |
 | `ACCOUNT_VIDEO_COMMANDS_STREAM` | Logical command stream, default `account.video.commands`. |
 | `VIDEO_ACCOUNT_EVENTS_STREAM` | Logical event stream, default `video.account.events`. |
 | `CROSS_SERVICE_CONSUMER_GROUP` | Consumer group for account-side event projection. |
@@ -2380,6 +2384,9 @@ normal read-through refill or direct key deletion.
 | `CROSS_SERVICE_POLL_INTERVAL` | Worker polling interval. |
 | `AZURE_EVENTHUB_CONNECTION_STRING` | Azure Event Hubs connection string when using Azure. |
 | `AZURE_EVENTHUB_CHECKPOINT_FILE` | Optional durable checkpoint file for the Azure inbox consumer. Defaults to `.state/azure_eventhubs/<stream>__<consumer-group>.json`. |
+| `VIDEO_CLOUD_LIFECYCLE_BASE_URL` | Credential-free Video service origin required by `direct_http`. |
+| `VIDEO_CLOUD_LIFECYCLE_TOKEN` | Shared Account Manager-to-Video service token required by `direct_http`; secret. |
+| `VIDEO_CLOUD_LIFECYCLE_TIMEOUT` | Per-request timeout for direct lifecycle delivery, default `10s`. |
 
 ### [REQ-AM-OIDC-SECRET-001] OIDC client secrets stay in runtime secret management and out of logs
 
@@ -2488,14 +2495,14 @@ The v2 provisioning/event-channel implementation is acceptable when:
 - Account-side provisioning and deactivation APIs are documented in OpenAPI.
 - Provisioning creates idempotent operation records.
 - Account-side lifecycle commands are persisted in an outbox before publication.
-- Outbox worker publishes `DeviceProvisionRequested` and `DeviceDeactivateRequested`.
-- Inbox worker consumes all v2 video/account event types.
+- Outbox worker durably delivers provisioning, deactivation, and unprovision commands to Video lifecycle APIs.
+- Direct lifecycle results are applied through the same inbox projection contract as compatibility event consumers.
 - Duplicate message delivery does not cause duplicate side effects.
 - Projection merges metadata safely.
 - Activation success does not imply account-manager `online`.
 - Online/offline projection updates account-manager status only from `DeviceOnlineChanged`.
 - Retry and dead-letter state are inspectable in the database.
-- Local development can run without Azure using the `log` broker adapter.
+- Local development can run without Video using the `log` compatibility adapter.
 - Automated tests cover the v2 behavior matrix and report correctness evidence.
 
 The Keycloak/OIDC authentication implementation is acceptable when:
@@ -2536,16 +2543,14 @@ The brand-cloud user namespace implementation is acceptable when:
 
 ## 12. Contract Follow-Up Scope
 
-The account-manager implementation owns the account-side API, persistence, outbox, inbox, projection, broker adapter surfaces, Claim Token resolution, and registry-only readiness behavior. The broader product-level provisioning contract still depends on the external video-side lifecycle runtime and other service-owned readiness inputs.
+The account-manager implementation owns the account-side API, persistence, outbox, inbox, projection, lifecycle delivery adapters, Claim Token resolution, and registry-only readiness behavior. Product-level provisioning still depends on Video lifecycle APIs and other service-owned readiness inputs.
 
 Current external dependency:
 
-- The previous video-side lifecycle integration runtime has been retired from
-  the supported cloud deployment. Account manager keeps the account-side
-  outbox/inbox vocabulary for compatibility and local tests; current
-  product-level account/video coordination uses explicit service APIs plus
-  DB-backed outbox/retry until a new cross-service runtime is deliberately
-  designed.
+- The previous broker-dependent video-side lifecycle integration runtime has
+  been retired from the supported cloud deployment. Account Manager uses its
+  DB-backed outbox/retry worker to call explicit authenticated Video lifecycle
+  APIs and applies results through its inbox projection transaction.
 
 Current verified behavior:
 
