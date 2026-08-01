@@ -165,6 +165,7 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		requireConstraint(t, ctx, env, constraint.table, constraint.name)
 	}
 	requireNoConstraint(t, ctx, env, "device_claims", "device_claims_claimed_by_fkey")
+	requireNoConstraint(t, ctx, env, "audit_events", "audit_events_actor_user_id_fkey")
 
 	requiredIndexes := []string{
 		"audit_events_event_type_idx",
