@@ -47,10 +47,22 @@ func TestUnprovisionDeviceRetainsClaimHistoryAndAllowsReplacementClaim(t *testin
 		t.Fatal(err)
 	}
 
+	var tenantActorID string
+	if err := env.db.QueryRow(ctx, `
+		INSERT INTO brand_cloud_users (
+			brand_cloud_id, email, password_hash, email_verified,
+			email_verified_at, signup_pending_verification
+		)
+		VALUES ($1, 'tenant-unprovision-actor@example.com', 'hash', true, $2, false)
+		RETURNING id::text
+	`, registered.Organization.ID, now).Scan(&tenantActorID); err != nil {
+		t.Fatal(err)
+	}
+
 	result, err := env.store.UnprovisionDevice(ctx, DeviceUnprovisionInput{
 		OrganizationID: registered.Organization.ID,
 		DeviceID:       resolved.Device.ID,
-		ActorUserID:    registered.User.ID,
+		ActorUserID:    tenantActorID,
 		Reason:         "owner resale",
 		Now:            now.Add(2 * time.Minute),
 	})
@@ -77,7 +89,7 @@ func TestUnprovisionDeviceRetainsClaimHistoryAndAllowsReplacementClaim(t *testin
 	if err := env.db.QueryRow(ctx, `SELECT count(*)::int FROM device_message_outbox WHERE operation_id = $1`, result.Operation.OperationID).Scan(&outbox); err != nil {
 		t.Fatal(err)
 	}
-	if err := env.db.QueryRow(ctx, `SELECT count(*)::int FROM audit_events WHERE event_type = 'device_unprovisioned' AND subject_id = $1`, resolved.Device.ID).Scan(&audits); err != nil {
+	if err := env.db.QueryRow(ctx, `SELECT count(*)::int FROM audit_events WHERE event_type = 'device_unprovisioned' AND subject_id = $1 AND actor_user_id = $2`, resolved.Device.ID, tenantActorID).Scan(&audits); err != nil {
 		t.Fatal(err)
 	}
 	if devices != 0 || claims != 1 || operations != 1 || outbox != 1 || audits != 1 {
