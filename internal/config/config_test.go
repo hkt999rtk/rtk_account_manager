@@ -199,6 +199,43 @@ func TestLoadWorkerAllowsMissingJWTSecrets(t *testing.T) {
 	}
 }
 
+func TestLoadWorkerValidatesDirectLifecycleHTTP(t *testing.T) {
+	valid := func(t *testing.T) Config {
+		t.Helper()
+		t.Chdir(t.TempDir())
+		t.Setenv("CROSS_SERVICE_BROKER", "direct_http")
+		t.Setenv("VIDEO_CLOUD_LIFECYCLE_BASE_URL", "http://video-cloud-api.coverage.svc.cluster.local:8080")
+		t.Setenv("VIDEO_CLOUD_LIFECYCLE_TOKEN", "shared-token")
+		t.Setenv("VIDEO_CLOUD_LIFECYCLE_TIMEOUT", "7s")
+		cfg, err := LoadWorker()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cfg
+	}
+
+	t.Run("valid", func(t *testing.T) {
+		cfg := valid(t)
+		if cfg.VideoCloudLifecycleTimeout != 7*time.Second || cfg.VideoCloudLifecycleToken != "shared-token" {
+			t.Fatalf("unexpected direct lifecycle config: %+v", cfg)
+		}
+	})
+	t.Run("missing token", func(t *testing.T) {
+		valid(t)
+		t.Setenv("VIDEO_CLOUD_LIFECYCLE_TOKEN", "")
+		if _, err := LoadWorker(); err == nil {
+			t.Fatal("expected missing token error")
+		}
+	})
+	t.Run("unsafe URL", func(t *testing.T) {
+		valid(t)
+		t.Setenv("VIDEO_CLOUD_LIFECYCLE_BASE_URL", "https://user:password@video.example.test?token=secret")
+		if _, err := LoadWorker(); err == nil {
+			t.Fatal("expected credential URL error")
+		}
+	})
+}
+
 func TestLoadWorkerFallsBackForInvalidMaxAttempts(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("CROSS_SERVICE_MAX_ATTEMPTS", "0")
