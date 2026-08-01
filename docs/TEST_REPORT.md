@@ -1,14 +1,14 @@
 # Test Report
 
-Generated: ci-candidate
+Generated: 2026-08-01T16:19:14Z
 
 ## Summary
 
 | Check | Result |
 | --- | --- |
-| Overall | PASS |
+| Overall | FAIL |
 | Formatting | PASS |
-| Tests | PASS |
+| Tests | FAIL |
 | Build | PASS |
 | Coverage threshold | PASS |
 | Correctness gates | PASS |
@@ -17,7 +17,7 @@ Generated: ci-candidate
 
 | Metric | Value |
 | --- | --- |
-| Total statement coverage | recorded in reports/coverage.txt |
+| Total statement coverage | 80.6% |
 | Minimum required coverage | 80.0% |
 | Coverage mode | atomic |
 | Coverage scope | ./internal/... |
@@ -26,10 +26,10 @@ Generated: ci-candidate
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 28 |
-| Test cases started | recorded in reports/test-events.json |
-| JSON pass events | recorded in reports/test-events.json |
-| JSON fail events | recorded in reports/test-events.json |
+| Go packages | 29 |
+| Test cases started | 656 |
+| JSON pass events | 675 |
+| JSON fail events | 2 |
 | Integration database | Postgres via TEST_DATABASE_URL |
 
 ## Correctness Gates
@@ -260,7 +260,6 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationAuthorizationAndTenancyMatrix`
 - `rtk_account_manager/internal/api`: `TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession`
 - `rtk_account_manager/internal/api`: `TestIntegrationBrandCloudResourceScopeFiltersFleetQueries`
-- `rtk_account_manager/internal/api`: `TestIntegrationBrandCloudScopedRoleAssignmentWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug`
 - `rtk_account_manager/internal/api`: `TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit`
 - `rtk_account_manager/internal/api`: `TestIntegrationClaimResolveEndpoint`
@@ -552,6 +551,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/config`: `TestLoadUsesOIDCDefaultsAndBooleanFallbacks`
 - `rtk_account_manager/internal/config`: `TestLoadWorkerAllowsMissingJWTSecrets`
 - `rtk_account_manager/internal/config`: `TestLoadWorkerFallsBackForInvalidMaxAttempts`
+- `rtk_account_manager/internal/config`: `TestLoadWorkerValidatesDirectLifecycleHTTP/missing_token`
+- `rtk_account_manager/internal/config`: `TestLoadWorkerValidatesDirectLifecycleHTTP/unsafe_URL`
+- `rtk_account_manager/internal/config`: `TestLoadWorkerValidatesDirectLifecycleHTTP/valid`
+- `rtk_account_manager/internal/config`: `TestLoadWorkerValidatesDirectLifecycleHTTP`
 - `rtk_account_manager/internal/config`: `TestProductionEmailConfigurationFailsClosed`
 - `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration/credential_URL`
 - `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration/missing_token`
@@ -591,6 +594,15 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientClassifiesResponses`
 - `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientSendsOpenAPIRequest`
 - `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientValidatesConfigurationAndMessage`
+- `rtk_account_manager/internal/lifecyclehttp`: `TestNewPublisherRejectsUnsafeConfiguration/credential_URL`
+- `rtk_account_manager/internal/lifecyclehttp`: `TestNewPublisherRejectsUnsafeConfiguration/missing_token`
+- `rtk_account_manager/internal/lifecyclehttp`: `TestNewPublisherRejectsUnsafeConfiguration/path_URL`
+- `rtk_account_manager/internal/lifecyclehttp`: `TestNewPublisherRejectsUnsafeConfiguration/relative_URL`
+- `rtk_account_manager/internal/lifecyclehttp`: `TestNewPublisherRejectsUnsafeConfiguration`
+- `rtk_account_manager/internal/lifecyclehttp`: `TestPublisherCallsInternalLifecycleAPIAndProjectsSuccess`
+- `rtk_account_manager/internal/lifecyclehttp`: `TestPublisherMakesProjectionFailureRetryable`
+- `rtk_account_manager/internal/lifecyclehttp`: `TestPublisherProjectsTerminalFailureAndRedactsResponseBody`
+- `rtk_account_manager/internal/lifecyclehttp`: `TestPublisherRetriesTransientHTTPWithoutProjecting`
 - `rtk_account_manager/internal/logging`: `TestEnvHelpersUseFallbacks`
 - `rtk_account_manager/internal/logging`: `TestNewBuildsServiceLoggerFromConfig`
 - `rtk_account_manager/internal/logging`: `TestNewFromEnvFallsBackToNopLoggerOnConstructorError`
