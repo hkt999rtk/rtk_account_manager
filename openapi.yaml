@@ -3716,6 +3716,7 @@ paths:
       x-rtk-feature-id: FEAT-PROV-ONBOARD-001
       x-rtk-requirement-ids:
         - REQ-E2E-PROV-ACCOUNT-001
+        - REQ-CONTRACT-PROV-UNPROVISION-001
       security:
         - bearerAuth: []
       summary: List organization devices.
@@ -3927,6 +3928,7 @@ paths:
       x-rtk-feature-id: FEAT-PROV-ONBOARD-001
       x-rtk-requirement-ids:
         - REQ-E2E-PROV-ACCOUNT-001
+        - REQ-CONTRACT-PROV-UNPROVISION-001
       security:
         - bearerAuth: []
       summary: Get device details.
@@ -4100,6 +4102,7 @@ paths:
         - REQ-E2E-PROV-BULK-001
         - REQ-CONTRACT-PROV-CLAIM-BOUNDARY-001
         - REQ-CONTRACT-PROV-SIGNOFF-001
+        - REQ-CONTRACT-PROV-UNPROVISION-001
       security:
         - bearerAuth: []
       summary: Create or reuse a provisioning operation.
@@ -4155,6 +4158,7 @@ paths:
       x-rtk-requirement-ids:
         - REQ-E2E-PROV-BULK-001
         - REQ-CONTRACT-PROV-SIGNOFF-001
+        - REQ-CONTRACT-PROV-UNPROVISION-001
         - REQ-LIVE-STG-ONBOARD-001
       security:
         - bearerAuth: []
@@ -4185,6 +4189,7 @@ paths:
         - REQ-E2E-PROV-BULK-001
         - REQ-CONTRACT-PROV-DEACTIVATION-001
         - REQ-CONTRACT-PROV-SIGNOFF-001
+        - REQ-CONTRACT-PROV-UNPROVISION-001
       security:
         - bearerAuth: []
       summary: Create or reuse a deactivation operation.
