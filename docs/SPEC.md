@@ -2356,22 +2356,6 @@ Configuration:
 | `EMAIL_OUTBOX_RETRY_BASE` | Initial retry delay, default `30s`. |
 | `EMAIL_OUTBOX_RETRY_MAX` | Retry delay ceiling, default `30m`. |
 
-### [REQ-AM-CACHE-RESILIENCE-001] User cache failures cannot override PostgreSQL reads or committed mutations
-
-<!-- rtk-requirement
-{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
--->
-
-When enabled, the user cache is a best-effort API Store decorator. Postgres
-remains authoritative; Redis-compatible records have no TTL and are populated
-through read-through misses or refreshed/deleted after successful Account
-Manager write paths. Redis outage or write failure must not fail a user query or
-roll back a committed mutation. The decorator covers platform/developer users,
-brand-cloud users, and end users for profile and login/auth projections. The
-`user-cache` maintenance command currently rebuilds, deletes, and inspects only
-platform users in the `users` table; brand-cloud and end-user cache repair uses
-normal read-through refill or direct key deletion.
-
 #### V2 cross-service configuration
 
 | Variable | Description |
@@ -2387,6 +2371,22 @@ normal read-through refill or direct key deletion.
 | `VIDEO_CLOUD_LIFECYCLE_BASE_URL` | Credential-free Video service origin required by `direct_http`. |
 | `VIDEO_CLOUD_LIFECYCLE_TOKEN` | Shared Account Manager-to-Video service token required by `direct_http`; secret. |
 | `VIDEO_CLOUD_LIFECYCLE_TIMEOUT` | Per-request timeout for direct lifecycle delivery, default `10s`. |
+
+### [REQ-AM-CACHE-RESILIENCE-001] User cache failures cannot override PostgreSQL reads or committed mutations
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+When enabled, the user cache is a best-effort API Store decorator. Postgres
+remains authoritative; Redis-compatible records have no TTL and are populated
+through read-through misses or refreshed/deleted after successful Account
+Manager write paths. Redis outage or write failure must not fail a user query or
+roll back a committed mutation. The decorator covers platform/developer users,
+brand-cloud users, and end users for profile and login/auth projections. The
+`user-cache` maintenance command currently rebuilds, deletes, and inspects only
+platform users in the `users` table; brand-cloud and end-user cache repair uses
+normal read-through refill or direct key deletion.
 
 ### [REQ-AM-OIDC-SECRET-001] OIDC client secrets stay in runtime secret management and out of logs
 
