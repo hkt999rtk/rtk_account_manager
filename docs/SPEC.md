@@ -2356,6 +2356,22 @@ Configuration:
 | `EMAIL_OUTBOX_RETRY_BASE` | Initial retry delay, default `30s`. |
 | `EMAIL_OUTBOX_RETRY_MAX` | Retry delay ceiling, default `30m`. |
 
+#### V2 cross-service configuration
+
+| Variable | Description |
+| --- | --- |
+| `CROSS_SERVICE_BROKER` | Lifecycle delivery adapter. `direct_http` is the supported cloud mode; `log` and `azure_eventhubs` remain compatibility adapters. |
+| `ACCOUNT_VIDEO_COMMANDS_STREAM` | Logical command stream, default `account.video.commands`. |
+| `VIDEO_ACCOUNT_EVENTS_STREAM` | Logical event stream, default `video.account.events`. |
+| `CROSS_SERVICE_CONSUMER_GROUP` | Consumer group for account-side event projection. |
+| `CROSS_SERVICE_MAX_ATTEMPTS` | Retry limit before dead-letter. |
+| `CROSS_SERVICE_POLL_INTERVAL` | Worker polling interval. |
+| `AZURE_EVENTHUB_CONNECTION_STRING` | Azure Event Hubs connection string when using Azure. |
+| `AZURE_EVENTHUB_CHECKPOINT_FILE` | Optional durable checkpoint file for the Azure inbox consumer. Defaults to `.state/azure_eventhubs/<stream>__<consumer-group>.json`. |
+| `VIDEO_CLOUD_LIFECYCLE_BASE_URL` | Credential-free Video service origin required by `direct_http`. |
+| `VIDEO_CLOUD_LIFECYCLE_TOKEN` | Shared Account Manager-to-Video service token required by `direct_http`; secret. |
+| `VIDEO_CLOUD_LIFECYCLE_TIMEOUT` | Per-request timeout for direct lifecycle delivery, default `10s`. |
+
 ### [REQ-AM-CACHE-RESILIENCE-001] User cache failures cannot override PostgreSQL reads or committed mutations
 
 <!-- rtk-requirement
@@ -2371,22 +2387,6 @@ brand-cloud users, and end users for profile and login/auth projections. The
 `user-cache` maintenance command currently rebuilds, deletes, and inspects only
 platform users in the `users` table; brand-cloud and end-user cache repair uses
 normal read-through refill or direct key deletion.
-
-### V2 cross-service configuration
-
-| Variable | Description |
-| --- | --- |
-| `CROSS_SERVICE_BROKER` | Lifecycle delivery adapter. `direct_http` is the supported cloud mode; `log` and `azure_eventhubs` remain compatibility adapters. |
-| `ACCOUNT_VIDEO_COMMANDS_STREAM` | Logical command stream, default `account.video.commands`. |
-| `VIDEO_ACCOUNT_EVENTS_STREAM` | Logical event stream, default `video.account.events`. |
-| `CROSS_SERVICE_CONSUMER_GROUP` | Consumer group for account-side event projection. |
-| `CROSS_SERVICE_MAX_ATTEMPTS` | Retry limit before dead-letter. |
-| `CROSS_SERVICE_POLL_INTERVAL` | Worker polling interval. |
-| `AZURE_EVENTHUB_CONNECTION_STRING` | Azure Event Hubs connection string when using Azure. |
-| `AZURE_EVENTHUB_CHECKPOINT_FILE` | Optional durable checkpoint file for the Azure inbox consumer. Defaults to `.state/azure_eventhubs/<stream>__<consumer-group>.json`. |
-| `VIDEO_CLOUD_LIFECYCLE_BASE_URL` | Credential-free Video service origin required by `direct_http`. |
-| `VIDEO_CLOUD_LIFECYCLE_TOKEN` | Shared Account Manager-to-Video service token required by `direct_http`; secret. |
-| `VIDEO_CLOUD_LIFECYCLE_TIMEOUT` | Per-request timeout for direct lifecycle delivery, default `10s`. |
 
 ### [REQ-AM-OIDC-SECRET-001] OIDC client secrets stay in runtime secret management and out of logs
 
