@@ -4100,6 +4100,7 @@ paths:
       x-rtk-feature-id: FEAT-PROV-ONBOARD-001
       x-rtk-requirement-ids:
         - REQ-E2E-PROV-BULK-001
+        - REQ-E2E-PROV-ACCOUNT-001
         - REQ-CONTRACT-PROV-CLAIM-BOUNDARY-001
         - REQ-CONTRACT-PROV-SIGNOFF-001
         - REQ-CONTRACT-PROV-UNPROVISION-001
@@ -4157,6 +4158,7 @@ paths:
       x-rtk-feature-id: FEAT-PROV-ONBOARD-001
       x-rtk-requirement-ids:
         - REQ-E2E-PROV-BULK-001
+        - REQ-E2E-PROV-ACCOUNT-001
         - REQ-CONTRACT-PROV-SIGNOFF-001
         - REQ-CONTRACT-PROV-UNPROVISION-001
         - REQ-LIVE-STG-ONBOARD-001
