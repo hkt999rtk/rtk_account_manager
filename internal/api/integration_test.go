@@ -576,6 +576,34 @@ func TestIntegrationInternalAppTokenAuthorization(t *testing.T) {
 	if allowedRes.Code != http.StatusOK {
 		t.Fatalf("expected owner authorization 200, got %d: %s", allowedRes.Code, allowedRes.Body.String())
 	}
+	repository, ok := env.server.store.(*store.Store)
+	if !ok {
+		t.Fatal("integration store is not the concrete store")
+	}
+	now := time.Now().UTC()
+	for index, fingerprint := range []string{"app-authz-fingerprint-old", "app-authz-fingerprint-current"} {
+		if _, err := repository.CreateAppCertificate(ctx, store.AppCertificateCreateInput{
+			UserID: owner.User.ID, SubjectType: "platform_user", SubjectID: owner.User.ID,
+			Subject: "app-user:" + owner.User.ID, CSRSHA256: fmt.Sprintf("app-authz-csr-%d", index),
+			CertificatePEM: fmt.Sprintf("app-authz-cert-%d", index), CertificateChainPEM: "app-authz-chain",
+			FingerprintSHA256: fingerprint, SerialNumber: fmt.Sprintf("app-authz-serial-%d", index),
+			IssuerRequestID: fmt.Sprintf("app-authz-request-%d", index), NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		fingerprintRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
+			"user_id": owner.User.ID, "devid": "video-app-authz-1", "certificate_fingerprint_sha256": fingerprint,
+		}, "internal-authz-token")
+		if fingerprintRes.Code != http.StatusOK {
+			t.Fatalf("expected active certificate authorization 200, got %d: %s", fingerprintRes.Code, fingerprintRes.Body.String())
+		}
+	}
+	revokedFingerprintRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
+		"user_id": owner.User.ID, "devid": "video-app-authz-1", "certificate_fingerprint_sha256": "app-authz-fingerprint-old",
+	}, "internal-authz-token")
+	if revokedFingerprintRes.Code != http.StatusForbidden {
+		t.Fatalf("expected revoked certificate authorization 403, got %d: %s", revokedFingerprintRes.Code, revokedFingerprintRes.Body.String())
+	}
 
 	brand := createBrandCloudForTest(t, env, admin.Tokens.AccessToken, "App Authz Brand", "app-authz-brand")
 	brandUserRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{

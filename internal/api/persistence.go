@@ -124,6 +124,7 @@ type appCertificatePersistence interface {
 	GetValidAppCertificateForSubject(ctx context.Context, subjectType, subjectID string, now time.Time) (model.AppCertificate, error)
 	CreateAppCertificate(ctx context.Context, in store.AppCertificateCreateInput) (model.AppCertificate, error)
 	RevokeValidAppCertificatesForBrandCloudUser(ctx context.Context, brandCloudID, brandCloudUserID string) (int64, error)
+	AuthorizeActiveAppCertificateForSubject(ctx context.Context, subjectType, subjectID, fingerprintSHA256 string, now time.Time) error
 }
 
 type provisioningPersistence interface {
