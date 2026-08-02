@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -13,11 +14,12 @@ import (
 )
 
 type internalAppTokenAuthorizationRequest struct {
-	UserID           string `json:"user_id,omitempty"`
-	BrandCloudUserID string `json:"brand_cloud_user_id,omitempty"`
-	EndUserID        string `json:"end_user_id,omitempty"`
-	SubjectType      string `json:"subject_type,omitempty"`
-	Devid            string `json:"devid" binding:"required"`
+	UserID                       string `json:"user_id,omitempty"`
+	BrandCloudUserID             string `json:"brand_cloud_user_id,omitempty"`
+	EndUserID                    string `json:"end_user_id,omitempty"`
+	SubjectType                  string `json:"subject_type,omitempty"`
+	Devid                        string `json:"devid" binding:"required"`
+	CertificateFingerprintSHA256 string `json:"certificate_fingerprint_sha256,omitempty"`
 }
 
 func (s *Server) handleInternalAppTokenAuthorization(c *gin.Context) {
@@ -29,6 +31,7 @@ func (s *Server) handleInternalAppTokenAuthorization(c *gin.Context) {
 		return
 	}
 	subjectType := auth.SubjectType(strings.TrimSpace(req.SubjectType))
+	certificateFingerprint := strings.ToLower(strings.TrimSpace(req.CertificateFingerprintSHA256))
 	var err error
 	switch subjectType {
 	case "", auth.SubjectTypePlatformUser:
@@ -37,14 +40,24 @@ func (s *Server) handleInternalAppTokenAuthorization(c *gin.Context) {
 			writeError(c, http.StatusBadRequest, "missing_user_id", "user_id is required")
 			return
 		}
-		err = s.store.AuthorizeUserForVideoDevice(c.Request.Context(), userID, strings.TrimSpace(req.Devid))
+		if certificateFingerprint != "" {
+			err = s.store.AuthorizeActiveAppCertificateForSubject(c.Request.Context(), "platform_user", userID, certificateFingerprint, time.Now())
+		}
+		if err == nil {
+			err = s.store.AuthorizeUserForVideoDevice(c.Request.Context(), userID, strings.TrimSpace(req.Devid))
+		}
 	case auth.SubjectTypeBrandCloudUser:
 		brandCloudUserID := strings.TrimSpace(req.BrandCloudUserID)
 		if brandCloudUserID == "" {
 			writeError(c, http.StatusBadRequest, "missing_brand_cloud_user_id", "brand_cloud_user_id is required")
 			return
 		}
-		err = s.store.AuthorizeBrandCloudUserForVideoDevice(c.Request.Context(), brandCloudUserID, strings.TrimSpace(req.Devid))
+		if certificateFingerprint != "" {
+			err = s.store.AuthorizeActiveAppCertificateForSubject(c.Request.Context(), "brand_cloud_user", brandCloudUserID, certificateFingerprint, time.Now())
+		}
+		if err == nil {
+			err = s.store.AuthorizeBrandCloudUserForVideoDevice(c.Request.Context(), brandCloudUserID, strings.TrimSpace(req.Devid))
+		}
 	case auth.SubjectTypeEndUser:
 		endUserID := strings.TrimSpace(req.EndUserID)
 		if endUserID == "" {

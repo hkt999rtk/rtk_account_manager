@@ -3,12 +3,32 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"rtk_account_manager/internal/model"
 )
+
+func (s *Store) AuthorizeActiveAppCertificateForSubject(ctx context.Context, subjectType, subjectID, fingerprintSHA256 string, now time.Time) error {
+	var ok bool
+	err := s.db.QueryRow(ctx, `
+		SELECT true
+		FROM app_certificates
+		WHERE subject_type = $1
+		  AND subject_id = $2
+		  AND fingerprint_sha256 = $3
+		  AND revoked_at IS NULL
+		  AND not_before <= $4
+		  AND not_after > $4
+		LIMIT 1
+	`, strings.TrimSpace(subjectType), strings.TrimSpace(subjectID), strings.ToLower(strings.TrimSpace(fingerprintSHA256)), now).Scan(&ok)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
+}
 
 type AppCertificateCreateInput struct {
 	UserID              string
