@@ -7,7 +7,7 @@ require (
 	github.com/getkin/kin-openapi v0.133.0
 	github.com/gin-gonic/gin v1.10.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/hkt999rtk/rtk_cloud_logger v0.0.0-20260711233953-e13e79782aa8
+	github.com/hkt999rtk/rtk_cloud_logger v0.0.0-20260724133957-e03921322662
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/miekg/pkcs11 v1.1.2
 	go.uber.org/zap v1.27.0
