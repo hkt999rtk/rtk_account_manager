@@ -1,0 +1,46 @@
+package paymentstore
+
+import (
+	"errors"
+	"testing"
+
+	"rtk_account_manager/internal/payment"
+)
+
+func validLedgerInput() PostLedgerEntryInput {
+	return PostLedgerEntryInput{
+		AccountID:        "account-1",
+		Direction:        payment.LedgerDirectionDebit,
+		AmountMinor:      100,
+		Currency:         payment.CurrencyTWD,
+		Reason:           payment.LedgerReasonInvoiceDebit,
+		IdempotencyScope: "invoice",
+		IdempotencyKey:   "invoice-1",
+	}
+}
+
+func TestValidateLedgerInputRequiresStablePairsAndValidMoney(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*PostLedgerEntryInput)
+		want   error
+	}{
+		{name: "missing account", mutate: func(in *PostLedgerEntryInput) { in.AccountID = "" }, want: ErrConflict},
+		{name: "partial external reference", mutate: func(in *PostLedgerEntryInput) { in.ExternalType = "invoice" }, want: ErrConflict},
+		{name: "partial actor", mutate: func(in *PostLedgerEntryInput) { in.ActorID = "user-1" }, want: ErrConflict},
+		{name: "fractional TWD", mutate: func(in *PostLedgerEntryInput) { in.AmountMinor = 101 }, want: payment.ErrInvalidAmount},
+		{name: "wrong reason", mutate: func(in *PostLedgerEntryInput) { in.Reason = payment.LedgerReasonPaymentTopUpCredit }, want: payment.ErrInvalidReason},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in := validLedgerInput()
+			tc.mutate(&in)
+			if err := validateLedgerInput(in); !errors.Is(err, tc.want) {
+				t.Fatalf("got %v, want %v", err, tc.want)
+			}
+		})
+	}
+	if err := validateLedgerInput(validLedgerInput()); err != nil {
+		t.Fatal(err)
+	}
+}
