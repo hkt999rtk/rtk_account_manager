@@ -52,6 +52,19 @@ type Config struct {
 	EmailOutboxMaxAttempts         int
 	EmailOutboxRetryBase           time.Duration
 	EmailOutboxRetryMax            time.Duration
+	PaymentWorkerEnabled           bool
+	PaymentReferenceEncryptionKey  string
+	PaymentWorkerPollInterval      time.Duration
+	PaymentWorkerBatchSize         int
+	PaymentWorkerLeaseDuration     time.Duration
+	PaymentReconciliationDelay     time.Duration
+	NewebPayEnabled                bool
+	NewebPayEnvironment            string
+	NewebPayMerchantID             string
+	NewebPayHashKey                string
+	NewebPayHashIV                 string
+	NewebPayRequestTimeout         time.Duration
+	NewebPayAutoChargeEnabled      bool
 	CrossServiceBroker             string
 	AzureEventHubConnectionString  string
 	AzureEventHubCheckpointFile    string
@@ -165,6 +178,50 @@ func LoadEmailWorker() (Config, error) {
 	}
 	if err := validateEmailConfig(cfg, true); err != nil {
 		return Config{}, err
+	}
+	return cfg, nil
+}
+
+func LoadPaymentWorker() (Config, error) {
+	for _, key := range []string{"PAYMENT_WORKER_ENABLED", "NEWEBPAY_ENABLED", "NEWEBPAY_MERCHANT_INITIATED_CHARGE_ENABLED"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			if _, err := strconv.ParseBool(value); err != nil {
+				return Config{}, fmt.Errorf("%s must be true or false", key)
+			}
+		}
+	}
+	cfg, err := load()
+	if err != nil {
+		return Config{}, err
+	}
+	if cfg.NewebPayAutoChargeEnabled {
+		return Config{}, fmt.Errorf("NEWEBPAY_MERCHANT_INITIATED_CHARGE_ENABLED is unsupported until merchant capability approval and sandbox qualification")
+	}
+	if !cfg.PaymentWorkerEnabled {
+		if cfg.NewebPayEnabled {
+			return Config{}, fmt.Errorf("NEWEBPAY_ENABLED requires PAYMENT_WORKER_ENABLED")
+		}
+		return cfg, nil
+	}
+	if !cfg.NewebPayEnabled {
+		return Config{}, fmt.Errorf("PAYMENT_WORKER_ENABLED requires an enabled payment provider")
+	}
+	decoded, decodeErr := base64.StdEncoding.DecodeString(strings.TrimSpace(cfg.PaymentReferenceEncryptionKey))
+	if decodeErr != nil || len(decoded) != 32 {
+		return Config{}, fmt.Errorf("PAYMENT_REFERENCE_ENCRYPTION_KEY must be base64 encoded 32 bytes")
+	}
+	environment := strings.ToLower(strings.TrimSpace(cfg.NewebPayEnvironment))
+	if environment != "sandbox" && environment != "production" {
+		return Config{}, fmt.Errorf("NEWEBPAY_ENVIRONMENT must be sandbox or production")
+	}
+	if strings.TrimSpace(cfg.NewebPayMerchantID) == "" || len(strings.TrimSpace(cfg.NewebPayMerchantID)) > 15 ||
+		len(strings.TrimSpace(cfg.NewebPayHashKey)) != 32 || len(strings.TrimSpace(cfg.NewebPayHashIV)) != 16 {
+		return Config{}, fmt.Errorf("enabled NewebPay requires MerchantID (max 15), 32-byte HashKey, and 16-byte HashIV")
+	}
+	if cfg.PaymentWorkerPollInterval <= 0 || cfg.PaymentWorkerLeaseDuration <= 0 ||
+		cfg.PaymentReconciliationDelay <= 0 || cfg.PaymentWorkerBatchSize <= 0 ||
+		cfg.NewebPayRequestTimeout <= 0 {
+		return Config{}, fmt.Errorf("payment worker durations and batch size must be positive")
 	}
 	return cfg, nil
 }
@@ -305,6 +362,19 @@ func load() (Config, error) {
 		EmailOutboxMaxAttempts:         intValue("EMAIL_OUTBOX_MAX_ATTEMPTS", 8),
 		EmailOutboxRetryBase:           duration("EMAIL_OUTBOX_RETRY_BASE", 30*time.Second),
 		EmailOutboxRetryMax:            duration("EMAIL_OUTBOX_RETRY_MAX", 30*time.Minute),
+		PaymentWorkerEnabled:           boolValue("PAYMENT_WORKER_ENABLED", false),
+		PaymentReferenceEncryptionKey:  os.Getenv("PAYMENT_REFERENCE_ENCRYPTION_KEY"),
+		PaymentWorkerPollInterval:      duration("PAYMENT_WORKER_POLL_INTERVAL", 5*time.Second),
+		PaymentWorkerBatchSize:         intValue("PAYMENT_WORKER_BATCH_SIZE", 20),
+		PaymentWorkerLeaseDuration:     duration("PAYMENT_WORKER_LEASE_DURATION", 30*time.Second),
+		PaymentReconciliationDelay:     duration("PAYMENT_RECONCILIATION_DELAY", time.Minute),
+		NewebPayEnabled:                boolValue("NEWEBPAY_ENABLED", false),
+		NewebPayEnvironment:            getenv("NEWEBPAY_ENVIRONMENT", "sandbox"),
+		NewebPayMerchantID:             os.Getenv("NEWEBPAY_MERCHANT_ID"),
+		NewebPayHashKey:                os.Getenv("NEWEBPAY_HASH_KEY"),
+		NewebPayHashIV:                 os.Getenv("NEWEBPAY_HASH_IV"),
+		NewebPayRequestTimeout:         duration("NEWEBPAY_REQUEST_TIMEOUT", 10*time.Second),
+		NewebPayAutoChargeEnabled:      boolValue("NEWEBPAY_MERCHANT_INITIATED_CHARGE_ENABLED", false),
 		CrossServiceBroker:             getenv("CROSS_SERVICE_BROKER", "log"),
 		AzureEventHubConnectionString:  getenv("AZURE_EVENTHUB_CONNECTION_STRING", ""),
 		AzureEventHubCheckpointFile:    getenv("AZURE_EVENTHUB_CHECKPOINT_FILE", ""),

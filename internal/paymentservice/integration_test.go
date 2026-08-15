@@ -177,6 +177,23 @@ func newIntegrationService(t *testing.T, env integrationEnv, provider *fake.Prov
 	return service
 }
 
+func TestRunRejectsInvalidIntervalAndStopsOnCancellation(t *testing.T) {
+	env := newIntegrationEnv(t)
+	clock := &testClock{now: time.Date(2026, 8, 15, 9, 0, 0, 0, time.UTC)}
+	service := newIntegrationService(t, env, fake.New("webhook-secret"), clock, false)
+	if err := service.Run(context.Background(), 0); err == nil {
+		t.Fatal("zero poll interval should fail")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+	if err := service.Run(ctx, time.Hour); err != nil {
+		t.Fatalf("canceled worker returned error: %v", err)
+	}
+}
+
 func TestTimeoutReconcilesToOneCredit(t *testing.T) {
 	env := newIntegrationEnv(t)
 	clock := &testClock{now: time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)}

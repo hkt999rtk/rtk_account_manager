@@ -100,6 +100,8 @@ type ChargeRequest struct {
 
 type QueryRequest struct {
 	IntentID                     string
+	AmountMinor                  int64
+	Currency                     Currency
 	MerchantOrderReference       string
 	ProviderTransactionReference string
 	CorrelationID                string

@@ -147,7 +147,8 @@ func (s *Store) BeginProviderAttempt(ctx context.Context, in BeginProviderAttemp
 			return ProviderAttemptWork{}, ErrJobNotActionable
 		}
 		if intent.MerchantOrderReference == "" {
-			intent.MerchantOrderReference = "rtk_" + strings.ReplaceAll(intent.ID, "-", "")
+			compactID := strings.ReplaceAll(intent.ID, "-", "")
+			intent.MerchantOrderReference = "rtk_" + compactID[:26]
 		}
 		intent, err = scanIntent(tx.QueryRow(ctx, `
 			UPDATE payment_intents

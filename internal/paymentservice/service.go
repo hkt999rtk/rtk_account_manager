@@ -111,6 +111,36 @@ func (s *Service) RunOnce(ctx context.Context) (int, error) {
 	return processed, nil
 }
 
+func (s *Service) Run(ctx context.Context, pollInterval time.Duration) error {
+	if pollInterval <= 0 {
+		return fmt.Errorf("payment worker poll interval must be positive")
+	}
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+		processed, err := s.RunOnce(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
+		if processed > 0 {
+			continue
+		}
+		timer := time.NewTimer(pollInterval)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil
+		case <-timer.C:
+		}
+	}
+}
+
 func (s *Service) ProcessJob(ctx context.Context, job payment.ReconciliationJob) error {
 	operation := payment.ProviderOperationQuery
 	if job.Reason == payment.ReconciliationReasonCharge {
@@ -199,12 +229,14 @@ func (s *Service) charge(ctx context.Context, provider payment.PaymentProvider, 
 
 func (s *Service) query(ctx context.Context, provider payment.PaymentProvider, work paymentstore.ProviderAttemptWork) (payment.ProviderResult, error) {
 	request := payment.QueryRequest{
-		IntentID: work.Intent.ID, MerchantOrderReference: work.Intent.MerchantOrderReference,
+		IntentID: work.Intent.ID, AmountMinor: work.Intent.AmountMinor, Currency: work.Intent.Currency,
+		MerchantOrderReference:       work.Intent.MerchantOrderReference,
 		ProviderTransactionReference: work.Intent.ProviderTransactionReference,
 		CorrelationID:                work.Intent.CorrelationID,
 	}
 	if err := s.setRequestDigest(ctx, work.Attempt.ID, map[string]any{
 		"operation": "query", "intent_id": request.IntentID,
+		"amount_minor": request.AmountMinor, "currency": request.Currency,
 		"merchant_order_reference":       request.MerchantOrderReference,
 		"provider_transaction_reference": request.ProviderTransactionReference,
 		"correlation_id":                 request.CorrelationID,

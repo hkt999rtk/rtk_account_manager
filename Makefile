@@ -2,11 +2,11 @@ REPORT_DIR ?= reports
 VERSION ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo dev)
 PYTHON ?= python3
 ADMIN_REPO ?= ../rtk_cloud_admin
-UNIT_TEST_PACKAGES := ./internal/api ./internal/auth ./internal/broker ./internal/channel ./internal/config ./internal/database ./internal/emaildelivery ./internal/openapi ./internal/payment ./internal/paymentprovider/fake ./internal/paymentservice ./internal/paymentstore ./internal/readiness ./internal/store ./internal/worker/emailoutbox ./internal/worker/inbox ./internal/worker/outbox
-RACE_TEST_PACKAGES := ./internal/channel ./internal/broker ./internal/payment ./internal/paymentprovider/fake ./internal/paymentservice ./internal/paymentstore ./internal/worker/... ./internal/auth ./internal/config ./internal/readiness
+UNIT_TEST_PACKAGES := ./internal/api ./internal/auth ./internal/broker ./internal/channel ./internal/config ./internal/database ./internal/emaildelivery ./internal/openapi ./internal/payment ./internal/paymentcrypto ./internal/paymentprovider/fake ./internal/paymentprovider/newebpay ./internal/paymentservice ./internal/paymentstore ./internal/readiness ./internal/store ./internal/worker/emailoutbox ./internal/worker/inbox ./internal/worker/outbox
+RACE_TEST_PACKAGES := ./internal/channel ./internal/broker ./internal/payment ./internal/paymentcrypto ./internal/paymentprovider/fake ./internal/paymentprovider/newebpay ./internal/paymentservice ./internal/paymentstore ./internal/worker/... ./internal/auth ./internal/config ./internal/readiness
 FUZZ_SMOKE_TIME ?= 2s
 
-.PHONY: tidy test test-email-signup-helper integration-test test-report check-report-candidates test-race test-repeat fuzz-smoke build release check-release readiness-smoke test-email-signup-e2e run run-outbox-worker run-inbox-worker run-email-worker db-up db-down migrate cleanup-tokens
+.PHONY: tidy test test-email-signup-helper integration-test test-report check-report-candidates test-race test-repeat fuzz-smoke build release check-release readiness-smoke test-email-signup-e2e run run-outbox-worker run-inbox-worker run-email-worker run-payment-worker db-up db-down migrate cleanup-tokens
 
 tidy:
 	go mod tidy
@@ -47,6 +47,7 @@ build:
 	go build -trimpath -o dist/rtk-account-manager-outbox-worker ./cmd/outbox-worker
 	go build -trimpath -o dist/rtk-account-manager-inbox-worker ./cmd/inbox-worker
 	go build -trimpath -o dist/rtk-account-manager-email-worker ./cmd/email-worker
+	go build -trimpath -o dist/rtk-account-manager-payment-worker ./cmd/payment-worker
 	go build -trimpath -o dist/rtk-account-manager-email-outbox-admin ./cmd/email-outbox-admin
 	go build -trimpath -o dist/rtk-account-manager-cleanup-tokens ./cmd/cleanup-tokens
 
@@ -58,6 +59,7 @@ release:
 	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-outbox-worker" ./cmd/outbox-worker
 	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-inbox-worker" ./cmd/inbox-worker
 	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-email-worker" ./cmd/email-worker
+	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-payment-worker" ./cmd/payment-worker
 	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-email-outbox-admin" ./cmd/email-outbox-admin
 	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-cleanup-tokens" ./cmd/cleanup-tokens
 	cp -R migrations "dist/rtk_account_manager-$(VERSION)/migrations"
@@ -93,6 +95,9 @@ run-inbox-worker:
 
 run-email-worker:
 	go run ./cmd/email-worker
+
+run-payment-worker:
+	go run ./cmd/payment-worker
 
 db-up:
 	docker compose up -d postgres
