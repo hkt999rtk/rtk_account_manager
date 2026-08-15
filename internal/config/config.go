@@ -113,6 +113,9 @@ type Config struct {
 }
 
 func Load() (Config, error) {
+	if err := validatePaymentBooleanEnv(); err != nil {
+		return Config{}, err
+	}
 	cfg, err := load()
 	if err != nil {
 		return Config{}, err
@@ -183,12 +186,8 @@ func LoadEmailWorker() (Config, error) {
 }
 
 func LoadPaymentWorker() (Config, error) {
-	for _, key := range []string{"PAYMENT_WORKER_ENABLED", "NEWEBPAY_ENABLED", "NEWEBPAY_MERCHANT_INITIATED_CHARGE_ENABLED"} {
-		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-			if _, err := strconv.ParseBool(value); err != nil {
-				return Config{}, fmt.Errorf("%s must be true or false", key)
-			}
-		}
+	if err := validatePaymentBooleanEnv(); err != nil {
+		return Config{}, err
 	}
 	cfg, err := load()
 	if err != nil {
@@ -224,6 +223,17 @@ func LoadPaymentWorker() (Config, error) {
 		return Config{}, fmt.Errorf("payment worker durations and batch size must be positive")
 	}
 	return cfg, nil
+}
+
+func validatePaymentBooleanEnv() error {
+	for _, key := range []string{"PAYMENT_WORKER_ENABLED", "NEWEBPAY_ENABLED", "NEWEBPAY_MERCHANT_INITIATED_CHARGE_ENABLED"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			if _, err := strconv.ParseBool(value); err != nil {
+				return fmt.Errorf("%s must be true or false", key)
+			}
+		}
+	}
+	return nil
 }
 
 func validateEmailConfig(cfg Config, worker bool) error {

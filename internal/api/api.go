@@ -45,6 +45,7 @@ type Server struct {
 	logger                     *zap.Logger
 	chipsetManifestFetcher     ChipsetManifestFetcher
 	emailOutboxStore           emailOutboxPersistence
+	payments                   *paymentRuntime
 }
 
 type emailOutboxPersistence interface {
@@ -531,6 +532,7 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/app/end-users/auth/refresh", s.appEndUserRefresh)
 	v1.POST("/internal/app-token-authorizations", s.handleInternalAppTokenAuthorization)
 	v1.POST("/internal/device-provisioning-results", s.handleInternalDeviceProvisioningResult)
+	v1.POST("/payment-webhooks/:provider", s.handlePaymentWebhook)
 
 	protected := v1.Group("")
 	protected.Use(s.requireAuth())
@@ -567,6 +569,17 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/orgs/:orgId", s.getOrganization)
 	protected.PATCH("/orgs/:orgId", s.requirePermission("organization.update"), s.updateOrganization)
 	protected.POST("/orgs/:orgId/quota-raise-requests", s.requirePermission("quota_request.create"), s.createQuotaRaiseRequest)
+	protected.GET("/orgs/:orgId/billing/account", s.requirePermission("billing_account.read"), s.getBillingAccount)
+	protected.GET("/orgs/:orgId/billing/ledger", s.requirePermission("billing_ledger.read"), s.listBillingLedger)
+	protected.GET("/orgs/:orgId/payment-methods", s.requirePermission("payment_method.read"), s.listPaymentMethods)
+	protected.POST("/orgs/:orgId/payment-methods/setup", s.requirePermission("payment_method.manage"), s.setupPaymentMethod)
+	protected.DELETE("/orgs/:orgId/payment-methods/:methodId", s.requirePermission("payment_method.manage"), s.revokePaymentMethod)
+	protected.GET("/orgs/:orgId/auto-topup", s.requirePermission("auto_topup.read"), s.getAutoTopUpPolicy)
+	protected.PUT("/orgs/:orgId/auto-topup", s.requirePermission("auto_topup.manage"), s.putAutoTopUpPolicy)
+	protected.DELETE("/orgs/:orgId/auto-topup", s.requirePermission("auto_topup.manage"), s.disableAutoTopUpPolicy)
+	protected.POST("/orgs/:orgId/topups", s.requirePermission("payment_intent.create"), s.createManualTopUp)
+	protected.GET("/orgs/:orgId/payment-intents", s.requirePermission("payment_intent.read"), s.listPaymentIntents)
+	protected.GET("/orgs/:orgId/payment-intents/:intentId", s.requirePermission("payment_intent.read"), s.getPaymentIntent)
 	protected.GET("/orgs/:orgId/members", s.requirePermission("membership.read"), s.listMembers)
 	protected.POST("/orgs/:orgId/members", s.requirePermission("membership.manage"), s.addMember)
 	protected.PATCH("/orgs/:orgId/members/:userId", s.requirePermission("membership.manage"), s.updateMemberRole)

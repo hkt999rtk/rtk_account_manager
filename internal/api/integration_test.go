@@ -31,6 +31,9 @@ import (
 	"rtk_account_manager/internal/database"
 	"rtk_account_manager/internal/emaildelivery"
 	"rtk_account_manager/internal/model"
+	"rtk_account_manager/internal/payment"
+	"rtk_account_manager/internal/paymentprovider/fake"
+	"rtk_account_manager/internal/paymentstore"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/testutil"
 )
@@ -94,6 +97,9 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 	notificationSink := &recordingQuotaRaiseNotificationSink{}
 	server := NewWithAuthTokenAndNotificationSink(store.New(db), authService, tokenSink, notificationSink)
 	server.signupLimiter = nil
+	if err := server.ConfigurePayments(PaymentAPIOptions{Store: paymentstore.New(db)}); err != nil {
+		t.Fatal(err)
+	}
 	return integrationEnv{
 		router:           server.Router(),
 		server:           server,
@@ -5968,6 +5974,182 @@ func TestIntegrationDeviceUserUnprovisionWorkflow(t *testing.T) {
 	}
 }
 
+func TestIntegrationPaymentAPIAuthorizationLifecycleAndRedaction(t *testing.T) {
+	env := newIntegrationEnv(t)
+	contract := newResponseContract(t)
+	ctx := context.Background()
+	owner := registerUser(t, env.router, "billing-owner@example.com", "Billing Owner Org")
+	outsider := registerUser(t, env.router, "billing-outsider@example.com", "Billing Outsider Org")
+	basePath := "/v1/orgs/" + owner.Organization.ID
+
+	accountRes := performJSON(env.router, http.MethodGet, basePath+"/billing/account", nil, owner.Tokens.AccessToken)
+	if accountRes.Code != http.StatusOK || strings.Contains(accountRes.Body.String(), "provider_transaction_reference") {
+		t.Fatalf("account status/body=%d/%s", accountRes.Code, accountRes.Body.String())
+	}
+	contract.validate(t, http.MethodGet, basePath+"/billing/account", accountRes)
+	outsiderRes := performJSON(env.router, http.MethodGet, basePath+"/billing/account", nil, outsider.Tokens.AccessToken)
+	if outsiderRes.Code != http.StatusNotFound {
+		t.Fatalf("outsider account status=%d body=%s", outsiderRes.Code, outsiderRes.Body.String())
+	}
+
+	setupRes := performJSONHeaders(env.router, http.MethodPost, basePath+"/payment-methods/setup", map[string]any{
+		"provider": "newebpay", "card_number": "4111111111111111", "cvv": "123",
+	}, owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "setup-1"})
+	if setupRes.Code != http.StatusBadRequest || strings.Contains(setupRes.Body.String(), "411111") {
+		t.Fatalf("setup status/body=%d/%s", setupRes.Code, setupRes.Body.String())
+	}
+
+	repository := paymentstore.New(env.db)
+	fakeProvider := fake.New("webhook-secret")
+	if err := env.server.ConfigurePayments(PaymentAPIOptions{Store: repository, Providers: []payment.PaymentProvider{fakeProvider}}); err != nil {
+		t.Fatal(err)
+	}
+	account, err := repository.GetCommercialAccountByOrganization(ctx, owner.Organization.ID, payment.CurrencyTWD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	methodConsent, err := repository.CreateConsent(ctx, paymentstore.CreateConsentInput{
+		AccountID: account.ID, ConsentType: "payment_method", TextVersion: "payment-method-v1",
+		TextSHA256: strings.Repeat("a", 64), AcceptedActorType: "user", AcceptedActorID: owner.User.ID,
+		AcceptedAt: time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC), Locale: "zh-TW", Source: "integration-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	method, err := repository.CreatePaymentMethod(ctx, paymentstore.CreatePaymentMethodInput{
+		AccountID: account.ID, Provider: "fake",
+		ProviderCustomerRefCiphertext: []byte("encrypted-customer-reference"),
+		ProviderMethodRefCiphertext:   []byte("encrypted-method-reference"),
+		ProviderMethodRefSHA256:       strings.Repeat("b", 64),
+		CardBrand:                     "test", LastFour: "4242", Status: payment.PaymentMethodStatusActive,
+		Capabilities: payment.ProviderCapabilities{VaultedMethod: true, MerchantInitiatedCharge: true, StatusQuery: true, Webhook: true},
+		ConsentID:    methodConsent.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	methodsRes := performJSON(env.router, http.MethodGet, basePath+"/payment-methods", nil, owner.Tokens.AccessToken)
+	if methodsRes.Code != http.StatusOK || !strings.Contains(methodsRes.Body.String(), "4242") ||
+		strings.Contains(methodsRes.Body.String(), "encrypted-") || strings.Contains(methodsRes.Body.String(), "provider_method_ref") {
+		t.Fatalf("methods status/body=%d/%s", methodsRes.Code, methodsRes.Body.String())
+	}
+	contract.validate(t, http.MethodGet, basePath+"/payment-methods", methodsRes)
+	missingVersion := performJSON(env.router, http.MethodPut, basePath+"/auto-topup", map[string]any{}, owner.Tokens.AccessToken)
+	if missingVersion.Code != http.StatusBadRequest && missingVersion.Code != http.StatusPreconditionRequired {
+		t.Fatalf("missing policy precondition status=%d body=%s", missingVersion.Code, missingVersion.Body.String())
+	}
+	policyRes := performJSONHeaders(env.router, http.MethodPut, basePath+"/auto-topup", map[string]any{
+		"enabled": true, "threshold_minor": 10000, "top_up_amount_minor": 50000, "currency": "TWD",
+		"payment_method_id": method.ID, "daily_attempt_limit": 3, "daily_amount_limit_minor": 150000,
+		"cooldown_seconds": 3600,
+		"consent":          map[string]any{"accepted": true, "text_version": "auto-topup-v1", "text_sha256": strings.Repeat("c", 64), "locale": "zh-TW"},
+	}, owner.Tokens.AccessToken, map[string]string{"If-Match": "\"0\"", "X-Request-Id": "billing-policy-1"})
+	if policyRes.Code != http.StatusOK || policyRes.Header().Get("ETag") != "\"1\"" {
+		t.Fatalf("policy status/body=%d/%s etag=%q", policyRes.Code, policyRes.Body.String(), policyRes.Header().Get("ETag"))
+	}
+	contract.validate(t, http.MethodPut, basePath+"/auto-topup", policyRes)
+
+	topupRes := performJSONHeaders(env.router, http.MethodPost, basePath+"/topups", map[string]any{
+		"amount_minor": 30000, "currency": "TWD", "payment_method_id": method.ID,
+	}, owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "manual-topup-1", "X-Request-Id": "billing-topup-1"})
+	if topupRes.Code != http.StatusAccepted || strings.Contains(topupRes.Body.String(), "merchant_order_reference") || strings.Contains(topupRes.Body.String(), "provider_transaction_reference") {
+		t.Fatalf("topup status/body=%d/%s", topupRes.Code, topupRes.Body.String())
+	}
+	contract.validate(t, http.MethodPost, basePath+"/topups", topupRes)
+	var topupBody struct {
+		PaymentIntent struct {
+			ID string `json:"id"`
+		} `json:"payment_intent"`
+	}
+	if err := json.Unmarshal(topupRes.Body.Bytes(), &topupBody); err != nil || topupBody.PaymentIntent.ID == "" {
+		t.Fatalf("topup decode=%+v err=%v", topupBody, err)
+	}
+	duplicateRes := performJSONHeaders(env.router, http.MethodPost, basePath+"/topups", map[string]any{
+		"amount_minor": 30000, "currency": "TWD", "payment_method_id": method.ID,
+	}, owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "manual-topup-1"})
+	if duplicateRes.Code != http.StatusOK || !strings.Contains(duplicateRes.Body.String(), `"duplicate":true`) {
+		t.Fatalf("duplicate status/body=%d/%s", duplicateRes.Code, duplicateRes.Body.String())
+	}
+	intentsRes := performJSON(env.router, http.MethodGet, basePath+"/payment-intents", nil, owner.Tokens.AccessToken)
+	if intentsRes.Code != http.StatusOK || !strings.Contains(intentsRes.Body.String(), topupBody.PaymentIntent.ID) {
+		t.Fatalf("intents status/body=%d/%s", intentsRes.Code, intentsRes.Body.String())
+	}
+	contract.validate(t, http.MethodGet, basePath+"/payment-intents", intentsRes)
+	intentRes := performJSON(env.router, http.MethodGet, basePath+"/payment-intents/"+topupBody.PaymentIntent.ID, nil, owner.Tokens.AccessToken)
+	if intentRes.Code != http.StatusOK || strings.Contains(intentRes.Body.String(), "request_sha256") {
+		t.Fatalf("intent status/body=%d/%s", intentRes.Code, intentRes.Body.String())
+	}
+	contract.validate(t, http.MethodGet, basePath+"/payment-intents/"+topupBody.PaymentIntent.ID, intentRes)
+	jobs, err := repository.ClaimPaymentJobs(ctx, time.Now().UTC().Add(time.Minute), time.Now().UTC().Add(-time.Hour), "api-webhook-test", 10)
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("jobs=%+v err=%v", jobs, err)
+	}
+	work, err := repository.BeginProviderAttempt(ctx, paymentstore.BeginProviderAttemptInput{
+		JobID: jobs[0].ID, LeaseOwner: "api-webhook-test", Operation: payment.ProviderOperationCharge, Now: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	webhookBody, err := fake.WebhookBody(payment.WebhookEvent{
+		ProviderEventReference: "api-webhook-event-1", MerchantOrderReference: work.Intent.MerchantOrderReference,
+		ProviderTransactionReference: "fake-api-transaction-1", AmountMinor: work.Intent.AmountMinor,
+		Currency: work.Intent.Currency, State: payment.PaymentIntentStateSucceeded,
+		EventType: "payment.succeeded", ProviderCode: "00",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	webhookRequest := httptest.NewRequest(http.MethodPost, "/v1/payment-webhooks/fake", bytes.NewReader(webhookBody))
+	webhookRequest.Header.Set("Content-Type", "application/json")
+	webhookRequest.Header.Set("X-Fake-Signature", fake.SignWebhook("webhook-secret", webhookBody))
+	webhookRes := httptest.NewRecorder()
+	env.router.ServeHTTP(webhookRes, webhookRequest)
+	if webhookRes.Code != http.StatusOK || !strings.Contains(webhookRes.Body.String(), `"accepted":true`) {
+		t.Fatalf("webhook status/body=%d/%s", webhookRes.Code, webhookRes.Body.String())
+	}
+	contract.validate(t, http.MethodPost, "/v1/payment-webhooks/fake", webhookRes)
+	duplicateWebhookRequest := httptest.NewRequest(http.MethodPost, "/v1/payment-webhooks/fake", bytes.NewReader(webhookBody))
+	duplicateWebhookRequest.Header.Set("Content-Type", "application/json")
+	duplicateWebhookRequest.Header.Set("X-Fake-Signature", fake.SignWebhook("webhook-secret", webhookBody))
+	duplicateWebhookRes := httptest.NewRecorder()
+	env.router.ServeHTTP(duplicateWebhookRes, duplicateWebhookRequest)
+	if duplicateWebhookRes.Code != http.StatusOK || !strings.Contains(duplicateWebhookRes.Body.String(), `"duplicate":true`) {
+		t.Fatalf("duplicate webhook status/body=%d/%s", duplicateWebhookRes.Code, duplicateWebhookRes.Body.String())
+	}
+
+	revokeRes := performJSON(env.router, http.MethodDelete, basePath+"/payment-methods/"+method.ID, map[string]any{
+		"reason": "customer disabled automatic billing",
+	}, owner.Tokens.AccessToken)
+	if revokeRes.Code != http.StatusOK || !strings.Contains(revokeRes.Body.String(), `"policy_disabled":true`) {
+		t.Fatalf("revoke status/body=%d/%s", revokeRes.Code, revokeRes.Body.String())
+	}
+	contract.validate(t, http.MethodDelete, basePath+"/payment-methods/"+method.ID, revokeRes)
+	policyGet := performJSON(env.router, http.MethodGet, basePath+"/auto-topup", nil, owner.Tokens.AccessToken)
+	if policyGet.Code != http.StatusOK || !strings.Contains(policyGet.Body.String(), `"enabled":false`) {
+		t.Fatalf("policy get status/body=%d/%s", policyGet.Code, policyGet.Body.String())
+	}
+	contract.validate(t, http.MethodGet, basePath+"/auto-topup", policyGet)
+	ledgerRes := performJSON(env.router, http.MethodGet, basePath+"/billing/ledger", nil, owner.Tokens.AccessToken)
+	if ledgerRes.Code != http.StatusOK || strings.Contains(ledgerRes.Body.String(), "idempotency_key") {
+		t.Fatalf("ledger status/body=%d/%s", ledgerRes.Code, ledgerRes.Body.String())
+	}
+	contract.validate(t, http.MethodGet, basePath+"/billing/ledger", ledgerRes)
+	var auditCount int
+	if err := env.db.QueryRow(ctx, `
+		SELECT count(*)::int FROM audit_events
+		WHERE organization_id = $1 AND event_type IN ('auto_topup_policy_replaced', 'manual_topup_intent_created', 'payment_method_revoked')
+	`, owner.Organization.ID).Scan(&auditCount); err != nil || auditCount != 4 {
+		// Manual top-up replay is deliberately audited as a duplicate, hence four events.
+		t.Fatalf("payment audit count=%d err=%v", auditCount, err)
+	}
+
+	unknownWebhook := performJSON(env.router, http.MethodPost, "/v1/payment-webhooks/unknown", map[string]any{"secret": "must-not-reflect"}, "")
+	if unknownWebhook.Code != http.StatusNotFound || strings.Contains(unknownWebhook.Body.String(), "must-not-reflect") {
+		t.Fatalf("unknown webhook status/body=%d/%s", unknownWebhook.Code, unknownWebhook.Body.String())
+	}
+}
+
 func TestIntegrationAdminDeviceUnprovisionOverride(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
@@ -7210,6 +7392,24 @@ func performJSON(router *gin.Engine, method, path string, body any, accessToken 
 		payload, _ = json.Marshal(body)
 	}
 	return performRaw(router, method, path, payload, accessToken)
+}
+
+func performJSONHeaders(router *gin.Engine, method, path string, body any, accessToken string, headers map[string]string) *httptest.ResponseRecorder {
+	var payload []byte
+	if body != nil {
+		payload, _ = json.Marshal(body)
+	}
+	req := httptest.NewRequest(method, path, bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	if accessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+	}
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	return res
 }
 
 func performRaw(router *gin.Engine, method, path string, payload []byte, accessToken string) *httptest.ResponseRecorder {

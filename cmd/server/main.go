@@ -14,6 +14,9 @@ import (
 	"rtk_account_manager/internal/database"
 	"rtk_account_manager/internal/emaildelivery"
 	"rtk_account_manager/internal/logging"
+	"rtk_account_manager/internal/payment"
+	"rtk_account_manager/internal/paymentprovider/newebpay"
+	"rtk_account_manager/internal/paymentstore"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/usercache"
 
@@ -92,6 +95,25 @@ func main() {
 		logger.Info("user cache enabled", zap.String("addr", cfg.UserCacheAddr), zap.String("prefix", cfg.UserCachePrefix))
 	}
 	server := api.NewWithAuthTokenAndNotificationSink(apiStore, authService, authTokenSink, notificationSink)
+	paymentProviders := make([]payment.PaymentProvider, 0, 1)
+	if cfg.NewebPayEnabled {
+		provider, providerErr := newebpay.New(newebpay.Config{
+			Enabled: true, Environment: cfg.NewebPayEnvironment, MerchantID: cfg.NewebPayMerchantID,
+			HashKey: cfg.NewebPayHashKey, HashIV: cfg.NewebPayHashIV, Timeout: cfg.NewebPayRequestTimeout,
+		})
+		if providerErr != nil {
+			// Payment routes fail closed, while identity and registry APIs remain
+			// available. The error contains no credential values.
+			logger.Error("payment webhook verifier disabled", zap.Error(providerErr))
+		} else {
+			paymentProviders = append(paymentProviders, provider)
+		}
+	}
+	if err := server.ConfigurePayments(api.PaymentAPIOptions{
+		Store: paymentstore.New(db), Providers: paymentProviders,
+	}); err != nil {
+		fatal(logger, "configure payment API failed", err)
+	}
 	if emailOutboxDelivery(cfg.AuthTokenDelivery) {
 		server.ConfigureEmailOutbox(accountStore)
 	}

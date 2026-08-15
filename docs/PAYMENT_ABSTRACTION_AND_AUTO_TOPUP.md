@@ -1,7 +1,10 @@
 # Payment Abstraction And Automatic Top-Up Design
 
-Status: proposed implementation design. Documentation review is required before
-migrations, routes, workers, provider calls, or UI implementation begin.
+Status: implemented foundation with guarded rollout. Provider-neutral money,
+ledger, policy, intent, durable worker/reconciliation, safe customer HTTP APIs,
+and verified webhook ingestion are implemented. Provider-hosted setup and
+merchant-initiated NewebPay charging remain disabled until written capability
+approval and sandbox qualification are available.
 
 Owner: `rtk_account_manager`.
 
@@ -23,7 +26,7 @@ The design provides:
 - an append-only PostgreSQL monetary ledger;
 - provider-neutral payment methods, intents, attempts, and webhook inbox;
 - a customer-consented automatic top-up policy;
-- a provider adapter registry whose first planned adapter is NewebPay;
+- a provider adapter registry whose first guarded adapter is NewebPay;
 - durable reconciliation and an emergency provider-disable control.
 
 It does not make Account Manager a usage meter. Video Cloud and other services
@@ -31,12 +34,19 @@ continue to emit immutable usage facts. Pricing and invoice calculation are a
 separate missing dependency and must produce an authenticated idempotent debit
 instruction before usage affects the balance.
 
-## Current Baseline And Gap
+## Implemented Baseline And Remaining Gap
 
-The repository currently has no balance, wallet, invoice, payment-method,
-payment-intent, provider-adapter, or top-up implementation. Existing
-organization `tier` fields distinguish evaluation and commercial accounts but
-do not represent money or payment status.
+The repository now contains commercial accounts, an immutable monetary ledger,
+payment consent and safe method metadata, automatic top-up policy state,
+payment intents/attempts, a webhook inbox, durable reconciliation jobs, HTTP
+APIs, permissions, and a dedicated payment worker. Existing organization `tier`
+fields still do not represent money or payment status.
+
+The remaining production dependencies are provider-approved hosted payment
+method setup, written approval for unattended merchant-initiated charging,
+sandbox credentials and qualification evidence, plus a separately owned
+pricing/invoice debit producer. Until those dependencies are met, the adapter
+reports unsupported capabilities and the charging worker stays disabled.
 
 The workspace already has durable patterns that can be reused:
 
@@ -80,7 +90,7 @@ provider cryptography or ledger arithmetic. The application service owns
 transactions and domain transitions. Adapters own provider request/response
 translation only.
 
-## Proposed Package Layout
+## Package Layout
 
 ```text
 internal/payment/
@@ -110,15 +120,15 @@ internal/paymentprovider/newebpay/
   errors.go
 
 internal/api/
-  payment_handlers.go
+  payments.go
 
 cmd/payment-worker/
   main.go
 ```
 
-The package names are a target, not a requirement to split every file at once.
-The mandatory boundary is that `internal/payment` does not import Gin,
-PostgreSQL drivers, or a provider implementation.
+Files may be split further as the implementation grows. The mandatory boundary
+is enforced: `internal/payment` does not import Gin, PostgreSQL drivers, or a
+provider implementation.
 
 ## Provider Interface
 
@@ -327,11 +337,11 @@ Default proposed guardrails, subject to finance approval:
 The service rejects a policy that has no finite daily amount limit. Environment
 configuration may impose a stricter platform maximum than the customer policy.
 
-## Proposed API Behavior
+## API Behavior
 
-The contract document reserves the route families. Before production code, the
-implementation PR must add exact schemas and errors to Account Manager
-`openapi.yaml`, regenerate/check documentation, and add route conformance tests.
+The contract document reserves the route families. Exact request/response
+schemas and errors are declared in Account Manager `openapi.yaml` and exercised
+by integration route-conformance tests.
 
 Common rules:
 
@@ -347,7 +357,7 @@ Common rules:
   redact its query and token components;
 - optimistic update uses policy `version`/ETag to prevent stale changes.
 
-Stable planned error codes:
+Stable error codes:
 
 ```text
 PAYMENT_PROVIDER_UNAVAILABLE
@@ -395,20 +405,23 @@ field names.
 Expected secret references:
 
 ```text
-PAYMENT_NEWEBPAY_MERCHANT_ID
-PAYMENT_NEWEBPAY_HASH_KEY
-PAYMENT_NEWEBPAY_HASH_IV
+NEWEBPAY_MERCHANT_ID
+NEWEBPAY_HASH_KEY
+NEWEBPAY_HASH_IV
 ```
 
 Expected non-secret configuration:
 
 ```text
-PAYMENT_NEWEBPAY_ENVIRONMENT=test|production
-PAYMENT_NEWEBPAY_API_BASE_URL
-PAYMENT_NEWEBPAY_CALLBACK_BASE_URL
-PAYMENT_NEWEBPAY_ORDER_PREFIX
-PAYMENT_NEWEBPAY_ENABLED=false
-PAYMENT_NEWEBPAY_MERCHANT_INITIATED_ENABLED=false
+NEWEBPAY_ENVIRONMENT=sandbox|production
+NEWEBPAY_ENABLED=false
+NEWEBPAY_MERCHANT_INITIATED_CHARGE_ENABLED=false
+PAYMENT_WORKER_ENABLED=false
+PAYMENT_REFERENCE_ENCRYPTION_KEY
+PAYMENT_WORKER_POLL_INTERVAL
+PAYMENT_WORKER_BATCH_SIZE
+PAYMENT_WORKER_LEASE_DURATION
+PAYMENT_RECONCILIATION_DELAY
 ```
 
 Secret values come from the deployment secret manager and are validated at

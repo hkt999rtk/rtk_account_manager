@@ -482,6 +482,108 @@ func TestPolicyRequiresVersionConsentActiveMethodAndCapability(t *testing.T) {
 	}
 }
 
+func TestCustomerPaymentReadsManualTopUpAndPolicyDisable(t *testing.T) {
+	env := newPaymentIntegrationEnv(t)
+	fixture := createPaymentFixture(t, env, "customer-api", 20000, 10000, 50000)
+	ctx := context.Background()
+
+	account, err := env.store.GetCommercialAccountByOrganization(ctx, fixture.account.OrganizationID, payment.CurrencyTWD)
+	if err != nil || account.ID != fixture.account.ID {
+		t.Fatalf("account=%+v err=%v", account, err)
+	}
+	methods, err := env.store.ListPaymentMethods(ctx, account.ID, 25, 0)
+	if err != nil || methods.Total != 1 || len(methods.Methods) != 1 || methods.Methods[0].ID != fixture.method.ID {
+		t.Fatalf("methods=%+v err=%v", methods, err)
+	}
+	method, err := env.store.GetPaymentMethod(ctx, account.ID, fixture.method.ID)
+	if err != nil || method.LastFour != "4242" {
+		t.Fatalf("method=%+v err=%v", method, err)
+	}
+
+	input := CreateManualTopUpInput{
+		AccountID: account.ID, AmountMinor: 30000, Currency: payment.CurrencyTWD,
+		PaymentMethodID: fixture.method.ID, IdempotencyKey: "manual-1",
+		CorrelationID: "request-manual-1", Now: testTime(15, 0),
+	}
+	created, err := env.store.CreateManualTopUp(ctx, input)
+	if err != nil || created.Duplicate || created.Intent.Reason != payment.PaymentIntentReasonManualTopUp {
+		t.Fatalf("created=%+v err=%v", created, err)
+	}
+	duplicate, err := env.store.CreateManualTopUp(ctx, input)
+	if err != nil || !duplicate.Duplicate || duplicate.Intent.ID != created.Intent.ID {
+		t.Fatalf("duplicate=%+v err=%v", duplicate, err)
+	}
+	conflict := input
+	conflict.AmountMinor = 40000
+	if _, err := env.store.CreateManualTopUp(ctx, conflict); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("manual idempotency conflict err=%v", err)
+	}
+	intents, err := env.store.ListPaymentIntents(ctx, account.ID, 25, 0)
+	if err != nil || intents.Total != 1 || len(intents.Intents) != 1 {
+		t.Fatalf("intents=%+v err=%v", intents, err)
+	}
+	intent, err := env.store.GetPaymentIntentForAccount(ctx, account.ID, created.Intent.ID)
+	if err != nil || intent.ID != created.Intent.ID {
+		t.Fatalf("intent=%+v err=%v", intent, err)
+	}
+	attempts, err := env.store.ListPaymentAttempts(ctx, intent.ID)
+	if err != nil || len(attempts) != 0 {
+		t.Fatalf("attempts=%+v err=%v", attempts, err)
+	}
+	var jobs int
+	if err := env.db.QueryRow(ctx, `SELECT count(*)::int FROM payment_reconciliation_jobs WHERE intent_id = $1 AND reason = 'charge'`, intent.ID).Scan(&jobs); err != nil || jobs != 1 {
+		t.Fatalf("jobs=%d err=%v", jobs, err)
+	}
+
+	disabled, err := env.store.DisableAutoTopUpPolicy(ctx, DisableAutoTopUpPolicyInput{
+		AccountID: account.ID, ActorID: "billing-owner", ExpectedVersion: fixture.policy.Version,
+	})
+	if err != nil || disabled.Enabled || disabled.Armed || disabled.Version != fixture.policy.Version+1 || disabled.Generation != fixture.policy.Generation+1 {
+		t.Fatalf("disabled=%+v err=%v", disabled, err)
+	}
+	if _, err := env.store.DisableAutoTopUpPolicy(ctx, DisableAutoTopUpPolicyInput{
+		AccountID: account.ID, ActorID: "billing-owner", ExpectedVersion: fixture.policy.Version,
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale disable err=%v", err)
+	}
+}
+
+func TestPaymentMethodRevocationDisablesPolicyAndPreservesHistory(t *testing.T) {
+	env := newPaymentIntegrationEnv(t)
+	fixture := createPaymentFixture(t, env, "revoke-api", 20000, 10000, 50000)
+	ctx := context.Background()
+
+	result, err := env.store.RevokePaymentMethod(ctx, RevokePaymentMethodInput{
+		AccountID: fixture.account.ID, MethodID: fixture.method.ID,
+		ActorID: "billing-owner", Reason: "customer requested revocation", Now: testTime(16, 0),
+	})
+	if err != nil || result.Duplicate || !result.PolicyDisabled || result.Method.Status != payment.PaymentMethodStatusRevoked {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	policy, err := env.store.GetAutoTopUpPolicy(ctx, fixture.account.ID)
+	if err != nil || policy.Enabled || policy.Armed || policy.Generation != fixture.policy.Generation+1 {
+		t.Fatalf("policy=%+v err=%v", policy, err)
+	}
+	var revokedAt *time.Time
+	var reason *string
+	if err := env.db.QueryRow(ctx, `SELECT revoked_at, revocation_reason FROM payment_consents WHERE id = $1`, fixture.method.ConsentID).Scan(&revokedAt, &reason); err != nil || revokedAt == nil || reason == nil || *reason != "customer requested revocation" {
+		t.Fatalf("revoked_at=%v reason=%v err=%v", revokedAt, reason, err)
+	}
+	duplicate, err := env.store.RevokePaymentMethod(ctx, RevokePaymentMethodInput{
+		AccountID: fixture.account.ID, MethodID: fixture.method.ID,
+		ActorID: "billing-owner", Reason: "repeat", Now: testTime(16, 1),
+	})
+	if err != nil || !duplicate.Duplicate || duplicate.Method.Status != payment.PaymentMethodStatusRevoked {
+		t.Fatalf("duplicate=%+v err=%v", duplicate, err)
+	}
+	if _, err := env.store.CreateManualTopUp(ctx, CreateManualTopUpInput{
+		AccountID: fixture.account.ID, AmountMinor: 10000, Currency: payment.CurrencyTWD,
+		PaymentMethodID: fixture.method.ID, IdempotencyKey: "revoked", CorrelationID: "revoked",
+	}); !errors.Is(err, payment.ErrPaymentMethodInactive) {
+		t.Fatalf("revoked manual top-up err=%v", err)
+	}
+}
+
 func TestPaymentConsentVersionPreservedAndAccountOwnershipEnforced(t *testing.T) {
 	env := newPaymentIntegrationEnv(t)
 	first := createPaymentFixture(t, env, "consent-owner-a", 0, 10000, 50000)

@@ -330,3 +330,39 @@ func (s *Store) ListLedgerEntries(ctx context.Context, accountID string, limit i
 	}
 	return entries, rows.Err()
 }
+
+type LedgerEntryPage struct {
+	Entries []payment.LedgerEntry `json:"ledger_entries"`
+	Total   int                   `json:"total"`
+}
+
+func (s *Store) ListLedgerEntriesPage(ctx context.Context, accountID string, limit, offset int) (LedgerEntryPage, error) {
+	if !required(accountID) {
+		return LedgerEntryPage{}, ErrConflict
+	}
+	limit, offset = boundedPage(limit, offset)
+	var total int
+	if err := s.db.QueryRow(ctx, `SELECT count(*)::int FROM balance_ledger_entries WHERE account_id = $1`, accountID).Scan(&total); err != nil {
+		return LedgerEntryPage{}, err
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT `+ledgerColumns+`
+		FROM balance_ledger_entries
+		WHERE account_id = $1
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2 OFFSET $3
+	`, accountID, limit, offset)
+	if err != nil {
+		return LedgerEntryPage{}, err
+	}
+	defer rows.Close()
+	entries := make([]payment.LedgerEntry, 0)
+	for rows.Next() {
+		entry, scanErr := scanLedgerEntry(rows)
+		if scanErr != nil {
+			return LedgerEntryPage{}, scanErr
+		}
+		entries = append(entries, entry)
+	}
+	return LedgerEntryPage{Entries: entries, Total: total}, rows.Err()
+}

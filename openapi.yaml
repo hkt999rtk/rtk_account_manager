@@ -61,6 +61,10 @@ tags:
     description: Platform-admin audit event listing.
   - name: ChipSet SDK Providers
     description: Platform-published external ChipSet and SDK information manifests.
+  - name: Billing and Payments
+    description: Organization-scoped commercial balance, payment methods, intents, and automatic top-up.
+  - name: Payment Webhooks
+    description: Provider-authenticated payment callback ingestion.
 servers:
   - url: http://localhost:8080
 paths:
@@ -4310,6 +4314,298 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/billing/account:
+    get:
+      tags: [Billing and Payments]
+      operationId: getBillingAccount
+      x-rtk-feature-id: FEAT-AM-PAYMENT-001
+      x-rtk-requirement-ids: [REQ-AM-BALANCE-LEDGER-001, REQ-AM-PAYMENT-AUTHZ-001]
+      security: [{ bearerAuth: [] }]
+      summary: Read the organization commercial account and automatic top-up summary.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      responses:
+        "200":
+          description: Customer-safe commercial account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingAccountResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /v1/orgs/{orgId}/billing/ledger:
+    get:
+      tags: [Billing and Payments]
+      operationId: listBillingLedger
+      x-rtk-feature-id: FEAT-AM-PAYMENT-001
+      x-rtk-requirement-ids: [REQ-AM-BALANCE-LEDGER-001, REQ-AM-PAYMENT-AUTHZ-001]
+      security: [{ bearerAuth: [] }]
+      summary: List immutable customer-safe balance ledger entries.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Ledger page ordered newest first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingLedgerResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/orgs/{orgId}/payment-methods:
+    get:
+      tags: [Billing and Payments]
+      operationId: listPaymentMethods
+      x-rtk-feature-id: FEAT-AM-PAYMENT-001
+      x-rtk-requirement-ids: [REQ-AM-PAYMENT-METHOD-001, REQ-AM-PAYMENT-AUTHZ-001]
+      security: [{ bearerAuth: [] }]
+      summary: List redacted organization payment methods.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Payment method page without provider references or card credentials.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentMethodsResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/orgs/{orgId}/payment-methods/setup:
+    post:
+      tags: [Billing and Payments]
+      operationId: setupPaymentMethod
+      x-rtk-feature-id: FEAT-AM-PAYMENT-001
+      x-rtk-requirement-ids: [REQ-AM-PAYMENT-METHOD-001, REQ-AM-PAYMENT-PROVIDER-001]
+      security: [{ bearerAuth: [] }]
+      summary: Request a provider-hosted payment method setup session.
+      description: The request never accepts PAN, CVV, expiry, or other card credentials. The initial NewebPay adapter returns capability unsupported until hosted setup is qualified.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaymentMethodSetupRequest" }
+      responses:
+        "202":
+          description: Hosted setup session accepted by a qualified provider.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentMethodSetupResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /v1/orgs/{orgId}/payment-methods/{methodId}:
+    delete:
+      tags: [Billing and Payments]
+      operationId: revokePaymentMethod
+      x-rtk-feature-id: FEAT-AM-PAYMENT-001
+      x-rtk-requirement-ids: [REQ-AM-PAYMENT-METHOD-001, REQ-AM-PAYMENT-AUDIT-001]
+      security: [{ bearerAuth: [] }]
+      summary: Revoke a payment method and disable its active automatic top-up policy.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/PaymentMethodId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaymentMutationReasonRequest" }
+      responses:
+        "200":
+          description: Method revoked or an identical revocation replayed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevokePaymentMethodResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/orgs/{orgId}/auto-topup:
+    get:
+      tags: [Billing and Payments]
+      operationId: getAutoTopUpPolicy
+      x-rtk-feature-id: FEAT-AM-PAYMENT-001
+      x-rtk-requirement-ids: [REQ-AM-AUTO-TOPUP-001, REQ-AM-PAYMENT-AUTHZ-001]
+      security: [{ bearerAuth: [] }]
+      summary: Read the automatic top-up policy and UTC safety-limit reset.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      responses:
+        "200":
+          description: Policy response; auto_topup is null when no policy exists.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutoTopUpResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Billing and Payments]
+      operationId: replaceAutoTopUpPolicy
+      x-rtk-feature-id: FEAT-AM-PAYMENT-001
+      x-rtk-requirement-ids: [REQ-AM-AUTO-TOPUP-001, REQ-AM-PAYMENT-METHOD-001, REQ-AM-PAYMENT-AUDIT-001]
+      security: [{ bearerAuth: [] }]
+      summary: Replace the automatic top-up policy using optimistic concurrency and explicit consent.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/IfMatchVersion"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PutAutoTopUpRequest" }
+      responses:
+        "200":
+          description: Policy replaced with a new generation and version.
+          headers:
+            ETag:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutoTopUpResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "428": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Billing and Payments]
+      operationId: disableAutoTopUpPolicy
+      x-rtk-feature-id: FEAT-AM-PAYMENT-001
+      x-rtk-requirement-ids: [REQ-AM-AUTO-TOPUP-001, REQ-AM-PAYMENT-AUDIT-001]
+      security: [{ bearerAuth: [] }]
+      summary: Disable automatic top-up and advance the policy generation.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/IfMatchVersion"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaymentMutationReasonRequest" }
+      responses:
+        "200":
+          description: Disabled policy.
+          headers:
+            ETag:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutoTopUpResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "428": { $ref: "#/components/responses/Error" }
+  /v1/orgs/{orgId}/topups:
+    post:
+      tags: [Billing and Payments]
+      operationId: createManualTopUp
+      x-rtk-feature-id: FEAT-AM-PAYMENT-001
+      x-rtk-requirement-ids: [REQ-AM-PAYMENT-INTENT-001, REQ-AM-PAYMENT-AUDIT-001]
+      security: [{ bearerAuth: [] }]
+      summary: Create an idempotent manual top-up payment intent.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ManualTopUpRequest" }
+      responses:
+        "200":
+          description: Existing identical intent returned for a replay.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ManualTopUpResponse" }
+        "202":
+          description: New intent persisted before provider execution.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ManualTopUpResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/orgs/{orgId}/payment-intents:
+    get:
+      tags: [Billing and Payments]
+      operationId: listPaymentIntents
+      x-rtk-feature-id: FEAT-AM-PAYMENT-001
+      x-rtk-requirement-ids: [REQ-AM-PAYMENT-INTENT-001, REQ-AM-PAYMENT-AUTHZ-001]
+      security: [{ bearerAuth: [] }]
+      summary: List customer-safe payment intent history.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Payment intent page.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentIntentsResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/orgs/{orgId}/payment-intents/{intentId}:
+    get:
+      tags: [Billing and Payments]
+      operationId: getPaymentIntent
+      x-rtk-feature-id: FEAT-AM-PAYMENT-001
+      x-rtk-requirement-ids: [REQ-AM-PAYMENT-INTENT-001, REQ-AM-PAYMENT-AUTHZ-001]
+      security: [{ bearerAuth: [] }]
+      summary: Read one customer-safe payment intent and its normalized attempts.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/PaymentIntentId"
+      responses:
+        "200":
+          description: Intent detail without provider transaction references or evidence digests.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentIntentDetailResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/payment-webhooks/{provider}:
+    post:
+      tags: [Payment Webhooks]
+      operationId: ingestPaymentWebhook
+      x-rtk-feature-id: FEAT-AM-PAYMENT-001
+      x-rtk-requirement-ids: [REQ-AM-PAYMENT-WEBHOOK-001]
+      summary: Verify, deduplicate, and enqueue a payment provider callback.
+      parameters:
+        - $ref: "#/components/parameters/PaymentProvider"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { type: string, format: binary }
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: Verified callback accepted or replay deduplicated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentWebhookResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     bearerAuth:
@@ -4452,6 +4748,31 @@ components:
         type: integer
         default: 0
         minimum: 0
+    PaymentMethodId:
+      name: methodId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    PaymentIntentId:
+      name: intentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    PaymentProvider:
+      name: provider
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[a-z0-9_]{1,32}$"
+    IfMatchVersion:
+      name: If-Match
+      in: header
+      required: true
+      description: Quoted or unquoted numeric automatic top-up policy version; use 0 to create the first policy.
+      schema:
+        type: string
+        pattern: '^"?[0-9]+"?$'
   responses:
     Error:
       description: Error response.
@@ -4513,6 +4834,240 @@ components:
                   code: oidc_provider_misconfigured
                   message: OIDC provider is misconfigured
   schemas:
+    Currency:
+      type: string
+      enum: [TWD]
+    MoneyMinor:
+      type: integer
+      format: int64
+      multipleOf: 100
+    CommercialAccount:
+      type: object
+      required: [id, organization_id, currency, available_balance_minor, state, version, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        currency: { $ref: "#/components/schemas/Currency" }
+        available_balance_minor: { type: integer, format: int64 }
+        state:
+          type: string
+          enum: [active, attention_required, suspended, closed]
+        version: { type: integer, format: int64, minimum: 0 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    BillingAccountResponse:
+      type: object
+      required: [account, auto_topup]
+      properties:
+        account: { $ref: "#/components/schemas/CommercialAccount" }
+        auto_topup:
+          allOf: [{ $ref: "#/components/schemas/AutoTopUpPolicy" }]
+          nullable: true
+    BillingLedgerEntry:
+      type: object
+      required: [id, direction, amount_minor, currency, reason, balance_after_minor, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        direction: { type: string, enum: [credit, debit] }
+        amount_minor: { $ref: "#/components/schemas/MoneyMinor" }
+        currency: { $ref: "#/components/schemas/Currency" }
+        reason:
+          type: string
+          enum: [invoice_debit, usage_adjustment_debit, manual_adjustment_debit, payment_top_up_credit, manual_adjustment_credit, refund_debit, chargeback_debit]
+        balance_after_minor: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+    BillingLedgerResponse:
+      type: object
+      required: [ledger_entries, pagination]
+      properties:
+        ledger_entries:
+          type: array
+          items: { $ref: "#/components/schemas/BillingLedgerEntry" }
+        pagination: { $ref: "#/components/schemas/Pagination" }
+    PaymentProviderCapabilities:
+      type: object
+      required: [hosted_setup, vaulted_method, merchant_initiated_charge, status_query, webhook, refund, requires_customer_action]
+      properties:
+        hosted_setup: { type: boolean }
+        vaulted_method: { type: boolean }
+        merchant_initiated_charge: { type: boolean }
+        status_query: { type: boolean }
+        webhook: { type: boolean }
+        refund: { type: boolean }
+        requires_customer_action: { type: boolean }
+    PaymentMethod:
+      type: object
+      description: Customer-safe display metadata. Provider customer/method references and card credentials are never returned.
+      required: [id, account_id, provider, status, capabilities, consent_id, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        account_id: { type: string, format: uuid }
+        provider: { type: string }
+        status: { type: string, enum: [pending, active, expired, revoked, failed] }
+        card_brand: { type: string }
+        last_four: { type: string, pattern: "^[0-9]{4}$" }
+        expiry_month: { type: integer, minimum: 1, maximum: 12 }
+        expiry_year: { type: integer, minimum: 2000, maximum: 9999 }
+        capabilities: { $ref: "#/components/schemas/PaymentProviderCapabilities" }
+        consent_id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    PaymentMethodsResponse:
+      type: object
+      required: [payment_methods, pagination]
+      properties:
+        payment_methods:
+          type: array
+          items: { $ref: "#/components/schemas/PaymentMethod" }
+        pagination: { $ref: "#/components/schemas/Pagination" }
+    PaymentMethodSetupRequest:
+      type: object
+      additionalProperties: false
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          pattern: "^[a-z0-9_]{1,32}$"
+      description: Card number, CVV/CVC, expiry, and magnetic-stripe data are forbidden.
+    PaymentMethodSetupResponse:
+      type: object
+      required: [payment_method, hosted_url]
+      properties:
+        payment_method: { $ref: "#/components/schemas/PaymentMethod" }
+        hosted_url:
+          type: string
+          format: uri
+          description: Short-lived provider-hosted URL; never logged or stored in audit payloads.
+    PaymentMutationReasonRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 3, maxLength: 500 }
+    RevokePaymentMethodResponse:
+      type: object
+      required: [payment_method, policy_disabled, duplicate]
+      properties:
+        payment_method: { $ref: "#/components/schemas/PaymentMethod" }
+        policy_disabled: { type: boolean }
+        duplicate: { type: boolean }
+    AutoTopUpPolicy:
+      type: object
+      required: [id, enabled, threshold_minor, top_up_amount_minor, currency, payment_method_id, daily_attempt_limit, daily_amount_limit_minor, cooldown_seconds, generation, version, armed, limit_timezone, limit_reset_at, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        enabled: { type: boolean }
+        threshold_minor: { $ref: "#/components/schemas/MoneyMinor" }
+        top_up_amount_minor: { $ref: "#/components/schemas/MoneyMinor" }
+        currency: { $ref: "#/components/schemas/Currency" }
+        payment_method_id: { type: string, format: uuid }
+        daily_attempt_limit: { type: integer, minimum: 1, maximum: 10 }
+        daily_amount_limit_minor: { $ref: "#/components/schemas/MoneyMinor" }
+        cooldown_seconds: { type: integer, format: int64, minimum: 300 }
+        generation: { type: integer, format: int64, minimum: 1 }
+        version: { type: integer, format: int64, minimum: 1 }
+        armed: { type: boolean }
+        last_triggered_at: { type: string, format: date-time, nullable: true }
+        last_succeeded_at: { type: string, format: date-time, nullable: true }
+        limit_timezone: { type: string, enum: [UTC] }
+        limit_reset_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AutoTopUpResponse:
+      type: object
+      required: [auto_topup]
+      properties:
+        auto_topup:
+          allOf: [{ $ref: "#/components/schemas/AutoTopUpPolicy" }]
+          nullable: true
+    PaymentConsentAcceptance:
+      type: object
+      additionalProperties: false
+      required: [accepted, text_version, text_sha256, locale]
+      properties:
+        accepted: { type: boolean, enum: [true] }
+        text_version: { type: string, minLength: 1, maxLength: 128 }
+        text_sha256: { type: string, pattern: "^[0-9a-fA-F]{64}$" }
+        locale: { type: string, minLength: 2, maxLength: 35 }
+    PutAutoTopUpRequest:
+      type: object
+      additionalProperties: false
+      required: [enabled, threshold_minor, top_up_amount_minor, currency, payment_method_id, daily_attempt_limit, daily_amount_limit_minor, cooldown_seconds, consent]
+      properties:
+        enabled: { type: boolean }
+        threshold_minor: { $ref: "#/components/schemas/MoneyMinor" }
+        top_up_amount_minor: { $ref: "#/components/schemas/MoneyMinor" }
+        currency: { $ref: "#/components/schemas/Currency" }
+        payment_method_id: { type: string, format: uuid }
+        daily_attempt_limit: { type: integer, minimum: 1, maximum: 10 }
+        daily_amount_limit_minor: { $ref: "#/components/schemas/MoneyMinor" }
+        cooldown_seconds: { type: integer, format: int64, minimum: 300 }
+        consent: { $ref: "#/components/schemas/PaymentConsentAcceptance" }
+    ManualTopUpRequest:
+      type: object
+      additionalProperties: false
+      required: [amount_minor, currency, payment_method_id]
+      properties:
+        amount_minor: { $ref: "#/components/schemas/MoneyMinor" }
+        currency: { $ref: "#/components/schemas/Currency" }
+        payment_method_id: { type: string, format: uuid }
+    PaymentIntent:
+      type: object
+      description: Customer-safe normalized intent; provider order and transaction references are intentionally absent.
+      required: [id, amount_minor, currency, reason, provider, payment_method_id, state, requires_customer_action, correlation_id, created_at, updated_at, completed_at]
+      properties:
+        id: { type: string, format: uuid }
+        amount_minor: { $ref: "#/components/schemas/MoneyMinor" }
+        currency: { $ref: "#/components/schemas/Currency" }
+        reason: { type: string, enum: [manual_top_up, auto_top_up] }
+        provider: { type: string }
+        payment_method_id: { type: string, format: uuid }
+        state: { type: string, enum: [created, processing, authorized, requires_action, unknown, succeeded, failed, canceled] }
+        requires_customer_action: { type: boolean }
+        correlation_id: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time, nullable: true }
+    ManualTopUpResponse:
+      type: object
+      required: [payment_intent, duplicate]
+      properties:
+        payment_intent: { $ref: "#/components/schemas/PaymentIntent" }
+        duplicate: { type: boolean }
+    PaymentIntentsResponse:
+      type: object
+      required: [payment_intents, pagination]
+      properties:
+        payment_intents:
+          type: array
+          items: { $ref: "#/components/schemas/PaymentIntent" }
+        pagination: { $ref: "#/components/schemas/Pagination" }
+    PaymentAttempt:
+      type: object
+      required: [id, operation, attempt_number, started_at, completed_at, status, provider_code, next_reconciliation_at]
+      properties:
+        id: { type: string, format: uuid }
+        operation: { type: string, enum: [setup, charge, query, cancel, refund] }
+        attempt_number: { type: integer, minimum: 1 }
+        started_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time, nullable: true }
+        status: { type: string, enum: [started, authorized, requires_action, unknown, succeeded, failed, canceled] }
+        provider_code: { type: string }
+        next_reconciliation_at: { type: string, format: date-time, nullable: true }
+    PaymentIntentDetailResponse:
+      type: object
+      required: [payment_intent, attempts]
+      properties:
+        payment_intent: { $ref: "#/components/schemas/PaymentIntent" }
+        attempts:
+          type: array
+          items: { $ref: "#/components/schemas/PaymentAttempt" }
+    PaymentWebhookResponse:
+      type: object
+      required: [accepted, duplicate]
+      properties:
+        accepted: { type: boolean }
+        duplicate: { type: boolean }
     HealthResponse:
       type: object
       required: [status]

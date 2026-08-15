@@ -45,6 +45,17 @@ func (s *Store) GetCommercialAccount(ctx context.Context, accountID string) (pay
 	`, accountID))
 }
 
+func (s *Store) GetCommercialAccountByOrganization(ctx context.Context, organizationID string, currency payment.Currency) (payment.CommercialAccount, error) {
+	if !required(organizationID) || payment.ValidateCurrency(currency) != nil {
+		return payment.CommercialAccount{}, ErrConflict
+	}
+	return scanAccount(s.db.QueryRow(ctx, `
+		SELECT `+accountColumns+`
+		FROM commercial_accounts
+		WHERE organization_id = $1 AND currency = $2
+	`, organizationID, currency))
+}
+
 func getAccountForUpdate(ctx context.Context, tx pgx.Tx, accountID string) (payment.CommercialAccount, error) {
 	return scanAccount(tx.QueryRow(ctx, `
 		SELECT `+accountColumns+`
