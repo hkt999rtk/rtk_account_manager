@@ -540,6 +540,9 @@ Alerts:
 
 ### Provider Contract And E2E
 
+- `rtk-cloud test-payment --profile fake-e2e` maps the two active automatic
+  top-up E2E Test IDs to canonical Go operations and produces a case-level
+  JSON, Markdown, JUnit, timing, SHA-256, redaction, and cleanup report;
 - setup uses the provider-hosted/tokenized surface and stores no card data;
 - sandbox success, decline, timeout, duplicate/out-of-order callback, query,
   cancel/refund where supported, and credential failure;
