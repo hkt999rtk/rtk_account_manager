@@ -2,9 +2,10 @@
 
 Status: implemented foundation with guarded rollout. Provider-neutral money,
 ledger, policy, intent, durable worker/reconciliation, safe customer HTTP APIs,
-and verified webhook ingestion are implemented. Provider-hosted setup and
-merchant-initiated NewebPay charging remain disabled until written capability
-approval and sandbox qualification are available.
+and verified webhook ingestion are implemented. A durable hosted-setup path is
+qualified with the deterministic fake provider; NewebPay hosted setup and
+merchant-initiated charging remain disabled until written capability approval
+and sandbox qualification are available.
 
 Owner: `rtk_account_manager`.
 
@@ -44,11 +45,12 @@ APIs, permissions, a dedicated internal billing-debit credential, and a
 dedicated payment worker. Existing organization `tier` fields still do not
 represent money or payment status.
 
-The remaining production dependencies are provider-approved hosted payment
-method setup, written approval for unattended merchant-initiated charging,
-sandbox credentials and qualification evidence, plus a separately owned
-pricing/invoice debit producer. Until those dependencies are met, the adapter
-reports unsupported capabilities and the charging worker stays disabled.
+The remaining production dependencies are the NewebPay mapping for approved
+hosted payment-method setup, written approval for unattended merchant-initiated
+charging, sandbox credentials and qualification evidence, plus a separately
+owned pricing/invoice debit producer. Until those dependencies are met, the
+NewebPay adapter reports unsupported capabilities and the charging worker stays
+disabled.
 
 The workspace already has durable patterns that can be reused:
 
@@ -228,6 +230,15 @@ metadata, provider capability snapshot, lifecycle state, consent ID, and
 timestamps. An account may have several methods but only one policy-selected
 default. Revocation is a state transition, not deletion.
 
+### `payment_method_setup_sessions`
+
+Stores the account/provider-scoped idempotency key, canonical request SHA-256,
+correlation ID, pending method ID, normalized setup state, safe provider code,
+and SHA-256 of the short-lived hosted URL. Consent and a pending method commit
+before provider I/O. The hosted URL, session token, opaque provider references,
+PAN, and CVV are never stored in this table. Completed opaque references are
+encrypted before the linked method becomes active.
+
 ### `auto_topup_policies`
 
 Stores account ID, enabled state, threshold, top-up amount, currency,
@@ -388,6 +399,10 @@ PAYMENT_AMOUNT_INVALID
 PAYMENT_CURRENCY_UNSUPPORTED
 PAYMENT_INTENT_CONFLICT
 PAYMENT_STATUS_UNKNOWN
+PAYMENT_METHOD_SETUP_CONFLICT
+PAYMENT_REFERENCE_PROTECTION_UNCONFIGURED
+PAYMENT_REFERENCE_PROTECTION_FAILED
+PAYMENT_PROVIDER_RESPONSE_INVALID
 AUTO_TOPUP_LIMIT_REACHED
 AUTO_TOPUP_POLICY_CONFLICT
 BILLING_ACCOUNT_SUSPENDED
@@ -429,7 +444,12 @@ Expected secret references:
 NEWEBPAY_MERCHANT_ID
 NEWEBPAY_HASH_KEY
 NEWEBPAY_HASH_IV
+PAYMENT_REFERENCE_ENCRYPTION_KEY
 ```
+
+`PAYMENT_REFERENCE_ENCRYPTION_KEY` must be a base64-encoded 32-byte key. It
+encrypts opaque provider customer and method references at rest and must be
+managed and rotated as a deployment secret.
 
 Expected non-secret configuration:
 
@@ -438,7 +458,6 @@ NEWEBPAY_ENVIRONMENT=sandbox|production
 NEWEBPAY_ENABLED=false
 NEWEBPAY_MERCHANT_INITIATED_CHARGE_ENABLED=false
 PAYMENT_WORKER_ENABLED=false
-PAYMENT_REFERENCE_ENCRYPTION_KEY
 PAYMENT_WORKER_POLL_INTERVAL
 PAYMENT_WORKER_BATCH_SIZE
 PAYMENT_WORKER_LEASE_DURATION
@@ -561,8 +580,8 @@ Alerts:
 
 ### Provider Contract And E2E
 
-- `rtk-cloud test-payment --profile fake-e2e` maps the two active automatic
-  top-up E2E Test IDs to canonical Go operations and produces a case-level
+- `rtk-cloud test-payment --profile fake-e2e` maps the three active hosted
+  setup and automatic top-up E2E Test IDs to canonical Go operations and produces a case-level
   JSON, Markdown, JUnit, timing, SHA-256, redaction, and cleanup report;
 - setup uses the provider-hosted/tokenized surface and stores no card data;
 - sandbox success, decline, timeout, duplicate/out-of-order callback, query,

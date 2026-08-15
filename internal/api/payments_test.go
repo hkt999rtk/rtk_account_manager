@@ -72,6 +72,41 @@ func TestBillingDebitSourceValidationIsStrict(t *testing.T) {
 	}
 }
 
+func TestHostedPaymentSetupUsesStableSafeInputs(t *testing.T) {
+	consent := consentRequest{Accepted: true, TextVersion: " payment-method-v1 ", TextSHA256: strings.Repeat("A", 64), Locale: " zh-TW "}
+	first, err := paymentSetupRequestSHA256("account-1", "fake", consent, "user", "user-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	consent.TextVersion = "payment-method-v1"
+	consent.TextSHA256 = strings.Repeat("a", 64)
+	consent.Locale = "zh-TW"
+	second, err := paymentSetupRequestSHA256("account-1", "fake", consent, "user", "user-1")
+	if err != nil || first != second || len(first) != 64 {
+		t.Fatalf("first=%q second=%q err=%v", first, second, err)
+	}
+	for _, valid := range []string{"https://payments.example/setup/one", "https://payments.example/setup?id=opaque"} {
+		if !validHostedPaymentURL(valid) {
+			t.Fatalf("URL %q should be valid", valid)
+		}
+	}
+	for _, invalid := range []string{"http://payments.example/setup", "https://user:secret@payments.example/setup", "https://payments.example/setup#token", " https://payments.example/setup", "not-a-url"} {
+		if validHostedPaymentURL(invalid) {
+			t.Fatalf("URL %q should be invalid", invalid)
+		}
+	}
+	for _, valid := range []string{"customer-opaque-1", strings.Repeat("x", 1024)} {
+		if !validOpaqueProviderReference(valid) {
+			t.Fatalf("opaque reference %q should be valid", valid)
+		}
+	}
+	for _, invalid := range []string{"", " reference-with-whitespace", strings.Repeat("x", 1025)} {
+		if validOpaqueProviderReference(invalid) {
+			t.Fatalf("opaque reference %q should be invalid", invalid)
+		}
+	}
+}
+
 func TestPaymentActorUsesAuthenticatedSubjectIdentity(t *testing.T) {
 	brandContext, _ := gin.CreateTestContext(httptest.NewRecorder())
 	brandContext.Set("subjectType", auth.SubjectTypeBrandCloudUser)

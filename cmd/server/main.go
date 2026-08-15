@@ -15,6 +15,7 @@ import (
 	"rtk_account_manager/internal/emaildelivery"
 	"rtk_account_manager/internal/logging"
 	"rtk_account_manager/internal/payment"
+	"rtk_account_manager/internal/paymentcrypto"
 	"rtk_account_manager/internal/paymentprovider/newebpay"
 	"rtk_account_manager/internal/paymentstore"
 	"rtk_account_manager/internal/store"
@@ -109,9 +110,17 @@ func main() {
 			paymentProviders = append(paymentProviders, provider)
 		}
 	}
+	var paymentReferenceProtector api.PaymentReferenceProtector
+	if strings.TrimSpace(cfg.PaymentReferenceEncryptionKey) != "" {
+		paymentReferenceProtector, err = paymentcrypto.New(cfg.PaymentReferenceEncryptionKey)
+		if err != nil {
+			fatal(logger, "configure payment reference protection failed", err)
+		}
+	}
 	if err := server.ConfigurePayments(api.PaymentAPIOptions{
 		Store: paymentstore.New(db), Providers: paymentProviders,
-		BillingDebitToken: cfg.BillingDebitToken, BillingDebitSource: cfg.BillingDebitSource,
+		ReferenceProtector: paymentReferenceProtector,
+		BillingDebitToken:  cfg.BillingDebitToken, BillingDebitSource: cfg.BillingDebitSource,
 	}); err != nil {
 		fatal(logger, "configure payment API failed", err)
 	}

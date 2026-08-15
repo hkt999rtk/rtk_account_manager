@@ -2,12 +2,15 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -41,11 +44,18 @@ type paymentPersistence interface {
 	GetPaymentIntentForAccount(context.Context, string, string) (payment.PaymentIntent, error)
 	ListPaymentAttempts(context.Context, string) ([]payment.PaymentAttempt, error)
 	PostLedgerEntry(context.Context, paymentstore.PostLedgerEntryInput) (paymentstore.PostLedgerEntryResult, error)
+	BeginPaymentMethodSetup(context.Context, paymentstore.BeginPaymentMethodSetupInput) (paymentstore.BeginPaymentMethodSetupResult, error)
+	CompletePaymentMethodSetup(context.Context, paymentstore.CompletePaymentMethodSetupInput) (paymentstore.CompletePaymentMethodSetupResult, error)
+}
+
+type PaymentReferenceProtector interface {
+	EncryptMethodReference(string) ([]byte, error)
 }
 
 type PaymentAPIOptions struct {
 	Store              paymentPersistence
 	Providers          []payment.PaymentProvider
+	ReferenceProtector PaymentReferenceProtector
 	BillingDebitToken  string
 	BillingDebitSource string
 	Now                func() time.Time
@@ -55,6 +65,7 @@ type paymentRuntime struct {
 	store              paymentPersistence
 	providers          map[string]payment.PaymentProvider
 	webhooks           *paymentservice.Service
+	referenceProtector PaymentReferenceProtector
 	billingDebitToken  string
 	billingDebitSource string
 	now                func() time.Time
@@ -114,7 +125,8 @@ func (s *Server) ConfigurePayments(options PaymentAPIOptions) error {
 	}
 	s.payments = &paymentRuntime{
 		store: options.Store, providers: providers, webhooks: webhooks,
-		billingDebitToken: options.BillingDebitToken, billingDebitSource: options.BillingDebitSource,
+		referenceProtector: options.ReferenceProtector,
+		billingDebitToken:  options.BillingDebitToken, billingDebitSource: options.BillingDebitSource,
 		now: options.Now,
 	}
 	return nil
@@ -214,7 +226,8 @@ func (s *Server) listPaymentMethods(c *gin.Context) {
 }
 
 type paymentMethodSetupRequest struct {
-	Provider string `json:"provider" binding:"required"`
+	Provider string         `json:"provider" binding:"required"`
+	Consent  consentRequest `json:"consent" binding:"required"`
 }
 
 func (s *Server) setupPaymentMethod(c *gin.Context) {
@@ -222,13 +235,20 @@ func (s *Server) setupPaymentMethod(c *gin.Context) {
 	if !bindPaymentStrict(c, &request) {
 		return
 	}
-	if _, ok := requiredIdempotencyKey(c); !ok {
+	idempotencyKey, ok := requiredIdempotencyKey(c)
+	if !ok {
 		return
 	}
-	if _, ok := s.paymentAccount(c); !ok {
+	if !request.Consent.Accepted {
+		writeError(c, http.StatusBadRequest, "PAYMENT_CONSENT_REQUIRED", "Explicit payment-method consent is required")
 		return
 	}
-	provider := s.payments.providers[payment.NormalizeProvider(request.Provider)]
+	account, ok := s.paymentAccount(c)
+	if !ok {
+		return
+	}
+	providerName := payment.NormalizeProvider(request.Provider)
+	provider := s.payments.providers[providerName]
 	if provider == nil {
 		writeError(c, http.StatusServiceUnavailable, "PAYMENT_PROVIDER_NOT_CONFIGURED", "Payment provider is not configured")
 		return
@@ -237,9 +257,113 @@ func (s *Server) setupPaymentMethod(c *gin.Context) {
 		writeError(c, http.StatusConflict, "PAYMENT_CAPABILITY_UNSUPPORTED", "Provider-hosted payment method setup is not available")
 		return
 	}
-	// The route is intentionally fail-closed until a provider adapter implements
-	// a durable, idempotent hosted setup flow. It never accepts card fields.
-	writeError(c, http.StatusConflict, "PAYMENT_CAPABILITY_UNSUPPORTED", "Provider-hosted payment method setup is not qualified")
+	if s.payments.referenceProtector == nil {
+		writeError(c, http.StatusServiceUnavailable, "PAYMENT_REFERENCE_PROTECTION_UNCONFIGURED", "Payment method setup is not configured")
+		return
+	}
+	requestSHA256, err := paymentSetupRequestSHA256(account.ID, providerName, request.Consent, paymentActorType(c), paymentActorID(c))
+	if err != nil {
+		writePaymentError(c, err)
+		return
+	}
+	correlationID := paymentRequestID(c, idempotencyKey)
+	begin, err := s.payments.store.BeginPaymentMethodSetup(c.Request.Context(), paymentstore.BeginPaymentMethodSetupInput{
+		AccountID: account.ID, Provider: providerName, IdempotencyKey: idempotencyKey,
+		RequestSHA256: requestSHA256, CorrelationID: correlationID,
+		Capabilities: provider.Capabilities(c.Request.Context()),
+		Consent: paymentstore.CreateConsentInput{
+			AccountID: account.ID, ConsentType: "payment_method", TextVersion: request.Consent.TextVersion,
+			TextSHA256: strings.ToLower(request.Consent.TextSHA256), AcceptedActorType: paymentActorType(c),
+			AcceptedActorID: paymentActorID(c), Locale: request.Consent.Locale, Source: "cloud_admin_or_api",
+		},
+		Now: s.payments.now(),
+	})
+	if err != nil {
+		writePaymentSetupError(c, err)
+		return
+	}
+	setup, err := provider.CreateSetup(c.Request.Context(), payment.SetupRequest{
+		AccountID: account.ID, IdempotencyKey: idempotencyKey, CorrelationID: correlationID,
+	})
+	if err != nil {
+		writeError(c, http.StatusServiceUnavailable, "PAYMENT_PROVIDER_UNAVAILABLE", "Payment provider setup is temporarily unavailable")
+		return
+	}
+	if (setup.State != payment.PaymentIntentStateSucceeded && setup.State != payment.PaymentIntentStateRequiresAction) ||
+		(setup.State == payment.PaymentIntentStateRequiresAction && !setup.RequiresUserAction) || !validHostedPaymentURL(setup.HostedURL) {
+		writeError(c, http.StatusBadGateway, "PAYMENT_PROVIDER_RESPONSE_INVALID", "Payment provider returned an invalid setup response")
+		return
+	}
+	hostedURLDigest := sha256.Sum256([]byte(setup.HostedURL))
+	completeInput := paymentstore.CompletePaymentMethodSetupInput{
+		AccountID: account.ID, SessionID: begin.Session.ID, State: setup.State,
+		ProviderCode: setup.ProviderCode, HostedURLSHA256: hex.EncodeToString(hostedURLDigest[:]),
+		CardBrand: setup.CardBrand, LastFour: setup.LastFour,
+		ExpiryMonth: setup.ExpiryMonth, ExpiryYear: setup.ExpiryYear, Now: s.payments.now(),
+	}
+	if setup.State == payment.PaymentIntentStateSucceeded {
+		if !validOpaqueProviderReference(setup.ProviderCustomerRef) || !validOpaqueProviderReference(setup.ProviderMethodRef) {
+			writeError(c, http.StatusBadGateway, "PAYMENT_PROVIDER_RESPONSE_INVALID", "Payment provider returned an invalid setup response")
+			return
+		}
+		completeInput.ProviderCustomerRefCiphertext, err = s.payments.referenceProtector.EncryptMethodReference(setup.ProviderCustomerRef)
+		if err == nil {
+			completeInput.ProviderMethodRefCiphertext, err = s.payments.referenceProtector.EncryptMethodReference(setup.ProviderMethodRef)
+		}
+		if err != nil {
+			writeError(c, http.StatusServiceUnavailable, "PAYMENT_REFERENCE_PROTECTION_FAILED", "Payment method setup could not be persisted safely")
+			return
+		}
+		methodDigest := sha256.Sum256([]byte(setup.ProviderMethodRef))
+		completeInput.ProviderMethodRefSHA256 = hex.EncodeToString(methodDigest[:])
+	}
+	completed, err := s.payments.store.CompletePaymentMethodSetup(c.Request.Context(), completeInput)
+	if err != nil {
+		writePaymentSetupError(c, err)
+		return
+	}
+	duplicate := begin.Duplicate || completed.Duplicate
+	if !s.writePaymentAudit(c, "payment_method_setup_created", "payment_method", completed.Method.ID, gin.H{
+		"provider": providerName, "state": completed.Method.Status, "duplicate": duplicate,
+		"consent_text_version": begin.Consent.TextVersion, "consent_text_sha256": begin.Consent.TextSHA256,
+	}) {
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"payment_method": completed.Method, "hosted_url": setup.HostedURL, "duplicate": duplicate})
+}
+
+func paymentSetupRequestSHA256(accountID, provider string, consent consentRequest, actorType, actorID string) (string, error) {
+	payload, err := json.Marshal(map[string]any{
+		"account_id": accountID, "provider": provider, "consent_accepted": consent.Accepted,
+		"consent_text_version": strings.TrimSpace(consent.TextVersion),
+		"consent_text_sha256":  strings.ToLower(strings.TrimSpace(consent.TextSHA256)),
+		"consent_locale":       strings.TrimSpace(consent.Locale), "actor_type": actorType, "actor_id": actorID,
+	})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func validHostedPaymentURL(value string) bool {
+	if value != strings.TrimSpace(value) {
+		return false
+	}
+	parsed, err := url.Parse(value)
+	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil && parsed.Fragment == ""
+}
+
+func validOpaqueProviderReference(value string) bool {
+	return value != "" && value == strings.TrimSpace(value) && len(value) <= 1024
+}
+
+func writePaymentSetupError(c *gin.Context, err error) {
+	if errors.Is(err, paymentstore.ErrIdempotencyConflict) {
+		writeError(c, http.StatusConflict, "PAYMENT_METHOD_SETUP_CONFLICT", "Idempotency key conflicts with an existing payment method setup")
+		return
+	}
+	writePaymentError(c, err)
 }
 
 type revokePaymentMethodRequest struct {
@@ -303,9 +427,9 @@ type putAutoTopUpRequest struct {
 
 type consentRequest struct {
 	Accepted    bool   `json:"accepted"`
-	TextVersion string `json:"text_version" binding:"required"`
-	TextSHA256  string `json:"text_sha256" binding:"required,len=64"`
-	Locale      string `json:"locale" binding:"required"`
+	TextVersion string `json:"text_version" binding:"required,max=128"`
+	TextSHA256  string `json:"text_sha256" binding:"required,len=64,hexadecimal"`
+	Locale      string `json:"locale" binding:"required,min=2,max=35"`
 }
 
 func (s *Server) putAutoTopUpPolicy(c *gin.Context) {

@@ -74,9 +74,10 @@ func NormalizeProviderCode(code string) string {
 }
 
 type SetupRequest struct {
-	AccountID     string
-	ReturnURL     string
-	CorrelationID string
+	AccountID      string
+	ReturnURL      string
+	IdempotencyKey string
+	CorrelationID  string
 }
 
 type SetupResult struct {
@@ -86,6 +87,10 @@ type SetupResult struct {
 	ProviderMethodRef   string
 	ProviderCode        string
 	RequiresUserAction  bool
+	CardBrand           string
+	LastFour            string
+	ExpiryMonth         *int
+	ExpiryYear          *int
 }
 
 type ChargeRequest struct {

@@ -4394,7 +4394,7 @@ paths:
         - REQ-AM-PAYMENT-PROVIDER-001
       security: [{ bearerAuth: [] }]
       summary: Request a provider-hosted payment method setup session.
-      description: The request never accepts PAN, CVV, expiry, or other card credentials. The initial NewebPay adapter returns capability unsupported until hosted setup is qualified.
+      description: Consent, a pending method, and setup idempotency are persisted before provider I/O. The request never accepts PAN, CVV, expiry, or other card credentials. The initial NewebPay adapter returns capability unsupported until hosted setup is qualified.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -5013,21 +5013,23 @@ components:
     PaymentMethodSetupRequest:
       type: object
       additionalProperties: false
-      required: [provider]
+      required: [provider, consent]
       properties:
         provider:
           type: string
           pattern: "^[a-z0-9_]{1,32}$"
+        consent: { $ref: "#/components/schemas/PaymentConsentAcceptance" }
       description: Card number, CVV/CVC, expiry, and magnetic-stripe data are forbidden.
     PaymentMethodSetupResponse:
       type: object
-      required: [payment_method, hosted_url]
+      required: [payment_method, hosted_url, duplicate]
       properties:
         payment_method: { $ref: "#/components/schemas/PaymentMethod" }
         hosted_url:
           type: string
           format: uri
           description: Short-lived provider-hosted URL; never logged or stored in audit payloads.
+        duplicate: { type: boolean }
     PaymentMutationReasonRequest:
       type: object
       additionalProperties: false

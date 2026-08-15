@@ -61,15 +61,45 @@ func TestWebhookHMACAndStrictPayload(t *testing.T) {
 	}
 }
 
-func TestUnsupportedFakeProviderOperationsAreExplicit(t *testing.T) {
+func TestSetupUsesStableIdempotencyWithoutCardData(t *testing.T) {
 	provider := New("secret")
-	if _, err := provider.CreateSetup(context.Background(), payment.SetupRequest{}); !errors.Is(err, payment.ErrProviderUnsupported) {
-		t.Fatalf("setup err=%v", err)
+	provider.QueueSetup(SetupOutcome{Result: payment.SetupResult{
+		State: payment.PaymentIntentStateSucceeded, HostedURL: "https://fake-payments.invalid/setup/session-1",
+		ProviderCustomerRef: "customer-opaque-1", ProviderMethodRef: "method-opaque-1", ProviderCode: "00",
+	}}, SetupOutcome{Result: payment.SetupResult{
+		State: payment.PaymentIntentStateSucceeded, HostedURL: "https://fake-payments.invalid/setup/session-2",
+		ProviderCustomerRef: "customer-opaque-2", ProviderMethodRef: "method-opaque-2", ProviderCode: "00",
+	}})
+	request := payment.SetupRequest{AccountID: "account-1", IdempotencyKey: "setup-1", CorrelationID: "correlation-1"}
+	first, err := provider.CreateSetup(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
 	}
+	second, err := provider.CreateSetup(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ProviderMethodRef != "method-opaque-1" || second.HostedURL != first.HostedURL || len(provider.SetupCalls()) != 2 {
+		t.Fatalf("first=%+v second=%+v calls=%d", first, second, len(provider.SetupCalls()))
+	}
+	otherTenant := request
+	otherTenant.AccountID = "account-2"
+	third, err := provider.CreateSetup(context.Background(), otherTenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.ProviderMethodRef != "method-opaque-2" || third.HostedURL == first.HostedURL {
+		t.Fatalf("tenant-scoped setup idempotency first=%+v third=%+v", first, third)
+	}
+}
+
+func TestUnsupportedFakeProviderRefundIsExplicit(t *testing.T) {
+	provider := New("secret")
 	if _, err := provider.Refund(context.Background(), payment.RefundRequest{}); !errors.Is(err, payment.ErrProviderUnsupported) {
 		t.Fatalf("refund err=%v", err)
 	}
-	if !provider.Capabilities(context.Background()).MerchantInitiatedCharge {
-		t.Fatal("fake provider should advertise merchant-initiated charge")
+	capabilities := provider.Capabilities(context.Background())
+	if !capabilities.HostedSetup || !capabilities.MerchantInitiatedCharge || capabilities.Refund {
+		t.Fatalf("unexpected fake capabilities: %+v", capabilities)
 	}
 }

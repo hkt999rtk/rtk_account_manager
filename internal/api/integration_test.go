@@ -32,6 +32,7 @@ import (
 	"rtk_account_manager/internal/emaildelivery"
 	"rtk_account_manager/internal/model"
 	"rtk_account_manager/internal/payment"
+	"rtk_account_manager/internal/paymentcrypto"
 	"rtk_account_manager/internal/paymentprovider/fake"
 	"rtk_account_manager/internal/paymentstore"
 	"rtk_account_manager/internal/store"
@@ -6000,40 +6001,165 @@ func TestIntegrationPaymentAPIAuthorizationLifecycleAndRedaction(t *testing.T) {
 	}
 
 	repository := paymentstore.New(env.db)
+	rejectedConsent := performJSONHeaders(env.router, http.MethodPost, basePath+"/payment-methods/setup", map[string]any{
+		"provider": "fake", "consent": map[string]any{
+			"accepted": false, "text_version": "payment-method-v1",
+			"text_sha256": strings.Repeat("a", 64), "locale": "zh-TW",
+		},
+	}, owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "setup-consent-rejected"})
+	if rejectedConsent.Code != http.StatusBadRequest || !strings.Contains(rejectedConsent.Body.String(), "PAYMENT_CONSENT_REQUIRED") {
+		t.Fatalf("rejected consent status/body=%d/%s", rejectedConsent.Code, rejectedConsent.Body.String())
+	}
+	invalidConsentDigest := performJSONHeaders(env.router, http.MethodPost, basePath+"/payment-methods/setup", map[string]any{
+		"provider": "fake", "consent": map[string]any{
+			"accepted": true, "text_version": "payment-method-v1",
+			"text_sha256": strings.Repeat("z", 64), "locale": "zh-TW",
+		},
+	}, owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "setup-consent-invalid-digest"})
+	if invalidConsentDigest.Code != http.StatusBadRequest {
+		t.Fatalf("invalid consent digest status/body=%d/%s", invalidConsentDigest.Code, invalidConsentDigest.Body.String())
+	}
+	unknownProvider := performJSONHeaders(env.router, http.MethodPost, basePath+"/payment-methods/setup", map[string]any{
+		"provider": "unknown", "consent": map[string]any{
+			"accepted": true, "text_version": "payment-method-v1",
+			"text_sha256": strings.Repeat("a", 64), "locale": "zh-TW",
+		},
+	}, owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "setup-provider-unknown"})
+	if unknownProvider.Code != http.StatusServiceUnavailable || !strings.Contains(unknownProvider.Body.String(), "PAYMENT_PROVIDER_NOT_CONFIGURED") {
+		t.Fatalf("unknown provider status/body=%d/%s", unknownProvider.Code, unknownProvider.Body.String())
+	}
 	fakeProvider := fake.New("webhook-secret")
 	if err := env.server.ConfigurePayments(PaymentAPIOptions{Store: repository, Providers: []payment.PaymentProvider{fakeProvider}}); err != nil {
 		t.Fatal(err)
 	}
-	setupFakeRes := performJSONHeaders(env.router, http.MethodPost, basePath+"/payment-methods/setup", map[string]any{
+	unprotectedSetup := performJSONHeaders(env.router, http.MethodPost, basePath+"/payment-methods/setup", map[string]any{
+		"provider": "fake", "consent": map[string]any{
+			"accepted": true, "text_version": "payment-method-v1",
+			"text_sha256": strings.Repeat("a", 64), "locale": "zh-TW",
+		},
+	}, owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "setup-unprotected"})
+	if unprotectedSetup.Code != http.StatusServiceUnavailable || !strings.Contains(unprotectedSetup.Body.String(), "PAYMENT_REFERENCE_PROTECTION_UNCONFIGURED") || len(fakeProvider.SetupCalls()) != 0 {
+		t.Fatalf("unprotected setup status/body/calls=%d/%s/%d", unprotectedSetup.Code, unprotectedSetup.Body.String(), len(fakeProvider.SetupCalls()))
+	}
+	referenceProtector, err := paymentcrypto.New(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x42}, 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiryMonth, expiryYear := 12, 2030
+	fakeProvider.QueueSetup(fake.SetupOutcome{Result: payment.SetupResult{
+		State: payment.PaymentIntentStateSucceeded, HostedURL: "https://fake-payments.invalid/setup/session-1",
+		ProviderCustomerRef: "fake-customer-opaque-1", ProviderMethodRef: "fake-method-opaque-1",
+		ProviderCode: "00", CardBrand: "test", LastFour: "4242", ExpiryMonth: &expiryMonth, ExpiryYear: &expiryYear,
+	}})
+	if err := env.server.ConfigurePayments(PaymentAPIOptions{
+		Store: repository, Providers: []payment.PaymentProvider{fakeProvider}, ReferenceProtector: referenceProtector,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	setupPayload := map[string]any{
 		"provider": "fake",
+		"consent": map[string]any{
+			"accepted": true, "text_version": "payment-method-v1",
+			"text_sha256": strings.Repeat("a", 64), "locale": "zh-TW",
+		},
+	}
+	setupFakeRes := performJSONHeaders(env.router, http.MethodPost, basePath+"/payment-methods/setup", setupPayload,
+		owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "setup-fake-1", "X-Request-Id": "setup-request-1"})
+	if setupFakeRes.Code != http.StatusAccepted || !strings.Contains(setupFakeRes.Body.String(), "https://fake-payments.invalid/setup/session-1") ||
+		strings.Contains(setupFakeRes.Body.String(), "fake-method-opaque-1") || strings.Contains(setupFakeRes.Body.String(), "fake-customer-opaque-1") {
+		t.Fatalf("qualified setup status/body=%d/%s", setupFakeRes.Code, setupFakeRes.Body.String())
+	}
+	contract.validate(t, http.MethodPost, basePath+"/payment-methods/setup", setupFakeRes)
+	var setupBody struct {
+		PaymentMethod payment.PaymentMethod `json:"payment_method"`
+		HostedURL     string                `json:"hosted_url"`
+		Duplicate     bool                  `json:"duplicate"`
+	}
+	if err := json.Unmarshal(setupFakeRes.Body.Bytes(), &setupBody); err != nil || setupBody.PaymentMethod.ID == "" ||
+		setupBody.PaymentMethod.Status != payment.PaymentMethodStatusActive || setupBody.Duplicate {
+		t.Fatalf("setup body=%+v err=%v", setupBody, err)
+	}
+	setupReplay := performJSONHeaders(env.router, http.MethodPost, basePath+"/payment-methods/setup", setupPayload,
+		owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "setup-fake-1", "X-Request-Id": "setup-request-2"})
+	if setupReplay.Code != http.StatusAccepted || !strings.Contains(setupReplay.Body.String(), `"duplicate":true`) || len(fakeProvider.SetupCalls()) != 2 {
+		t.Fatalf("setup replay status/body/calls=%d/%s/%d", setupReplay.Code, setupReplay.Body.String(), len(fakeProvider.SetupCalls()))
+	}
+	fakeProvider.QueueSetup(fake.SetupOutcome{Result: payment.SetupResult{
+		State: payment.PaymentIntentStateRequiresAction, HostedURL: "https://fake-payments.invalid/setup/session-action",
+		ProviderCode: "action_required", RequiresUserAction: true,
+	}})
+	pendingSetup := performJSONHeaders(env.router, http.MethodPost, basePath+"/payment-methods/setup", map[string]any{
+		"provider": "fake", "consent": map[string]any{
+			"accepted": true, "text_version": "payment-method-v1",
+			"text_sha256": strings.Repeat("d", 64), "locale": "zh-TW",
+		},
+	}, owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "setup-fake-action"})
+	if pendingSetup.Code != http.StatusAccepted || !strings.Contains(pendingSetup.Body.String(), `"status":"pending"`) ||
+		!strings.Contains(pendingSetup.Body.String(), "https://fake-payments.invalid/setup/session-action") {
+		t.Fatalf("pending setup status/body=%d/%s", pendingSetup.Code, pendingSetup.Body.String())
+	}
+	contract.validate(t, http.MethodPost, basePath+"/payment-methods/setup", pendingSetup)
+	conflictingSetup := performJSONHeaders(env.router, http.MethodPost, basePath+"/payment-methods/setup", map[string]any{
+		"provider": "fake", "consent": map[string]any{
+			"accepted": true, "text_version": "payment-method-v2",
+			"text_sha256": strings.Repeat("b", 64), "locale": "zh-TW",
+		},
 	}, owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "setup-fake-1"})
-	if setupFakeRes.Code != http.StatusConflict || !strings.Contains(setupFakeRes.Body.String(), "PAYMENT_CAPABILITY_UNSUPPORTED") {
-		t.Fatalf("unqualified setup status/body=%d/%s", setupFakeRes.Code, setupFakeRes.Body.String())
+	if conflictingSetup.Code != http.StatusConflict || !strings.Contains(conflictingSetup.Body.String(), "PAYMENT_METHOD_SETUP_CONFLICT") {
+		t.Fatalf("conflicting setup status/body=%d/%s", conflictingSetup.Code, conflictingSetup.Body.String())
 	}
-	account, err := repository.GetCommercialAccountByOrganization(ctx, owner.Organization.ID, payment.CurrencyTWD)
+	var customerCiphertext, methodCiphertext []byte
+	var setupSessionID, methodRefSHA, hostedURLSHA string
+	var setupSessions, setupConsents int
+	if err := env.db.QueryRow(ctx, `
+		SELECT provider_customer_ref_ciphertext, provider_method_ref_ciphertext,
+			provider_method_ref_sha256,
+			(SELECT id::text FROM payment_method_setup_sessions WHERE payment_method_id = payment_methods.id),
+			(SELECT hosted_url_sha256 FROM payment_method_setup_sessions WHERE payment_method_id = payment_methods.id)
+		FROM payment_methods WHERE id = $1
+	`, setupBody.PaymentMethod.ID).Scan(&customerCiphertext, &methodCiphertext, &methodRefSHA, &setupSessionID, &hostedURLSHA); err != nil {
+		t.Fatal(err)
+	}
+	customerRef, customerErr := referenceProtector.ResolveMethodReference(ctx, customerCiphertext)
+	methodRef, methodErr := referenceProtector.ResolveMethodReference(ctx, methodCiphertext)
+	if customerErr != nil || methodErr != nil || customerRef != "fake-customer-opaque-1" || methodRef != "fake-method-opaque-1" ||
+		len(methodRefSHA) != 64 || len(hostedURLSHA) != 64 || hostedURLSHA == setupBody.HostedURL {
+		t.Fatalf("reference evidence customer=%q/%v method=%q/%v method_sha=%q hosted_sha=%q", customerRef, customerErr, methodRef, methodErr, methodRefSHA, hostedURLSHA)
+	}
+	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM payment_method_setup_sessions WHERE payment_method_id = $1`, setupBody.PaymentMethod.ID).Scan(&setupSessions); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM payment_consents WHERE id = $1 AND consent_type = 'payment_method'`, setupBody.PaymentMethod.ConsentID).Scan(&setupConsents); err != nil {
+		t.Fatal(err)
+	}
+	if setupSessions != 1 || setupConsents != 1 {
+		t.Fatalf("setup sessions=%d consents=%d", setupSessions, setupConsents)
+	}
+	if _, err := repository.CompletePaymentMethodSetup(ctx, paymentstore.CompletePaymentMethodSetupInput{
+		AccountID: setupBody.PaymentMethod.AccountID, SessionID: setupSessionID,
+		State: payment.PaymentIntentStateSucceeded, ProviderCode: "00", HostedURLSHA256: hostedURLSHA,
+		ProviderCustomerRefCiphertext: []byte("different-customer-ciphertext"),
+		ProviderMethodRefCiphertext:   []byte("different-method-ciphertext"),
+		ProviderMethodRefSHA256:       strings.Repeat("e", 64),
+		Now:                           time.Date(2026, 8, 15, 10, 1, 0, 0, time.UTC),
+	}); !errors.Is(err, paymentstore.ErrIdempotencyConflict) {
+		t.Fatalf("provider setup replay with a changed method reference must conflict: %v", err)
+	}
+	outsiderAccount, _, err := repository.EnsureCommercialAccount(ctx, outsider.Organization.ID, payment.CurrencyTWD)
 	if err != nil {
 		t.Fatal(err)
 	}
-	methodConsent, err := repository.CreateConsent(ctx, paymentstore.CreateConsentInput{
-		AccountID: account.ID, ConsentType: "payment_method", TextVersion: "payment-method-v1",
-		TextSHA256: strings.Repeat("a", 64), AcceptedActorType: "user", AcceptedActorID: owner.User.ID,
-		AcceptedAt: time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC), Locale: "zh-TW", Source: "integration-test",
-	})
-	if err != nil {
-		t.Fatal(err)
+	if _, err := repository.CompletePaymentMethodSetup(ctx, paymentstore.CompletePaymentMethodSetupInput{
+		AccountID: outsiderAccount.ID, SessionID: setupSessionID,
+		State: payment.PaymentIntentStateSucceeded, ProviderCode: "00", HostedURLSHA256: hostedURLSHA,
+		ProviderCustomerRefCiphertext: []byte("tenant-isolated-customer-ciphertext"),
+		ProviderMethodRefCiphertext:   []byte("tenant-isolated-method-ciphertext"),
+		ProviderMethodRefSHA256:       methodRefSHA,
+		Now:                           time.Date(2026, 8, 15, 10, 2, 0, 0, time.UTC),
+	}); !errors.Is(err, paymentstore.ErrNotFound) {
+		t.Fatalf("cross-tenant setup completion must be hidden: %v", err)
 	}
-	method, err := repository.CreatePaymentMethod(ctx, paymentstore.CreatePaymentMethodInput{
-		AccountID: account.ID, Provider: "fake",
-		ProviderCustomerRefCiphertext: []byte("encrypted-customer-reference"),
-		ProviderMethodRefCiphertext:   []byte("encrypted-method-reference"),
-		ProviderMethodRefSHA256:       strings.Repeat("b", 64),
-		CardBrand:                     "test", LastFour: "4242", Status: payment.PaymentMethodStatusActive,
-		Capabilities: payment.ProviderCapabilities{VaultedMethod: true, MerchantInitiatedCharge: true, StatusQuery: true, Webhook: true},
-		ConsentID:    methodConsent.ID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	method := setupBody.PaymentMethod
 
 	methodsRes := performJSON(env.router, http.MethodGet, basePath+"/payment-methods", nil, owner.Tokens.AccessToken)
 	if methodsRes.Code != http.StatusOK || !strings.Contains(methodsRes.Body.String(), "4242") ||

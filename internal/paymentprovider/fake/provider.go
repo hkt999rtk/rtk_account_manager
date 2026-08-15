@@ -20,13 +20,21 @@ type Outcome struct {
 	Err    error
 }
 
+type SetupOutcome struct {
+	Result payment.SetupResult
+	Err    error
+}
+
 type Provider struct {
 	mu sync.Mutex
 
 	secret         []byte
+	setupOutcomes  []SetupOutcome
 	chargeOutcomes []Outcome
 	queryOutcomes  []Outcome
+	setupByKey     map[string]SetupOutcome
 	chargeByOrder  map[string]Outcome
+	setupCalls     []payment.SetupRequest
 	chargeCalls    []payment.ChargeRequest
 	queryCalls     []payment.QueryRequest
 }
@@ -34,6 +42,7 @@ type Provider struct {
 func New(secret string) *Provider {
 	return &Provider{
 		secret:        []byte(secret),
+		setupByKey:    make(map[string]SetupOutcome),
 		chargeByOrder: make(map[string]Outcome),
 	}
 }
@@ -42,11 +51,18 @@ func (p *Provider) Name() string { return "fake" }
 
 func (p *Provider) Capabilities(context.Context) payment.ProviderCapabilities {
 	return payment.ProviderCapabilities{
+		HostedSetup:             true,
 		VaultedMethod:           true,
 		MerchantInitiatedCharge: true,
 		StatusQuery:             true,
 		Webhook:                 true,
 	}
+}
+
+func (p *Provider) QueueSetup(outcomes ...SetupOutcome) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.setupOutcomes = append(p.setupOutcomes, outcomes...)
 }
 
 func (p *Provider) QueueCharge(outcomes ...Outcome) {
@@ -90,8 +106,24 @@ func pop(outcomes *[]Outcome) Outcome {
 	return outcome
 }
 
-func (p *Provider) CreateSetup(context.Context, payment.SetupRequest) (payment.SetupResult, error) {
-	return payment.SetupResult{}, payment.ErrProviderUnsupported
+func (p *Provider) CreateSetup(_ context.Context, request payment.SetupRequest) (payment.SetupResult, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.setupCalls = append(p.setupCalls, request)
+	if strings.TrimSpace(request.AccountID) == "" || strings.TrimSpace(request.IdempotencyKey) == "" || strings.TrimSpace(request.CorrelationID) == "" {
+		return payment.SetupResult{}, payment.NewProviderError(payment.ProviderErrorInvalidRequest, "invalid_fake_setup_request", false, nil)
+	}
+	setupKey := request.AccountID + "\x00" + request.IdempotencyKey
+	if outcome, exists := p.setupByKey[setupKey]; exists {
+		return outcome.Result, outcome.Err
+	}
+	outcome := SetupOutcome{Err: payment.NewProviderError(payment.ProviderErrorTemporary, "no_fake_setup_outcome", false, nil)}
+	if len(p.setupOutcomes) > 0 {
+		outcome = p.setupOutcomes[0]
+		p.setupOutcomes = p.setupOutcomes[1:]
+	}
+	p.setupByKey[setupKey] = outcome
+	return outcome.Result, outcome.Err
 }
 
 func (p *Provider) Refund(context.Context, payment.RefundRequest) (payment.ProviderResult, error) {
@@ -149,6 +181,12 @@ func (p *Provider) ChargeCalls() []payment.ChargeRequest {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return append([]payment.ChargeRequest(nil), p.chargeCalls...)
+}
+
+func (p *Provider) SetupCalls() []payment.SetupRequest {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]payment.SetupRequest(nil), p.setupCalls...)
 }
 
 func (p *Provider) QueryCalls() []payment.QueryRequest {
