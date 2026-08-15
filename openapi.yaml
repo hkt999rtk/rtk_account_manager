@@ -4319,7 +4319,9 @@ paths:
       tags: [Billing and Payments]
       operationId: getBillingAccount
       x-rtk-feature-id: FEAT-AM-PAYMENT-001
-      x-rtk-requirement-ids: [REQ-AM-BALANCE-LEDGER-001, REQ-AM-PAYMENT-AUTHZ-001]
+      x-rtk-requirement-ids:
+        - REQ-AM-BALANCE-LEDGER-001
+        - REQ-AM-PAYMENT-AUTHZ-001
       security: [{ bearerAuth: [] }]
       summary: Read the organization commercial account and automatic top-up summary.
       parameters:
@@ -4339,7 +4341,9 @@ paths:
       tags: [Billing and Payments]
       operationId: listBillingLedger
       x-rtk-feature-id: FEAT-AM-PAYMENT-001
-      x-rtk-requirement-ids: [REQ-AM-BALANCE-LEDGER-001, REQ-AM-PAYMENT-AUTHZ-001]
+      x-rtk-requirement-ids:
+        - REQ-AM-BALANCE-LEDGER-001
+        - REQ-AM-PAYMENT-AUTHZ-001
       security: [{ bearerAuth: [] }]
       summary: List immutable customer-safe balance ledger entries.
       parameters:
@@ -4360,7 +4364,9 @@ paths:
       tags: [Billing and Payments]
       operationId: listPaymentMethods
       x-rtk-feature-id: FEAT-AM-PAYMENT-001
-      x-rtk-requirement-ids: [REQ-AM-PAYMENT-METHOD-001, REQ-AM-PAYMENT-AUTHZ-001]
+      x-rtk-requirement-ids:
+        - REQ-AM-PAYMENT-METHOD-001
+        - REQ-AM-PAYMENT-AUTHZ-001
       security: [{ bearerAuth: [] }]
       summary: List redacted organization payment methods.
       parameters:
@@ -4381,7 +4387,9 @@ paths:
       tags: [Billing and Payments]
       operationId: setupPaymentMethod
       x-rtk-feature-id: FEAT-AM-PAYMENT-001
-      x-rtk-requirement-ids: [REQ-AM-PAYMENT-METHOD-001, REQ-AM-PAYMENT-PROVIDER-001]
+      x-rtk-requirement-ids:
+        - REQ-AM-PAYMENT-METHOD-001
+        - REQ-AM-PAYMENT-PROVIDER-001
       security: [{ bearerAuth: [] }]
       summary: Request a provider-hosted payment method setup session.
       description: The request never accepts PAN, CVV, expiry, or other card credentials. The initial NewebPay adapter returns capability unsupported until hosted setup is qualified.
@@ -4409,7 +4417,9 @@ paths:
       tags: [Billing and Payments]
       operationId: revokePaymentMethod
       x-rtk-feature-id: FEAT-AM-PAYMENT-001
-      x-rtk-requirement-ids: [REQ-AM-PAYMENT-METHOD-001, REQ-AM-PAYMENT-AUDIT-001]
+      x-rtk-requirement-ids:
+        - REQ-AM-PAYMENT-METHOD-001
+        - REQ-AM-PAYMENT-AUDIT-001
       security: [{ bearerAuth: [] }]
       summary: Revoke a payment method and disable its active automatic top-up policy.
       parameters:
@@ -4436,7 +4446,9 @@ paths:
       tags: [Billing and Payments]
       operationId: getAutoTopUpPolicy
       x-rtk-feature-id: FEAT-AM-PAYMENT-001
-      x-rtk-requirement-ids: [REQ-AM-AUTO-TOPUP-001, REQ-AM-PAYMENT-AUTHZ-001]
+      x-rtk-requirement-ids:
+        - REQ-AM-AUTO-TOPUP-001
+        - REQ-AM-PAYMENT-AUTHZ-001
       security: [{ bearerAuth: [] }]
       summary: Read the automatic top-up policy and UTC safety-limit reset.
       parameters:
@@ -4454,7 +4466,10 @@ paths:
       tags: [Billing and Payments]
       operationId: replaceAutoTopUpPolicy
       x-rtk-feature-id: FEAT-AM-PAYMENT-001
-      x-rtk-requirement-ids: [REQ-AM-AUTO-TOPUP-001, REQ-AM-PAYMENT-METHOD-001, REQ-AM-PAYMENT-AUDIT-001]
+      x-rtk-requirement-ids:
+        - REQ-AM-AUTO-TOPUP-001
+        - REQ-AM-PAYMENT-METHOD-001
+        - REQ-AM-PAYMENT-AUDIT-001
       security: [{ bearerAuth: [] }]
       summary: Replace the automatic top-up policy using optimistic concurrency and explicit consent.
       parameters:
@@ -4483,7 +4498,9 @@ paths:
       tags: [Billing and Payments]
       operationId: disableAutoTopUpPolicy
       x-rtk-feature-id: FEAT-AM-PAYMENT-001
-      x-rtk-requirement-ids: [REQ-AM-AUTO-TOPUP-001, REQ-AM-PAYMENT-AUDIT-001]
+      x-rtk-requirement-ids:
+        - REQ-AM-AUTO-TOPUP-001
+        - REQ-AM-PAYMENT-AUDIT-001
       security: [{ bearerAuth: [] }]
       summary: Disable automatic top-up and advance the policy generation.
       parameters:
@@ -4514,7 +4531,9 @@ paths:
       tags: [Billing and Payments]
       operationId: createManualTopUp
       x-rtk-feature-id: FEAT-AM-PAYMENT-001
-      x-rtk-requirement-ids: [REQ-AM-PAYMENT-INTENT-001, REQ-AM-PAYMENT-AUDIT-001]
+      x-rtk-requirement-ids:
+        - REQ-AM-PAYMENT-INTENT-001
+        - REQ-AM-PAYMENT-AUDIT-001
       security: [{ bearerAuth: [] }]
       summary: Create an idempotent manual top-up payment intent.
       parameters:
@@ -4545,7 +4564,9 @@ paths:
       tags: [Billing and Payments]
       operationId: listPaymentIntents
       x-rtk-feature-id: FEAT-AM-PAYMENT-001
-      x-rtk-requirement-ids: [REQ-AM-PAYMENT-INTENT-001, REQ-AM-PAYMENT-AUTHZ-001]
+      x-rtk-requirement-ids:
+        - REQ-AM-PAYMENT-INTENT-001
+        - REQ-AM-PAYMENT-AUTHZ-001
       security: [{ bearerAuth: [] }]
       summary: List customer-safe payment intent history.
       parameters:
@@ -4566,7 +4587,9 @@ paths:
       tags: [Billing and Payments]
       operationId: getPaymentIntent
       x-rtk-feature-id: FEAT-AM-PAYMENT-001
-      x-rtk-requirement-ids: [REQ-AM-PAYMENT-INTENT-001, REQ-AM-PAYMENT-AUTHZ-001]
+      x-rtk-requirement-ids:
+        - REQ-AM-PAYMENT-INTENT-001
+        - REQ-AM-PAYMENT-AUTHZ-001
       security: [{ bearerAuth: [] }]
       summary: Read one customer-safe payment intent and its normalized attempts.
       parameters:
@@ -4586,7 +4609,8 @@ paths:
       tags: [Payment Webhooks]
       operationId: ingestPaymentWebhook
       x-rtk-feature-id: FEAT-AM-PAYMENT-001
-      x-rtk-requirement-ids: [REQ-AM-PAYMENT-WEBHOOK-001]
+      x-rtk-requirement-ids:
+        - REQ-AM-PAYMENT-WEBHOOK-001
       summary: Verify, deduplicate, and enqueue a payment provider callback.
       parameters:
         - $ref: "#/components/parameters/PaymentProvider"
