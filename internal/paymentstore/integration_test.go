@@ -416,6 +416,21 @@ func TestRefundCompensationDisarmsAutoTopUpWithoutRecharge(t *testing.T) {
 	if intents != 1 || refunds != 1 {
 		t.Fatalf("intents=%d refunds=%d", intents, refunds)
 	}
+
+	withoutPolicy := createPaymentFixture(t, env, "chargeback-no-policy", 20000, 10000, 50000)
+	if _, err := env.db.Exec(ctx, `DELETE FROM auto_topup_policies WHERE account_id = $1`, withoutPolicy.account.ID); err != nil {
+		t.Fatal(err)
+	}
+	chargeback, err := env.store.PostLedgerEntry(ctx, PostLedgerEntryInput{
+		AccountID: withoutPolicy.account.ID, Direction: payment.LedgerDirectionDebit,
+		AmountMinor: 100, Currency: payment.CurrencyTWD, Reason: payment.LedgerReasonChargebackDebit,
+		IdempotencyScope: "provider_chargeback", IdempotencyKey: "chargeback-no-policy-1",
+		ExternalType: "payment_intent", ExternalID: "external-payment-without-policy",
+		ActorType: "service", ActorID: "payment_worker", RequestID: "chargeback-request-1", Now: testTime(12, 15),
+	})
+	if err != nil || chargeback.Intent != nil || chargeback.Account.AvailableBalanceMinor != 19900 || chargeback.Account.State != payment.AccountStateActive {
+		t.Fatalf("chargeback without policy=%+v err=%v", chargeback, err)
+	}
 }
 
 func TestBalanceLedgerRejectsMutationAtDatabaseBoundary(t *testing.T) {

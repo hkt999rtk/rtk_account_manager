@@ -120,7 +120,7 @@ func disarmAutoTopUpAfterSettlementReversalTx(ctx context.Context, tx pgx.Tx, ac
 		UPDATE auto_topup_policies
 		SET armed = false,
 			version = version + 1
-		WHERE account_id = $1 AND enabled = true
+		WHERE account_id = $1 AND armed = true
 	`, account.ID)
 	if err != nil {
 		return payment.CommercialAccount{}, err
