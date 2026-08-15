@@ -94,22 +94,24 @@ translation only.
 
 ```text
 internal/payment/
-  account.go          commercial account and balance projection rules
-  ledger.go           signed delta and reason validation
+  types.go            commercial account, ledger, policy and provider-neutral types
+  money.go            integer minor-unit arithmetic and reason validation
   intent.go           provider-neutral state machine
   policy.go           threshold, generation, limits, and re-arm rules
-  service.go          use cases and transaction boundaries
+  orchestration.go    provider result and attempt rules
   provider.go         PaymentProvider interface and capability vocabulary
   errors.go           stable domain errors
 
 internal/paymentstore/
-  postgres.go         transactional repository adapter
-  account.go
+  store.go            PostgreSQL scans and shared validation
+  accounts.go
   ledger.go
-  method.go
-  intent.go
-  webhook.go
-  reconciliation.go
+  methods.go
+  intents.go
+  policy.go
+  customer.go
+  webhooks.go
+  orchestration.go
 
 internal/paymentprovider/newebpay/
   adapter.go
