@@ -93,6 +93,10 @@ The API listens on `http://localhost:8080` by default. The OpenAPI contract is i
 List endpoints accept `limit` and `offset` query parameters and return pagination metadata.
 Testing policy and report maintenance are documented in `docs/TESTING.md`.
 The current v2 provisioning and account/video event-channel surface is documented in `docs/SPEC.md`; rollout tracking and dependency history live in `docs/PROVISIONING_AND_EVENT_CHANNEL_PLAN.md`.
+The proposed provider-neutral commercial account, balance ledger, payment
+intent, and automatic top-up architecture is documented in
+`docs/PAYMENT_ABSTRACTION_AND_AUTO_TOPUP.md`. It is documentation-only and does
+not describe an enabled production payment route yet.
 The implementation stays aligned with the `docs/rtk_cloud_contracts_doc/` submodule for provisioning and cross-service channel boundaries.
 The local provisioning and worker flow, including the `log` broker adapter runbook, is documented in `docs/PROVISIONING_EVENT_WORKERS_RUNBOOK.md`.
 The optional local Keycloak/OIDC login flow is documented in `docs/KEYCLOAK_LOCAL_RUNBOOK.md`; normal local development does not require Keycloak.

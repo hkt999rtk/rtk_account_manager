@@ -428,6 +428,30 @@ A device group is an organization-scoped registry target set. Groups contain exi
 
 A device tag is an organization-scoped label attached to an existing device. Tags are selection metadata only; they do not replace device metadata JSON or trigger product-side operations.
 
+## 2.4 Proposed Commercial Settlement Scope
+
+Account Manager is the proposed phase-one owner of Brand Cloud commercial
+accounts, an append-only balance ledger, customer-consented payment methods,
+provider-neutral payment intents, and automatic top-up policy. This capability
+is planned and is not part of the currently implemented API.
+
+The design is maintained in
+[PAYMENT_ABSTRACTION_AND_AUTO_TOPUP.md](PAYMENT_ABSTRACTION_AND_AUTO_TOPUP.md).
+Its cross-repository contract is
+`docs/rtk_cloud_contracts_doc/PAYMENTS_AND_BALANCE.md` once the contracts
+submodule is advanced to the reviewed commit.
+
+The boundary is intentionally narrow:
+
+- metered services continue to own usage facts;
+- pricing and invoice calculation remain a separate commercial dependency;
+- only an authenticated idempotent debit instruction changes the balance;
+- only a settled/reconciled payment intent creates a balance credit;
+- NewebPay is an adapter, not the public domain model;
+- Cloud Admin is a UI/BFF, not the payment source of truth;
+- automatic charges remain disabled until provider capability, consent,
+  finance, security, sandbox, and release gates pass.
+
 ## 4. Data Model
 
 The tables below are the canonical database schema contract. The ER models are
