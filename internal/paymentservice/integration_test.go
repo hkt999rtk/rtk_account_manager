@@ -194,6 +194,95 @@ func TestRunRejectsInvalidIntervalAndStopsOnCancellation(t *testing.T) {
 	}
 }
 
+func TestSuccessfulChargeCreditsExactlyOnceWithoutQuery(t *testing.T) {
+	env := newIntegrationEnv(t)
+	clock := &testClock{now: time.Date(2026, 8, 15, 9, 30, 0, 0, time.UTC)}
+	fixture := createIntegrationFixture(t, env, "success", clock.now)
+	intent := triggerAutomaticIntent(t, env, fixture, clock.now, "success")
+	provider := fake.New("webhook-secret")
+	provider.QueueCharge(fake.Outcome{Result: payment.ProviderResult{
+		State: payment.PaymentIntentStateSucceeded, ProviderTransactionReference: "fake-txn-success", ProviderCode: "00",
+	}})
+	service := newIntegrationService(t, env, provider, clock, true)
+
+	processed, err := service.RunOnce(context.Background())
+	if err != nil || processed != 1 {
+		t.Fatalf("charge run processed=%d err=%v", processed, err)
+	}
+	processed, err = service.RunOnce(context.Background())
+	if err != nil || processed != 0 {
+		t.Fatalf("completed charge must not be retried: processed=%d err=%v", processed, err)
+	}
+	stored, err := env.store.GetPaymentIntent(context.Background(), intent.ID)
+	if err != nil || stored.State != payment.PaymentIntentStateSucceeded || stored.ProviderTransactionReference != "fake-txn-success" {
+		t.Fatalf("intent=%+v err=%v", stored, err)
+	}
+	account, err := env.store.GetCommercialAccount(context.Background(), fixture.account.ID)
+	if err != nil || account.AvailableBalanceMinor != 59000 || account.State != payment.AccountStateActive {
+		t.Fatalf("account=%+v err=%v", account, err)
+	}
+	var attempts, missingDigests, credits, completedJobs int
+	if err := env.db.QueryRow(context.Background(), `
+		SELECT count(*), count(*) FILTER (WHERE request_sha256 IS NULL OR response_sha256 IS NULL)
+		FROM payment_attempts WHERE intent_id = $1
+	`, intent.ID).Scan(&attempts, &missingDigests); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.db.QueryRow(context.Background(), `SELECT count(*) FROM balance_ledger_entries WHERE idempotency_scope = 'payment_intent' AND idempotency_key = $1`, intent.ID).Scan(&credits); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.db.QueryRow(context.Background(), `SELECT count(*) FROM payment_reconciliation_jobs WHERE intent_id = $1 AND status = 'completed'`, intent.ID).Scan(&completedJobs); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 1 || missingDigests != 0 || credits != 1 || completedJobs != 1 || len(provider.ChargeCalls()) != 1 || len(provider.QueryCalls()) != 0 {
+		t.Fatalf("attempts=%d missing_digests=%d credits=%d completed_jobs=%d charge_calls=%d query_calls=%d", attempts, missingDigests, credits, completedJobs, len(provider.ChargeCalls()), len(provider.QueryCalls()))
+	}
+}
+
+func TestDeclinedChargeFailsWithoutCreditOrRetry(t *testing.T) {
+	env := newIntegrationEnv(t)
+	clock := &testClock{now: time.Date(2026, 8, 15, 9, 45, 0, 0, time.UTC)}
+	fixture := createIntegrationFixture(t, env, "declined", clock.now)
+	intent := triggerAutomaticIntent(t, env, fixture, clock.now, "declined")
+	provider := fake.New("webhook-secret")
+	provider.QueueCharge(fake.Outcome{Err: payment.NewProviderError(payment.ProviderErrorDeclined, "card_declined", false, nil)})
+	service := newIntegrationService(t, env, provider, clock, true)
+
+	processed, err := service.RunOnce(context.Background())
+	if err != nil || processed != 1 {
+		t.Fatalf("decline run processed=%d err=%v", processed, err)
+	}
+	processed, err = service.RunOnce(context.Background())
+	if err != nil || processed != 0 {
+		t.Fatalf("declined charge must not be retried: processed=%d err=%v", processed, err)
+	}
+	stored, err := env.store.GetPaymentIntent(context.Background(), intent.ID)
+	if err != nil || stored.State != payment.PaymentIntentStateFailed || stored.ProviderTransactionReference != "" {
+		t.Fatalf("intent=%+v err=%v", stored, err)
+	}
+	account, err := env.store.GetCommercialAccount(context.Background(), fixture.account.ID)
+	if err != nil || account.AvailableBalanceMinor != 9000 || account.State != payment.AccountStateAttentionRequired {
+		t.Fatalf("account=%+v err=%v", account, err)
+	}
+	var attempts, credits, completedJobs int
+	var normalizedResult, providerCode string
+	if err := env.db.QueryRow(context.Background(), `
+		SELECT count(*)::int, min(normalized_result), min(provider_code)
+		FROM payment_attempts WHERE intent_id = $1
+	`, intent.ID).Scan(&attempts, &normalizedResult, &providerCode); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.db.QueryRow(context.Background(), `SELECT count(*) FROM balance_ledger_entries WHERE idempotency_scope = 'payment_intent' AND idempotency_key = $1`, intent.ID).Scan(&credits); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.db.QueryRow(context.Background(), `SELECT count(*) FROM payment_reconciliation_jobs WHERE intent_id = $1 AND status = 'completed'`, intent.ID).Scan(&completedJobs); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 1 || normalizedResult != "failed" || providerCode != "card_declined" || credits != 0 || completedJobs != 1 || len(provider.ChargeCalls()) != 1 || len(provider.QueryCalls()) != 0 {
+		t.Fatalf("attempts=%d result=%s code=%s credits=%d completed_jobs=%d charge_calls=%d query_calls=%d", attempts, normalizedResult, providerCode, credits, completedJobs, len(provider.ChargeCalls()), len(provider.QueryCalls()))
+	}
+}
+
 func TestTimeoutReconcilesToOneCredit(t *testing.T) {
 	env := newIntegrationEnv(t)
 	clock := &testClock{now: time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)}

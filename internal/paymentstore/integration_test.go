@@ -362,6 +362,62 @@ func TestInsufficientTopUpRequiresAttentionWithoutRecursiveCharge(t *testing.T) 
 	}
 }
 
+func TestRefundCompensationDisarmsAutoTopUpWithoutRecharge(t *testing.T) {
+	env := newPaymentIntegrationEnv(t)
+	fixture := createPaymentFixture(t, env, "refund-no-recharge", 20000, 10000, 50000)
+	ctx := context.Background()
+
+	debit, err := env.store.PostLedgerEntry(ctx, debitInput(fixture.account.ID, "refund-origin", 11000, testTime(12, 10)))
+	if err != nil || debit.Intent == nil {
+		t.Fatalf("origin debit=%+v err=%v", debit, err)
+	}
+	if _, err := env.store.TransitionIntent(ctx, TransitionIntentInput{
+		IntentID: debit.Intent.ID, ToState: payment.PaymentIntentStateProcessing, Now: testTime(12, 11),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.TransitionIntent(ctx, TransitionIntentInput{
+		IntentID: debit.Intent.ID, ToState: payment.PaymentIntentStateSucceeded,
+		ProviderTransactionReference: "fake-refund-origin", Now: testTime(12, 12),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	refundInput := PostLedgerEntryInput{
+		AccountID: fixture.account.ID, Direction: payment.LedgerDirectionDebit,
+		AmountMinor: 50000, Currency: payment.CurrencyTWD, Reason: payment.LedgerReasonRefundDebit,
+		IdempotencyScope: "provider_refund", IdempotencyKey: "refund-1",
+		ExternalType: "payment_intent", ExternalID: debit.Intent.ID,
+		ActorType: "service", ActorID: "payment_worker", RequestID: "refund-request-1", Now: testTime(12, 13),
+	}
+	refund, err := env.store.PostLedgerEntry(ctx, refundInput)
+	if err != nil || refund.Intent != nil || refund.Account.AvailableBalanceMinor != 9000 || refund.Account.State != payment.AccountStateAttentionRequired {
+		t.Fatalf("refund=%+v err=%v", refund, err)
+	}
+	policy, err := env.store.GetAutoTopUpPolicy(ctx, fixture.account.ID)
+	if err != nil || policy.Armed {
+		t.Fatalf("policy=%+v err=%v", policy, err)
+	}
+	retry := refundInput
+	retry.RequestID = "refund-request-2"
+	duplicate, err := env.store.PostLedgerEntry(ctx, retry)
+	if err != nil || !duplicate.Duplicate || duplicate.Entry.ID != refund.Entry.ID || duplicate.Intent != nil {
+		t.Fatalf("duplicate refund=%+v err=%v", duplicate, err)
+	}
+	if next, err := env.store.PostLedgerEntry(ctx, debitInput(fixture.account.ID, "after-refund", 1000, testTime(12, 14))); err != nil || next.Intent != nil {
+		t.Fatalf("post-refund debit must not recharge: result=%+v err=%v", next, err)
+	}
+	var intents, refunds int
+	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM payment_intents WHERE account_id = $1`, fixture.account.ID).Scan(&intents); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM balance_ledger_entries WHERE account_id = $1 AND reason = 'refund_debit'`, fixture.account.ID).Scan(&refunds); err != nil {
+		t.Fatal(err)
+	}
+	if intents != 1 || refunds != 1 {
+		t.Fatalf("intents=%d refunds=%d", intents, refunds)
+	}
+}
+
 func TestBalanceLedgerRejectsMutationAtDatabaseBoundary(t *testing.T) {
 	env := newPaymentIntegrationEnv(t)
 	fixture := createPaymentFixture(t, env, "append-only", 10000, 5000, 10000)

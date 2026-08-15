@@ -168,6 +168,11 @@ Implementation rules:
 chargeback behavior changes the ledger and must not later bypass the
 abstraction.
 
+Refund and chargeback ledger compensation is fail-safe even while the provider
+operation remains unsupported: a compensating debit is idempotent, disarms the
+automatic top-up policy, and moves an otherwise-active commercial account to
+`attention_required`. It never starts a replacement charge.
+
 ## Data Model
 
 All monetary fields are `BIGINT`, are interpreted as ISO currency minor units,
@@ -538,6 +543,8 @@ Alerts:
 - all legal/illegal intent transitions;
 - strict `< threshold` behavior, equality behavior, re-arm, generation, cooldown,
   daily limits, inactive method, and no recursive charging;
+- refund/chargeback compensation disarms automatic top-up and cannot initiate a
+  replacement charge;
 - provider error normalization and timeout-to-unknown;
 - NewebPay order/token-term mapping, crypto, integrity, malformed data, and
   redaction fixtures.

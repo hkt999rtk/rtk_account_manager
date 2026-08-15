@@ -44,3 +44,20 @@ func TestValidateLedgerInputRequiresStablePairsAndValidMoney(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSettlementReversalNeverTriggersAutomaticTopUp(t *testing.T) {
+	for _, reason := range []payment.LedgerReason{payment.LedgerReasonRefundDebit, payment.LedgerReasonChargebackDebit} {
+		if !isSettlementReversal(reason) {
+			t.Fatalf("%s must be treated as a settlement reversal", reason)
+		}
+	}
+	for _, reason := range []payment.LedgerReason{
+		payment.LedgerReasonInvoiceDebit,
+		payment.LedgerReasonUsageAdjustmentDebit,
+		payment.LedgerReasonManualAdjustmentDebit,
+	} {
+		if isSettlementReversal(reason) {
+			t.Fatalf("%s must remain an ordinary debit", reason)
+		}
+	}
+}

@@ -87,7 +87,12 @@ func (s *Store) PostLedgerEntry(ctx context.Context, in PostLedgerEntryInput) (P
 	}
 
 	var intent *payment.PaymentIntent
-	if in.Direction == payment.LedgerDirectionDebit && account.State == payment.AccountStateActive {
+	if in.Direction == payment.LedgerDirectionDebit && isSettlementReversal(in.Reason) {
+		account, err = disarmAutoTopUpAfterSettlementReversalTx(ctx, tx, account)
+		if err != nil {
+			return PostLedgerEntryResult{}, err
+		}
+	} else if in.Direction == payment.LedgerDirectionDebit && account.State == payment.AccountStateActive {
 		created, evalErr := evaluateAutoTopUpTx(ctx, tx, account, entry, in.Now, in.RequestID)
 		if evalErr != nil {
 			return PostLedgerEntryResult{}, evalErr
@@ -104,6 +109,32 @@ func (s *Store) PostLedgerEntry(ctx context.Context, in PostLedgerEntryInput) (P
 		return PostLedgerEntryResult{}, err
 	}
 	return PostLedgerEntryResult{Account: account, Entry: entry, Intent: intent}, nil
+}
+
+func isSettlementReversal(reason payment.LedgerReason) bool {
+	return reason == payment.LedgerReasonRefundDebit || reason == payment.LedgerReasonChargebackDebit
+}
+
+func disarmAutoTopUpAfterSettlementReversalTx(ctx context.Context, tx pgx.Tx, account payment.CommercialAccount) (payment.CommercialAccount, error) {
+	command, err := tx.Exec(ctx, `
+		UPDATE auto_topup_policies
+		SET armed = false,
+			version = version + 1
+		WHERE account_id = $1 AND enabled = true
+	`, account.ID)
+	if err != nil {
+		return payment.CommercialAccount{}, err
+	}
+	if command.RowsAffected() == 0 || account.State != payment.AccountStateActive {
+		return account, nil
+	}
+	return scanAccount(tx.QueryRow(ctx, `
+		UPDATE commercial_accounts
+		SET state = 'attention_required'
+		WHERE id = $1
+		RETURNING `+accountColumns,
+		account.ID,
+	))
 }
 
 func validateLedgerInput(in PostLedgerEntryInput) error {
