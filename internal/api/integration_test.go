@@ -6004,6 +6004,12 @@ func TestIntegrationPaymentAPIAuthorizationLifecycleAndRedaction(t *testing.T) {
 	if err := env.server.ConfigurePayments(PaymentAPIOptions{Store: repository, Providers: []payment.PaymentProvider{fakeProvider}}); err != nil {
 		t.Fatal(err)
 	}
+	setupFakeRes := performJSONHeaders(env.router, http.MethodPost, basePath+"/payment-methods/setup", map[string]any{
+		"provider": "fake",
+	}, owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "setup-fake-1"})
+	if setupFakeRes.Code != http.StatusConflict || !strings.Contains(setupFakeRes.Body.String(), "PAYMENT_CAPABILITY_UNSUPPORTED") {
+		t.Fatalf("unqualified setup status/body=%d/%s", setupFakeRes.Code, setupFakeRes.Body.String())
+	}
 	account, err := repository.GetCommercialAccountByOrganization(ctx, owner.Organization.ID, payment.CurrencyTWD)
 	if err != nil {
 		t.Fatal(err)
@@ -6039,16 +6045,27 @@ func TestIntegrationPaymentAPIAuthorizationLifecycleAndRedaction(t *testing.T) {
 	if missingVersion.Code != http.StatusBadRequest && missingVersion.Code != http.StatusPreconditionRequired {
 		t.Fatalf("missing policy precondition status=%d body=%s", missingVersion.Code, missingVersion.Body.String())
 	}
-	policyRes := performJSONHeaders(env.router, http.MethodPut, basePath+"/auto-topup", map[string]any{
+	policyRequest := map[string]any{
 		"enabled": true, "threshold_minor": 10000, "top_up_amount_minor": 50000, "currency": "TWD",
 		"payment_method_id": method.ID, "daily_attempt_limit": 3, "daily_amount_limit_minor": 150000,
 		"cooldown_seconds": 3600,
 		"consent":          map[string]any{"accepted": true, "text_version": "auto-topup-v1", "text_sha256": strings.Repeat("c", 64), "locale": "zh-TW"},
-	}, owner.Tokens.AccessToken, map[string]string{"If-Match": "\"0\"", "X-Request-Id": "billing-policy-1"})
+	}
+	policyRes := performJSONHeaders(env.router, http.MethodPut, basePath+"/auto-topup", policyRequest, owner.Tokens.AccessToken, map[string]string{"If-Match": "\"0\"", "X-Request-Id": "billing-policy-1"})
 	if policyRes.Code != http.StatusOK || policyRes.Header().Get("ETag") != "\"1\"" {
 		t.Fatalf("policy status/body=%d/%s etag=%q", policyRes.Code, policyRes.Body.String(), policyRes.Header().Get("ETag"))
 	}
 	contract.validate(t, http.MethodPut, basePath+"/auto-topup", policyRes)
+	disableRes := performJSONHeaders(env.router, http.MethodDelete, basePath+"/auto-topup", map[string]any{
+		"reason": "customer paused automatic billing",
+	}, owner.Tokens.AccessToken, map[string]string{"If-Match": "\"1\"", "X-Request-Id": "billing-policy-disable-1"})
+	if disableRes.Code != http.StatusOK || disableRes.Header().Get("ETag") != "\"2\"" || !strings.Contains(disableRes.Body.String(), `"enabled":false`) {
+		t.Fatalf("disable policy status/body=%d/%s etag=%q", disableRes.Code, disableRes.Body.String(), disableRes.Header().Get("ETag"))
+	}
+	reenableRes := performJSONHeaders(env.router, http.MethodPut, basePath+"/auto-topup", policyRequest, owner.Tokens.AccessToken, map[string]string{"If-Match": "\"2\"", "X-Request-Id": "billing-policy-2"})
+	if reenableRes.Code != http.StatusOK || reenableRes.Header().Get("ETag") != "\"3\"" {
+		t.Fatalf("reenable policy status/body=%d/%s etag=%q", reenableRes.Code, reenableRes.Body.String(), reenableRes.Header().Get("ETag"))
+	}
 
 	topupRes := performJSONHeaders(env.router, http.MethodPost, basePath+"/topups", map[string]any{
 		"amount_minor": 30000, "currency": "TWD", "payment_method_id": method.ID,
@@ -6070,6 +6087,12 @@ func TestIntegrationPaymentAPIAuthorizationLifecycleAndRedaction(t *testing.T) {
 	}, owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "manual-topup-1"})
 	if duplicateRes.Code != http.StatusOK || !strings.Contains(duplicateRes.Body.String(), `"duplicate":true`) {
 		t.Fatalf("duplicate status/body=%d/%s", duplicateRes.Code, duplicateRes.Body.String())
+	}
+	conflictRes := performJSONHeaders(env.router, http.MethodPost, basePath+"/topups", map[string]any{
+		"amount_minor": 40000, "currency": "TWD", "payment_method_id": method.ID,
+	}, owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "manual-topup-1"})
+	if conflictRes.Code != http.StatusConflict || !strings.Contains(conflictRes.Body.String(), "PAYMENT_INTENT_CONFLICT") {
+		t.Fatalf("idempotency conflict status/body=%d/%s", conflictRes.Code, conflictRes.Body.String())
 	}
 	intentsRes := performJSON(env.router, http.MethodGet, basePath+"/payment-intents", nil, owner.Tokens.AccessToken)
 	if intentsRes.Code != http.StatusOK || !strings.Contains(intentsRes.Body.String(), topupBody.PaymentIntent.ID) {
@@ -6139,8 +6162,8 @@ func TestIntegrationPaymentAPIAuthorizationLifecycleAndRedaction(t *testing.T) {
 	if err := env.db.QueryRow(ctx, `
 		SELECT count(*)::int FROM audit_events
 		WHERE organization_id = $1 AND event_type IN ('auto_topup_policy_replaced', 'manual_topup_intent_created', 'payment_method_revoked')
-	`, owner.Organization.ID).Scan(&auditCount); err != nil || auditCount != 4 {
-		// Manual top-up replay is deliberately audited as a duplicate, hence four events.
+	`, owner.Organization.ID).Scan(&auditCount); err != nil || auditCount != 5 {
+		// Policy replacement and manual top-up replay are deliberately audited.
 		t.Fatalf("payment audit count=%d err=%v", auditCount, err)
 	}
 

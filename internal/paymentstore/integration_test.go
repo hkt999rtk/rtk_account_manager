@@ -499,6 +499,10 @@ func TestCustomerPaymentReadsManualTopUpAndPolicyDisable(t *testing.T) {
 	if err != nil || method.LastFour != "4242" {
 		t.Fatalf("method=%+v err=%v", method, err)
 	}
+	ledgerPage, err := env.store.ListLedgerEntriesPage(ctx, account.ID, 25, 0)
+	if err != nil || ledgerPage.Total == 0 || len(ledgerPage.Entries) == 0 {
+		t.Fatalf("ledger page=%+v err=%v", ledgerPage, err)
+	}
 
 	input := CreateManualTopUpInput{
 		AccountID: account.ID, AmountMinor: 30000, Currency: payment.CurrencyTWD,
@@ -530,6 +534,19 @@ func TestCustomerPaymentReadsManualTopUpAndPolicyDisable(t *testing.T) {
 	if err != nil || len(attempts) != 0 {
 		t.Fatalf("attempts=%+v err=%v", attempts, err)
 	}
+	claimed, err := env.store.ClaimPaymentJobs(ctx, testTime(15, 1), testTime(14, 0), "customer-api-worker", 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claimed=%+v err=%v", claimed, err)
+	}
+	if _, err := env.store.BeginProviderAttempt(ctx, BeginProviderAttemptInput{
+		JobID: claimed[0].ID, LeaseOwner: "customer-api-worker", Operation: payment.ProviderOperationCharge, Now: testTime(15, 1),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	attempts, err = env.store.ListPaymentAttempts(ctx, intent.ID)
+	if err != nil || len(attempts) != 1 || attempts[0].Operation != payment.ProviderOperationCharge {
+		t.Fatalf("recorded attempts=%+v err=%v", attempts, err)
+	}
 	var jobs int
 	if err := env.db.QueryRow(ctx, `SELECT count(*)::int FROM payment_reconciliation_jobs WHERE intent_id = $1 AND reason = 'charge'`, intent.ID).Scan(&jobs); err != nil || jobs != 1 {
 		t.Fatalf("jobs=%d err=%v", jobs, err)
@@ -545,6 +562,43 @@ func TestCustomerPaymentReadsManualTopUpAndPolicyDisable(t *testing.T) {
 		AccountID: account.ID, ActorID: "billing-owner", ExpectedVersion: fixture.policy.Version,
 	}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale disable err=%v", err)
+	}
+	idempotent, err := env.store.DisableAutoTopUpPolicy(ctx, DisableAutoTopUpPolicyInput{
+		AccountID: account.ID, ActorID: "billing-owner", ExpectedVersion: disabled.Version,
+	})
+	if err != nil || idempotent.ID != disabled.ID || idempotent.Enabled {
+		t.Fatalf("idempotent disable=%+v err=%v", idempotent, err)
+	}
+}
+
+func TestCustomerStoreRejectsInvalidInputsAndBoundsPages(t *testing.T) {
+	ctx := context.Background()
+	store := New(nil)
+	checks := []struct {
+		name string
+		run  func() error
+	}{
+		{"list methods", func() error { _, err := store.ListPaymentMethods(ctx, "", 0, 0); return err }},
+		{"get method", func() error { _, err := store.GetPaymentMethod(ctx, "", ""); return err }},
+		{"revoke method", func() error { _, err := store.RevokePaymentMethod(ctx, RevokePaymentMethodInput{}); return err }},
+		{"disable policy", func() error { _, err := store.DisableAutoTopUpPolicy(ctx, DisableAutoTopUpPolicyInput{}); return err }},
+		{"manual topup", func() error { _, err := store.CreateManualTopUp(ctx, CreateManualTopUpInput{}); return err }},
+		{"list intents", func() error { _, err := store.ListPaymentIntents(ctx, "", 0, 0); return err }},
+		{"get intent", func() error { _, err := store.GetPaymentIntentForAccount(ctx, "", ""); return err }},
+		{"list attempts", func() error { _, err := store.ListPaymentAttempts(ctx, ""); return err }},
+	}
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			if err := check.run(); !errors.Is(err, ErrConflict) {
+				t.Fatalf("error=%v, want conflict", err)
+			}
+		})
+	}
+	if limit, offset := boundedPage(0, -10); limit != 100 || offset != 0 {
+		t.Fatalf("default bounded page=%d/%d", limit, offset)
+	}
+	if limit, offset := boundedPage(201, 12); limit != 100 || offset != 12 {
+		t.Fatalf("maximum bounded page=%d/%d", limit, offset)
 	}
 }
 
