@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,19 +40,24 @@ type paymentPersistence interface {
 	ListPaymentIntents(context.Context, string, int, int) (paymentstore.PaymentIntentPage, error)
 	GetPaymentIntentForAccount(context.Context, string, string) (payment.PaymentIntent, error)
 	ListPaymentAttempts(context.Context, string) ([]payment.PaymentAttempt, error)
+	PostLedgerEntry(context.Context, paymentstore.PostLedgerEntryInput) (paymentstore.PostLedgerEntryResult, error)
 }
 
 type PaymentAPIOptions struct {
-	Store     paymentPersistence
-	Providers []payment.PaymentProvider
-	Now       func() time.Time
+	Store              paymentPersistence
+	Providers          []payment.PaymentProvider
+	BillingDebitToken  string
+	BillingDebitSource string
+	Now                func() time.Time
 }
 
 type paymentRuntime struct {
-	store     paymentPersistence
-	providers map[string]payment.PaymentProvider
-	webhooks  *paymentservice.Service
-	now       func() time.Time
+	store              paymentPersistence
+	providers          map[string]payment.PaymentProvider
+	webhooks           *paymentservice.Service
+	billingDebitToken  string
+	billingDebitSource string
+	now                func() time.Time
 }
 
 type unavailablePaymentReferenceResolver struct{}
@@ -84,6 +90,19 @@ func (s *Server) ConfigurePayments(options PaymentAPIOptions) error {
 	if options.Now == nil {
 		options.Now = func() time.Time { return time.Now().UTC() }
 	}
+	options.BillingDebitToken = strings.TrimSpace(options.BillingDebitToken)
+	options.BillingDebitSource = strings.TrimSpace(options.BillingDebitSource)
+	if (options.BillingDebitToken == "") != (options.BillingDebitSource == "") {
+		return fmt.Errorf("billing debit token and source must be configured together")
+	}
+	if options.BillingDebitToken != "" {
+		if len(options.BillingDebitToken) < 32 {
+			return fmt.Errorf("billing debit token must contain at least 32 characters")
+		}
+		if !validBillingDebitSource(options.BillingDebitSource) {
+			return fmt.Errorf("billing debit source must use lowercase letters, digits, dots, underscores, or hyphens")
+		}
+	}
 	webhooks, err := paymentservice.New(paymentservice.Options{
 		Store: options.Store, Providers: options.Providers,
 		ReferenceResolver: unavailablePaymentReferenceResolver{},
@@ -93,8 +112,40 @@ func (s *Server) ConfigurePayments(options PaymentAPIOptions) error {
 	if err != nil {
 		return err
 	}
-	s.payments = &paymentRuntime{store: options.Store, providers: providers, webhooks: webhooks, now: options.Now}
+	s.payments = &paymentRuntime{
+		store: options.Store, providers: providers, webhooks: webhooks,
+		billingDebitToken: options.BillingDebitToken, billingDebitSource: options.BillingDebitSource,
+		now: options.Now,
+	}
 	return nil
+}
+
+func validBillingDebitSource(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	for _, character := range value {
+		if character == '.' || character == '_' || character == '-' ||
+			character >= '0' && character <= '9' || character >= 'a' && character <= 'z' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func (s *Server) requireBillingDebitToken(c *gin.Context) bool {
+	if s.payments == nil || s.payments.billingDebitToken == "" || s.payments.billingDebitSource == "" {
+		writeError(c, http.StatusServiceUnavailable, "BILLING_DEBIT_UNCONFIGURED", "Billing debit ingestion is not configured")
+		return false
+	}
+	provided := strings.TrimSpace(c.GetHeader("Authorization"))
+	expected := "Bearer " + s.payments.billingDebitToken
+	if subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
+		writeError(c, http.StatusUnauthorized, "unauthorized", "Unauthorized")
+		return false
+	}
+	return true
 }
 
 func (s *Server) paymentAccount(c *gin.Context) (payment.CommercialAccount, bool) {

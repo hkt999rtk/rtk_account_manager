@@ -65,6 +65,8 @@ tags:
     description: Organization-scoped commercial balance, payment methods, intents, and automatic top-up.
   - name: Payment Webhooks
     description: Provider-authenticated payment callback ingestion.
+  - name: Internal Billing
+    description: Dedicated service-authenticated commercial debit ingestion.
 servers:
   - url: http://localhost:8080
 paths:
@@ -4604,6 +4606,39 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /v1/internal/billing/debits:
+    post:
+      tags: [Internal Billing]
+      operationId: postInternalBillingDebit
+      x-rtk-feature-id: FEAT-AM-PAYMENT-001
+      x-rtk-requirement-ids:
+        - REQ-AM-BILLING-DEBIT-001
+        - REQ-AM-BALANCE-LEDGER-001
+      security: [{ serviceBearerAuth: [] }]
+      summary: Post one authenticated idempotent invoice or usage-adjustment debit.
+      description: Uses a dedicated billing-source credential. It does not calculate prices or invoices and cannot post credits, manual adjustments, refunds, or chargebacks.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InternalBillingDebitRequest" }
+      responses:
+        "201":
+          description: Debit and balance projection committed atomically.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InternalBillingDebitResponse" }
+        "200":
+          description: Semantically identical idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InternalBillingDebitResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /v1/payment-webhooks/{provider}:
     post:
       tags: [Payment Webhooks]
@@ -4636,6 +4671,10 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    serviceBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-service-token
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -4865,6 +4904,33 @@ components:
       type: integer
       format: int64
       multipleOf: 100
+    InternalBillingDebitRequest:
+      type: object
+      additionalProperties: false
+      required: [organization_id, amount_minor, currency, reason, external_id]
+      properties:
+        organization_id: { type: string, format: uuid }
+        amount_minor: { $ref: "#/components/schemas/MoneyMinor" }
+        currency: { $ref: "#/components/schemas/Currency" }
+        reason: { type: string, enum: [invoice_debit, usage_adjustment_debit] }
+        external_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Immutable invoice or usage-adjustment reference owned by the authenticated billing source.
+    InternalBillingDebitResponse:
+      type: object
+      required: [account_id, ledger_entry_id, balance_after_minor, currency, duplicate]
+      properties:
+        account_id: { type: string, format: uuid }
+        ledger_entry_id: { type: string, format: uuid }
+        balance_after_minor: { type: integer, format: int64 }
+        currency: { $ref: "#/components/schemas/Currency" }
+        duplicate: { type: boolean }
+        payment_intent_id:
+          type: string
+          format: uuid
+          nullable: true
     CommercialAccount:
       type: object
       required: [id, organization_id, currency, available_balance_minor, state, version, created_at, updated_at]

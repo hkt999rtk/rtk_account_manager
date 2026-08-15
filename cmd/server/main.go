@@ -111,6 +111,7 @@ func main() {
 	}
 	if err := server.ConfigurePayments(api.PaymentAPIOptions{
 		Store: paymentstore.New(db), Providers: paymentProviders,
+		BillingDebitToken: cfg.BillingDebitToken, BillingDebitSource: cfg.BillingDebitSource,
 	}); err != nil {
 		fatal(logger, "configure payment API failed", err)
 	}

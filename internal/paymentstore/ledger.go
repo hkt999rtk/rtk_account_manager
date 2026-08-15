@@ -177,8 +177,7 @@ func sameLedgerRequest(existing payment.LedgerEntry, in PostLedgerEntryInput) bo
 		existing.Reason == in.Reason && existing.IdempotencyScope == strings.TrimSpace(in.IdempotencyScope) &&
 		existing.IdempotencyKey == strings.TrimSpace(in.IdempotencyKey) &&
 		existing.ExternalType == strings.TrimSpace(in.ExternalType) && existing.ExternalID == strings.TrimSpace(in.ExternalID) &&
-		existing.ActorType == strings.TrimSpace(in.ActorType) && existing.ActorID == strings.TrimSpace(in.ActorID) &&
-		existing.RequestID == strings.TrimSpace(in.RequestID)
+		existing.ActorType == strings.TrimSpace(in.ActorType) && existing.ActorID == strings.TrimSpace(in.ActorID)
 }
 
 func evaluateAutoTopUpTx(ctx context.Context, tx pgx.Tx, account payment.CommercialAccount, trigger payment.LedgerEntry, now time.Time, correlationID string) (*payment.PaymentIntent, error) {

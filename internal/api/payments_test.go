@@ -59,6 +59,19 @@ func TestConfigurePaymentsRequiresStore(t *testing.T) {
 	}
 }
 
+func TestBillingDebitSourceValidationIsStrict(t *testing.T) {
+	for _, valid := range []string{"pricing-engine", "billing.v2", "invoice_worker"} {
+		if !validBillingDebitSource(valid) {
+			t.Fatalf("source %q should be valid", valid)
+		}
+	}
+	for _, invalid := range []string{"", "Pricing-Engine", "billing source", strings.Repeat("a", 65)} {
+		if validBillingDebitSource(invalid) {
+			t.Fatalf("source %q should be invalid", invalid)
+		}
+	}
+}
+
 func TestPaymentActorUsesAuthenticatedSubjectIdentity(t *testing.T) {
 	brandContext, _ := gin.CreateTestContext(httptest.NewRecorder())
 	brandContext.Set("subjectType", auth.SubjectTypeBrandCloudUser)

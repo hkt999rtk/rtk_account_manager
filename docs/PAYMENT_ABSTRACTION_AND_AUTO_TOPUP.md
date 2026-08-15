@@ -31,16 +31,18 @@ The design provides:
 
 It does not make Account Manager a usage meter. Video Cloud and other services
 continue to emit immutable usage facts. Pricing and invoice calculation are a
-separate missing dependency and must produce an authenticated idempotent debit
-instruction before usage affects the balance.
+separate missing dependency. Account Manager now exposes a dedicated,
+fail-closed authenticated idempotent debit-ingestion boundary; a separately
+owned pricing/invoice component must call it before usage affects the balance.
 
 ## Implemented Baseline And Remaining Gap
 
 The repository now contains commercial accounts, an immutable monetary ledger,
 payment consent and safe method metadata, automatic top-up policy state,
 payment intents/attempts, a webhook inbox, durable reconciliation jobs, HTTP
-APIs, permissions, and a dedicated payment worker. Existing organization `tier`
-fields still do not represent money or payment status.
+APIs, permissions, a dedicated internal billing-debit credential, and a
+dedicated payment worker. Existing organization `tier` fields still do not
+represent money or payment status.
 
 The remaining production dependencies are provider-approved hosted payment
 method setup, written approval for unattended merchant-initiated charging,
@@ -82,7 +84,8 @@ ledger   policy      payment orchestrator
            ^                                                    |
            +---------------- verified webhook inbox <-----------+
 
-usage facts ---> pricing/invoice owner ---> authenticated debit instruction
+usage facts ---> pricing/invoice owner ---> POST /v1/internal/billing/debits
+                                             (dedicated service credential)
 ```
 
 HTTP handlers validate transport and authorization. They do not implement
@@ -359,6 +362,14 @@ Common rules:
   redact its query and token components;
 - optimistic update uses policy `version`/ETag to prevent stale changes.
 
+`POST /v1/internal/billing/debits` is disabled unless both
+`ACCOUNT_MANAGER_BILLING_DEBIT_TOKEN` and
+`ACCOUNT_MANAGER_BILLING_DEBIT_SOURCE` are configured. It accepts only
+`invoice_debit` and `usage_adjustment_debit`, requires an immutable external
+reference and `Idempotency-Key`, and records the configured source as the
+ledger actor. It cannot create credits, refunds, chargebacks, manual
+adjustments, prices, or invoices.
+
 Stable error codes:
 
 ```text
@@ -375,6 +386,9 @@ PAYMENT_STATUS_UNKNOWN
 AUTO_TOPUP_LIMIT_REACHED
 AUTO_TOPUP_POLICY_CONFLICT
 BILLING_ACCOUNT_SUSPENDED
+BILLING_DEBIT_UNCONFIGURED
+BILLING_DEBIT_REASON_INVALID
+BILLING_DEBIT_CONFLICT
 ```
 
 Decline details are customer-safe and do not expose fraud/risk signals.

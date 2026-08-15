@@ -6173,6 +6173,102 @@ func TestIntegrationPaymentAPIAuthorizationLifecycleAndRedaction(t *testing.T) {
 	}
 }
 
+func TestIntegrationInternalBillingDebitAuthenticationAndIdempotency(t *testing.T) {
+	env := newIntegrationEnv(t)
+	contract := newResponseContract(t)
+	owner := registerUser(t, env.router, "billing-debit-owner@example.com", "Billing Debit Owner Org")
+	path := "/v1/internal/billing/debits"
+	payload := map[string]any{
+		"organization_id": owner.Organization.ID,
+		"amount_minor":    10000,
+		"currency":        "TWD",
+		"reason":          "invoice_debit",
+		"external_id":     "invoice-2026-08-001",
+	}
+	unconfigured := performJSONHeaders(env.router, http.MethodPost, path, payload, strings.Repeat("u", 32), map[string]string{"Idempotency-Key": "invoice-001"})
+	if unconfigured.Code != http.StatusServiceUnavailable || !strings.Contains(unconfigured.Body.String(), "BILLING_DEBIT_UNCONFIGURED") {
+		t.Fatalf("unconfigured status/body=%d/%s", unconfigured.Code, unconfigured.Body.String())
+	}
+
+	repository := paymentstore.New(env.db)
+	debitToken := strings.Repeat("d", 32)
+	if err := env.server.ConfigurePayments(PaymentAPIOptions{Store: repository, BillingDebitToken: debitToken}); err == nil || strings.Contains(err.Error(), debitToken) {
+		t.Fatalf("incomplete billing credential must fail without disclosure: %v", err)
+	}
+	if err := env.server.ConfigurePayments(PaymentAPIOptions{Store: repository, BillingDebitToken: "short", BillingDebitSource: "pricing-engine"}); err == nil || strings.Contains(err.Error(), "short") {
+		t.Fatalf("short billing credential must fail without disclosure: %v", err)
+	}
+	if err := env.server.ConfigurePayments(PaymentAPIOptions{
+		Store: repository, BillingDebitToken: debitToken, BillingDebitSource: "pricing-engine",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	unauthorized := performJSONHeaders(env.router, http.MethodPost, path, payload, strings.Repeat("w", 32), map[string]string{"Idempotency-Key": "invoice-001"})
+	if unauthorized.Code != http.StatusUnauthorized || strings.Contains(unauthorized.Body.String(), debitToken) {
+		t.Fatalf("unauthorized status/body=%d/%s", unauthorized.Code, unauthorized.Body.String())
+	}
+	created := performJSONHeaders(env.router, http.MethodPost, path, payload, debitToken, map[string]string{
+		"Idempotency-Key": "invoice-001", "X-Request-Id": "billing-debit-request-1",
+	})
+	if created.Code != http.StatusCreated || !strings.Contains(created.Body.String(), `"balance_after_minor":-10000`) || strings.Contains(created.Body.String(), "pricing-engine") {
+		t.Fatalf("created status/body=%d/%s", created.Code, created.Body.String())
+	}
+	contract.validate(t, http.MethodPost, path, created)
+	duplicate := performJSONHeaders(env.router, http.MethodPost, path, payload, debitToken, map[string]string{
+		"Idempotency-Key": "invoice-001", "X-Request-Id": "billing-debit-request-2",
+	})
+	if duplicate.Code != http.StatusOK || !strings.Contains(duplicate.Body.String(), `"duplicate":true`) {
+		t.Fatalf("duplicate status/body=%d/%s", duplicate.Code, duplicate.Body.String())
+	}
+	conflictingPayload := map[string]any{
+		"organization_id": owner.Organization.ID,
+		"amount_minor":    20000,
+		"currency":        "TWD",
+		"reason":          "invoice_debit",
+		"external_id":     "invoice-2026-08-001",
+	}
+	conflict := performJSONHeaders(env.router, http.MethodPost, path, conflictingPayload, debitToken, map[string]string{"Idempotency-Key": "invoice-001"})
+	if conflict.Code != http.StatusConflict || !strings.Contains(conflict.Body.String(), "BILLING_DEBIT_CONFLICT") {
+		t.Fatalf("conflict status/body=%d/%s", conflict.Code, conflict.Body.String())
+	}
+	invalidReason := map[string]any{
+		"organization_id": owner.Organization.ID,
+		"amount_minor":    10000,
+		"currency":        "TWD",
+		"reason":          "manual_adjustment_debit",
+		"external_id":     "manual-001",
+	}
+	invalid := performJSONHeaders(env.router, http.MethodPost, path, invalidReason, debitToken, map[string]string{"Idempotency-Key": "manual-001"})
+	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), "BILLING_DEBIT_REASON_INVALID") {
+		t.Fatalf("invalid reason status/body=%d/%s", invalid.Code, invalid.Body.String())
+	}
+	cardPayload := map[string]any{
+		"organization_id": owner.Organization.ID,
+		"amount_minor":    10000,
+		"currency":        "TWD",
+		"reason":          "invoice_debit",
+		"external_id":     "invoice-with-card-data",
+		"card_number":     "4111111111111111",
+	}
+	cardRejected := performJSONHeaders(env.router, http.MethodPost, path, cardPayload, debitToken, map[string]string{"Idempotency-Key": "card-data-001"})
+	if cardRejected.Code != http.StatusBadRequest || strings.Contains(cardRejected.Body.String(), "4111111111111111") {
+		t.Fatalf("card data must be rejected without reflection, status/body=%d/%s", cardRejected.Code, cardRejected.Body.String())
+	}
+
+	var entries int
+	var actorType, actorID, requestID, externalType, externalID string
+	if err := env.db.QueryRow(context.Background(), `
+		SELECT count(*)::int, min(actor_type), min(actor_id), min(request_id), min(external_type), min(external_id)
+		FROM balance_ledger_entries
+		WHERE account_id = (SELECT id FROM commercial_accounts WHERE organization_id = $1 AND currency = 'TWD')
+	`, owner.Organization.ID).Scan(&entries, &actorType, &actorID, &requestID, &externalType, &externalID); err != nil {
+		t.Fatal(err)
+	}
+	if entries != 1 || actorType != "service" || actorID != "pricing-engine" || requestID != "billing-debit-request-1" || externalType != "invoice" || externalID != "invoice-2026-08-001" {
+		t.Fatalf("ledger evidence entries=%d actor=%s/%s request=%s external=%s/%s", entries, actorType, actorID, requestID, externalType, externalID)
+	}
+}
+
 func TestIntegrationAdminDeviceUnprovisionOverride(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()

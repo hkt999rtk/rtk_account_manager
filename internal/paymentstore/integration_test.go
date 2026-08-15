@@ -218,6 +218,12 @@ func TestLedgerTriggerAndIntentCreditAreExactlyOnce(t *testing.T) {
 	if !duplicate.Duplicate || duplicate.Entry.ID != result.Entry.ID || duplicate.Intent == nil || duplicate.Intent.ID != intentID {
 		t.Fatalf("unexpected duplicate result: %+v", duplicate)
 	}
+	retried := input
+	retried.RequestID = "request-invoice-1-retry"
+	requestRetry, err := env.store.PostLedgerEntry(ctx, retried)
+	if err != nil || !requestRetry.Duplicate || requestRetry.Entry.ID != result.Entry.ID {
+		t.Fatalf("a transport retry may use a new request id: result=%+v err=%v", requestRetry, err)
+	}
 	conflicting := input
 	conflicting.AmountMinor = 12000
 	if _, err := env.store.PostLedgerEntry(ctx, conflicting); !errors.Is(err, ErrIdempotencyConflict) {
