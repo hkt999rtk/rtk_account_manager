@@ -31,7 +31,8 @@ func CanTransitionIntent(from, to PaymentIntentState) bool {
 		return to == PaymentIntentStateSucceeded || to == PaymentIntentStateUnknown ||
 			to == PaymentIntentStateFailed || to == PaymentIntentStateCanceled
 	case PaymentIntentStateRequiresAction:
-		return to == PaymentIntentStateProcessing || to == PaymentIntentStateUnknown ||
+		return to == PaymentIntentStateProcessing || to == PaymentIntentStateAuthorized ||
+			to == PaymentIntentStateSucceeded || to == PaymentIntentStateUnknown ||
 			to == PaymentIntentStateFailed || to == PaymentIntentStateCanceled
 	case PaymentIntentStateUnknown:
 		return to == PaymentIntentStateAuthorized || to == PaymentIntentStateSucceeded ||

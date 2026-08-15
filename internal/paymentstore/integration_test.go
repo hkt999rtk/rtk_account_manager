@@ -639,6 +639,43 @@ func TestFailedIntentManualCreditRearmsPolicyAndRecoversAccount(t *testing.T) {
 	}
 }
 
+func TestPaymentJobLeaseOwnershipRetryAndCompletion(t *testing.T) {
+	env := newPaymentIntegrationEnv(t)
+	fixture := createPaymentFixture(t, env, "job-lease", 20000, 10000, 50000)
+	ctx := context.Background()
+	debit, err := env.store.PostLedgerEntry(ctx, debitInput(fixture.account.ID, "job-lease-debit", 11000, testTime(17, 30)))
+	if err != nil || debit.Intent == nil {
+		t.Fatalf("debit=%+v err=%v", debit, err)
+	}
+
+	claimed, err := env.store.ClaimPaymentJobs(ctx, testTime(17, 30), testTime(17, 29), "worker-a", 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claimed=%+v err=%v", claimed, err)
+	}
+	if err := env.store.CompletePaymentJob(ctx, claimed[0].ID, "wrong-worker"); !errors.Is(err, ErrLeaseConflict) {
+		t.Fatalf("wrong owner completion err=%v", err)
+	}
+	retryAt := testTime(17, 40)
+	if err := env.store.RetryPaymentJob(ctx, claimed[0].ID, "worker-a", retryAt, strings.Repeat("safe", 100)); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err = env.store.ClaimPaymentJobs(ctx, testTime(17, 39), testTime(17, 38), "worker-b", 1)
+	if err != nil || len(claimed) != 0 {
+		t.Fatalf("early retry claim=%+v err=%v", claimed, err)
+	}
+	claimed, err = env.store.ClaimPaymentJobs(ctx, retryAt, testTime(17, 39), "worker-b", 1)
+	if err != nil || len(claimed) != 1 || claimed[0].AttemptCount != 2 {
+		t.Fatalf("retry claim=%+v err=%v", claimed, err)
+	}
+	if err := env.store.CompletePaymentJob(ctx, claimed[0].ID, "worker-b"); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err = env.store.ClaimPaymentJobs(ctx, retryAt.Add(time.Hour), retryAt, "worker-c", 1)
+	if err != nil || len(claimed) != 0 {
+		t.Fatalf("completed claim=%+v err=%v", claimed, err)
+	}
+}
+
 func TestLedgerWorksWithoutAutoTopUpPolicy(t *testing.T) {
 	env := newPaymentIntegrationEnv(t)
 	ctx := context.Background()

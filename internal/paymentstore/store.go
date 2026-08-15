@@ -202,6 +202,94 @@ func scanIntent(row rowScanner) (payment.PaymentIntent, error) {
 	return out, mapNotFound(err)
 }
 
+func scanAttempt(row rowScanner) (payment.PaymentAttempt, error) {
+	var out payment.PaymentAttempt
+	var providerCode, requestSHA256, responseSHA256 *string
+	err := row.Scan(
+		&out.ID,
+		&out.IntentID,
+		&out.Operation,
+		&out.AttemptNumber,
+		&out.StartedAt,
+		&out.CompletedAt,
+		&out.NormalizedResult,
+		&providerCode,
+		&requestSHA256,
+		&responseSHA256,
+		&out.NextReconciliationAt,
+		&out.CreatedAt,
+	)
+	if providerCode != nil {
+		out.ProviderCode = *providerCode
+	}
+	if requestSHA256 != nil {
+		out.RequestSHA256 = *requestSHA256
+	}
+	if responseSHA256 != nil {
+		out.ResponseSHA256 = *responseSHA256
+	}
+	return out, mapNotFound(err)
+}
+
+func scanReconciliationJob(row rowScanner) (payment.ReconciliationJob, error) {
+	var out payment.ReconciliationJob
+	var leaseOwner, lastError *string
+	err := row.Scan(
+		&out.ID,
+		&out.IntentID,
+		&out.Reason,
+		&out.Status,
+		&out.DueAt,
+		&out.AttemptCount,
+		&out.LeasedAt,
+		&leaseOwner,
+		&lastError,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	)
+	if leaseOwner != nil {
+		out.LeaseOwner = *leaseOwner
+	}
+	if lastError != nil {
+		out.LastError = *lastError
+	}
+	return out, mapNotFound(err)
+}
+
+func scanWebhookReceipt(row rowScanner) (payment.WebhookReceipt, error) {
+	var out payment.WebhookReceipt
+	var providerEventReference, intentID, normalizedEventType *string
+	var safeSummary []byte
+	err := row.Scan(
+		&out.ID,
+		&out.Provider,
+		&providerEventReference,
+		&out.PayloadSHA256,
+		&out.VerificationResult,
+		&intentID,
+		&normalizedEventType,
+		&out.ProcessingState,
+		&safeSummary,
+		&out.ReceivedAt,
+		&out.ProcessedAt,
+		&out.CreatedAt,
+		&out.UpdatedAt,
+	)
+	if providerEventReference != nil {
+		out.ProviderEventReference = *providerEventReference
+	}
+	if intentID != nil {
+		out.IntentID = *intentID
+	}
+	if normalizedEventType != nil {
+		out.NormalizedEventType = *normalizedEventType
+	}
+	if err == nil {
+		err = json.Unmarshal(safeSummary, &out.SafeSummary)
+	}
+	return out, mapNotFound(err)
+}
+
 const accountColumns = `
 	id::text, organization_id::text, currency, available_balance_minor,
 	state, version, created_at, updated_at`
@@ -233,3 +321,18 @@ const intentColumns = `
 	payment_method_id::text, state, idempotency_key, merchant_order_reference,
 	provider_transaction_reference, correlation_id, created_at, updated_at,
 	completed_at`
+
+const attemptColumns = `
+	id::text, intent_id::text, operation, attempt_number, started_at,
+	completed_at, normalized_result, provider_code, request_sha256,
+	response_sha256, next_reconciliation_at, created_at`
+
+const reconciliationJobColumns = `
+	id::text, intent_id::text, reason, status, due_at, attempt_count,
+	leased_at, lease_owner, last_error, created_at, updated_at`
+
+const webhookReceiptColumns = `
+	id::text, provider, provider_event_reference, payload_sha256,
+	verification_result, intent_id::text, normalized_event_type,
+	processing_state, redacted_summary, received_at, processed_at,
+	created_at, updated_at`

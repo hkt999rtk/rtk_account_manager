@@ -263,6 +263,12 @@ func evaluateAutoTopUpTx(ctx context.Context, tx pgx.Tx, account payment.Commerc
 	`, policy.ID, now); err != nil {
 		return nil, err
 	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO payment_reconciliation_jobs (intent_id, reason, status, due_at)
+		VALUES ($1, 'charge', 'pending', $2)
+	`, intent.ID, now); err != nil {
+		return nil, err
+	}
 	return &intent, nil
 }
 

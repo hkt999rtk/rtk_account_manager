@@ -54,6 +54,18 @@ func (s *Store) TransitionIntent(ctx context.Context, in TransitionIntentInput) 
 	if err != nil {
 		return TransitionIntentResult{}, err
 	}
+	result, err := transitionIntentTx(ctx, tx, account, intent, in)
+	if err != nil {
+		return TransitionIntentResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return TransitionIntentResult{}, err
+	}
+	return result, nil
+}
+
+func transitionIntentTx(ctx context.Context, tx pgx.Tx, account payment.CommercialAccount, intent payment.PaymentIntent, in TransitionIntentInput) (TransitionIntentResult, error) {
+	var err error
 	providerReference := strings.TrimSpace(in.ProviderTransactionReference)
 	if intent.ProviderTransactionReference != "" && providerReference != "" && intent.ProviderTransactionReference != providerReference {
 		return TransitionIntentResult{}, ErrConflict
@@ -151,7 +163,7 @@ func (s *Store) TransitionIntent(ctx context.Context, in TransitionIntentInput) 
 				}
 			}
 		}
-	} else if (in.ToState == payment.PaymentIntentStateFailed || in.ToState == payment.PaymentIntentStateCanceled) &&
+	} else if (in.ToState == payment.PaymentIntentStateFailed || in.ToState == payment.PaymentIntentStateCanceled || in.ToState == payment.PaymentIntentStateRequiresAction) &&
 		intent.Reason == payment.PaymentIntentReasonAutoTopUp && account.State == payment.AccountStateActive {
 		account, err = scanAccount(tx.QueryRow(ctx, `
 			UPDATE commercial_accounts
@@ -165,9 +177,6 @@ func (s *Store) TransitionIntent(ctx context.Context, in TransitionIntentInput) 
 		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return TransitionIntentResult{}, err
-	}
 	return TransitionIntentResult{Intent: intent, Account: account, CreditEntry: creditPtr}, nil
 }
 
