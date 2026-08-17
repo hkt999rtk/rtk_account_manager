@@ -7,6 +7,13 @@ import (
 )
 
 func TestProviderErrorNormalizationDoesNotExposeUnsafeCode(t *testing.T) {
+	var nilProviderError *ProviderError
+	if nilProviderError.Error() != "" {
+		t.Fatal("nil provider error should render safely")
+	}
+	if got := (&ProviderError{Kind: ProviderErrorTemporary}).Error(); got != "payment provider temporary" {
+		t.Fatalf("provider error without code=%q", got)
+	}
 	err := NewProviderError(ProviderErrorAuthentication, "  SECRET token=value  ", false, errors.New("raw provider body"))
 	var providerErr *ProviderError
 	if !errors.As(err, &providerErr) {

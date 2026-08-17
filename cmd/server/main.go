@@ -17,6 +17,7 @@ import (
 	"rtk_account_manager/internal/payment"
 	"rtk_account_manager/internal/paymentcrypto"
 	"rtk_account_manager/internal/paymentprovider/newebpay"
+	paymentSimulator "rtk_account_manager/internal/paymentprovider/simulator"
 	"rtk_account_manager/internal/paymentstore"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/usercache"
@@ -97,6 +98,16 @@ func main() {
 	}
 	server := api.NewWithAuthTokenAndNotificationSink(apiStore, authService, authTokenSink, notificationSink)
 	paymentProviders := make([]payment.PaymentProvider, 0, 1)
+	if cfg.PaymentSimulatorEnabled {
+		provider, providerErr := paymentSimulator.New(paymentSimulator.Config{
+			BaseURL: cfg.PaymentSimulatorBaseURL, SharedSecret: cfg.PaymentSimulatorSharedSecret,
+			Scenario: cfg.PaymentSimulatorScenario, Timeout: cfg.NewebPayRequestTimeout,
+		})
+		if providerErr != nil {
+			fatal(logger, "configure payment simulator client failed", providerErr)
+		}
+		paymentProviders = append(paymentProviders, provider)
+	}
 	if cfg.NewebPayEnabled {
 		provider, providerErr := newebpay.New(newebpay.Config{
 			Enabled: true, Environment: cfg.NewebPayEnvironment, MerchantID: cfg.NewebPayMerchantID,
@@ -121,6 +132,7 @@ func main() {
 		Store: paymentstore.New(db), Providers: paymentProviders,
 		ReferenceProtector: paymentReferenceProtector,
 		BillingDebitToken:  cfg.BillingDebitToken, BillingDebitSource: cfg.BillingDebitSource,
+		SimulatorCallbackSecret: cfg.PaymentSimulatorCallbackSecret,
 	}); err != nil {
 		fatal(logger, "configure payment API failed", err)
 	}

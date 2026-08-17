@@ -821,7 +821,7 @@ func TestIntentTransitionRejectsIllegalStateAndProviderReferenceConflict(t *test
 	}
 }
 
-func TestFailedIntentManualCreditRearmsPolicyAndRecoversAccount(t *testing.T) {
+func TestFirstFailedIntentKeepsAccountActiveAndManualCreditRearmsPolicy(t *testing.T) {
 	env := newPaymentIntegrationEnv(t)
 	fixture := createPaymentFixture(t, env, "manual-recovery", 10000, 5000, 10000)
 	ctx := context.Background()
@@ -843,8 +843,12 @@ func TestFailedIntentManualCreditRearmsPolicyAndRecoversAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failed.Account.State != payment.AccountStateAttentionRequired {
-		t.Fatalf("failed charge should require attention: %+v", failed.Account)
+	if failed.Account.State != payment.AccountStateActive {
+		t.Fatalf("first failed charge should keep account active: %+v", failed.Account)
+	}
+	policyAfterFailure, err := env.store.GetAutoTopUpPolicy(ctx, fixture.account.ID)
+	if err != nil || policyAfterFailure.ConsecutiveFailureCount != 1 || !policyAfterFailure.Enabled {
+		t.Fatalf("policy after first failure=%+v err=%v", policyAfterFailure, err)
 	}
 
 	recovery, err := env.store.PostLedgerEntry(ctx, PostLedgerEntryInput{
@@ -869,6 +873,66 @@ func TestFailedIntentManualCreditRearmsPolicyAndRecoversAccount(t *testing.T) {
 	intent, err := env.store.GetPaymentIntent(ctx, debit.Intent.ID)
 	if err != nil || intent.State != payment.PaymentIntentStateFailed {
 		t.Fatalf("stored intent=%+v err=%v", intent, err)
+	}
+}
+
+func TestThirdConsecutiveAutoTopUpFailureDisablesPolicy(t *testing.T) {
+	env := newPaymentIntegrationEnv(t)
+	fixture := createPaymentFixture(t, env, "three-failures", 10000, 5000, 300)
+	ctx := context.Background()
+
+	failAttempt := func(sequence, hour int) payment.CommercialAccount {
+		t.Helper()
+		debit, err := env.store.PostLedgerEntry(ctx, debitInput(
+			fixture.account.ID, fmt.Sprintf("three-failures-debit-%d", sequence), 6000, testTime(hour, 0),
+		))
+		if err != nil || debit.Intent == nil {
+			t.Fatalf("attempt %d debit=%+v err=%v", sequence, debit, err)
+		}
+		if _, err := env.store.TransitionIntent(ctx, TransitionIntentInput{
+			IntentID: debit.Intent.ID, ToState: payment.PaymentIntentStateProcessing, Now: testTime(hour, 1),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		failed, err := env.store.TransitionIntent(ctx, TransitionIntentInput{
+			IntentID: debit.Intent.ID, ToState: payment.PaymentIntentStateFailed, Now: testTime(hour, 2),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return failed.Account
+	}
+
+	for sequence, hour := range []int{10, 12, 14} {
+		account := failAttempt(sequence+1, hour)
+		policy, err := env.store.GetAutoTopUpPolicy(ctx, fixture.account.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if policy.ConsecutiveFailureCount != sequence+1 {
+			t.Fatalf("attempt %d failure count=%d", sequence+1, policy.ConsecutiveFailureCount)
+		}
+		if sequence < 2 {
+			if !policy.Enabled || account.State != payment.AccountStateActive {
+				t.Fatalf("attempt %d policy=%+v account=%+v", sequence+1, policy, account)
+			}
+			credit, err := env.store.PostLedgerEntry(ctx, PostLedgerEntryInput{
+				AccountID: fixture.account.ID, Direction: payment.LedgerDirectionCredit,
+				AmountMinor: 6000, Currency: payment.CurrencyTWD, Reason: payment.LedgerReasonManualAdjustmentCredit,
+				IdempotencyScope: "support", IdempotencyKey: fmt.Sprintf("three-failures-credit-%d", sequence+1),
+				ActorType: "admin", ActorID: "support-user", RequestID: fmt.Sprintf("three-failures-request-%d", sequence+1),
+				Now: testTime(hour, 3),
+			})
+			if err != nil {
+				t.Fatalf("attempt %d recovery=%+v err=%v", sequence+1, credit, err)
+			}
+			rearmed, err := env.store.GetAutoTopUpPolicy(ctx, fixture.account.ID)
+			if err != nil || !rearmed.Armed {
+				t.Fatalf("attempt %d rearmed policy=%+v err=%v", sequence+1, rearmed, err)
+			}
+		} else if policy.Enabled || account.State != payment.AccountStateAttentionRequired {
+			t.Fatalf("third failure must disable policy and require attention: policy=%+v account=%+v", policy, account)
+		}
 	}
 }
 

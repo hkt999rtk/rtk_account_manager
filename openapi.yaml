@@ -4394,7 +4394,7 @@ paths:
         - REQ-AM-PAYMENT-PROVIDER-001
       security: [{ bearerAuth: [] }]
       summary: Request a provider-hosted payment method setup session.
-      description: Consent, a pending method, and setup idempotency are persisted before provider I/O. The request never accepts PAN, CVV, expiry, or other card credentials. The initial NewebPay adapter returns capability unsupported until hosted setup is qualified.
+      description: Consent, a pending method, and setup idempotency are persisted before provider I/O. The request never accepts PAN, CVV, expiry, or other card credentials. Non-production may use the isolated hosted simulator; external adapters remain capability-gated.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -4452,7 +4452,7 @@ paths:
         - REQ-AM-AUTO-TOPUP-001
         - REQ-AM-PAYMENT-AUTHZ-001
       security: [{ bearerAuth: [] }]
-      summary: Read the automatic top-up policy and UTC safety-limit reset.
+      summary: Read the automatic top-up policy and Asia/Taipei safety-limit reset.
       parameters:
         - $ref: "#/components/parameters/OrgId"
       responses:
@@ -4637,6 +4637,33 @@ paths:
               schema: { $ref: "#/components/schemas/InternalBillingDebitResponse" }
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /v1/internal/payment-simulator/setup-callback:
+    post:
+      tags: [Internal Billing]
+      operationId: completeSimulatedPaymentMethodSetup
+      x-rtk-feature-id: FEAT-AM-PAYMENT-001
+      x-rtk-requirement-ids:
+        - REQ-AM-PAYMENT-METHOD-001
+        - REQ-AM-PAYMENT-SIMULATOR-001
+      summary: Complete a non-production simulator hosted setup using an HMAC-authenticated callback.
+      parameters:
+        - name: X-Payment-Simulator-Signature
+          in: header
+          required: true
+          schema: { type: string, pattern: "^[a-f0-9]{64}$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaymentSimulatorSetupCallback" }
+      responses:
+        "200":
+          description: Callback accepted or replayed idempotently.
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
   /v1/payment-webhooks/{provider}:
@@ -4903,7 +4930,24 @@ components:
     MoneyMinor:
       type: integer
       format: int64
-      multipleOf: 100
+      minimum: 1
+      description: Currency-unit integer. For zero-decimal TWD, one amount_minor unit is NT$1.
+    PaymentSimulatorSetupCallback:
+      type: object
+      additionalProperties: false
+      required: [account_id, setup_session_id, state, provider_code, hosted_url]
+      properties:
+        account_id: { type: string, format: uuid }
+        setup_session_id: { type: string, format: uuid }
+        state: { type: string, enum: [succeeded, failed] }
+        provider_code: { type: string }
+        hosted_url: { type: string, format: uri }
+        provider_customer_ref: { type: string }
+        provider_method_ref: { type: string }
+        card_brand: { type: string }
+        last_four: { type: string, pattern: "^[0-9]{4}$" }
+        expiry_month: { type: integer, minimum: 1, maximum: 12 }
+        expiry_year: { type: integer, minimum: 2000, maximum: 9999 }
     InternalBillingDebitRequest:
       type: object
       additionalProperties: false
@@ -4947,12 +4991,15 @@ components:
         updated_at: { type: string, format: date-time }
     BillingAccountResponse:
       type: object
-      required: [account, auto_topup]
+      required: [account, auto_topup, payment_providers]
       properties:
         account: { $ref: "#/components/schemas/CommercialAccount" }
         auto_topup:
           allOf: [{ $ref: "#/components/schemas/AutoTopUpPolicy" }]
           nullable: true
+        payment_providers:
+          type: array
+          items: { $ref: "#/components/schemas/PaymentProviderSummary" }
     BillingLedgerEntry:
       type: object
       required: [id, direction, amount_minor, currency, reason, balance_after_minor, created_at]
@@ -4985,6 +5032,13 @@ components:
         webhook: { type: boolean }
         refund: { type: boolean }
         requires_customer_action: { type: boolean }
+    PaymentProviderSummary:
+      type: object
+      required: [name, environment, capabilities]
+      properties:
+        name: { type: string, pattern: "^[a-z0-9_-]+$" }
+        environment: { type: string, enum: [simulated, external] }
+        capabilities: { $ref: "#/components/schemas/PaymentProviderCapabilities" }
     PaymentMethod:
       type: object
       description: Customer-safe display metadata. Provider customer/method references and card credentials are never returned.
@@ -5045,7 +5099,7 @@ components:
         duplicate: { type: boolean }
     AutoTopUpPolicy:
       type: object
-      required: [id, enabled, threshold_minor, top_up_amount_minor, currency, payment_method_id, daily_attempt_limit, daily_amount_limit_minor, cooldown_seconds, generation, version, armed, limit_timezone, limit_reset_at, created_at, updated_at]
+      required: [id, enabled, threshold_minor, top_up_amount_minor, currency, payment_method_id, daily_attempt_limit, daily_amount_limit_minor, cooldown_seconds, generation, version, armed, consecutive_failure_count, limit_timezone, limit_reset_at, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         enabled: { type: boolean }
@@ -5061,7 +5115,8 @@ components:
         armed: { type: boolean }
         last_triggered_at: { type: string, format: date-time, nullable: true }
         last_succeeded_at: { type: string, format: date-time, nullable: true }
-        limit_timezone: { type: string, enum: [UTC] }
+        consecutive_failure_count: { type: integer, minimum: 0 }
+        limit_timezone: { type: string, enum: [Asia/Taipei] }
         limit_reset_at: { type: string, format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }

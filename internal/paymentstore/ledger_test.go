@@ -28,7 +28,7 @@ func TestValidateLedgerInputRequiresStablePairsAndValidMoney(t *testing.T) {
 		{name: "missing account", mutate: func(in *PostLedgerEntryInput) { in.AccountID = "" }, want: ErrConflict},
 		{name: "partial external reference", mutate: func(in *PostLedgerEntryInput) { in.ExternalType = "invoice" }, want: ErrConflict},
 		{name: "partial actor", mutate: func(in *PostLedgerEntryInput) { in.ActorID = "user-1" }, want: ErrConflict},
-		{name: "fractional TWD", mutate: func(in *PostLedgerEntryInput) { in.AmountMinor = 101 }, want: payment.ErrInvalidAmount},
+		{name: "zero amount", mutate: func(in *PostLedgerEntryInput) { in.AmountMinor = 0 }, want: payment.ErrInvalidAmount},
 		{name: "wrong reason", mutate: func(in *PostLedgerEntryInput) { in.Reason = payment.LedgerReasonPaymentTopUpCredit }, want: payment.ErrInvalidReason},
 	}
 	for _, tc := range tests {

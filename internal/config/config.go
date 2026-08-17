@@ -65,6 +65,14 @@ type Config struct {
 	NewebPayHashIV                 string
 	NewebPayRequestTimeout         time.Duration
 	NewebPayAutoChargeEnabled      bool
+	PaymentSimulatorEnabled        bool
+	PaymentSimulatorBaseURL        string
+	PaymentSimulatorPublicBaseURL  string
+	PaymentSimulatorCallbackURL    string
+	PaymentSimulatorSharedSecret   string
+	PaymentSimulatorCallbackSecret string
+	PaymentSimulatorScenario       string
+	PaymentSimulatorRetention      time.Duration
 	CrossServiceBroker             string
 	AzureEventHubConnectionString  string
 	AzureEventHubCheckpointFile    string
@@ -150,6 +158,9 @@ func Load() (Config, error) {
 	if err := validateEmailConfig(cfg, false); err != nil {
 		return Config{}, err
 	}
+	if err := validatePaymentSimulatorConfig(cfg, false); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -199,17 +210,27 @@ func LoadPaymentWorker() (Config, error) {
 		return Config{}, fmt.Errorf("NEWEBPAY_MERCHANT_INITIATED_CHARGE_ENABLED is unsupported until merchant capability approval and sandbox qualification")
 	}
 	if !cfg.PaymentWorkerEnabled {
-		if cfg.NewebPayEnabled {
-			return Config{}, fmt.Errorf("NEWEBPAY_ENABLED requires PAYMENT_WORKER_ENABLED")
+		if cfg.NewebPayEnabled || cfg.PaymentSimulatorEnabled {
+			return Config{}, fmt.Errorf("an enabled payment provider requires PAYMENT_WORKER_ENABLED")
 		}
 		return cfg, nil
 	}
-	if !cfg.NewebPayEnabled {
+	if cfg.NewebPayEnabled == cfg.PaymentSimulatorEnabled {
 		return Config{}, fmt.Errorf("PAYMENT_WORKER_ENABLED requires an enabled payment provider")
 	}
 	decoded, decodeErr := base64.StdEncoding.DecodeString(strings.TrimSpace(cfg.PaymentReferenceEncryptionKey))
 	if decodeErr != nil || len(decoded) != 32 {
 		return Config{}, fmt.Errorf("PAYMENT_REFERENCE_ENCRYPTION_KEY must be base64 encoded 32 bytes")
+	}
+	if cfg.PaymentSimulatorEnabled {
+		if err := validatePaymentSimulatorConfig(cfg, false); err != nil {
+			return Config{}, err
+		}
+		if cfg.PaymentWorkerPollInterval <= 0 || cfg.PaymentWorkerLeaseDuration <= 0 ||
+			cfg.PaymentReconciliationDelay <= 0 || cfg.PaymentWorkerBatchSize <= 0 {
+			return Config{}, fmt.Errorf("payment worker durations and batch size must be positive")
+		}
+		return cfg, nil
 	}
 	environment := strings.ToLower(strings.TrimSpace(cfg.NewebPayEnvironment))
 	if environment != "sandbox" && environment != "production" {
@@ -227,8 +248,59 @@ func LoadPaymentWorker() (Config, error) {
 	return cfg, nil
 }
 
+func LoadPaymentSimulator() (Config, error) {
+	if err := validatePaymentBooleanEnv(); err != nil {
+		return Config{}, err
+	}
+	cfg, err := load()
+	if err != nil {
+		return Config{}, err
+	}
+	if !cfg.PaymentSimulatorEnabled {
+		return Config{}, fmt.Errorf("PAYMENT_SIMULATOR_ENABLED must be true")
+	}
+	if err := validatePaymentSimulatorConfig(cfg, true); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+func validatePaymentSimulatorConfig(cfg Config, process bool) error {
+	if !cfg.PaymentSimulatorEnabled {
+		return nil
+	}
+	if cfg.NewebPayEnabled {
+		return fmt.Errorf("PAYMENT_SIMULATOR_ENABLED and NEWEBPAY_ENABLED are mutually exclusive")
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.LogEnv), "production") || strings.EqualFold(strings.TrimSpace(cfg.LogEnv), "prod") {
+		return fmt.Errorf("payment simulator is forbidden in production")
+	}
+	if len(strings.TrimSpace(cfg.PaymentSimulatorSharedSecret)) < 32 || len(strings.TrimSpace(cfg.PaymentSimulatorCallbackSecret)) < 32 {
+		return fmt.Errorf("payment simulator secrets must contain at least 32 characters")
+	}
+	for name, value := range map[string]string{"PAYMENT_SIMULATOR_BASE_URL": cfg.PaymentSimulatorBaseURL} {
+		if process {
+			name, value = "PAYMENT_SIMULATOR_PUBLIC_BASE_URL", cfg.PaymentSimulatorPublicBaseURL
+		}
+		endpoint, err := url.Parse(strings.TrimSpace(value))
+		if err != nil || endpoint.Scheme == "" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+			return fmt.Errorf("%s must be a credential-free absolute URL", name)
+		}
+	}
+	if process {
+		endpoint, err := url.Parse(strings.TrimSpace(cfg.PaymentSimulatorCallbackURL))
+		if err != nil || endpoint.Scheme == "" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+			return fmt.Errorf("PAYMENT_SIMULATOR_CALLBACK_URL must be a credential-free absolute URL")
+		}
+		if cfg.PaymentSimulatorRetention <= 0 {
+			return fmt.Errorf("PAYMENT_SIMULATOR_RETENTION must be positive")
+		}
+	}
+	return nil
+}
+
 func validatePaymentBooleanEnv() error {
-	for _, key := range []string{"PAYMENT_WORKER_ENABLED", "NEWEBPAY_ENABLED", "NEWEBPAY_MERCHANT_INITIATED_CHARGE_ENABLED"} {
+	for _, key := range []string{"PAYMENT_WORKER_ENABLED", "NEWEBPAY_ENABLED", "NEWEBPAY_MERCHANT_INITIATED_CHARGE_ENABLED", "PAYMENT_SIMULATOR_ENABLED"} {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 			if _, err := strconv.ParseBool(value); err != nil {
 				return fmt.Errorf("%s must be true or false", key)
@@ -387,6 +459,14 @@ func load() (Config, error) {
 		NewebPayHashIV:                 os.Getenv("NEWEBPAY_HASH_IV"),
 		NewebPayRequestTimeout:         duration("NEWEBPAY_REQUEST_TIMEOUT", 10*time.Second),
 		NewebPayAutoChargeEnabled:      boolValue("NEWEBPAY_MERCHANT_INITIATED_CHARGE_ENABLED", false),
+		PaymentSimulatorEnabled:        boolValue("PAYMENT_SIMULATOR_ENABLED", false),
+		PaymentSimulatorBaseURL:        getenv("PAYMENT_SIMULATOR_BASE_URL", "http://payment-simulator:8081"),
+		PaymentSimulatorPublicBaseURL:  getenv("PAYMENT_SIMULATOR_PUBLIC_BASE_URL", ""),
+		PaymentSimulatorCallbackURL:    getenv("PAYMENT_SIMULATOR_CALLBACK_URL", ""),
+		PaymentSimulatorSharedSecret:   os.Getenv("PAYMENT_SIMULATOR_SHARED_SECRET"),
+		PaymentSimulatorCallbackSecret: os.Getenv("PAYMENT_SIMULATOR_SETUP_CALLBACK_SECRET"),
+		PaymentSimulatorScenario:       getenv("PAYMENT_SIMULATOR_SCENARIO", "success"),
+		PaymentSimulatorRetention:      duration("PAYMENT_SIMULATOR_RETENTION", 7*24*time.Hour),
 		CrossServiceBroker:             getenv("CROSS_SERVICE_BROKER", "log"),
 		AzureEventHubConnectionString:  getenv("AZURE_EVENTHUB_CONNECTION_STRING", ""),
 		AzureEventHubCheckpointFile:    getenv("AZURE_EVENTHUB_CHECKPOINT_FILE", ""),

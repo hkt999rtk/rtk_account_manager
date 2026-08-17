@@ -14,16 +14,13 @@ func ValidateCurrency(currency Currency) error {
 	return nil
 }
 
-// ValidateChargeAmount validates positive ISO-minor-unit amounts. The initial
-// TWD product accepts whole New Taiwan dollars only, represented as cents.
+// ValidateChargeAmount validates positive currency-unit amounts. TWD is a
+// zero-decimal currency, so one amount_minor unit represents NT$1.
 func ValidateChargeAmount(currency Currency, amountMinor int64) error {
 	if err := ValidateCurrency(currency); err != nil {
 		return err
 	}
 	if amountMinor <= 0 {
-		return ErrInvalidAmount
-	}
-	if currency == CurrencyTWD && amountMinor%100 != 0 {
 		return ErrInvalidAmount
 	}
 	return nil

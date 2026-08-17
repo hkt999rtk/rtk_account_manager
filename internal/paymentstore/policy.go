@@ -116,6 +116,7 @@ func (s *Store) PutAutoTopUpPolicy(ctx context.Context, in PutAutoTopUpPolicyInp
 				generation = $10,
 				version = $11,
 				armed = true,
+				consecutive_failure_count = 0,
 				last_triggered_at = NULL,
 				last_succeeded_at = NULL,
 				consent_id = $12,
@@ -170,6 +171,6 @@ func getPolicyForUpdate(ctx context.Context, tx pgx.Tx, accountID string) (payme
 }
 
 func policyDayStart(now time.Time) time.Time {
-	now = now.UTC()
-	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	start, _ := payment.DailyLimitWindow(now)
+	return start
 }

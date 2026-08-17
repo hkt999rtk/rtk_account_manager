@@ -137,13 +137,16 @@ func transitionIntentTx(ctx context.Context, tx pgx.Tx, account payment.Commerci
 		}
 		if policyErr == nil {
 			armed := account.AvailableBalanceMinor >= policy.ThresholdMinor
+			resetFailures := intent.Reason == payment.PaymentIntentReasonAutoTopUp &&
+				intent.PolicyGeneration != nil && *intent.PolicyGeneration == policy.Generation
 			if _, err := tx.Exec(ctx, `
 				UPDATE auto_topup_policies
 				SET last_succeeded_at = $2,
 					armed = $3,
+					consecutive_failure_count = CASE WHEN $4 THEN 0 ELSE consecutive_failure_count END,
 					version = version + 1
 				WHERE id = $1
-			`, policy.ID, in.Now, armed); err != nil {
+			`, policy.ID, in.Now, armed, resetFailures); err != nil {
 				return TransitionIntentResult{}, err
 			}
 			if account.State != payment.AccountStateSuspended && account.State != payment.AccountStateClosed {
@@ -163,17 +166,40 @@ func transitionIntentTx(ctx context.Context, tx pgx.Tx, account payment.Commerci
 				}
 			}
 		}
-	} else if (in.ToState == payment.PaymentIntentStateFailed || in.ToState == payment.PaymentIntentStateCanceled || in.ToState == payment.PaymentIntentStateRequiresAction) &&
-		intent.Reason == payment.PaymentIntentReasonAutoTopUp && account.State == payment.AccountStateActive {
-		account, err = scanAccount(tx.QueryRow(ctx, `
-			UPDATE commercial_accounts
-			SET state = 'attention_required'
-			WHERE id = $1
-			RETURNING `+accountColumns,
-			account.ID,
-		))
-		if err != nil {
-			return TransitionIntentResult{}, err
+	} else if intent.Reason == payment.PaymentIntentReasonAutoTopUp && intent.PolicyGeneration != nil {
+		policy, policyErr := getPolicyForUpdate(ctx, tx, account.ID)
+		if policyErr != nil && !errors.Is(policyErr, ErrNotFound) {
+			return TransitionIntentResult{}, policyErr
+		}
+		if policyErr == nil && policy.Generation == *intent.PolicyGeneration {
+			attentionRequired := in.ToState == payment.PaymentIntentStateRequiresAction
+			if in.ToState == payment.PaymentIntentStateFailed || in.ToState == payment.PaymentIntentStateCanceled {
+				policy.ConsecutiveFailureCount++
+				disable := policy.ConsecutiveFailureCount >= 3
+				if _, err := tx.Exec(ctx, `
+					UPDATE auto_topup_policies
+					SET consecutive_failure_count = $2,
+						enabled = CASE WHEN $3 THEN false ELSE enabled END,
+						armed = false,
+						version = version + 1
+					WHERE id = $1
+				`, policy.ID, policy.ConsecutiveFailureCount, disable); err != nil {
+					return TransitionIntentResult{}, err
+				}
+				attentionRequired = disable
+			}
+			if attentionRequired && account.State == payment.AccountStateActive {
+				account, err = scanAccount(tx.QueryRow(ctx, `
+					UPDATE commercial_accounts
+					SET state = 'attention_required'
+					WHERE id = $1
+					RETURNING `+accountColumns,
+					account.ID,
+				))
+				if err != nil {
+					return TransitionIntentResult{}, err
+				}
+			}
 		}
 	}
 

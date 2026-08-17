@@ -533,6 +533,7 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/internal/app-token-authorizations", s.handleInternalAppTokenAuthorization)
 	v1.POST("/internal/device-provisioning-results", s.handleInternalDeviceProvisioningResult)
 	v1.POST("/internal/billing/debits", s.handleInternalBillingDebit)
+	v1.POST("/internal/payment-simulator/setup-callback", s.handlePaymentSimulatorSetupCallback)
 	v1.POST("/payment-webhooks/:provider", s.handlePaymentWebhook)
 
 	protected := v1.Group("")

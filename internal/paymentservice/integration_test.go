@@ -261,8 +261,12 @@ func TestDeclinedChargeFailsWithoutCreditOrRetry(t *testing.T) {
 		t.Fatalf("intent=%+v err=%v", stored, err)
 	}
 	account, err := env.store.GetCommercialAccount(context.Background(), fixture.account.ID)
-	if err != nil || account.AvailableBalanceMinor != 9000 || account.State != payment.AccountStateAttentionRequired {
+	if err != nil || account.AvailableBalanceMinor != 9000 || account.State != payment.AccountStateActive {
 		t.Fatalf("account=%+v err=%v", account, err)
+	}
+	policy, err := env.store.GetAutoTopUpPolicy(context.Background(), fixture.account.ID)
+	if err != nil || !policy.Enabled || policy.ConsecutiveFailureCount != 1 {
+		t.Fatalf("policy=%+v err=%v", policy, err)
 	}
 	var attempts, credits, completedJobs int
 	var normalizedResult, providerCode string

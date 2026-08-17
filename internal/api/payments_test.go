@@ -2,6 +2,9 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +18,19 @@ import (
 	"rtk_account_manager/internal/paymentstore"
 	"rtk_account_manager/internal/store"
 )
+
+func TestPaymentSimulatorSignatureRejectsMalformedAndAcceptsAuthenticBody(t *testing.T) {
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	body := []byte(`{"setup_session_id":"test"}`)
+	if validPaymentSimulatorSignature(secret, body, "not-hex") {
+		t.Fatal("malformed signatures must be rejected")
+	}
+	mac := hmac.New(sha256.New, secret)
+	_, _ = mac.Write(body)
+	if !validPaymentSimulatorSignature(secret, body, hex.EncodeToString(mac.Sum(nil))) {
+		t.Fatal("authentic signatures must be accepted")
+	}
+}
 
 func TestWritePaymentErrorNormalizesCustomerSafeFailures(t *testing.T) {
 	gin.SetMode(gin.TestMode)

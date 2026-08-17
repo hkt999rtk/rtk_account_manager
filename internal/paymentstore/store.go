@@ -123,6 +123,7 @@ func scanPolicy(row rowScanner) (payment.AutoTopUpPolicy, error) {
 		&out.Generation,
 		&out.Version,
 		&out.Armed,
+		&out.ConsecutiveFailureCount,
 		&out.LastTriggeredAt,
 		&out.LastSucceededAt,
 		&out.ConsentID,
@@ -308,7 +309,8 @@ const policyColumns = `
 	id::text, account_id::text, enabled, threshold_minor, top_up_amount_minor,
 	currency, payment_method_id::text, daily_attempt_limit,
 	daily_amount_limit_minor, cooldown_seconds, generation, version, armed,
-	last_triggered_at, last_succeeded_at, consent_id::text, created_at, updated_at`
+	consecutive_failure_count, last_triggered_at, last_succeeded_at,
+	consent_id::text, created_at, updated_at`
 
 const ledgerColumns = `
 	id::text, account_id::text, direction, amount_minor, currency, reason,

@@ -50,7 +50,7 @@ func TestVerifyWebhookAuthenticatesAndNormalizesOnlySafeFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if event.State != payment.PaymentIntentStateSucceeded || event.AmountMinor != 50000 ||
+	if event.State != payment.PaymentIntentStateSucceeded || event.AmountMinor != 500 ||
 		event.Currency != payment.CurrencyTWD || event.ProviderTransactionReference != "26081512000000001" ||
 		event.SafeSummary["payment_type"] != "CREDIT" {
 		t.Fatalf("event=%+v", event)
@@ -129,7 +129,7 @@ func TestVerifyWebhookAcceptsOfficialJSONRespondType(t *testing.T) {
 		"TradeSha": []string{TradeSHA(tradeInfo, officialHashKey, officialHashIV)},
 	}
 	event, err := adapter.VerifyWebhook(context.Background(), payment.WebhookRequest{Body: []byte(outer.Encode())})
-	if err != nil || event.State != payment.PaymentIntentStateSucceeded || event.AmountMinor != 50000 || event.ProviderTransactionReference != "26081512000000002" {
+	if err != nil || event.State != payment.PaymentIntentStateSucceeded || event.AmountMinor != 500 || event.ProviderTransactionReference != "26081512000000002" {
 		t.Fatalf("event=%+v err=%v", event, err)
 	}
 }

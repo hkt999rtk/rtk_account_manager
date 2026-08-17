@@ -120,10 +120,10 @@ func (a *Adapter) queryWithAmount(ctx context.Context, request payment.QueryRequ
 		return payment.ProviderResult{}, payment.NewProviderError(payment.ProviderErrorUnsupported, "provider_disabled", false, payment.ErrProviderUnsupported)
 	}
 	if !merchantOrderPattern.MatchString(request.MerchantOrderReference) ||
-		payment.ValidateChargeAmount(currency, amountMinor) != nil || amountMinor/100 > 9_999_999_999 {
+		payment.ValidateChargeAmount(currency, amountMinor) != nil || amountMinor > 9_999_999_999 {
 		return payment.ProviderResult{}, payment.NewProviderError(payment.ProviderErrorInvalidRequest, "invalid_query", false, nil)
 	}
-	amountNTD := amountMinor / 100
+	amountNTD := amountMinor
 	form := url.Values{
 		"MerchantID":      []string{a.merchantID},
 		"Version":         []string{"1.3"},

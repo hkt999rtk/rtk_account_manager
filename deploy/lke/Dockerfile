@@ -7,6 +7,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-migrate ./cmd/migrate
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-email-worker ./cmd/email-worker
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-payment-worker ./cmd/payment-worker
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-payment-simulator ./cmd/payment-simulator
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-email-outbox-admin ./cmd/email-outbox-admin
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-outbox-worker ./cmd/outbox-worker
 
@@ -23,6 +24,7 @@ COPY --from=builder /out/rtk-account-manager /app/rtk-account-manager
 COPY --from=builder /out/rtk-account-manager-migrate /app/rtk-account-manager-migrate
 COPY --from=builder /out/rtk-account-manager-email-worker /app/rtk-account-manager-email-worker
 COPY --from=builder /out/rtk-account-manager-payment-worker /app/rtk-account-manager-payment-worker
+COPY --from=builder /out/rtk-account-manager-payment-simulator /app/rtk-account-manager-payment-simulator
 COPY --from=builder /out/rtk-account-manager-email-outbox-admin /app/rtk-account-manager-email-outbox-admin
 COPY --from=builder /out/rtk-account-manager-outbox-worker /app/rtk-account-manager-outbox-worker
 COPY --from=builder /src/migrations /app/migrations

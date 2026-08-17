@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -53,22 +55,24 @@ type PaymentReferenceProtector interface {
 }
 
 type PaymentAPIOptions struct {
-	Store              paymentPersistence
-	Providers          []payment.PaymentProvider
-	ReferenceProtector PaymentReferenceProtector
-	BillingDebitToken  string
-	BillingDebitSource string
-	Now                func() time.Time
+	Store                   paymentPersistence
+	Providers               []payment.PaymentProvider
+	ReferenceProtector      PaymentReferenceProtector
+	BillingDebitToken       string
+	BillingDebitSource      string
+	SimulatorCallbackSecret string
+	Now                     func() time.Time
 }
 
 type paymentRuntime struct {
-	store              paymentPersistence
-	providers          map[string]payment.PaymentProvider
-	webhooks           *paymentservice.Service
-	referenceProtector PaymentReferenceProtector
-	billingDebitToken  string
-	billingDebitSource string
-	now                func() time.Time
+	store                   paymentPersistence
+	providers               map[string]payment.PaymentProvider
+	webhooks                *paymentservice.Service
+	referenceProtector      PaymentReferenceProtector
+	billingDebitToken       string
+	billingDebitSource      string
+	simulatorCallbackSecret []byte
+	now                     func() time.Time
 }
 
 type unavailablePaymentReferenceResolver struct{}
@@ -103,6 +107,7 @@ func (s *Server) ConfigurePayments(options PaymentAPIOptions) error {
 	}
 	options.BillingDebitToken = strings.TrimSpace(options.BillingDebitToken)
 	options.BillingDebitSource = strings.TrimSpace(options.BillingDebitSource)
+	options.SimulatorCallbackSecret = strings.TrimSpace(options.SimulatorCallbackSecret)
 	if (options.BillingDebitToken == "") != (options.BillingDebitSource == "") {
 		return fmt.Errorf("billing debit token and source must be configured together")
 	}
@@ -113,6 +118,9 @@ func (s *Server) ConfigurePayments(options PaymentAPIOptions) error {
 		if !validBillingDebitSource(options.BillingDebitSource) {
 			return fmt.Errorf("billing debit source must use lowercase letters, digits, dots, underscores, or hyphens")
 		}
+	}
+	if options.SimulatorCallbackSecret != "" && len(options.SimulatorCallbackSecret) < 32 {
+		return fmt.Errorf("payment simulator callback secret must contain at least 32 characters")
 	}
 	webhooks, err := paymentservice.New(paymentservice.Options{
 		Store: options.Store, Providers: options.Providers,
@@ -127,7 +135,8 @@ func (s *Server) ConfigurePayments(options PaymentAPIOptions) error {
 		store: options.Store, providers: providers, webhooks: webhooks,
 		referenceProtector: options.ReferenceProtector,
 		billingDebitToken:  options.BillingDebitToken, billingDebitSource: options.BillingDebitSource,
-		now: options.Now,
+		simulatorCallbackSecret: []byte(options.SimulatorCallbackSecret),
+		now:                     options.Now,
 	}
 	return nil
 }
@@ -186,7 +195,21 @@ func (s *Server) getBillingAccount(c *gin.Context) {
 		writePaymentError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"account": account, "auto_topup": policy})
+	providerNames := make([]string, 0, len(s.payments.providers))
+	for name := range s.payments.providers {
+		providerNames = append(providerNames, name)
+	}
+	sort.Strings(providerNames)
+	providers := make([]gin.H, 0, len(providerNames))
+	for _, name := range providerNames {
+		provider := s.payments.providers[name]
+		environment := "external"
+		if name == "simulator" {
+			environment = "simulated"
+		}
+		providers = append(providers, gin.H{"name": name, "environment": environment, "capabilities": provider.Capabilities(c.Request.Context())})
+	}
+	c.JSON(http.StatusOK, gin.H{"account": account, "auto_topup": policy, "payment_providers": providers})
 }
 
 func (s *Server) listBillingLedger(c *gin.Context) {
@@ -283,7 +306,8 @@ func (s *Server) setupPaymentMethod(c *gin.Context) {
 		return
 	}
 	setup, err := provider.CreateSetup(c.Request.Context(), payment.SetupRequest{
-		AccountID: account.ID, IdempotencyKey: idempotencyKey, CorrelationID: correlationID,
+		AccountID: account.ID, LocalSessionID: begin.Session.ID,
+		IdempotencyKey: idempotencyKey, CorrelationID: correlationID,
 	})
 	if err != nil {
 		writeError(c, http.StatusServiceUnavailable, "PAYMENT_PROVIDER_UNAVAILABLE", "Payment provider setup is temporarily unavailable")
@@ -627,17 +651,93 @@ func (s *Server) handlePaymentWebhook(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"accepted": result.Verified, "duplicate": result.Duplicate})
 }
 
+type simulatorSetupCallback struct {
+	AccountID           string                     `json:"account_id"`
+	SetupSessionID      string                     `json:"setup_session_id"`
+	State               payment.PaymentIntentState `json:"state"`
+	ProviderCode        string                     `json:"provider_code"`
+	HostedURL           string                     `json:"hosted_url"`
+	ProviderCustomerRef string                     `json:"provider_customer_ref"`
+	ProviderMethodRef   string                     `json:"provider_method_ref"`
+	CardBrand           string                     `json:"card_brand"`
+	LastFour            string                     `json:"last_four"`
+	ExpiryMonth         *int                       `json:"expiry_month"`
+	ExpiryYear          *int                       `json:"expiry_year"`
+}
+
+func (s *Server) handlePaymentSimulatorSetupCallback(c *gin.Context) {
+	if s.payments == nil || len(s.payments.simulatorCallbackSecret) == 0 || s.payments.referenceProtector == nil {
+		writeError(c, http.StatusNotFound, "not_found", "Resource not found")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 64*1024))
+	if err != nil || len(body) == 0 || !validPaymentSimulatorSignature(
+		s.payments.simulatorCallbackSecret, body, c.GetHeader("X-Payment-Simulator-Signature"),
+	) {
+		writeError(c, http.StatusUnauthorized, "invalid_callback", "Invalid callback")
+		return
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(body)))
+	decoder.DisallowUnknownFields()
+	var callback simulatorSetupCallback
+	if err := decoder.Decode(&callback); err != nil || !errors.Is(decoder.Decode(&struct{}{}), io.EOF) ||
+		(callback.State != payment.PaymentIntentStateSucceeded && callback.State != payment.PaymentIntentStateFailed) ||
+		!validHostedPaymentURL(callback.HostedURL) {
+		writeError(c, http.StatusBadRequest, "invalid_callback", "Invalid callback")
+		return
+	}
+	hostedDigest := sha256.Sum256([]byte(callback.HostedURL))
+	input := paymentstore.CompletePaymentMethodSetupInput{
+		AccountID: callback.AccountID, SessionID: callback.SetupSessionID, State: callback.State,
+		ProviderCode: callback.ProviderCode, HostedURLSHA256: hex.EncodeToString(hostedDigest[:]),
+		CardBrand: callback.CardBrand, LastFour: callback.LastFour,
+		ExpiryMonth: callback.ExpiryMonth, ExpiryYear: callback.ExpiryYear, Now: s.payments.now(),
+	}
+	if callback.State == payment.PaymentIntentStateSucceeded {
+		if !validOpaqueProviderReference(callback.ProviderCustomerRef) || !validOpaqueProviderReference(callback.ProviderMethodRef) {
+			writeError(c, http.StatusBadRequest, "invalid_callback", "Invalid callback")
+			return
+		}
+		input.ProviderCustomerRefCiphertext, err = s.payments.referenceProtector.EncryptMethodReference(callback.ProviderCustomerRef)
+		if err == nil {
+			input.ProviderMethodRefCiphertext, err = s.payments.referenceProtector.EncryptMethodReference(callback.ProviderMethodRef)
+		}
+		if err != nil {
+			writeError(c, http.StatusServiceUnavailable, "callback_persistence_failed", "Callback could not be persisted")
+			return
+		}
+		methodDigest := sha256.Sum256([]byte(callback.ProviderMethodRef))
+		input.ProviderMethodRefSHA256 = hex.EncodeToString(methodDigest[:])
+	}
+	result, err := s.payments.store.CompletePaymentMethodSetup(c.Request.Context(), input)
+	if err != nil {
+		writePaymentSetupError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"accepted": true, "duplicate": result.Duplicate})
+}
+
+func validPaymentSimulatorSignature(secret, body []byte, provided string) bool {
+	decoded, err := hex.DecodeString(strings.TrimSpace(provided))
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, secret)
+	_, _ = mac.Write(body)
+	return hmac.Equal(decoded, mac.Sum(nil))
+}
+
 func autoTopUpResponse(policy payment.AutoTopUpPolicy, now time.Time) gin.H {
-	now = now.UTC()
-	resetAt := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+	_, resetAt := payment.DailyLimitWindow(now)
 	return gin.H{
 		"id": policy.ID, "enabled": policy.Enabled, "threshold_minor": policy.ThresholdMinor,
 		"top_up_amount_minor": policy.TopUpAmountMinor, "currency": policy.Currency,
 		"payment_method_id": policy.PaymentMethodID, "daily_attempt_limit": policy.DailyAttemptLimit,
 		"daily_amount_limit_minor": policy.DailyAmountLimitMinor, "cooldown_seconds": policy.CooldownSeconds,
 		"generation": policy.Generation, "version": policy.Version, "armed": policy.Armed,
-		"last_triggered_at": policy.LastTriggeredAt, "last_succeeded_at": policy.LastSucceededAt,
-		"limit_timezone": "UTC", "limit_reset_at": resetAt, "created_at": policy.CreatedAt, "updated_at": policy.UpdatedAt,
+		"consecutive_failure_count": policy.ConsecutiveFailureCount,
+		"last_triggered_at":         policy.LastTriggeredAt, "last_succeeded_at": policy.LastSucceededAt,
+		"limit_timezone": payment.DailyLimitTimezone, "limit_reset_at": resetAt, "created_at": policy.CreatedAt, "updated_at": policy.UpdatedAt,
 	}
 }
 

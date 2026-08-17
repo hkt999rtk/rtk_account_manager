@@ -116,24 +116,25 @@ type PaymentMethod struct {
 }
 
 type AutoTopUpPolicy struct {
-	ID                    string     `json:"id"`
-	AccountID             string     `json:"account_id"`
-	Enabled               bool       `json:"enabled"`
-	ThresholdMinor        int64      `json:"threshold_minor"`
-	TopUpAmountMinor      int64      `json:"top_up_amount_minor"`
-	Currency              Currency   `json:"currency"`
-	PaymentMethodID       string     `json:"payment_method_id"`
-	DailyAttemptLimit     int        `json:"daily_attempt_limit"`
-	DailyAmountLimitMinor int64      `json:"daily_amount_limit_minor"`
-	CooldownSeconds       int64      `json:"cooldown_seconds"`
-	Generation            int64      `json:"generation"`
-	Version               int64      `json:"version"`
-	Armed                 bool       `json:"armed"`
-	LastTriggeredAt       *time.Time `json:"last_triggered_at,omitempty"`
-	LastSucceededAt       *time.Time `json:"last_succeeded_at,omitempty"`
-	ConsentID             string     `json:"consent_id"`
-	CreatedAt             time.Time  `json:"created_at"`
-	UpdatedAt             time.Time  `json:"updated_at"`
+	ID                      string     `json:"id"`
+	AccountID               string     `json:"account_id"`
+	Enabled                 bool       `json:"enabled"`
+	ThresholdMinor          int64      `json:"threshold_minor"`
+	TopUpAmountMinor        int64      `json:"top_up_amount_minor"`
+	Currency                Currency   `json:"currency"`
+	PaymentMethodID         string     `json:"payment_method_id"`
+	DailyAttemptLimit       int        `json:"daily_attempt_limit"`
+	DailyAmountLimitMinor   int64      `json:"daily_amount_limit_minor"`
+	CooldownSeconds         int64      `json:"cooldown_seconds"`
+	Generation              int64      `json:"generation"`
+	Version                 int64      `json:"version"`
+	Armed                   bool       `json:"armed"`
+	ConsecutiveFailureCount int        `json:"consecutive_failure_count"`
+	LastTriggeredAt         *time.Time `json:"last_triggered_at,omitempty"`
+	LastSucceededAt         *time.Time `json:"last_succeeded_at,omitempty"`
+	ConsentID               string     `json:"consent_id"`
+	CreatedAt               time.Time  `json:"created_at"`
+	UpdatedAt               time.Time  `json:"updated_at"`
 }
 
 type PaymentIntentReason string

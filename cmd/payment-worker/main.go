@@ -14,6 +14,7 @@ import (
 	"rtk_account_manager/internal/payment"
 	"rtk_account_manager/internal/paymentcrypto"
 	"rtk_account_manager/internal/paymentprovider/newebpay"
+	paymentSimulator "rtk_account_manager/internal/paymentprovider/simulator"
 	"rtk_account_manager/internal/paymentservice"
 	"rtk_account_manager/internal/paymentstore"
 )
@@ -46,13 +47,23 @@ func main() {
 	if err != nil {
 		fatal(logger, "payment reference cipher setup failed", err)
 	}
-	provider, err := newebpay.New(newebpay.Config{
-		Enabled: cfg.NewebPayEnabled, Environment: cfg.NewebPayEnvironment,
-		MerchantID: cfg.NewebPayMerchantID, HashKey: cfg.NewebPayHashKey,
-		HashIV: cfg.NewebPayHashIV, Timeout: cfg.NewebPayRequestTimeout,
-	})
+	var provider payment.PaymentProvider
+	chargeEnabled := false
+	if cfg.PaymentSimulatorEnabled {
+		provider, err = paymentSimulator.New(paymentSimulator.Config{
+			BaseURL: cfg.PaymentSimulatorBaseURL, SharedSecret: cfg.PaymentSimulatorSharedSecret,
+			Scenario: cfg.PaymentSimulatorScenario, Timeout: cfg.NewebPayRequestTimeout,
+		})
+		chargeEnabled = true
+	} else {
+		provider, err = newebpay.New(newebpay.Config{
+			Enabled: cfg.NewebPayEnabled, Environment: cfg.NewebPayEnvironment,
+			MerchantID: cfg.NewebPayMerchantID, HashKey: cfg.NewebPayHashKey,
+			HashIV: cfg.NewebPayHashIV, Timeout: cfg.NewebPayRequestTimeout,
+		})
+	}
 	if err != nil {
-		fatal(logger, "NewebPay adapter setup failed", err)
+		fatal(logger, "payment provider setup failed", err)
 	}
 	service, err := paymentservice.New(paymentservice.Options{
 		Store: paymentstore.New(db), Providers: []payment.PaymentProvider{provider},
@@ -62,15 +73,15 @@ func main() {
 		BatchSize:           cfg.PaymentWorkerBatchSize,
 		// Deliberately false until NewebPay confirms and enables variable-time
 		// merchant-initiated charging for this merchant.
-		ChargeEnabled: map[string]bool{"newebpay": false},
+		ChargeEnabled: map[string]bool{provider.Name(): chargeEnabled},
 	})
 	if err != nil {
 		fatal(logger, "payment service setup failed", err)
 	}
 	logger.Info("starting payment worker",
 		zap.String("provider", provider.Name()),
-		zap.String("provider_environment", cfg.NewebPayEnvironment),
-		zap.Bool("merchant_initiated_charge", false),
+		zap.String("provider_environment", cfg.LogEnv),
+		zap.Bool("merchant_initiated_charge", chargeEnabled),
 		zap.Duration("poll_interval", cfg.PaymentWorkerPollInterval),
 	)
 	if err := service.Run(ctx, cfg.PaymentWorkerPollInterval); err != nil {

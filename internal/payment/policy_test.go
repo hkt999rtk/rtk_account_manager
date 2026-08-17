@@ -111,18 +111,24 @@ func TestAutoTopUpDisabledAndDisarmedDoNotTrigger(t *testing.T) {
 	}
 }
 
-func TestValidatePolicyRejectsUnboundedOrFractionalTWD(t *testing.T) {
+func TestValidatePolicyRejectsUnboundedOrInvalidConfiguration(t *testing.T) {
 	now := time.Now().UTC()
 	policy := validPolicy(now)
-	policy.DailyAmountLimitMinor = 0
+	policy.ThresholdMinor = 0
 	if !errors.Is(ValidatePolicy(policy), ErrInvalidPolicy) {
-		t.Fatal("unbounded daily amount should fail")
+		t.Fatal("non-positive threshold should fail")
 	}
 
 	policy = validPolicy(now)
-	policy.ThresholdMinor = 101
+	policy.TopUpAmountMinor = 0
 	if !errors.Is(ValidatePolicy(policy), ErrInvalidPolicy) {
-		t.Fatal("fractional TWD should fail")
+		t.Fatal("non-positive top-up should fail")
+	}
+
+	policy = validPolicy(now)
+	policy.DailyAmountLimitMinor = 0
+	if !errors.Is(ValidatePolicy(policy), ErrInvalidPolicy) {
+		t.Fatal("unbounded daily amount should fail")
 	}
 
 	policy = validPolicy(now)

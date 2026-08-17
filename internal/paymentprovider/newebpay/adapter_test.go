@@ -108,7 +108,7 @@ func TestQueryUsesFixedSandboxEndpointAndVerifiesResponse(t *testing.T) {
 	}
 	adapter.now = func() time.Time { return requestTime }
 	result, err := adapter.Query(context.Background(), payment.QueryRequest{
-		IntentID: "intent-1", AmountMinor: 3000, Currency: payment.CurrencyTWD,
+		IntentID: "intent-1", AmountMinor: 30, Currency: payment.CurrencyTWD,
 		MerchantOrderReference: orderReference,
 	})
 	if err != nil || result.State != payment.PaymentIntentStateSucceeded || result.ProviderTransactionReference != tradeNumber {
@@ -126,16 +126,16 @@ func TestQueryRejectsMismatchedIntegrityAndUnsafeInputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = adapter.Query(context.Background(), payment.QueryRequest{
-		AmountMinor: 3000, Currency: payment.CurrencyTWD, MerchantOrderReference: "order_1",
+		AmountMinor: 30, Currency: payment.CurrencyTWD, MerchantOrderReference: "order_1",
 	})
 	var providerErr *payment.ProviderError
 	if !errors.As(err, &providerErr) || providerErr.Kind != payment.ProviderErrorAuthentication {
 		t.Fatalf("integrity err=%v", err)
 	}
 	for _, request := range []payment.QueryRequest{
-		{AmountMinor: 3001, Currency: payment.CurrencyTWD, MerchantOrderReference: "order_1"},
-		{AmountMinor: 3000, Currency: "USD", MerchantOrderReference: "order_1"},
-		{AmountMinor: 3000, Currency: payment.CurrencyTWD, MerchantOrderReference: "order-with-dash"},
+		{AmountMinor: 0, Currency: payment.CurrencyTWD, MerchantOrderReference: "order_1"},
+		{AmountMinor: 30, Currency: "USD", MerchantOrderReference: "order_1"},
+		{AmountMinor: 30, Currency: payment.CurrencyTWD, MerchantOrderReference: "order-with-dash"},
 	} {
 		if _, err := adapter.Query(context.Background(), request); err == nil {
 			t.Fatalf("request=%+v should fail", request)
@@ -165,7 +165,7 @@ func TestQueryMapsTradeStatesAndTransportFailures(t *testing.T) {
 				t.Fatal(err)
 			}
 			result, err := adapter.Query(context.Background(), payment.QueryRequest{
-				AmountMinor: 3000, Currency: payment.CurrencyTWD, MerchantOrderReference: orderReference,
+				AmountMinor: 30, Currency: payment.CurrencyTWD, MerchantOrderReference: orderReference,
 			})
 			if err != nil || result.State != want {
 				t.Fatalf("result=%+v err=%v", result, err)
@@ -180,7 +180,7 @@ func TestQueryMapsTradeStatesAndTransportFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = adapter.Query(context.Background(), payment.QueryRequest{
-		AmountMinor: 3000, Currency: payment.CurrencyTWD, MerchantOrderReference: "order_transport",
+		AmountMinor: 30, Currency: payment.CurrencyTWD, MerchantOrderReference: "order_transport",
 	})
 	var providerErr *payment.ProviderError
 	if !errors.As(err, &providerErr) || providerErr.Kind != payment.ProviderErrorTemporary {

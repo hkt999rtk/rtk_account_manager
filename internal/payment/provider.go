@@ -75,6 +75,7 @@ func NormalizeProviderCode(code string) string {
 
 type SetupRequest struct {
 	AccountID      string
+	LocalSessionID string
 	ReturnURL      string
 	IdempotencyKey string
 	CorrelationID  string

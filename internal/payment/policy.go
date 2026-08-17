@@ -44,7 +44,7 @@ func ValidatePolicy(policy AutoTopUpPolicy) error {
 	if policy.PaymentMethodID == "" || policy.ConsentID == "" ||
 		policy.DailyAttemptLimit <= 0 || policy.DailyAttemptLimit > 10 ||
 		policy.DailyAmountLimitMinor <= 0 || policy.CooldownSeconds < MinimumCooldownSeconds ||
-		policy.Generation <= 0 || policy.Version <= 0 {
+		policy.Generation <= 0 || policy.Version <= 0 || policy.ConsecutiveFailureCount < 0 {
 		return ErrInvalidPolicy
 	}
 	if policy.TopUpAmountMinor > policy.DailyAmountLimitMinor {

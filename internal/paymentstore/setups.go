@@ -171,7 +171,7 @@ func (s *Store) CompletePaymentMethodSetup(ctx context.Context, in CompletePayme
 		return CompletePaymentMethodSetupResult{}, ErrConflict
 	}
 	switch in.State {
-	case payment.PaymentIntentStateRequiresAction:
+	case payment.PaymentIntentStateRequiresAction, payment.PaymentIntentStateFailed:
 		if len(in.ProviderCustomerRefCiphertext) != 0 || len(in.ProviderMethodRefCiphertext) != 0 || in.ProviderMethodRefSHA256 != "" {
 			return CompletePaymentMethodSetupResult{}, ErrConflict
 		}
@@ -215,15 +215,21 @@ func (s *Store) CompletePaymentMethodSetup(ctx context.Context, in CompletePayme
 		if err := tx.QueryRow(ctx, `SELECT COALESCE(provider_method_ref_sha256, '') FROM payment_methods WHERE id = $1`, method.ID).Scan(&methodSHA); err != nil {
 			return CompletePaymentMethodSetupResult{}, err
 		}
-		if session.State != in.State || session.ProviderCode != in.ProviderCode || session.HostedURLSHA256 != in.HostedURLSHA256 ||
-			(in.State == payment.PaymentIntentStateSucceeded && methodSHA != in.ProviderMethodRefSHA256) {
+		if session.State == in.State && session.ProviderCode == in.ProviderCode && session.HostedURLSHA256 == in.HostedURLSHA256 &&
+			(in.State != payment.PaymentIntentStateSucceeded || methodSHA == in.ProviderMethodRefSHA256) {
+			return CompletePaymentMethodSetupResult{Session: session, Method: method, Duplicate: true}, nil
+		}
+		if session.State != payment.PaymentIntentStateRequiresAction ||
+			(in.State != payment.PaymentIntentStateSucceeded && in.State != payment.PaymentIntentStateFailed) ||
+			session.HostedURLSHA256 != in.HostedURLSHA256 {
 			return CompletePaymentMethodSetupResult{}, ErrIdempotencyConflict
 		}
-		return CompletePaymentMethodSetupResult{Session: session, Method: method, Duplicate: true}, nil
 	}
 	status := payment.PaymentMethodStatusPending
 	if in.State == payment.PaymentIntentStateSucceeded {
 		status = payment.PaymentMethodStatusActive
+	} else if in.State == payment.PaymentIntentStateFailed {
+		status = payment.PaymentMethodStatusFailed
 	}
 	method, err = scanPaymentMethod(tx.QueryRow(ctx, `
 		UPDATE payment_methods

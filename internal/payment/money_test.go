@@ -5,13 +5,13 @@ import (
 	"testing"
 )
 
-func TestValidateChargeAmountUsesMinorUnitsAndWholeTWD(t *testing.T) {
-	for _, amount := range []int64{100, 5000, 100000} {
+func TestValidateChargeAmountUsesZeroDecimalTWDUnits(t *testing.T) {
+	for _, amount := range []int64{1, 301, 1000} {
 		if err := ValidateChargeAmount(CurrencyTWD, amount); err != nil {
 			t.Fatalf("amount %d: %v", amount, err)
 		}
 	}
-	for _, amount := range []int64{-100, 0, 1, 199} {
+	for _, amount := range []int64{-100, 0} {
 		if !errors.Is(ValidateChargeAmount(CurrencyTWD, amount), ErrInvalidAmount) {
 			t.Fatalf("amount %d should be invalid", amount)
 		}

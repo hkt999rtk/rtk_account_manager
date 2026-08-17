@@ -59,7 +59,7 @@ func (a *Adapter) VerifyWebhook(_ context.Context, request payment.WebhookReques
 		ProviderEventReference:       fmt.Sprintf("%s:%s", tradeNumber, innerStatus),
 		MerchantOrderReference:       merchantOrderReference,
 		ProviderTransactionReference: tradeNumber,
-		AmountMinor:                  amountNTD * 100,
+		AmountMinor:                  amountNTD,
 		Currency:                     payment.CurrencyTWD,
 		State:                        state,
 		EventType:                    eventType,

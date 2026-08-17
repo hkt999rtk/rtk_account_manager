@@ -3,15 +3,19 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -34,6 +38,8 @@ import (
 	"rtk_account_manager/internal/payment"
 	"rtk_account_manager/internal/paymentcrypto"
 	"rtk_account_manager/internal/paymentprovider/fake"
+	simulatorprovider "rtk_account_manager/internal/paymentprovider/simulator"
+	"rtk_account_manager/internal/paymentsimulator"
 	"rtk_account_manager/internal/paymentstore"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/testutil"
@@ -6053,6 +6059,7 @@ func TestIntegrationPaymentAPIAuthorizationLifecycleAndRedaction(t *testing.T) {
 	}})
 	if err := env.server.ConfigurePayments(PaymentAPIOptions{
 		Store: repository, Providers: []payment.PaymentProvider{fakeProvider}, ReferenceProtector: referenceProtector,
+		SimulatorCallbackSecret: "0123456789abcdef0123456789abcdef",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -6099,6 +6106,51 @@ func TestIntegrationPaymentAPIAuthorizationLifecycleAndRedaction(t *testing.T) {
 		t.Fatalf("pending setup status/body=%d/%s", pendingSetup.Code, pendingSetup.Body.String())
 	}
 	contract.validate(t, http.MethodPost, basePath+"/payment-methods/setup", pendingSetup)
+	var pendingBody struct {
+		PaymentMethod payment.PaymentMethod `json:"payment_method"`
+		HostedURL     string                `json:"hosted_url"`
+	}
+	if err := json.Unmarshal(pendingSetup.Body.Bytes(), &pendingBody); err != nil || pendingBody.PaymentMethod.ID == "" {
+		t.Fatalf("decode pending setup body=%s err=%v", pendingSetup.Body.String(), err)
+	}
+	var pendingSessionID string
+	if err := env.db.QueryRow(ctx, `SELECT id::text FROM payment_method_setup_sessions WHERE payment_method_id = $1`, pendingBody.PaymentMethod.ID).Scan(&pendingSessionID); err != nil {
+		t.Fatal(err)
+	}
+	callbackPayload, err := json.Marshal(map[string]any{
+		"account_id": pendingBody.PaymentMethod.AccountID, "setup_session_id": pendingSessionID,
+		"state": "succeeded", "provider_code": "simulator_success", "hosted_url": pendingBody.HostedURL,
+		"provider_customer_ref": "sim_customer_callback", "provider_method_ref": "sim_method_callback",
+		"card_brand": "simulator", "last_four": "4242", "expiry_month": 12, "expiry_year": 2099,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejectedCallbackRequest := httptest.NewRequest(http.MethodPost, "/v1/internal/payment-simulator/setup-callback", bytes.NewReader(callbackPayload))
+	rejectedCallbackRequest.Header.Set("Content-Type", "application/json")
+	rejectedCallbackRequest.Header.Set("X-Payment-Simulator-Signature", strings.Repeat("0", 64))
+	rejectedCallbackResponse := httptest.NewRecorder()
+	env.router.ServeHTTP(rejectedCallbackResponse, rejectedCallbackRequest)
+	if rejectedCallbackResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("unsigned simulator callback status/body=%d/%s", rejectedCallbackResponse.Code, rejectedCallbackResponse.Body.String())
+	}
+	callbackMAC := hmac.New(sha256.New, []byte("0123456789abcdef0123456789abcdef"))
+	_, _ = callbackMAC.Write(callbackPayload)
+	callbackRequest := httptest.NewRequest(http.MethodPost, "/v1/internal/payment-simulator/setup-callback", bytes.NewReader(callbackPayload))
+	callbackRequest.Header.Set("Content-Type", "application/json")
+	callbackRequest.Header.Set("X-Payment-Simulator-Signature", hex.EncodeToString(callbackMAC.Sum(nil)))
+	callbackResponse := httptest.NewRecorder()
+	env.router.ServeHTTP(callbackResponse, callbackRequest)
+	if callbackResponse.Code != http.StatusOK || !strings.Contains(callbackResponse.Body.String(), `"accepted":true`) {
+		t.Fatalf("simulator callback status/body=%d/%s", callbackResponse.Code, callbackResponse.Body.String())
+	}
+	var activatedStatus payment.PaymentMethodStatus
+	if err := env.db.QueryRow(ctx, `SELECT status FROM payment_methods WHERE id = $1`, pendingBody.PaymentMethod.ID).Scan(&activatedStatus); err != nil {
+		t.Fatal(err)
+	}
+	if activatedStatus != payment.PaymentMethodStatusActive {
+		t.Fatalf("simulator callback payment method status=%s", activatedStatus)
+	}
 	conflictingSetup := performJSONHeaders(env.router, http.MethodPost, basePath+"/payment-methods/setup", map[string]any{
 		"provider": "fake", "consent": map[string]any{
 			"accepted": true, "text_version": "payment-method-v2",
@@ -6296,6 +6348,114 @@ func TestIntegrationPaymentAPIAuthorizationLifecycleAndRedaction(t *testing.T) {
 	unknownWebhook := performJSON(env.router, http.MethodPost, "/v1/payment-webhooks/unknown", map[string]any{"secret": "must-not-reflect"}, "")
 	if unknownWebhook.Code != http.StatusNotFound || strings.Contains(unknownWebhook.Body.String(), "must-not-reflect") {
 		t.Fatalf("unknown webhook status/body=%d/%s", unknownWebhook.Code, unknownWebhook.Body.String())
+	}
+}
+
+func TestIntegrationPaymentSimulatorHostedSetupActivatesMethodWithoutPersistingRawToken(t *testing.T) {
+	env := newIntegrationEnv(t)
+	owner := registerUser(t, env.router, "simulator-owner@example.com", "Simulator Owner Org")
+	repository := paymentstore.New(env.db)
+	referenceProtector, err := paymentcrypto.New(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x51}, 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sharedSecret = "simulator-shared-secret-0123456789abcdef"
+	const callbackSecret = "simulator-callback-secret-0123456789abcdef"
+	callbackServer := httptest.NewServer(env.router)
+	t.Cleanup(callbackServer.Close)
+	simulatorServer, err := paymentsimulator.New(env.db, paymentsimulator.Config{
+		Environment: "test", PublicBaseURL: "https://payment-simulator.test",
+		CallbackURL:  callbackServer.URL + "/v1/internal/payment-simulator/setup-callback",
+		SharedSecret: sharedSecret, CallbackSecret: callbackSecret,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	simulatorHTTP := httptest.NewServer(simulatorServer.Handler())
+	t.Cleanup(simulatorHTTP.Close)
+	provider, err := simulatorprovider.New(simulatorprovider.Config{
+		BaseURL: simulatorHTTP.URL, SharedSecret: sharedSecret, Scenario: "success",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := env.server.ConfigurePayments(PaymentAPIOptions{
+		Store: repository, Providers: []payment.PaymentProvider{provider}, ReferenceProtector: referenceProtector,
+		SimulatorCallbackSecret: callbackSecret,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	setupPayload := map[string]any{
+		"provider": "simulator", "consent": map[string]any{
+			"accepted": true, "text_version": "payment-method-v1",
+			"text_sha256": strings.Repeat("a", 64), "locale": "zh-TW",
+		},
+	}
+	setupResponse := performJSONHeaders(env.router, http.MethodPost,
+		"/v1/orgs/"+owner.Organization.ID+"/payment-methods/setup", setupPayload,
+		owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "simulator-hosted-setup"})
+	if setupResponse.Code != http.StatusAccepted {
+		t.Fatalf("setup status/body=%d/%s", setupResponse.Code, setupResponse.Body.String())
+	}
+	var setupBody struct {
+		PaymentMethod payment.PaymentMethod `json:"payment_method"`
+		HostedURL     string                `json:"hosted_url"`
+	}
+	if err := json.Unmarshal(setupResponse.Body.Bytes(), &setupBody); err != nil {
+		t.Fatal(err)
+	}
+	if setupBody.PaymentMethod.Status != payment.PaymentMethodStatusPending {
+		t.Fatalf("initial method status=%s", setupBody.PaymentMethod.Status)
+	}
+	hostedURL, err := url.Parse(setupBody.HostedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawToken := strings.TrimPrefix(hostedURL.Path, "/setup/")
+	if len(rawToken) != 64 {
+		t.Fatalf("unexpected hosted token length=%d", len(rawToken))
+	}
+	pageResponse, err := http.Get(simulatorHTTP.URL + hostedURL.Path) // #nosec G107 -- local integration server.
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageBody, _ := io.ReadAll(pageResponse.Body)
+	_ = pageResponse.Body.Close()
+	if pageResponse.StatusCode != http.StatusOK || strings.Contains(strings.ToLower(string(pageBody)), "card number") || strings.Contains(strings.ToLower(string(pageBody)), "cvv") {
+		t.Fatalf("unsafe hosted page status/body=%d/%s", pageResponse.StatusCode, string(pageBody))
+	}
+	completionResponse, err := http.Post(simulatorHTTP.URL+hostedURL.Path+"/complete", "application/x-www-form-urlencoded", strings.NewReader("")) // #nosec G107 -- local integration server.
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = completionResponse.Body.Close()
+	if completionResponse.StatusCode != http.StatusOK {
+		t.Fatalf("completion status=%d", completionResponse.StatusCode)
+	}
+	billingResponse := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.Organization.ID+"/billing/account", nil, owner.Tokens.AccessToken)
+	if billingResponse.Code != http.StatusOK || !strings.Contains(billingResponse.Body.String(), `"name":"simulator"`) || !strings.Contains(billingResponse.Body.String(), `"environment":"simulated"`) {
+		t.Fatalf("billing provider status/body=%d/%s", billingResponse.Code, billingResponse.Body.String())
+	}
+	replayResponse := performJSONHeaders(env.router, http.MethodPost,
+		"/v1/orgs/"+owner.Organization.ID+"/payment-methods/setup", setupPayload,
+		owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "simulator-hosted-setup"})
+	if replayResponse.Code != http.StatusAccepted || !strings.Contains(replayResponse.Body.String(), `"duplicate":true`) {
+		t.Fatalf("setup replay status/body=%d/%s", replayResponse.Code, replayResponse.Body.String())
+	}
+	var methodStatus payment.PaymentMethodStatus
+	var persistedSession string
+	var methodCount, consentCount int
+	if err := env.db.QueryRow(context.Background(), `SELECT status FROM payment_methods WHERE id = $1`, setupBody.PaymentMethod.ID).Scan(&methodStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.db.QueryRow(context.Background(), `SELECT row_to_json(s)::text FROM payment_simulator_setup_sessions s WHERE setup_session_id = (SELECT id FROM payment_method_setup_sessions WHERE payment_method_id = $1)`, setupBody.PaymentMethod.ID).Scan(&persistedSession); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.db.QueryRow(context.Background(), `SELECT count(*), count(DISTINCT consent_id) FROM payment_methods WHERE account_id = $1 AND provider = 'simulator'`, setupBody.PaymentMethod.AccountID).Scan(&methodCount, &consentCount); err != nil {
+		t.Fatal(err)
+	}
+	if methodStatus != payment.PaymentMethodStatusActive || strings.Contains(persistedSession, rawToken) || methodCount != 1 || consentCount != 1 {
+		t.Fatalf("method status=%s raw_token_persisted=%t methods=%d consents=%d", methodStatus, strings.Contains(persistedSession, rawToken), methodCount, consentCount)
 	}
 }
 
