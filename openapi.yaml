@@ -4316,6 +4316,118 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+  /v1/internal/billing/pricing-versions:
+    post:
+      tags: [Internal Billing]
+      summary: Create a draft pricing version and immutable rate set
+      operationId: createBillingPricingVersion
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+      responses: { "201": { description: Pricing version created. }, "409": { $ref: "#/components/responses/Error" } }
+  /v1/internal/billing/pricing-versions/{pricingVersionId}/activate:
+    post:
+      tags: [Internal Billing]
+      summary: Activate one pricing version and retire the prior version
+      operationId: activateBillingPricingVersion
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: pricingVersionId, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Pricing version activated. }, "404": { $ref: "#/components/responses/Error" } }
+  /v1/internal/billing/usage-facts:
+    post:
+      tags: [Internal Billing]
+      summary: Idempotently ingest a digest-anchored usage fact
+      operationId: putBillingUsageFact
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+      responses: { "200": { description: Existing identical fact. }, "201": { description: Usage fact created. }, "409": { $ref: "#/components/responses/Error" } }
+  /v1/internal/billing/periods/close:
+    post:
+      tags: [Internal Billing]
+      summary: Close, price, issue, settle, and render one billing period
+      operationId: closeBillingPeriod
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+      responses: { "200": { description: Existing or newly closed invoice result. }, "422": { $ref: "#/components/responses/Error" } }
+  /v1/orgs/{orgId}/billing/summary:
+    get:
+      tags: [Billing and Payments]
+      summary: Return tenant balance current cost runway and top-up health
+      operationId: getBillingSummary
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: orgId, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Tenant billing summary. }, "403": { $ref: "#/components/responses/Error" } }
+  /v1/orgs/{orgId}/billing/usage:
+    get:
+      tags: [Billing and Payments]
+      summary: Return server-priced usage for the active billing period
+      operationId: getBillingUsage
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: orgId, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Priced usage lines. }, "403": { $ref: "#/components/responses/Error" } }
+  /v1/orgs/{orgId}/billing/invoices:
+    get:
+      tags: [Billing and Payments]
+      summary: List tenant invoices with bounded filters
+      operationId: listBillingInvoices
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: orgId, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Invoice page. }, "403": { $ref: "#/components/responses/Error" } }
+  /v1/orgs/{orgId}/billing/invoices/{invoiceId}:
+    get:
+      tags: [Billing and Payments]
+      summary: Get one tenant invoice and settlement links
+      operationId: getBillingInvoice
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: orgId, in: path, required: true, schema: { type: string } }, { name: invoiceId, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Invoice detail. }, "404": { $ref: "#/components/responses/Error" } }
+  /v1/orgs/{orgId}/billing/invoices/{invoiceId}/pdf:
+    get:
+      tags: [Billing and Payments]
+      summary: Download an immutable issued invoice PDF
+      operationId: downloadBillingInvoicePdf
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: orgId, in: path, required: true, schema: { type: string } }, { name: invoiceId, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Immutable invoice document, content: { application/pdf: { schema: { type: string, format: binary } } } }, "404": { $ref: "#/components/responses/Error" } }
+  /v1/orgs/{orgId}/billing/activity:
+    get:
+      tags: [Billing and Payments]
+      summary: List normalized customer-safe billing activity
+      operationId: listBillingActivity
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: orgId, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Billing activity page. }, "403": { $ref: "#/components/responses/Error" } }
+  /v1/orgs/{orgId}/billing/activity/{activityId}:
+    get:
+      tags: [Billing and Payments]
+      summary: Get one customer-safe billing activity timeline
+      operationId: getBillingActivity
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: orgId, in: path, required: true, schema: { type: string } }, { name: activityId, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Billing activity detail. }, "404": { $ref: "#/components/responses/Error" } }
+  /v1/orgs/{orgId}/billing/profile:
+    get:
+      tags: [Billing and Payments]
+      summary: Get the prospective billing recipient profile
+      operationId: getBillingProfile
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: orgId, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Billing profile. } }
+    put:
+      tags: [Billing and Payments]
+      summary: Replace the prospective billing recipient profile
+      operationId: putBillingProfile
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: orgId, in: path, required: true, schema: { type: string } }, { name: If-Match, in: header, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+      responses: { "200": { description: Updated billing profile. }, "412": { $ref: "#/components/responses/Error" } }
+  /v1/orgs/{orgId}/billing/statements:
+    get:
+      tags: [Billing and Payments]
+      summary: Export tenant billing activity as UTF-8 CSV
+      operationId: exportBillingStatement
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: orgId, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: CSV statement, content: { text/csv: { schema: { type: string } } } } }
   /v1/orgs/{orgId}/billing/account:
     get:
       tags: [Billing and Payments]

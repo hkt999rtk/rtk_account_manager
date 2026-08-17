@@ -46,6 +46,7 @@ type Server struct {
 	chipsetManifestFetcher     ChipsetManifestFetcher
 	emailOutboxStore           emailOutboxPersistence
 	payments                   *paymentRuntime
+	billing                    *billingRuntime
 }
 
 type emailOutboxPersistence interface {
@@ -533,6 +534,10 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/internal/app-token-authorizations", s.handleInternalAppTokenAuthorization)
 	v1.POST("/internal/device-provisioning-results", s.handleInternalDeviceProvisioningResult)
 	v1.POST("/internal/billing/debits", s.handleInternalBillingDebit)
+	v1.POST("/internal/billing/pricing-versions", s.createBillingPricingVersion)
+	v1.POST("/internal/billing/pricing-versions/:pricingVersionId/activate", s.activateBillingPricingVersion)
+	v1.POST("/internal/billing/usage-facts", s.putBillingUsageFact)
+	v1.POST("/internal/billing/periods/close", s.closeBillingPeriod)
 	v1.POST("/internal/payment-simulator/setup-callback", s.handlePaymentSimulatorSetupCallback)
 	v1.POST("/payment-webhooks/:provider", s.handlePaymentWebhook)
 
@@ -572,6 +577,16 @@ func (s *Server) Router() *gin.Engine {
 	protected.PATCH("/orgs/:orgId", s.requirePermission("organization.update"), s.updateOrganization)
 	protected.POST("/orgs/:orgId/quota-raise-requests", s.requirePermission("quota_request.create"), s.createQuotaRaiseRequest)
 	protected.GET("/orgs/:orgId/billing/account", s.requirePermission("billing_account.read"), s.getBillingAccount)
+	protected.GET("/orgs/:orgId/billing/summary", s.requirePermission("billing_summary.read"), s.getBillingSummary)
+	protected.GET("/orgs/:orgId/billing/usage", s.requirePermission("billing_usage.read"), s.getBillingUsage)
+	protected.GET("/orgs/:orgId/billing/invoices", s.requirePermission("invoice.read"), s.listBillingInvoices)
+	protected.GET("/orgs/:orgId/billing/invoices/:invoiceId", s.requirePermission("invoice.read"), s.getBillingInvoice)
+	protected.GET("/orgs/:orgId/billing/invoices/:invoiceId/pdf", s.requirePermission("invoice_document.read"), s.downloadBillingInvoicePDF)
+	protected.GET("/orgs/:orgId/billing/activity", s.requirePermission("billing_activity.read"), s.listBillingActivity)
+	protected.GET("/orgs/:orgId/billing/activity/:activityId", s.requirePermission("billing_activity.read"), s.getBillingActivity)
+	protected.GET("/orgs/:orgId/billing/profile", s.requirePermission("billing_profile.read"), s.getBillingProfile)
+	protected.PUT("/orgs/:orgId/billing/profile", s.requirePermission("billing_profile.manage"), s.putBillingProfile)
+	protected.GET("/orgs/:orgId/billing/statements", s.requirePermission("billing_statement.export"), s.exportBillingStatement)
 	protected.GET("/orgs/:orgId/billing/ledger", s.requirePermission("billing_ledger.read"), s.listBillingLedger)
 	protected.GET("/orgs/:orgId/payment-methods", s.requirePermission("payment_method.read"), s.listPaymentMethods)
 	protected.POST("/orgs/:orgId/payment-methods/setup", s.requirePermission("payment_method.manage"), s.setupPaymentMethod)

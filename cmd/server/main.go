@@ -10,6 +10,8 @@ import (
 
 	"rtk_account_manager/internal/api"
 	"rtk_account_manager/internal/auth"
+	"rtk_account_manager/internal/billingservice"
+	"rtk_account_manager/internal/billingstore"
 	"rtk_account_manager/internal/config"
 	"rtk_account_manager/internal/database"
 	"rtk_account_manager/internal/emaildelivery"
@@ -128,13 +130,22 @@ func main() {
 			fatal(logger, "configure payment reference protection failed", err)
 		}
 	}
+	paymentStore := paymentstore.New(db)
 	if err := server.ConfigurePayments(api.PaymentAPIOptions{
-		Store: paymentstore.New(db), Providers: paymentProviders,
+		Store: paymentStore, Providers: paymentProviders,
 		ReferenceProtector: paymentReferenceProtector,
 		BillingDebitToken:  cfg.BillingDebitToken, BillingDebitSource: cfg.BillingDebitSource,
 		SimulatorCallbackSecret: cfg.PaymentSimulatorCallbackSecret,
 	}); err != nil {
 		fatal(logger, "configure payment API failed", err)
+	}
+	billingStore := billingstore.New(db)
+	billingService, err := billingservice.New(billingservice.Options{Store: billingStore, PaymentStore: paymentStore})
+	if err != nil {
+		fatal(logger, "configure billing service failed", err)
+	}
+	if err := server.ConfigureBilling(api.BillingAPIOptions{Store: billingStore, Service: billingService}); err != nil {
+		fatal(logger, "configure billing API failed", err)
 	}
 	if emailOutboxDelivery(cfg.AuthTokenDelivery) {
 		server.ConfigureEmailOutbox(accountStore)
