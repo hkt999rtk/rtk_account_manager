@@ -48,6 +48,7 @@ type Server struct {
 }
 
 type setupRequest struct {
+	RunID          string `json:"run_id"`
 	AccountID      string `json:"account_id"`
 	SetupSessionID string `json:"setup_session_id"`
 	IdempotencyKey string `json:"idempotency_key"`
@@ -56,6 +57,7 @@ type setupRequest struct {
 }
 
 type operationRequest struct {
+	RunID                        string           `json:"run_id"`
 	IntentID                     string           `json:"intent_id"`
 	AmountMinor                  int64            `json:"amount_minor"`
 	Currency                     payment.Currency `json:"currency"`
@@ -68,6 +70,7 @@ type operationRequest struct {
 }
 
 type setupSession struct {
+	RunID               string
 	AccountID           string
 	SetupSessionID      string
 	Scenario            string
@@ -160,7 +163,7 @@ func (s *Server) authenticated(next http.Handler) http.Handler {
 
 func (s *Server) createSetup(w http.ResponseWriter, r *http.Request) {
 	var input setupRequest
-	if !decodeJSON(w, r, &input) || strings.TrimSpace(input.AccountID) == "" || strings.TrimSpace(input.SetupSessionID) == "" || strings.TrimSpace(input.IdempotencyKey) == "" {
+	if !decodeJSON(w, r, &input) || !validRunID(input.RunID) || strings.TrimSpace(input.AccountID) == "" || strings.TrimSpace(input.SetupSessionID) == "" || strings.TrimSpace(input.IdempotencyKey) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_setup"})
 		return
 	}
@@ -175,12 +178,12 @@ func (s *Server) createSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	var existing setupSession
 	err := s.db.QueryRow(r.Context(), `
-		SELECT account_id::text, setup_session_id::text, scenario, state,
+		SELECT run_id, account_id::text, setup_session_id::text, scenario, state,
 		       provider_customer_reference, provider_method_reference, expires_at
 		FROM payment_simulator_setup_sessions
-		WHERE account_id = $1 AND idempotency_key = $2
-	`, input.AccountID, input.IdempotencyKey).Scan(
-		&existing.AccountID, &existing.SetupSessionID, &existing.Scenario, &existing.State,
+		WHERE run_id = $1 AND account_id = $2 AND idempotency_key = $3
+	`, input.RunID, input.AccountID, input.IdempotencyKey).Scan(
+		&existing.RunID, &existing.AccountID, &existing.SetupSessionID, &existing.Scenario, &existing.State,
 		&existing.ProviderCustomerRef, &existing.ProviderMethodRef, &existing.ExpiresAt,
 	)
 	if err == nil {
@@ -214,10 +217,10 @@ func (s *Server) createSetup(w http.ResponseWriter, r *http.Request) {
 	methodRef := "sim_method_" + compactID(input.SetupSessionID)
 	_, err = s.db.Exec(r.Context(), `
 		INSERT INTO payment_simulator_setup_sessions (
-			account_id, setup_session_id, idempotency_key, token_sha256,
+			run_id, account_id, setup_session_id, idempotency_key, token_sha256,
 			scenario, provider_customer_reference, provider_method_reference, expires_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, input.AccountID, input.SetupSessionID, input.IdempotencyKey, hex.EncodeToString(tokenDigest[:]),
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, input.RunID, input.AccountID, input.SetupSessionID, input.IdempotencyKey, hex.EncodeToString(tokenDigest[:]),
 		input.Scenario, customerRef, methodRef, s.now().Add(s.retention))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "storage_failed"})
@@ -320,12 +323,12 @@ func (s *Server) operation(w http.ResponseWriter, r *http.Request, operation str
 	var storedRef, storedScenario string
 	err := s.db.QueryRow(r.Context(), `
 		INSERT INTO payment_simulator_operations (
-			operation, intent_id, idempotency_key, merchant_order_reference,
+			run_id, operation, intent_id, idempotency_key, merchant_order_reference,
 			provider_transaction_reference, amount_minor, currency, scenario, state
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		ON CONFLICT (operation, idempotency_key) DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (run_id, operation, idempotency_key) DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
 		RETURNING state, provider_transaction_reference, scenario
-	`, operation, input.IntentID, input.IdempotencyKey, input.MerchantOrderReference, transactionRef,
+	`, input.RunID, operation, input.IntentID, input.IdempotencyKey, input.MerchantOrderReference, transactionRef,
 		input.AmountMinor, input.Currency, input.Scenario, state).Scan(&storedState, &storedRef, &storedScenario)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "storage_failed"})
@@ -337,13 +340,13 @@ func (s *Server) operation(w http.ResponseWriter, r *http.Request, operation str
 	}
 	writeJSON(w, http.StatusOK, response{
 		State: storedState, ProviderTransactionReference: storedRef, ProviderCode: code,
-		Evidence: map[string]string{"simulator_operation": operation, "simulator_scenario": storedScenario},
+		Evidence: map[string]string{"simulator_operation": operation, "simulator_scenario": storedScenario, "simulator_run_id": input.RunID},
 	})
 }
 
 func (s *Server) query(w http.ResponseWriter, r *http.Request) {
 	var input operationRequest
-	if !decodeJSON(w, r, &input) || strings.TrimSpace(input.IntentID) == "" || payment.ValidateChargeAmount(input.Currency, input.AmountMinor) != nil {
+	if !decodeJSON(w, r, &input) || !validRunID(input.RunID) || strings.TrimSpace(input.IntentID) == "" || payment.ValidateChargeAmount(input.Currency, input.AmountMinor) != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_query"})
 		return
 	}
@@ -351,9 +354,9 @@ func (s *Server) query(w http.ResponseWriter, r *http.Request) {
 	var transactionRef, scenario string
 	err := s.db.QueryRow(r.Context(), `
 		SELECT state, provider_transaction_reference, scenario
-		FROM payment_simulator_operations WHERE operation = 'charge' AND intent_id = $1
+		FROM payment_simulator_operations WHERE run_id = $1 AND operation = 'charge' AND intent_id = $2
 		ORDER BY created_at DESC LIMIT 1
-	`, input.IntentID).Scan(&state, &transactionRef, &scenario)
+	`, input.RunID, input.IntentID).Scan(&state, &transactionRef, &scenario)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusOK, response{State: payment.PaymentIntentStateUnknown, ProviderCode: "simulator_not_found"})
 		return
@@ -372,11 +375,11 @@ func (s *Server) sessionByToken(ctx context.Context, token string) (setupSession
 	digest := sha256.Sum256([]byte(token))
 	var session setupSession
 	err := s.db.QueryRow(ctx, `
-		SELECT account_id::text, setup_session_id::text, scenario, state,
+		SELECT run_id, account_id::text, setup_session_id::text, scenario, state,
 		       provider_customer_reference, provider_method_reference, expires_at
 		FROM payment_simulator_setup_sessions WHERE token_sha256 = $1
 	`, hex.EncodeToString(digest[:])).Scan(
-		&session.AccountID, &session.SetupSessionID, &session.Scenario, &session.State,
+		&session.RunID, &session.AccountID, &session.SetupSessionID, &session.Scenario, &session.State,
 		&session.ProviderCustomerRef, &session.ProviderMethodRef, &session.ExpiresAt,
 	)
 	return session, err == nil
@@ -414,7 +417,7 @@ func (s *Server) pruneExpired(ctx context.Context) error {
 }
 
 func validOperation(input operationRequest, requireMethod bool) bool {
-	return strings.TrimSpace(input.IntentID) != "" && strings.TrimSpace(input.IdempotencyKey) != "" &&
+	return validRunID(input.RunID) && strings.TrimSpace(input.IntentID) != "" && strings.TrimSpace(input.IdempotencyKey) != "" &&
 		strings.TrimSpace(input.MerchantOrderReference) != "" && payment.ValidateChargeAmount(input.Currency, input.AmountMinor) == nil &&
 		(!requireMethod || strings.TrimSpace(input.OpaqueMethodReference) != "") && validScenario(normalizeScenario(input.Scenario))
 }
@@ -459,12 +462,28 @@ func validBaseURL(value string) (string, error) {
 
 func setupToken(secret []byte, input setupRequest) string {
 	mac := hmac.New(sha256.New, secret)
+	_, _ = io.WriteString(mac, input.RunID)
+	_, _ = io.WriteString(mac, "\x00")
 	_, _ = io.WriteString(mac, input.AccountID)
 	_, _ = io.WriteString(mac, "\x00")
 	_, _ = io.WriteString(mac, input.SetupSessionID)
 	_, _ = io.WriteString(mac, "\x00")
 	_, _ = io.WriteString(mac, input.IdempotencyKey)
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func validRunID(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for index, character := range value {
+		if character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || index > 0 && (character == '.' || character == '_' || character == '-') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func compactID(value string) string {

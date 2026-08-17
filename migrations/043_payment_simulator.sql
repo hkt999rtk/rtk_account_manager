@@ -3,6 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS payment_simulator_setup_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id TEXT NOT NULL,
     account_id UUID NOT NULL REFERENCES commercial_accounts(id) ON DELETE RESTRICT,
     setup_session_id UUID NOT NULL UNIQUE REFERENCES payment_method_setup_sessions(id) ON DELETE RESTRICT,
     idempotency_key TEXT NOT NULL,
@@ -17,7 +18,8 @@ CREATE TABLE IF NOT EXISTS payment_simulator_setup_sessions (
     completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT payment_simulator_setup_key UNIQUE (account_id, idempotency_key),
+    CONSTRAINT payment_simulator_setup_key UNIQUE (run_id, account_id, idempotency_key),
+    CONSTRAINT payment_simulator_setup_run_id_check CHECK (run_id ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'),
     CONSTRAINT payment_simulator_token_sha_check CHECK (token_sha256 ~ '^[0-9a-f]{64}$'),
     CONSTRAINT payment_simulator_scenario_check CHECK (scenario IN ('success', 'declined', 'temporary_error', 'requires_action', 'unknown')),
     CONSTRAINT payment_simulator_setup_state_check CHECK (state IN ('requires_action', 'succeeded', 'failed')),
@@ -27,6 +29,7 @@ CREATE TABLE IF NOT EXISTS payment_simulator_setup_sessions (
 
 CREATE TABLE IF NOT EXISTS payment_simulator_operations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id TEXT NOT NULL,
     operation TEXT NOT NULL,
     intent_id UUID NOT NULL REFERENCES payment_intents(id) ON DELETE RESTRICT,
     idempotency_key TEXT NOT NULL,
@@ -39,8 +42,9 @@ CREATE TABLE IF NOT EXISTS payment_simulator_operations (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT payment_simulator_operation_check CHECK (operation IN ('charge', 'refund')),
-    CONSTRAINT payment_simulator_operation_key UNIQUE (operation, idempotency_key),
-    CONSTRAINT payment_simulator_order_key UNIQUE (operation, merchant_order_reference),
+    CONSTRAINT payment_simulator_operation_key UNIQUE (run_id, operation, idempotency_key),
+    CONSTRAINT payment_simulator_order_key UNIQUE (run_id, operation, merchant_order_reference),
+    CONSTRAINT payment_simulator_operation_run_id_check CHECK (run_id ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'),
     CONSTRAINT payment_simulator_operation_amount_check CHECK (amount_minor > 0 AND currency = 'TWD'),
     CONSTRAINT payment_simulator_operation_scenario_check CHECK (scenario IN ('success', 'declined', 'temporary_error', 'requires_action', 'unknown')),
     CONSTRAINT payment_simulator_operation_state_check CHECK (state IN ('requires_action', 'unknown', 'succeeded', 'failed', 'canceled'))

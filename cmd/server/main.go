@@ -101,7 +101,7 @@ func main() {
 	if cfg.PaymentSimulatorEnabled {
 		provider, providerErr := paymentSimulator.New(paymentSimulator.Config{
 			BaseURL: cfg.PaymentSimulatorBaseURL, SharedSecret: cfg.PaymentSimulatorSharedSecret,
-			Scenario: cfg.PaymentSimulatorScenario, Timeout: cfg.NewebPayRequestTimeout,
+			RunID: cfg.PaymentSimulatorRunID, Scenario: cfg.PaymentSimulatorScenario, Timeout: cfg.NewebPayRequestTimeout,
 		})
 		if providerErr != nil {
 			fatal(logger, "configure payment simulator client failed", providerErr)

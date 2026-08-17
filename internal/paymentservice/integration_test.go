@@ -81,6 +81,10 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 }
 
 func createIntegrationFixture(t *testing.T, env integrationEnv, suffix string, now time.Time) integrationFixture {
+	return createIntegrationFixtureForProvider(t, env, suffix, "fake", now)
+}
+
+func createIntegrationFixtureForProvider(t *testing.T, env integrationEnv, suffix, providerName string, now time.Time) integrationFixture {
 	t.Helper()
 	ctx := context.Background()
 	registered, err := accountstore.New(env.db).Register(ctx, accountstore.RegisterInput{
@@ -112,7 +116,7 @@ func createIntegrationFixture(t *testing.T, env integrationEnv, suffix string, n
 		t.Fatal(err)
 	}
 	method, err := env.store.CreatePaymentMethod(ctx, paymentstore.CreatePaymentMethodInput{
-		AccountID: account.ID, Provider: "fake",
+		AccountID: account.ID, Provider: providerName,
 		ProviderCustomerRefCiphertext: []byte("encrypted-fake-customer"),
 		ProviderMethodRefCiphertext:   []byte("encrypted-fake-method"),
 		ProviderMethodRefSHA256:       strings.Repeat("b", 64), CardBrand: "test", LastFour: "4242",
@@ -163,13 +167,17 @@ func triggerAutomaticIntent(t *testing.T, env integrationEnv, fixture integratio
 }
 
 func newIntegrationService(t *testing.T, env integrationEnv, provider *fake.Provider, clock *testClock, enabled bool) *Service {
+	return newProviderIntegrationService(t, env, provider, clock, enabled)
+}
+
+func newProviderIntegrationService(t *testing.T, env integrationEnv, provider payment.PaymentProvider, clock *testClock, enabled bool) *Service {
 	t.Helper()
 	service, err := New(Options{
 		Store: env.store, Providers: []payment.PaymentProvider{provider},
 		ReferenceResolver: testReferenceResolver{value: "fake-vaulted-method-token"},
 		LeaseOwner:        "integration-worker", LeaseDuration: 30 * time.Second,
 		ReconciliationDelay: time.Minute, BatchSize: 20,
-		ChargeEnabled: map[string]bool{"fake": enabled}, Now: clock.Current,
+		ChargeEnabled: map[string]bool{provider.Name(): enabled}, Now: clock.Current,
 	})
 	if err != nil {
 		t.Fatal(err)

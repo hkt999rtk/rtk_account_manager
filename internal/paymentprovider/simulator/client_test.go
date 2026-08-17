@@ -28,7 +28,7 @@ func TestClientCreatesHostedSetupWithSignedCanonicalRequest(t *testing.T) {
 		if r.Header.Get("X-Payment-Simulator-Signature") != sign([]byte(testSecret), encoded) {
 			t.Fatal("request signature mismatch")
 		}
-		if body["setup_session_id"] != "setup-1" || body["scenario"] != "success" {
+		if body["run_id"] != "run-client-1" || body["setup_session_id"] != "setup-1" || body["scenario"] != "success" {
 			t.Fatalf("body=%+v", body)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -37,7 +37,7 @@ func TestClientCreatesHostedSetupWithSignedCanonicalRequest(t *testing.T) {
 		})
 	}))
 	defer server.Close()
-	client, err := New(Config{BaseURL: server.URL, SharedSecret: testSecret, Timeout: time.Second})
+	client, err := New(Config{BaseURL: server.URL, SharedSecret: testSecret, RunID: "run-client-1", Timeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestClientPreservesZeroDecimalTWDAmount(t *testing.T) {
 		})
 	}))
 	defer server.Close()
-	client, err := New(Config{BaseURL: server.URL, SharedSecret: testSecret, Timeout: time.Second})
+	client, err := New(Config{BaseURL: server.URL, SharedSecret: testSecret, RunID: "run-client-2", Timeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,9 +84,12 @@ func TestClientRejectsUnsafeConfigurationAndAuthenticationFailure(t *testing.T) 
 	if _, err := New(Config{BaseURL: "https://user:pass@example.test", SharedSecret: testSecret}); err == nil {
 		t.Fatal("credential-bearing URL should fail")
 	}
+	if _, err := New(Config{BaseURL: "https://example.test", SharedSecret: testSecret, RunID: "unsafe/run"}); err == nil {
+		t.Fatal("unsafe run ID should fail")
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) }))
 	defer server.Close()
-	client, err := New(Config{BaseURL: server.URL, SharedSecret: testSecret, Timeout: time.Second})
+	client, err := New(Config{BaseURL: server.URL, SharedSecret: testSecret, RunID: "run-client-3", Timeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}

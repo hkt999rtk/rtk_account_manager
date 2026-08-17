@@ -23,6 +23,7 @@ const ProviderName = "simulator"
 type Config struct {
 	BaseURL      string
 	SharedSecret string
+	RunID        string
 	Scenario     string
 	Timeout      time.Duration
 	HTTPClient   *http.Client
@@ -31,6 +32,7 @@ type Config struct {
 type Client struct {
 	baseURL  string
 	secret   []byte
+	runID    string
 	scenario string
 	http     *http.Client
 	timeout  time.Duration
@@ -59,6 +61,9 @@ func New(config Config) (*Client, error) {
 	if len(strings.TrimSpace(config.SharedSecret)) < 32 {
 		return nil, fmt.Errorf("payment simulator shared secret must contain at least 32 characters")
 	}
+	if !validRunID(config.RunID) {
+		return nil, fmt.Errorf("payment simulator run ID is required and must use letters, digits, dot, underscore, or hyphen")
+	}
 	if config.Timeout <= 0 {
 		config.Timeout = 10 * time.Second
 	}
@@ -66,7 +71,7 @@ func New(config Config) (*Client, error) {
 		config.HTTPClient = &http.Client{}
 	}
 	return &Client{
-		baseURL: strings.TrimRight(parsed.String(), "/"), secret: []byte(strings.TrimSpace(config.SharedSecret)),
+		baseURL: strings.TrimRight(parsed.String(), "/"), secret: []byte(strings.TrimSpace(config.SharedSecret)), runID: strings.TrimSpace(config.RunID),
 		scenario: normalizeScenario(config.Scenario), http: config.HTTPClient, timeout: config.Timeout,
 	}, nil
 }
@@ -83,6 +88,7 @@ func (c *Client) CreateSetup(ctx context.Context, request payment.SetupRequest) 
 	}
 	var response providerResponse
 	err := c.post(ctx, "/internal/v1/setup-sessions", map[string]any{
+		"run_id":     c.runID,
 		"account_id": request.AccountID, "setup_session_id": request.LocalSessionID,
 		"idempotency_key": request.IdempotencyKey, "correlation_id": request.CorrelationID, "scenario": c.scenario,
 	}, &response)
@@ -100,6 +106,7 @@ func (c *Client) CreateSetup(ctx context.Context, request payment.SetupRequest) 
 func (c *Client) Charge(ctx context.Context, request payment.ChargeRequest) (payment.ProviderResult, error) {
 	var response providerResponse
 	err := c.post(ctx, "/internal/v1/charges", map[string]any{
+		"run_id":    c.runID,
 		"intent_id": request.IntentID, "amount_minor": request.AmountMinor, "currency": request.Currency,
 		"opaque_method_reference": request.OpaqueMethodReference, "merchant_order_reference": request.MerchantOrderReference,
 		"idempotency_key": request.IdempotencyKey, "correlation_id": request.CorrelationID, "scenario": c.scenario,
@@ -110,6 +117,7 @@ func (c *Client) Charge(ctx context.Context, request payment.ChargeRequest) (pay
 func (c *Client) Query(ctx context.Context, request payment.QueryRequest) (payment.ProviderResult, error) {
 	var response providerResponse
 	err := c.post(ctx, "/internal/v1/queries", map[string]any{
+		"run_id":    c.runID,
 		"intent_id": request.IntentID, "amount_minor": request.AmountMinor, "currency": request.Currency,
 		"merchant_order_reference":       request.MerchantOrderReference,
 		"provider_transaction_reference": request.ProviderTransactionReference,
@@ -121,6 +129,7 @@ func (c *Client) Query(ctx context.Context, request payment.QueryRequest) (payme
 func (c *Client) Refund(ctx context.Context, request payment.RefundRequest) (payment.ProviderResult, error) {
 	var response providerResponse
 	err := c.post(ctx, "/internal/v1/refunds", map[string]any{
+		"run_id":    c.runID,
 		"intent_id": request.IntentID, "amount_minor": request.AmountMinor, "currency": request.Currency,
 		"provider_transaction_reference": request.ProviderTransactionReference,
 		"idempotency_key":                request.IdempotencyKey, "correlation_id": request.CorrelationID, "scenario": c.scenario,
@@ -193,4 +202,18 @@ func normalizeScenario(value string) string {
 		return "success"
 	}
 	return value
+}
+
+func validRunID(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for index, character := range value {
+		if character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || index > 0 && (character == '.' || character == '_' || character == '-') {
+			continue
+		}
+		return false
+	}
+	return true
 }

@@ -25,6 +25,19 @@ func TestScenarioNormalizationAndOutcomes(t *testing.T) {
 	}
 }
 
+func TestRunIDValidationRejectsCrossScopeOrPathSyntax(t *testing.T) {
+	for _, valid := range []string{"gh-123-1", "local.20260817_001", "staging"} {
+		if !validRunID(valid) {
+			t.Fatalf("valid run ID rejected: %q", valid)
+		}
+	}
+	for _, invalid := range []string{"", "-leading", "contains/slash", "contains space", strings.Repeat("a", 129)} {
+		if validRunID(invalid) {
+			t.Fatalf("invalid run ID accepted: %q", invalid)
+		}
+	}
+}
+
 func TestAuthenticationRejectsMissingOrInvalidSignature(t *testing.T) {
 	s := &Server{sharedSecret: []byte("0123456789abcdef0123456789abcdef")}
 	handler := s.authenticated(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))

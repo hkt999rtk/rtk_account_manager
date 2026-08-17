@@ -6361,12 +6361,14 @@ func TestIntegrationPaymentSimulatorHostedSetupActivatesMethodWithoutPersistingR
 	}
 	const sharedSecret = "simulator-shared-secret-0123456789abcdef"
 	const callbackSecret = "simulator-callback-secret-0123456789abcdef"
+	simulatorNow := time.Date(2026, 8, 17, 8, 0, 0, 0, time.UTC)
 	callbackServer := httptest.NewServer(env.router)
 	t.Cleanup(callbackServer.Close)
 	simulatorServer, err := paymentsimulator.New(env.db, paymentsimulator.Config{
 		Environment: "test", PublicBaseURL: "https://payment-simulator.test",
 		CallbackURL:  callbackServer.URL + "/v1/internal/payment-simulator/setup-callback",
-		SharedSecret: sharedSecret, CallbackSecret: callbackSecret,
+		SharedSecret: sharedSecret, CallbackSecret: callbackSecret, Retention: time.Hour,
+		Now: func() time.Time { return simulatorNow },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -6374,7 +6376,7 @@ func TestIntegrationPaymentSimulatorHostedSetupActivatesMethodWithoutPersistingR
 	simulatorHTTP := httptest.NewServer(simulatorServer.Handler())
 	t.Cleanup(simulatorHTTP.Close)
 	provider, err := simulatorprovider.New(simulatorprovider.Config{
-		BaseURL: simulatorHTTP.URL, SharedSecret: sharedSecret, Scenario: "success",
+		BaseURL: simulatorHTTP.URL, SharedSecret: sharedSecret, RunID: "api-simulator-integration", Scenario: "success",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -6444,6 +6446,7 @@ func TestIntegrationPaymentSimulatorHostedSetupActivatesMethodWithoutPersistingR
 	}
 	var methodStatus payment.PaymentMethodStatus
 	var persistedSession string
+	var accountSetupSessionID string
 	var methodCount, consentCount int
 	if err := env.db.QueryRow(context.Background(), `SELECT status FROM payment_methods WHERE id = $1`, setupBody.PaymentMethod.ID).Scan(&methodStatus); err != nil {
 		t.Fatal(err)
@@ -6451,11 +6454,28 @@ func TestIntegrationPaymentSimulatorHostedSetupActivatesMethodWithoutPersistingR
 	if err := env.db.QueryRow(context.Background(), `SELECT row_to_json(s)::text FROM payment_simulator_setup_sessions s WHERE setup_session_id = (SELECT id FROM payment_method_setup_sessions WHERE payment_method_id = $1)`, setupBody.PaymentMethod.ID).Scan(&persistedSession); err != nil {
 		t.Fatal(err)
 	}
+	if err := env.db.QueryRow(context.Background(), `SELECT id::text FROM payment_method_setup_sessions WHERE payment_method_id = $1`, setupBody.PaymentMethod.ID).Scan(&accountSetupSessionID); err != nil {
+		t.Fatal(err)
+	}
 	if err := env.db.QueryRow(context.Background(), `SELECT count(*), count(DISTINCT consent_id) FROM payment_methods WHERE account_id = $1 AND provider = 'simulator'`, setupBody.PaymentMethod.AccountID).Scan(&methodCount, &consentCount); err != nil {
 		t.Fatal(err)
 	}
 	if methodStatus != payment.PaymentMethodStatusActive || strings.Contains(persistedSession, rawToken) || methodCount != 1 || consentCount != 1 {
 		t.Fatalf("method status=%s raw_token_persisted=%t methods=%d consents=%d", methodStatus, strings.Contains(persistedSession, rawToken), methodCount, consentCount)
+	}
+	simulatorNow = simulatorNow.Add(2 * time.Hour)
+	secondSetupResponse := performJSONHeaders(env.router, http.MethodPost,
+		"/v1/orgs/"+owner.Organization.ID+"/payment-methods/setup", setupPayload,
+		owner.Tokens.AccessToken, map[string]string{"Idempotency-Key": "simulator-hosted-setup-after-retention"})
+	if secondSetupResponse.Code != http.StatusAccepted {
+		t.Fatalf("second setup status/body=%d/%s", secondSetupResponse.Code, secondSetupResponse.Body.String())
+	}
+	var retainedRows int
+	if err := env.db.QueryRow(context.Background(), `SELECT count(*) FROM payment_simulator_setup_sessions WHERE setup_session_id = $1`, accountSetupSessionID).Scan(&retainedRows); err != nil {
+		t.Fatal(err)
+	}
+	if retainedRows != 0 {
+		t.Fatalf("expired simulator setup rows=%d", retainedRows)
 	}
 }
 

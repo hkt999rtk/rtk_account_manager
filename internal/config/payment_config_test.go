@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"strings"
 	"testing"
+	"time"
 )
 
 func setPaymentWorkerEnv(t *testing.T) {
@@ -17,6 +18,29 @@ func setPaymentWorkerEnv(t *testing.T) {
 	t.Setenv("NEWEBPAY_HASH_KEY", strings.Repeat("k", 32))
 	t.Setenv("NEWEBPAY_HASH_IV", strings.Repeat("i", 16))
 	t.Setenv("NEWEBPAY_MERCHANT_INITIATED_CHARGE_ENABLED", "false")
+}
+
+func TestPaymentSimulatorRequiresSafeRunScopedConfiguration(t *testing.T) {
+	cfg := Config{
+		LogEnv: "staging", PaymentSimulatorEnabled: true,
+		PaymentSimulatorBaseURL:        "http://payment-simulator:8081",
+		PaymentSimulatorPublicBaseURL:  "https://payment-simulator.example.test",
+		PaymentSimulatorCallbackURL:    "http://account-manager:8080/v1/internal/payment-simulator/setup-callback",
+		PaymentSimulatorSharedSecret:   strings.Repeat("s", 32),
+		PaymentSimulatorCallbackSecret: strings.Repeat("c", 32),
+		PaymentSimulatorRunID:          "gh-123-1", PaymentSimulatorRetention: 7 * 24 * time.Hour,
+	}
+	if err := validatePaymentSimulatorConfig(cfg, true); err != nil {
+		t.Fatal(err)
+	}
+	cfg.PaymentSimulatorRunID = "unsafe/run"
+	if err := validatePaymentSimulatorConfig(cfg, true); err == nil || !strings.Contains(err.Error(), "PAYMENT_SIMULATOR_RUN_ID") {
+		t.Fatalf("unsafe run ID err=%v", err)
+	}
+	cfg.PaymentSimulatorRunID = ""
+	if err := validatePaymentSimulatorConfig(cfg, false); err == nil {
+		t.Fatal("missing run ID must fail for provider clients")
+	}
 }
 
 func TestPaymentWorkerDisabledByDefaultNeedsNoCredentials(t *testing.T) {

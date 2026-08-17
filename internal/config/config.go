@@ -71,6 +71,7 @@ type Config struct {
 	PaymentSimulatorCallbackURL    string
 	PaymentSimulatorSharedSecret   string
 	PaymentSimulatorCallbackSecret string
+	PaymentSimulatorRunID          string
 	PaymentSimulatorScenario       string
 	PaymentSimulatorRetention      time.Duration
 	CrossServiceBroker             string
@@ -278,6 +279,9 @@ func validatePaymentSimulatorConfig(cfg Config, process bool) error {
 	if len(strings.TrimSpace(cfg.PaymentSimulatorSharedSecret)) < 32 || len(strings.TrimSpace(cfg.PaymentSimulatorCallbackSecret)) < 32 {
 		return fmt.Errorf("payment simulator secrets must contain at least 32 characters")
 	}
+	if !validPaymentSimulatorRunID(cfg.PaymentSimulatorRunID) {
+		return fmt.Errorf("PAYMENT_SIMULATOR_RUN_ID is required and must use letters, digits, dot, underscore, or hyphen")
+	}
 	for name, value := range map[string]string{"PAYMENT_SIMULATOR_BASE_URL": cfg.PaymentSimulatorBaseURL} {
 		if process {
 			name, value = "PAYMENT_SIMULATOR_PUBLIC_BASE_URL", cfg.PaymentSimulatorPublicBaseURL
@@ -297,6 +301,20 @@ func validatePaymentSimulatorConfig(cfg Config, process bool) error {
 		}
 	}
 	return nil
+}
+
+func validPaymentSimulatorRunID(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for index, character := range value {
+		if character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || index > 0 && (character == '.' || character == '_' || character == '-') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func validatePaymentBooleanEnv() error {
@@ -465,6 +483,7 @@ func load() (Config, error) {
 		PaymentSimulatorCallbackURL:    getenv("PAYMENT_SIMULATOR_CALLBACK_URL", ""),
 		PaymentSimulatorSharedSecret:   os.Getenv("PAYMENT_SIMULATOR_SHARED_SECRET"),
 		PaymentSimulatorCallbackSecret: os.Getenv("PAYMENT_SIMULATOR_SETUP_CALLBACK_SECRET"),
+		PaymentSimulatorRunID:          getenv("PAYMENT_SIMULATOR_RUN_ID", ""),
 		PaymentSimulatorScenario:       getenv("PAYMENT_SIMULATOR_SCENARIO", "success"),
 		PaymentSimulatorRetention:      duration("PAYMENT_SIMULATOR_RETENTION", 7*24*time.Hour),
 		CrossServiceBroker:             getenv("CROSS_SERVICE_BROKER", "log"),

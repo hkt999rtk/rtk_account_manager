@@ -52,7 +52,7 @@ func main() {
 	if cfg.PaymentSimulatorEnabled {
 		provider, err = paymentSimulator.New(paymentSimulator.Config{
 			BaseURL: cfg.PaymentSimulatorBaseURL, SharedSecret: cfg.PaymentSimulatorSharedSecret,
-			Scenario: cfg.PaymentSimulatorScenario, Timeout: cfg.NewebPayRequestTimeout,
+			RunID: cfg.PaymentSimulatorRunID, Scenario: cfg.PaymentSimulatorScenario, Timeout: cfg.NewebPayRequestTimeout,
 		})
 		chargeEnabled = true
 	} else {
