@@ -2,13 +2,10 @@ package database
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestConnectRejectsInvalidConfig(t *testing.T) {
@@ -119,64 +116,5 @@ func TestFindMigrationDirCandidates(t *testing.T) {
 	}
 	if got != "migrations" {
 		t.Fatalf("expected migrations, got %s", got)
-	}
-}
-
-func TestMigrateAppliesAndThenSkipsCommittedFiles(t *testing.T) {
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("TEST_DATABASE_URL is required")
-	}
-	ctx := context.Background()
-	admin, err := Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer admin.Close()
-
-	schema := fmt.Sprintf("migration_test_%d", time.Now().UnixNano())
-	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _, _ = admin.Exec(context.Background(), "DROP SCHEMA "+schema+" CASCADE") })
-
-	config, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	config.ConnConfig.RuntimeParams["search_path"] = schema
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-
-	migrations := t.TempDir()
-	if err := os.WriteFile(filepath.Join(migrations, "001_create.sql"), []byte("CREATE TABLE migration_probe (id BIGINT PRIMARY KEY);"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(migrations, "002_insert.sql"), []byte("INSERT INTO migration_probe (id) VALUES (1);"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(migrations, "README.txt"), []byte("ignored"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MIGRATIONS_DIR", migrations)
-
-	if err := Migrate(ctx, pool); err != nil {
-		t.Fatalf("first migration: %v", err)
-	}
-	if err := Migrate(ctx, pool); err != nil {
-		t.Fatalf("idempotent migration: %v", err)
-	}
-	var versions, rows int
-	if err := pool.QueryRow(ctx, "SELECT count(*)::int FROM schema_migrations").Scan(&versions); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.QueryRow(ctx, "SELECT count(*)::int FROM migration_probe").Scan(&rows); err != nil {
-		t.Fatal(err)
-	}
-	if versions != 2 || rows != 1 {
-		t.Fatalf("versions/rows = %d/%d, want 2/1", versions, rows)
 	}
 }

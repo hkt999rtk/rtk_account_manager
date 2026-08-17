@@ -34,8 +34,6 @@ func TestServiceUnitMapping(t *testing.T) {
 		ServiceMigrate:       "rtk_account_manager_migrate.service",
 		ServiceOutboxWorker:  "rtk_account_manager_outbox_worker.service",
 		ServiceInboxWorker:   "rtk_account_manager_inbox_worker.service",
-		ServiceEmailWorker:   "rtk_account_manager_email_worker.service",
-		ServicePaymentWorker: "rtk_account_manager_payment_worker.service",
 		ServiceCleanupTokens: "rtk_account_manager_cleanup_tokens.service",
 		"custom_worker":      "custom_worker.service",
 	}

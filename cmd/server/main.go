@@ -10,17 +10,10 @@ import (
 
 	"rtk_account_manager/internal/api"
 	"rtk_account_manager/internal/auth"
-	"rtk_account_manager/internal/billingservice"
-	"rtk_account_manager/internal/billingstore"
 	"rtk_account_manager/internal/config"
 	"rtk_account_manager/internal/database"
 	"rtk_account_manager/internal/emaildelivery"
 	"rtk_account_manager/internal/logging"
-	"rtk_account_manager/internal/payment"
-	"rtk_account_manager/internal/paymentcrypto"
-	"rtk_account_manager/internal/paymentprovider/newebpay"
-	paymentSimulator "rtk_account_manager/internal/paymentprovider/simulator"
-	"rtk_account_manager/internal/paymentstore"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/usercache"
 
@@ -99,54 +92,6 @@ func main() {
 		logger.Info("user cache enabled", zap.String("addr", cfg.UserCacheAddr), zap.String("prefix", cfg.UserCachePrefix))
 	}
 	server := api.NewWithAuthTokenAndNotificationSink(apiStore, authService, authTokenSink, notificationSink)
-	paymentProviders := make([]payment.PaymentProvider, 0, 1)
-	if cfg.PaymentSimulatorEnabled {
-		provider, providerErr := paymentSimulator.New(paymentSimulator.Config{
-			BaseURL: cfg.PaymentSimulatorBaseURL, SharedSecret: cfg.PaymentSimulatorSharedSecret,
-			RunID: cfg.PaymentSimulatorRunID, Scenario: cfg.PaymentSimulatorScenario, Timeout: cfg.NewebPayRequestTimeout,
-		})
-		if providerErr != nil {
-			fatal(logger, "configure payment simulator client failed", providerErr)
-		}
-		paymentProviders = append(paymentProviders, provider)
-	}
-	if cfg.NewebPayEnabled {
-		provider, providerErr := newebpay.New(newebpay.Config{
-			Enabled: true, Environment: cfg.NewebPayEnvironment, MerchantID: cfg.NewebPayMerchantID,
-			HashKey: cfg.NewebPayHashKey, HashIV: cfg.NewebPayHashIV, Timeout: cfg.NewebPayRequestTimeout,
-		})
-		if providerErr != nil {
-			// Payment routes fail closed, while identity and registry APIs remain
-			// available. The error contains no credential values.
-			logger.Error("payment webhook verifier disabled", zap.Error(providerErr))
-		} else {
-			paymentProviders = append(paymentProviders, provider)
-		}
-	}
-	var paymentReferenceProtector api.PaymentReferenceProtector
-	if strings.TrimSpace(cfg.PaymentReferenceEncryptionKey) != "" {
-		paymentReferenceProtector, err = paymentcrypto.New(cfg.PaymentReferenceEncryptionKey)
-		if err != nil {
-			fatal(logger, "configure payment reference protection failed", err)
-		}
-	}
-	paymentStore := paymentstore.New(db)
-	if err := server.ConfigurePayments(api.PaymentAPIOptions{
-		Store: paymentStore, Providers: paymentProviders,
-		ReferenceProtector: paymentReferenceProtector,
-		BillingDebitToken:  cfg.BillingDebitToken, BillingDebitSource: cfg.BillingDebitSource,
-		SimulatorCallbackSecret: cfg.PaymentSimulatorCallbackSecret,
-	}); err != nil {
-		fatal(logger, "configure payment API failed", err)
-	}
-	billingStore := billingstore.New(db)
-	billingService, err := billingservice.New(billingservice.Options{Store: billingStore, PaymentStore: paymentStore})
-	if err != nil {
-		fatal(logger, "configure billing service failed", err)
-	}
-	if err := server.ConfigureBilling(api.BillingAPIOptions{Store: billingStore, Service: billingService}); err != nil {
-		fatal(logger, "configure billing API failed", err)
-	}
 	if emailOutboxDelivery(cfg.AuthTokenDelivery) {
 		server.ConfigureEmailOutbox(accountStore)
 	}
