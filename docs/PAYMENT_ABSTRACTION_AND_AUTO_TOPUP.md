@@ -3,9 +3,11 @@
 Status: implemented foundation with guarded rollout. Provider-neutral money,
 ledger, policy, intent, durable worker/reconciliation, safe customer HTTP APIs,
 and verified webhook ingestion are implemented. A durable hosted-setup path is
-qualified with the deterministic fake provider; NewebPay hosted setup and
-merchant-initiated charging remain disabled until written capability approval
-and sandbox qualification are available.
+qualified with the deterministic in-process fake provider. The next approved
+provider is the non-production payment simulator defined by workspace
+`docs/payment-simulator.md`; NewebPay hosted setup and merchant-initiated
+charging remain disabled until written capability approval and sandbox
+qualification are available.
 
 Owner: `rtk_account_manager`.
 
@@ -27,7 +29,8 @@ The design provides:
 - an append-only PostgreSQL monetary ledger;
 - provider-neutral payment methods, intents, attempts, and webhook inbox;
 - a customer-consented automatic top-up policy;
-- a provider adapter registry whose first guarded adapter is NewebPay;
+- a provider adapter registry whose first qualification adapters are the
+  deterministic fake and hosted simulator, followed by guarded NewebPay;
 - durable reconciliation and an emergency provider-disable control.
 
 It does not make Account Manager a usage meter. Video Cloud and other services
@@ -45,7 +48,8 @@ APIs, permissions, a dedicated internal billing-debit credential, and a
 dedicated payment worker. Existing organization `tier` fields still do not
 represent money or payment status.
 
-The remaining production dependencies are the NewebPay mapping for approved
+The next delivery dependency is the hosted non-production simulator. Remaining
+production dependencies are the NewebPay mapping for approved
 hosted payment-method setup, written approval for unattended merchant-initiated
 charging, sandbox credentials and qualification evidence, plus a separately
 owned pricing/invoice debit producer. Until those dependencies are met, the
@@ -82,7 +86,7 @@ ledger   policy      payment orchestrator
        PostgreSQL
            |
            v
- payment worker/reconciler ---> PaymentProvider interface ---> NewebPay
+ payment worker/reconciler ---> PaymentProvider interface ---> simulator / NewebPay
            ^                                                    |
            +---------------- verified webhook inbox <-----------+
 
@@ -178,10 +182,9 @@ automatic top-up policy, and moves an otherwise-active commercial account to
 ## Data Model
 
 All monetary fields are `BIGINT`, are interpreted as ISO currency minor units,
-and are never floating point. Internal TWD values use cents. The initial public
-product accepts whole New Taiwan dollars only, so TWD values are divisible by
-100; the NewebPay adapter performs the checked conversion to its integer-dollar
-`Amt`. All timestamps are UTC. Provider references are treated as opaque,
+and are never floating point. TWD has zero fractional digits, so one internal
+TWD `amount_minor` unit is NT$1. UI and provider adapters do not multiply or
+divide TWD by 100. Stored timestamps are UTC. Provider references are treated as opaque,
 length-bounded strings.
 
 ### `commercial_accounts`
@@ -342,18 +345,25 @@ armed --balance < threshold--> intent open --> succeeded --> disarmed
   +-- balance >= threshold or authorized policy generation update
 ```
 
-Daily limits use UTC calendar days in phase one. The API returns the timezone
-and reset time explicitly. If product requires customer-local billing days,
-that is a later contract change.
+Daily limits use `Asia/Taipei` calendar days and reset at local midnight. The
+API returns the timezone and reset instant explicitly.
 
-Default proposed guardrails, subject to finance approval:
+Approved simulator guardrails:
 
 | Setting | Proposed default | Constraint |
 | --- | ---: | --- |
-| `daily_attempt_limit` | 3 | 1-10 |
+| `threshold_minor` | 300 | positive TWD integer; trigger only below threshold |
+| `top_up_amount_minor` | 300 | positive TWD integer |
+| `daily_attempt_limit` | 2 | configurable, 1-10 |
 | `cooldown_seconds` | 3600 | at least 300 |
-| `daily_amount_limit_minor` | no implicit value | customer/finance must choose; cannot be unlimited |
+| `daily_amount_limit_minor` | 1000 | configurable; finite and at least one top-up |
+| conclusive failure limit | 3 | disable policy and require owner re-enable |
 | top-up recursion | disabled | one success per crossing/generation |
+
+Successful automatic charge resets the consecutive-failure counter. Terminal
+failed/canceled charge increments it. `unknown` does not increment until
+reconciliation is conclusive. `requires_action` immediately pauses for owner
+attention but is not counted as a conclusive failure.
 
 The service rejects a policy that has no finite daily amount limit. Environment
 configuration may impose a stricter platform maximum than the customer policy.
@@ -431,6 +441,20 @@ resource type and request correlation. Support tooling must not display provider
 credentials, full provider payloads, hosted-session tokens, card data, or
 unredacted customer identifiers.
 
+## Payment Simulator
+
+The approved first hosted provider is available only in local, CI, and shared
+staging. Its public staging origin is
+`https://payment-simulator.video-cloud-staging.realtekconnect.com`. It uses a
+dedicated process, durable synthetic state, signed setup callbacks, and the
+same provider, intent, reconciliation, encrypted-reference, and ledger
+interfaces as a real provider. Startup fails if enabled in production. The
+page contains no card-entry fields and always displays
+`TEST PAYMENT - NO REAL CHARGE`.
+
+The normative protocol, configuration, scenarios, Test IDs, and cleanup rules
+are in workspace `docs/payment-simulator.md`.
+
 ## NewebPay Adapter Design
 
 The adapter name is `newebpay`. Domain and API resources do not use NewebPay
@@ -473,8 +497,8 @@ identity/registry APIs from starting.
 
 - `MerchantOrderNo` is length/character constrained; map the internal UUID to a
   unique prefixed reference that fits the provider limit and persist the map.
-- NewebPay `Amt` is an integer New Taiwan dollar value. Reject fractional-dollar
-  TWD input and perform a checked conversion from internal minor units.
+- NewebPay `Amt` is an integer New Taiwan dollar value and maps directly from
+  internal TWD `amount_minor`; there is no factor-of-100 conversion.
 - `TokenTerm` is not a public customer ID. Derive a stable non-identifying,
   length-bounded opaque value and persist the association.
 - AES and integrity/check computation are isolated in a small tested crypto
@@ -609,12 +633,13 @@ Alerts:
 3. Add exact OpenAPI schemas and planned Test IDs/catalog entries.
 4. Add schema and pure domain/store implementation with unit/integration tests.
 5. Add a fake provider and complete orchestration tests.
-6. Add the NewebPay adapter behind disabled feature flags.
-7. Add Cloud Admin BFF/UI and desktop/mobile evidence.
-8. Pass sandbox live staging, reconciliation, refund, duplicate callback, and
+6. Add and qualify the hosted non-production payment simulator.
+7. Add the NewebPay adapter behind disabled feature flags.
+8. Add Cloud Admin BFF/UI and desktop/mobile evidence.
+9. Pass sandbox live staging, reconciliation, refund, duplicate callback, and
    cleanup tests.
-9. Enable one allowlisted canary Brand Cloud with conservative limits.
-10. Expand only after ledger reconciliation and support metrics remain clean.
+10. Enable one allowlisted canary Brand Cloud with conservative limits.
+11. Expand only after ledger reconciliation and support metrics remain clean.
 
 Implementation is not complete until the exact API is in `openapi.yaml`, all
 reserved critical Test IDs have executable sources, required reports are PASS,
