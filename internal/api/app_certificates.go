@@ -42,15 +42,16 @@ type AppCertificateIssueResponse struct {
 }
 
 type appCertificateResponse struct {
-	Status              string     `json:"status"`
-	Subject             string     `json:"subject,omitempty"`
-	CertificatePEM      string     `json:"certificate_pem,omitempty"`
-	CertificateChainPEM string     `json:"certificate_chain_pem,omitempty"`
-	FingerprintSHA256   string     `json:"fingerprint_sha256,omitempty"`
-	SerialNumber        string     `json:"serial_number,omitempty"`
-	IssuerRequestID     string     `json:"issuer_request_id,omitempty"`
-	NotBefore           *time.Time `json:"not_before,omitempty"`
-	NotAfter            *time.Time `json:"not_after,omitempty"`
+	Status              string             `json:"status"`
+	Subject             string             `json:"subject,omitempty"`
+	CertificatePEM      string             `json:"certificate_pem,omitempty"`
+	CertificateChainPEM string             `json:"certificate_chain_pem,omitempty"`
+	FingerprintSHA256   string             `json:"fingerprint_sha256,omitempty"`
+	SerialNumber        string             `json:"serial_number,omitempty"`
+	IssuerRequestID     string             `json:"issuer_request_id,omitempty"`
+	NotBefore           *time.Time         `json:"not_before,omitempty"`
+	NotAfter            *time.Time         `json:"not_after,omitempty"`
+	CertificateBundle   *certificateBundle `json:"certificate_bundle,omitempty"`
 }
 
 type loginResponse struct {
@@ -77,22 +78,22 @@ func (s *Server) loginResponse(ctx context.Context, user model.User, tokens toke
 }
 
 func (s *Server) appCertificateForLogin(ctx context.Context, userID, csrPEM string) (appCertificateResponse, error) {
-	return s.appCertificateForSubject(ctx, "platform_user", userID, "app-user:"+userID, csrPEM)
+	return s.appCertificateForSubject(ctx, "platform", "platform_user", userID, "app-user:"+userID, csrPEM)
 }
 
-func (s *Server) appCertificateForBrandCloudLogin(ctx context.Context, brandCloudUserID, csrPEM string) (appCertificateResponse, error) {
-	return s.appCertificateForSubject(ctx, "brand_cloud_user", brandCloudUserID, "app-brand-cloud-user:"+brandCloudUserID, csrPEM)
+func (s *Server) appCertificateForBrandCloudLogin(ctx context.Context, brandCloudID, brandCloudUserID, csrPEM string) (appCertificateResponse, error) {
+	return s.appCertificateForSubject(ctx, brandCloudID, "brand_cloud_user", brandCloudUserID, "app-brand-cloud-user:"+brandCloudUserID, csrPEM)
 }
 
 func (s *Server) appCertificateForEndUserLogin(ctx context.Context, endUserID, csrPEM string) (appCertificateResponse, error) {
-	return s.appCertificateForSubject(ctx, "end_user", endUserID, "app-end-user:"+endUserID, csrPEM)
+	return s.appCertificateForSubject(ctx, "platform", "end_user", endUserID, "app-end-user:"+endUserID, csrPEM)
 }
 
-func (s *Server) appCertificateForSubject(ctx context.Context, subjectType, subjectID, expectedSubject, csrPEM string) (appCertificateResponse, error) {
+func (s *Server) appCertificateForSubject(ctx context.Context, tenantID, subjectType, subjectID, expectedSubject, csrPEM string) (appCertificateResponse, error) {
 	now := s.now()
 	existing, err := s.store.GetValidAppCertificateForSubject(ctx, subjectType, subjectID, now)
 	if err == nil {
-		return appCertificateFromModel(existing, "issued"), nil
+		return appCertificateFromModel(existing, "issued", tenantID)
 	}
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return appCertificateResponse{}, err
@@ -104,14 +105,22 @@ func (s *Server) appCertificateForSubject(ctx context.Context, subjectType, subj
 	if s.appCertificateIssuer == nil {
 		return appCertificateResponse{}, errAppCertificateIssuerUnavailable
 	}
+	return s.issueAppCertificateForSubject(ctx, tenantID, subjectType, subjectID, expectedSubject, csrPEM, nil, "")
+}
+
+func (s *Server) issueAppCertificateForSubject(ctx context.Context, tenantID, subjectType, subjectID, expectedSubject, csrPEM string, ttlDays *int, requestID string) (appCertificateResponse, error) {
 	csrDER, err := validateAppCSRSubject(csrPEM, expectedSubject)
 	if err != nil {
 		return appCertificateResponse{}, err
 	}
+	if requestID == "" {
+		requestID = "app-cert-" + subjectID + "-" + hashHexString(csrDER)[:16]
+	}
 	issuerResp, err := s.appCertificateIssuer.IssueAppCertificate(ctx, AppCertificateIssueRequest{
-		RequestID: "app-cert-" + subjectID + "-" + hashHexString(csrDER)[:16],
+		RequestID: requestID,
 		UserID:    subjectID,
 		CSRPem:    csrPEM,
+		TTLDays:   ttlDays,
 	})
 	if err != nil {
 		return appCertificateResponse{}, err
@@ -145,7 +154,7 @@ func (s *Server) appCertificateForSubject(ctx context.Context, subjectType, subj
 	if err != nil {
 		return appCertificateResponse{}, err
 	}
-	return appCertificateFromModel(stored, "issued"), nil
+	return appCertificateFromModel(stored, "issued", tenantID)
 }
 
 func userIDForAppCertificate(subjectType, subjectID string) string {
@@ -155,10 +164,10 @@ func userIDForAppCertificate(subjectType, subjectID string) string {
 	return ""
 }
 
-func appCertificateFromModel(cert model.AppCertificate, status string) appCertificateResponse {
+func appCertificateFromModel(cert model.AppCertificate, status, tenantID string) (appCertificateResponse, error) {
 	notBefore := cert.NotBefore
 	notAfter := cert.NotAfter
-	return appCertificateResponse{
+	response := appCertificateResponse{
 		Status:              status,
 		Subject:             cert.Subject,
 		CertificatePEM:      cert.CertificatePEM,
@@ -169,6 +178,12 @@ func appCertificateFromModel(cert model.AppCertificate, status string) appCertif
 		NotBefore:           &notBefore,
 		NotAfter:            &notAfter,
 	}
+	bundle, err := newAppCertificateBundle(tenantID, cert.SubjectID, cert.IssuerRequestID, cert.CertificatePEM, cert.CertificateChainPEM, cert.CreatedAt)
+	if err != nil {
+		return appCertificateResponse{}, err
+	}
+	response.CertificateBundle = bundle
+	return response, nil
 }
 
 func validateAppCSRSubject(csrPEM, expectedSubject string) ([]byte, error) {

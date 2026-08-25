@@ -96,6 +96,20 @@ func (s *Store) GetEndUser(ctx context.Context, endUserID string) (model.EndUser
 	return user, err
 }
 
+func (s *Store) GetBrandCloudEndUser(ctx context.Context, brandCloudID, endUserID string) (model.BrandCloudEndUser, error) {
+	var link model.BrandCloudEndUser
+	err := s.db.QueryRow(ctx, `
+		SELECT brand_cloud_id::text, end_user_id::text, display_alias, status, consent,
+		       first_seen_at, last_seen_at, created_at, updated_at
+		FROM brand_cloud_end_users
+		WHERE brand_cloud_id = $1 AND end_user_id = $2 AND status = 'active'
+	`, brandCloudID, endUserID).Scan(&link.BrandCloudID, &link.EndUserID, &link.DisplayAlias, &link.Status, &link.Consent, &link.FirstSeenAt, &link.LastSeenAt, &link.CreatedAt, &link.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.BrandCloudEndUser{}, ErrNotFound
+	}
+	return link, err
+}
+
 func (s *Store) SaveEndUserRefreshToken(ctx context.Context, endUserID, tokenHash string, expiresAt time.Time) error {
 	_, err := s.db.Exec(ctx, `
 		INSERT INTO end_user_refresh_tokens (end_user_id, token_hash, expires_at)

@@ -108,7 +108,7 @@ func developerCapabilitiesForRole(role model.Role) []string {
 	if role == model.RoleMember {
 		return read
 	}
-	return append(read, "fleet.device.manage", "fleet.batch.manage", "sku.manage", "sku.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "team.manage", "provisioning.create")
+	return append(read, "fleet.device.manage", "fleet.batch.manage", "sku.manage", "sku.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "team.manage", "provisioning.create", "pki.test.issue")
 }
 
 func (s *Server) listDeveloperBrandCloudMembers(c *gin.Context) {

@@ -4310,6 +4310,43 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+  /v1/developer/brand-clouds/{brandCloudId}/pki/test-app-certificates:
+    post:
+      tags: [Developer Brand Clouds]
+      operationId: issueDeveloperPKITestAppCertificate
+      summary: Issue a fixed 30-day certificate-only test bundle for a scoped app identity.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [target_type, target_id, csr_pem]
+              properties:
+                target_type: { type: string, enum: [brand_cloud_user, end_user] }
+                target_id: { type: string }
+                csr_pem: { type: string }
+      responses:
+        "201":
+          description: Certificate issued. The private key remains caller-managed.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppCertificateBootstrap" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     bearerAuth:
@@ -5575,6 +5612,56 @@ components:
         not_after:
           type: string
           format: date-time
+        certificate_bundle:
+          $ref: "#/components/schemas/RTKCertificateBundleV1"
+    RTKCertificateBundleV1:
+      type: object
+      additionalProperties: false
+      required: [format, version, profile, environment, usage, tenant_id, identity, key, certificate, issuance]
+      properties:
+        format: { type: string, enum: [rtk_certificate_bundle] }
+        version: { type: integer, enum: [1] }
+        profile: { type: string, enum: [certificate_only, test_exportable] }
+        environment: { type: string, enum: [local, staging, production] }
+        usage: { type: string, enum: [device_mtls, app_mtls] }
+        tenant_id: { type: string }
+        identity:
+          type: object
+          required: [kind, id, subject_dn, uri_sans]
+          properties:
+            kind: { type: string, enum: [device, app] }
+            id: { type: string }
+            subject_dn: { type: string }
+            uri_sans: { type: array, items: { type: string, format: uri } }
+        key:
+          type: object
+          required: [algorithm, spki_sha256, material]
+          properties:
+            algorithm: { type: string, enum: [ecdsa_p256, ed25519, rsa_2048] }
+            spki_sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
+            material:
+              type: object
+              required: [type]
+              properties:
+                type: { type: string, enum: [caller_managed, key_reference, embedded_pkcs8_pem] }
+                provider: { type: string }
+                reference: { type: string }
+                private_key_pem: { type: string }
+        certificate:
+          type: object
+          required: [chain_pem, serial_number_hex, fingerprint_sha256, not_before, not_after]
+          properties:
+            chain_pem: { type: array, minItems: 1, items: { type: string } }
+            serial_number_hex: { type: string, pattern: "^(?:[0-9a-f]{2})+$" }
+            fingerprint_sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
+            not_before: { type: string, format: date-time }
+            not_after: { type: string, format: date-time }
+        issuance:
+          type: object
+          required: [request_id, issued_at]
+          properties:
+            request_id: { type: string }
+            issued_at: { type: string, format: date-time }
     RefreshResponse:
       type: object
       required: [tokens]
