@@ -66,6 +66,19 @@ func (s *Store) GetValidAppCertificateForSubject(ctx context.Context, subjectTyp
 	return scanAppCertificate(row)
 }
 
+func (s *Store) GetAppCertificateByIssuerRequestID(ctx context.Context, requestID string) (model.AppCertificate, error) {
+	row := s.db.QueryRow(ctx, `
+		SELECT id::text, COALESCE(user_id::text, ''), subject_type, subject_id, subject, csr_sha256, certificate_pem, certificate_chain_pem,
+		       fingerprint_sha256, serial_number, issuer_request_id, not_before, not_after,
+		       revoked_at, created_at, updated_at
+		FROM app_certificates
+		WHERE issuer_request_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, requestID)
+	return scanAppCertificate(row)
+}
+
 func (s *Store) CreateAppCertificate(ctx context.Context, in AppCertificateCreateInput) (model.AppCertificate, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {

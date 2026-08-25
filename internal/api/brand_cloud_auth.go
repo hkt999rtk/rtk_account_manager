@@ -98,7 +98,7 @@ func (s *Server) writeBrandCloudLoginResponse(c *gin.Context, appCSRPem string, 
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
 		return
 	}
-	appCert, err := s.appCertificateForBrandCloudLogin(c.Request.Context(), result.BrandCloudUser.ID, appCSRPem)
+	appCert, err := s.appCertificateForBrandCloudLogin(c.Request.Context(), result.BrandCloud.ID, result.BrandCloudUser.ID, appCSRPem)
 	if err != nil {
 		writeAppCertificateError(c, err)
 		return
