@@ -94,6 +94,7 @@ List endpoints accept `limit` and `offset` query parameters and return paginatio
 Testing policy and report maintenance are documented in `docs/TESTING.md`.
 The current v2 provisioning and account/video event-channel surface is documented in `docs/SPEC.md`; rollout tracking and dependency history live in `docs/PROVISIONING_AND_EVENT_CHANNEL_PLAN.md`.
 The implementation stays aligned with the `docs/rtk_cloud_contracts_doc/` submodule for provisioning and cross-service channel boundaries.
+The local/staging app-certificate smoke-test authorization, idempotency, audit, and production boundary are documented in `docs/developer-pki-test-bundles.md`.
 The local provisioning and worker flow, including the `log` broker adapter runbook, is documented in `docs/PROVISIONING_EVENT_WORKERS_RUNBOOK.md`.
 The optional local Keycloak/OIDC login flow is documented in `docs/KEYCLOAK_LOCAL_RUNBOOK.md`; normal local development does not require Keycloak.
 Private-cloud deployment packaging, systemd templates, migration/upgrade/rollback, and backup/restore operations are documented in `docs/PRIVATE_CLOUD_DEPLOYMENT_RUNBOOK.md`; reference deploy assets live under `deploy/`.
