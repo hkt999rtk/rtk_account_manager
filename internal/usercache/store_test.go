@@ -326,6 +326,11 @@ func TestStoreBrandAndEndUserMutationsRefreshCache(t *testing.T) {
 		createEndUser: endUser,
 	}
 	cache := newFakeCache()
+	cache.brandEmailID["acme:operator@example.com"] = "brand-user-1"
+	cache.brandLogin["brand-user-1"] = store.BrandCloudLoginResult{
+		BrandCloudUser: brandUser,
+		PasswordHash:   "stale-hash",
+	}
 	cached := &Store{backing: backing, cache: cache}
 
 	if _, err := cached.CreateBrandCloudUser(ctx, "actor", "brand-1", store.BrandCloudUserInput{}); err != nil {
@@ -333,6 +338,12 @@ func TestStoreBrandAndEndUserMutationsRefreshCache(t *testing.T) {
 	}
 	if _, ok := cache.brandUsers["brand-user-1"]; !ok {
 		t.Fatal("expected created brand user cache")
+	}
+	if _, ok := cache.brandLogin["brand-user-1"]; ok {
+		t.Fatal("expected create or password rotation to invalidate cached brand login")
+	}
+	if _, ok := cache.brandEmailID["acme:operator@example.com"]; ok {
+		t.Fatal("expected create or password rotation to invalidate cached brand email index")
 	}
 	if _, err := cached.EnableBrandCloudUser(ctx, "actor", "brand-1", "brand-user-1"); err != nil {
 		t.Fatal(err)
