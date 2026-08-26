@@ -34,14 +34,22 @@ type developerBrandCloudInvitationRequest struct {
 	Role  model.Role `json:"role" binding:"required"`
 }
 
+type developerBrandCloudInvitationAcceptRequest struct {
+	Token string `json:"token" binding:"required"`
+}
+
+type developerBrandCloudInvitationResponse struct {
+	Invitation model.BrandCloudMemberInvitation `json:"invitation"`
+}
+
 func developerBrandCloudManager(c *gin.Context, s *Server) (model.Member, bool) {
 	member, err := s.store.GetDeveloperBrandCloudMember(c.Request.Context(), c.Param("brandCloudId"), currentUserID(c))
 	if err != nil {
 		writeStoreError(c, err)
 		return model.Member{}, false
 	}
-	if member.Role != model.RoleOwner && member.Role != model.RoleAdmin {
-		writeError(c, http.StatusForbidden, "developer_brand_cloud_membership_required", "Brand Cloud membership management requires owner or admin role")
+	if member.Role != model.RoleOwner {
+		writeError(c, http.StatusForbidden, "developer_brand_cloud_owner_required", "Brand Cloud membership management requires owner role")
 		return model.Member{}, false
 	}
 	return member, true
@@ -108,7 +116,11 @@ func developerCapabilitiesForRole(role model.Role) []string {
 	if role == model.RoleMember {
 		return read
 	}
-	return append(read, "fleet.device.manage", "fleet.batch.manage", "sku.manage", "sku.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "team.manage", "provisioning.create", "pki.test.issue")
+	capabilities := append(read, "fleet.device.manage", "fleet.batch.manage", "sku.manage", "sku.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "provisioning.create", "pki.test.issue")
+	if role == model.RoleOwner {
+		capabilities = append(capabilities, "team.manage")
+	}
+	return capabilities
 }
 
 func (s *Server) listDeveloperBrandCloudMembers(c *gin.Context) {
@@ -133,15 +145,114 @@ func (s *Server) inviteDeveloperBrandCloudMember(c *gin.Context) {
 		return
 	}
 	var req developerBrandCloudInvitationRequest
-	if !bind(c, &req) || !validRole(c, req.Role) {
+	if !bind(c, &req) || !validDeveloperInvitationRole(c, req.Role) {
 		return
 	}
-	member, err := s.store.AddMember(c.Request.Context(), c.Param("brandCloudId"), strings.ToLower(strings.TrimSpace(req.Email)), req.Role)
+	token, expiresAt, err := s.newAuthToken()
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue invitation token")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	var outbox *store.EmailOutboxInput
+	if s.emailOutboxStore != nil {
+		value := authTokenEmailOutbox(email, "brand_cloud_membership_invitation", token, expiresAt)
+		outbox = &value
+	}
+	invitation, created, err := s.store.CreateBrandCloudMemberInvitation(c.Request.Context(), store.BrandCloudMemberInvitationInput{
+		BrandCloudID: c.Param("brandCloudId"), InvitedByUserID: currentUserID(c), TargetEmail: email,
+		Role: req.Role, TokenHash: auth.HashToken(token), ExpiresAt: expiresAt, Email: outbox,
+	}, time.Now().UTC())
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusAccepted, gin.H{"invitation": gin.H{"email": member.Email, "role": member.Role, "state": "accepted"}, "member": member})
+	if created && s.emailOutboxStore == nil {
+		if err := s.deliverAuthToken(c, invitation.TargetEmail, "brand_cloud_membership_invitation", token, expiresAt); err != nil {
+			writeError(c, http.StatusInternalServerError, "token_delivery_failed", "Could not deliver invitation token")
+			return
+		}
+	}
+	c.JSON(http.StatusAccepted, developerBrandCloudInvitationResponse{Invitation: invitation})
+}
+
+func validDeveloperInvitationRole(c *gin.Context, role model.Role) bool {
+	if role != model.RoleAdmin && role != model.RoleMember {
+		writeError(c, http.StatusBadRequest, "invalid_role", "Invitation role must be admin or member")
+		return false
+	}
+	return true
+}
+
+func (s *Server) listDeveloperBrandCloudMemberInvitations(c *gin.Context) {
+	if _, ok := developerBrandCloudManager(c, s); !ok {
+		return
+	}
+	invitations, err := s.store.ListBrandCloudMemberInvitations(c.Request.Context(), c.Param("brandCloudId"), currentUserID(c), time.Now().UTC())
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"invitations": invitations})
+}
+
+func (s *Server) resendDeveloperBrandCloudMemberInvitation(c *gin.Context) {
+	if _, ok := developerBrandCloudManager(c, s); !ok {
+		return
+	}
+	token, expiresAt, err := s.newAuthToken()
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue invitation token")
+		return
+	}
+	var outbox *store.EmailOutboxInput
+	if s.emailOutboxStore != nil {
+		value := authTokenEmailOutbox("pending@example.invalid", "brand_cloud_membership_invitation", token, expiresAt)
+		outbox = &value
+	}
+	invitation, err := s.store.ResendBrandCloudMemberInvitation(c.Request.Context(), store.BrandCloudMemberInvitationMutation{
+		BrandCloudID: c.Param("brandCloudId"), InvitationID: c.Param("invitationId"), ActorUserID: currentUserID(c),
+		TokenHash: auth.HashToken(token), ExpiresAt: expiresAt, Email: outbox,
+	}, time.Now().UTC())
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	if s.emailOutboxStore == nil {
+		if err := s.deliverAuthToken(c, invitation.TargetEmail, "brand_cloud_membership_invitation", token, expiresAt); err != nil {
+			writeError(c, http.StatusInternalServerError, "token_delivery_failed", "Could not deliver invitation token")
+			return
+		}
+	}
+	c.JSON(http.StatusAccepted, developerBrandCloudInvitationResponse{Invitation: invitation})
+}
+
+func (s *Server) cancelDeveloperBrandCloudMemberInvitation(c *gin.Context) {
+	if _, ok := developerBrandCloudManager(c, s); !ok {
+		return
+	}
+	invitation, err := s.store.CancelBrandCloudMemberInvitation(c.Request.Context(), store.BrandCloudMemberInvitationMutation{
+		BrandCloudID: c.Param("brandCloudId"), InvitationID: c.Param("invitationId"), ActorUserID: currentUserID(c),
+	}, time.Now().UTC())
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, developerBrandCloudInvitationResponse{Invitation: invitation})
+}
+
+func (s *Server) acceptDeveloperBrandCloudMemberInvitation(c *gin.Context) {
+	var req developerBrandCloudInvitationAcceptRequest
+	if !bind(c, &req) {
+		return
+	}
+	invitation, member, err := s.store.AcceptBrandCloudMemberInvitation(c.Request.Context(), currentUserID(c), auth.HashToken(req.Token), time.Now().UTC())
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	member.Capabilities = developerCapabilitiesForRole(member.Role)
+	c.JSON(http.StatusOK, gin.H{"invitation": invitation, "member": member})
 }
 
 func (s *Server) updateDeveloperBrandCloudMember(c *gin.Context) {
@@ -149,7 +260,7 @@ func (s *Server) updateDeveloperBrandCloudMember(c *gin.Context) {
 		return
 	}
 	var req developerBrandCloudMemberRequest
-	if !bind(c, &req) || !validRole(c, req.Role) {
+	if !bind(c, &req) || !validDeveloperInvitationRole(c, req.Role) {
 		return
 	}
 	member, err := s.store.UpdateMemberRole(c.Request.Context(), c.Param("brandCloudId"), c.Param("userId"), req.Role)

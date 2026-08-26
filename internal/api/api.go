@@ -550,7 +550,10 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/developer/brand-clouds/:brandCloudId", s.getDeveloperBrandCloud)
 	protected.POST("/developer/brand-clouds", s.createDeveloperBrandCloud)
 	protected.GET("/developer/brand-clouds/:brandCloudId/members", s.listDeveloperBrandCloudMembers)
+	protected.GET("/developer/brand-clouds/:brandCloudId/members/invitations", s.listDeveloperBrandCloudMemberInvitations)
 	protected.POST("/developer/brand-clouds/:brandCloudId/members/invitations", s.inviteDeveloperBrandCloudMember)
+	protected.POST("/developer/brand-clouds/:brandCloudId/members/invitations/:invitationId/resend", s.resendDeveloperBrandCloudMemberInvitation)
+	protected.POST("/developer/brand-clouds/:brandCloudId/members/invitations/:invitationId/cancel", s.cancelDeveloperBrandCloudMemberInvitation)
 	protected.PATCH("/developer/brand-clouds/:brandCloudId/members/:userId/disable", s.disableDeveloperBrandCloudMember)
 	protected.PATCH("/developer/brand-clouds/:brandCloudId/members/:userId/enable", s.enableDeveloperBrandCloudMember)
 	protected.PATCH("/developer/brand-clouds/:brandCloudId/members/:userId", s.updateDeveloperBrandCloudMember)
@@ -560,6 +563,7 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/developer/brand-clouds/:brandCloudId/owner-transfer/:transferId/cancel", s.cancelBrandCloudOwnerTransfer)
 	protected.POST("/developer/brand-clouds/:brandCloudId/pki/test-app-certificates", s.issueDeveloperPKITestAppCertificate)
 	protected.POST("/developer/brand-cloud-owner-transfers/accept", s.acceptBrandCloudOwnerTransfer)
+	protected.POST("/developer/brand-cloud-member-invitations/accept", s.acceptDeveloperBrandCloudMemberInvitation)
 	protected.GET("/developer/chipsets", s.listDeveloperChipsets)
 	protected.GET("/developer/chipsets/:chipsetId", s.getDeveloperChipset)
 

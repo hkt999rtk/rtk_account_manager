@@ -116,6 +116,25 @@ type BrandCloudOwnerTransferQuery struct {
 	RequesterID  string
 }
 
+type BrandCloudMemberInvitationInput struct {
+	BrandCloudID    string
+	InvitedByUserID string
+	TargetEmail     string
+	Role            model.Role
+	TokenHash       string
+	ExpiresAt       time.Time
+	Email           *EmailOutboxInput
+}
+
+type BrandCloudMemberInvitationMutation struct {
+	BrandCloudID string
+	InvitationID string
+	ActorUserID  string
+	TokenHash    string
+	ExpiresAt    time.Time
+	Email        *EmailOutboxInput
+}
+
 type BrandCloudUserInput struct {
 	Email               string
 	PasswordHash        string

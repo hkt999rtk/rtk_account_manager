@@ -39,6 +39,7 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"brand_cloud_memberships",
 		"brand_cloud_refresh_tokens",
 		"brand_cloud_owner_transfers",
+		"brand_cloud_member_invitations",
 		"factory_production_runs",
 	}
 	for _, table := range requiredTables {
@@ -54,6 +55,8 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"brand_cloud_memberships":    {"brand_cloud_id", "brand_cloud_user_id", "role"},
 		"brand_cloud_refresh_tokens": {"brand_cloud_user_id", "brand_cloud_id", "token_hash", "expires_at", "revoked_at"},
 		"brand_cloud_owner_transfers": {"brand_cloud_id", "requested_by_user_id", "target_user_id", "token_hash", "status",
+			"expires_at", "accepted_at", "canceled_at"},
+		"brand_cloud_member_invitations": {"brand_cloud_id", "invited_by_user_id", "target_user_id", "target_email", "role", "token_hash", "status",
 			"expires_at", "accepted_at", "canceled_at"},
 		"device_claim_tokens":  {"token_hash", "organization_id", "created_by", "device_item_profile_id", "revoked_at", "service_options", "metadata", "notes", "expires_at", "claimed_at"},
 		"device_item_profiles": {"brand_cloud_id", "profile_key", "display_name", "status", "category", "manufacturer", "model", "metadata_defaults", "metadata_schema", "ca_profile", "issuer_profile", "service_options", "claim_policy", "provisioning_policy", "disabled_at"},
@@ -106,6 +109,9 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		{table: "users", name: "users_developer_cloud_limit_check"},
 		{table: "brand_cloud_owner_transfers", name: "brand_cloud_owner_transfers_status_check"},
 		{table: "brand_cloud_owner_transfers", name: "brand_cloud_owner_transfers_different_users"},
+		{table: "brand_cloud_member_invitations", name: "brand_cloud_member_invitations_role_check"},
+		{table: "brand_cloud_member_invitations", name: "brand_cloud_member_invitations_status_check"},
+		{table: "brand_cloud_member_invitations", name: "brand_cloud_member_invitations_email_normalized"},
 		{table: "brand_cloud_users", name: "brand_cloud_users_brand_email_key"},
 		{table: "brand_cloud_memberships", name: "brand_cloud_memberships_role_check"},
 		{table: "brand_cloud_memberships", name: "brand_cloud_memberships_brand_user_key"},

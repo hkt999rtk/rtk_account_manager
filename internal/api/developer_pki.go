@@ -49,7 +49,13 @@ func (s *Server) issueDeveloperPKITestAppCertificate(c *gin.Context) {
 	if !requireIdempotencyKey(c) {
 		return
 	}
-	if _, ok := developerBrandCloudManager(c, s); !ok {
+	member, err := s.store.GetDeveloperBrandCloudMember(c.Request.Context(), c.Param("brandCloudId"), currentUserID(c))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	if member.Role != model.RoleOwner && member.Role != model.RoleAdmin {
+		writeError(c, http.StatusForbidden, "developer_brand_cloud_membership_required", "Brand Cloud PKI test issuance requires owner or admin role")
 		return
 	}
 	var req developerPKITestAppRequest

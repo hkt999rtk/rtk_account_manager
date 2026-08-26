@@ -752,13 +752,35 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
   /v1/developer/brand-clouds/{brandCloudId}/members/invitations:
+    get:
+      tags: [Developer Brand Clouds]
+      operationId: listDeveloperBrandCloudMemberInvitations
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-CA-BRAND-MEMBER-INVITE-001
+      summary: List Brand Cloud membership invitations visible to the owner.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+      responses:
+        "200":
+          description: Brand Cloud member invitations.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [invitations]
+                properties:
+                  invitations: { type: array, items: { $ref: "#/components/schemas/BrandCloudMemberInvitation" } }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
     post:
       tags: [Developer Brand Clouds]
       operationId: inviteDeveloperBrandCloudMember
       x-rtk-feature-id: FEAT-CA-BRAND-001
       x-rtk-requirement-ids:
-        - REQ-UI-CA-CLOUD-005
-      summary: Invite an existing developer account to a Brand Cloud.
+        - REQ-CA-BRAND-MEMBER-INVITE-001
+      summary: Create a pending invitation for an existing verified Developer.
       security:
         - bearerAuth: []
       parameters:
@@ -772,11 +794,61 @@ paths:
               required: [email, role]
               properties:
                 email: { type: string, format: email }
-                role: { type: string, enum: [owner, admin, member] }
+                role: { type: string, enum: [admin, member] }
       responses:
-        "202": { description: Invitation accepted for an existing account. }
+        "202":
+          description: Pending invitation created or replayed without creating membership.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrandCloudMemberInvitationResponse" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/members/invitations/{invitationId}/resend:
+    post:
+      tags: [Developer Brand Clouds]
+      operationId: resendDeveloperBrandCloudMemberInvitation
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-CA-BRAND-MEMBER-INVITE-001
+      summary: Replace and resend a pending invitation token.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/InvitationId"
+      responses:
+        "202":
+          description: Replacement invitation queued.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrandCloudMemberInvitationResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/members/invitations/{invitationId}/cancel:
+    post:
+      tags: [Developer Brand Clouds]
+      operationId: cancelDeveloperBrandCloudMemberInvitation
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-CA-BRAND-MEMBER-INVITE-001
+      summary: Cancel a pending Brand Cloud membership invitation.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/InvitationId"
+      responses:
+        "200":
+          description: Invitation canceled.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrandCloudMemberInvitationResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /v1/developer/brand-clouds/{brandCloudId}/owner-transfer:
     post:
       tags:
@@ -839,6 +911,39 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/developer/brand-cloud-member-invitations/accept:
+    post:
+      tags: [Developer Brand Clouds]
+      operationId: acceptDeveloperBrandCloudMemberInvitation
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids:
+        - REQ-CA-BRAND-MEMBER-INVITE-001
+      summary: Accept a membership invitation as its target Developer.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: Membership created atomically.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [invitation, member]
+                properties:
+                  invitation: { $ref: "#/components/schemas/BrandCloudMemberInvitation" }
+                  member: { $ref: "#/components/schemas/Member" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /v1/developer/brand-clouds/{brandCloudId}/owner-transfer/{transferId}:
     get:
       tags: [Developer Brand Clouds]
@@ -4376,6 +4481,13 @@ components:
       schema:
         type: string
         format: uuid
+    InvitationId:
+      name: invitationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     BrandCloudUserId:
       name: brandCloudUserId
       in: path
@@ -5865,6 +5977,12 @@ components:
       properties:
         owner_transfer:
           $ref: "#/components/schemas/BrandCloudOwnerTransfer"
+    BrandCloudMemberInvitationResponse:
+      type: object
+      required: [invitation]
+      properties:
+        invitation:
+          $ref: "#/components/schemas/BrandCloudMemberInvitation"
     BrandCloudUsersResponse:
       type: object
       required: [brand_cloud_users, pagination]
@@ -6303,6 +6421,22 @@ components:
         updated_at:
           type: string
           format: date-time
+    BrandCloudMemberInvitation:
+      type: object
+      required: [id, brand_cloud_id, invited_by_user_id, target_user_id, target_email, role, status, expires_at, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        brand_cloud_id: { type: string, format: uuid }
+        invited_by_user_id: { type: string, format: uuid }
+        target_user_id: { type: string, format: uuid }
+        target_email: { type: string, format: email }
+        role: { type: string, enum: [admin, member] }
+        status: { type: string, enum: [pending, accepted, canceled, expired] }
+        expires_at: { type: string, format: date-time }
+        accepted_at: { type: string, format: date-time }
+        canceled_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
     EndUser:
       type: object
       required: [id, email, status, created_at, updated_at]

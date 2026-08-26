@@ -1445,6 +1445,18 @@ Developer dashboard membership contract:
   Clouds, bounded pagination, membership role, and cloud limit.
 - Detail, member list, invitation, role update, remove, owner-transfer status,
   and cancellation remain under the `/v1/developer/brand-clouds/*` namespace.
+- Adding a member is an email invitation workflow, not an immediate membership
+  write. Only the active owner may create, list, resend, or cancel invitations
+  and manage members; admins and members retain team read access only. The
+  matching invited Developer accepts under their own authenticated session.
+- The implemented target eligibility is an existing enabled global Developer
+  with verified email. Invitation roles are `admin` and `member`; `owner`
+  remains part of owner transfer.
+- Pending invitation tokens are stored only as hashes, expire after 30 minutes,
+  and require a matching authenticated target Developer session to accept.
+  Acceptance atomically creates the `organization_members` row and its ACL
+  projection. Resend rotates the token; cancel, expiry, and replay make the old
+  token unusable.
 - Cloud Admin uses one global developer session with a runtime active-cloud
   switch. Browser `brand_cloud_id` is never an authorization input to fleet
   routes; active membership is resolved server-side.
