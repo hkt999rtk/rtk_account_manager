@@ -594,6 +594,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirMissing`
 - `rtk_account_manager/internal/emaildelivery`: `TestCipherRejectsInvalidKey`
 - `rtk_account_manager/internal/emaildelivery`: `TestCipherRoundTripAndWrongKey`
+- `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/brand_cloud_membership_invitation`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/brand_cloud_owner_transfer`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/brand_cloud_user_activation`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/email_verification`
@@ -656,6 +657,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`
 - `rtk_account_manager/internal/store`: `TestBrandCloudLoginActivationTokenIsTenantScoped`
 - `rtk_account_manager/internal/store`: `TestBrandCloudLoginTokenAndEmailOutboxCommitTogether`
+- `rtk_account_manager/internal/store`: `TestBrandCloudMemberInvitationLifecycleAndConflicts`
 - `rtk_account_manager/internal/store`: `TestBrandCloudOwnerEmailActivationIsAtomicTenantScopedAndOneTime`
 - `rtk_account_manager/internal/store`: `TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper`
 - `rtk_account_manager/internal/store`: `TestBrandCloudStoreCRUDAndErrorPaths`

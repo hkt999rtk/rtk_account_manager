@@ -1744,7 +1744,74 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 	if inviteRes.Code != http.StatusAccepted {
 		t.Fatalf("expected member invitation 202, got %d: %s", inviteRes.Code, inviteRes.Body.String())
 	}
+	if !bytes.Contains(inviteRes.Body.Bytes(), []byte(`"status":"pending"`)) || bytes.Contains(inviteRes.Body.Bytes(), []byte(`"member":`)) {
+		t.Fatalf("expected pending invitation without membership, got %s", inviteRes.Body.String())
+	}
+	duplicateInviteRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/invitations", map[string]any{
+		"email": "developer-member@example.com",
+		"role":  "member",
+	}, login.Tokens.AccessToken)
+	if duplicateInviteRes.Code != http.StatusAccepted {
+		t.Fatalf("expected matching pending invitation to be idempotent, got %d: %s", duplicateInviteRes.Code, duplicateInviteRes.Body.String())
+	}
+	conflictingInviteRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/invitations", map[string]any{
+		"email": "developer-member@example.com",
+		"role":  "admin",
+	}, login.Tokens.AccessToken)
+	if conflictingInviteRes.Code != http.StatusConflict {
+		t.Fatalf("expected pending invitation role conflict 409, got %d: %s", conflictingInviteRes.Code, conflictingInviteRes.Body.String())
+	}
 	memberDetailRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID, nil, member.AccessToken)
+	if memberDetailRes.Code != http.StatusNotFound {
+		t.Fatalf("membership must not exist before acceptance, got %d: %s", memberDetailRes.Code, memberDetailRes.Body.String())
+	}
+	invitationsRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/invitations", nil, login.Tokens.AccessToken)
+	if invitationsRes.Code != http.StatusOK || !bytes.Contains(invitationsRes.Body.Bytes(), []byte("developer-member@example.com")) {
+		t.Fatalf("expected owner invitation list 200, got %d: %s", invitationsRes.Code, invitationsRes.Body.String())
+	}
+	invitation := decodeBody[developerBrandCloudInvitationResponse](t, inviteRes).Invitation
+	invitationToken := latestAuthToken(t, env.tokenSink, "developer-member@example.com", "brand_cloud_membership_invitation")
+	resendRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/invitations/"+invitation.ID+"/resend", nil, login.Tokens.AccessToken)
+	if resendRes.Code != http.StatusAccepted {
+		t.Fatalf("expected invitation resend 202, got %d: %s", resendRes.Code, resendRes.Body.String())
+	}
+	rotatedToken := latestAuthToken(t, env.tokenSink, "developer-member@example.com", "brand_cloud_membership_invitation")
+	if rotatedToken == invitationToken {
+		t.Fatal("expected resend to rotate the invitation token")
+	}
+	oldTokenRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-cloud-member-invitations/accept", map[string]any{"token": invitationToken}, member.AccessToken)
+	if oldTokenRes.Code != http.StatusNotFound {
+		t.Fatalf("expected superseded invitation token 404, got %d: %s", oldTokenRes.Code, oldTokenRes.Body.String())
+	}
+	cancelRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/invitations/"+invitation.ID+"/cancel", nil, login.Tokens.AccessToken)
+	if cancelRes.Code != http.StatusOK {
+		t.Fatalf("expected invitation cancel 200, got %d: %s", cancelRes.Code, cancelRes.Body.String())
+	}
+	canceledTokenRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-cloud-member-invitations/accept", map[string]any{"token": rotatedToken}, member.AccessToken)
+	if canceledTokenRes.Code != http.StatusNotFound {
+		t.Fatalf("expected canceled invitation token 404, got %d: %s", canceledTokenRes.Code, canceledTokenRes.Body.String())
+	}
+	reinviteRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/invitations", map[string]any{
+		"email": "developer-member@example.com",
+		"role":  "member",
+	}, login.Tokens.AccessToken)
+	if reinviteRes.Code != http.StatusAccepted {
+		t.Fatalf("expected reinvitation after cancel 202, got %d: %s", reinviteRes.Code, reinviteRes.Body.String())
+	}
+	invitationToken = latestAuthToken(t, env.tokenSink, "developer-member@example.com", "brand_cloud_membership_invitation")
+	wrongAcceptRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-cloud-member-invitations/accept", map[string]any{"token": invitationToken}, login.Tokens.AccessToken)
+	if wrongAcceptRes.Code != http.StatusNotFound {
+		t.Fatalf("expected wrong developer invitation acceptance 404, got %d: %s", wrongAcceptRes.Code, wrongAcceptRes.Body.String())
+	}
+	acceptRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-cloud-member-invitations/accept", map[string]any{"token": invitationToken}, member.AccessToken)
+	if acceptRes.Code != http.StatusOK || !bytes.Contains(acceptRes.Body.Bytes(), []byte(`"role":"member"`)) {
+		t.Fatalf("expected invitation acceptance 200, got %d: %s", acceptRes.Code, acceptRes.Body.String())
+	}
+	replayAcceptRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-cloud-member-invitations/accept", map[string]any{"token": invitationToken}, member.AccessToken)
+	if replayAcceptRes.Code != http.StatusNotFound {
+		t.Fatalf("expected invitation replay 404, got %d: %s", replayAcceptRes.Code, replayAcceptRes.Body.String())
+	}
+	memberDetailRes = performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID, nil, member.AccessToken)
 	if memberDetailRes.Code != http.StatusOK || !bytes.Contains(memberDetailRes.Body.Bytes(), []byte(`"role":"member"`)) {
 		t.Fatalf("expected member developer cloud detail 200, got %d: %s", memberDetailRes.Code, memberDetailRes.Body.String())
 	}
