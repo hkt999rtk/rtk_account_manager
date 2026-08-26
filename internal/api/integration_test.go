@@ -1744,7 +1744,7 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 	if inviteRes.Code != http.StatusAccepted {
 		t.Fatalf("expected member invitation 202, got %d: %s", inviteRes.Code, inviteRes.Body.String())
 	}
-	if !bytes.Contains(inviteRes.Body.Bytes(), []byte(`"status":"pending"`)) || bytes.Contains(inviteRes.Body.Bytes(), []byte(`"member"`)) {
+	if !bytes.Contains(inviteRes.Body.Bytes(), []byte(`"status":"pending"`)) || bytes.Contains(inviteRes.Body.Bytes(), []byte(`"member":`)) {
 		t.Fatalf("expected pending invitation without membership, got %s", inviteRes.Body.String())
 	}
 	memberDetailRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID, nil, member.AccessToken)
