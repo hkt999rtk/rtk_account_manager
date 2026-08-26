@@ -251,6 +251,9 @@ func (s *Store) CreateBrandCloudUser(ctx context.Context, actorUserID, orgID str
 	if err != nil {
 		return store.BrandCloudUserResult{}, err
 	}
+	// The upsert may rotate the password. Drop the cached login result before
+	// caching the returned profile so the next login reads the new hash.
+	s.deleteBrandCloudUser(ctx, result.BrandCloudUser.ID)
 	s.putBrandCloudUser(ctx, result.BrandCloudUser)
 	return result, nil
 }
