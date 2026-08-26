@@ -594,6 +594,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirMissing`
 - `rtk_account_manager/internal/emaildelivery`: `TestCipherRejectsInvalidKey`
 - `rtk_account_manager/internal/emaildelivery`: `TestCipherRoundTripAndWrongKey`
+- `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/brand_cloud_membership_invitation`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/brand_cloud_owner_transfer`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/brand_cloud_user_activation`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/email_verification`
