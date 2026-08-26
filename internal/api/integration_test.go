@@ -1747,6 +1747,20 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 	if !bytes.Contains(inviteRes.Body.Bytes(), []byte(`"status":"pending"`)) || bytes.Contains(inviteRes.Body.Bytes(), []byte(`"member":`)) {
 		t.Fatalf("expected pending invitation without membership, got %s", inviteRes.Body.String())
 	}
+	duplicateInviteRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/invitations", map[string]any{
+		"email": "developer-member@example.com",
+		"role":  "member",
+	}, login.Tokens.AccessToken)
+	if duplicateInviteRes.Code != http.StatusAccepted {
+		t.Fatalf("expected matching pending invitation to be idempotent, got %d: %s", duplicateInviteRes.Code, duplicateInviteRes.Body.String())
+	}
+	conflictingInviteRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/invitations", map[string]any{
+		"email": "developer-member@example.com",
+		"role":  "admin",
+	}, login.Tokens.AccessToken)
+	if conflictingInviteRes.Code != http.StatusConflict {
+		t.Fatalf("expected pending invitation role conflict 409, got %d: %s", conflictingInviteRes.Code, conflictingInviteRes.Body.String())
+	}
 	memberDetailRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID, nil, member.AccessToken)
 	if memberDetailRes.Code != http.StatusNotFound {
 		t.Fatalf("membership must not exist before acceptance, got %d: %s", memberDetailRes.Code, memberDetailRes.Body.String())

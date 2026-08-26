@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"rtk_account_manager/internal/emaildelivery"
 	"rtk_account_manager/internal/model"
 )
 
@@ -125,6 +128,234 @@ func TestEnsurePlatformAdminCreatesRealtekConnectBrandCloud(t *testing.T) {
 	}
 	if pageAgain.Page.Total != 1 || pageAgain.Organizations[0].ID != page.Organizations[0].ID {
 		t.Fatalf("platform admin bootstrap must be idempotent, got before=%+v after=%+v", page, pageAgain)
+	}
+}
+
+func TestBrandCloudMemberInvitationLifecycleAndConflicts(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	owner, err := env.store.SignupDeveloper(ctx, DeveloperSignupInput{
+		Email:        "invitation-owner@example.com",
+		PasswordHash: "hash",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := env.store.SignupDeveloper(ctx, DeveloperSignupInput{
+		Email:        "invitation-target@example.com",
+		PasswordHash: "hash",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified = true, email_verified_at = $2 WHERE id = $1`, target.User.ID, now); err != nil {
+		t.Fatal(err)
+	}
+
+	base := BrandCloudMemberInvitationInput{
+		BrandCloudID:    owner.BrandCloud.ID,
+		InvitedByUserID: owner.User.ID,
+		TargetEmail:     target.User.Email,
+		Role:            model.RoleMember,
+		TokenHash:       "invitation-token-1",
+		ExpiresAt:       now.Add(time.Hour),
+	}
+	invalidRole := base
+	invalidRole.Role = model.RoleOwner
+	if _, _, err := env.store.CreateBrandCloudMemberInvitation(ctx, invalidRole, now); !errors.Is(err, ErrConflict) {
+		t.Fatalf("owner invitation role should conflict, got %v", err)
+	}
+	nonOwner := base
+	nonOwner.InvitedByUserID = target.User.ID
+	if _, _, err := env.store.CreateBrandCloudMemberInvitation(ctx, nonOwner, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("non-owner invitation should be hidden, got %v", err)
+	}
+	missingTarget := base
+	missingTarget.TargetEmail = "missing-invitation-target@example.com"
+	if _, _, err := env.store.CreateBrandCloudMemberInvitation(ctx, missingTarget, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing invitation target should be hidden, got %v", err)
+	}
+	pendingTarget, err := env.store.SignupDeveloper(ctx, DeveloperSignupInput{
+		Email:                     "pending-invitation-target@example.com",
+		PasswordHash:              "hash",
+		SignupPendingVerification: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingVerification := base
+	pendingVerification.TargetEmail = pendingTarget.User.Email
+	if _, _, err := env.store.CreateBrandCloudMemberInvitation(ctx, pendingVerification, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unverified invitation target should be hidden, got %v", err)
+	}
+
+	expiredInput := base
+	expiredInput.TokenHash = "expired-invitation-token"
+	expiredInput.ExpiresAt = now.Add(-time.Minute)
+	expired, created, err := env.store.CreateBrandCloudMemberInvitation(ctx, expiredInput, now.Add(-time.Hour))
+	if err != nil || !created {
+		t.Fatalf("create expired invitation fixture: created=%v err=%v", created, err)
+	}
+	if _, _, err := env.store.AcceptBrandCloudMemberInvitation(ctx, target.User.ID, expiredInput.TokenHash, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expired invitation acceptance should be hidden, got %v", err)
+	}
+	expiredInput.TokenHash = "expired-invitation-token-for-create"
+	if _, created, err := env.store.CreateBrandCloudMemberInvitation(ctx, expiredInput, now.Add(-time.Hour)); err != nil || !created {
+		t.Fatalf("create expiration-on-invite fixture: created=%v err=%v", created, err)
+	}
+	temporaryInput := base
+	temporaryInput.TokenHash = "expiration-path-valid-token"
+	temporary, created, err := env.store.CreateBrandCloudMemberInvitation(ctx, temporaryInput, now)
+	if err != nil || !created {
+		t.Fatalf("new invitation should expire stale pending rows: created=%v err=%v", created, err)
+	}
+	if _, err := env.store.CancelBrandCloudMemberInvitation(ctx, BrandCloudMemberInvitationMutation{
+		BrandCloudID: owner.BrandCloud.ID, InvitationID: temporary.ID, ActorUserID: owner.User.ID,
+	}, now); err != nil {
+		t.Fatalf("cancel expiration-path fixture: %v", err)
+	}
+	expiredInput.TokenHash = "expired-invitation-token-for-list"
+	expired, created, err = env.store.CreateBrandCloudMemberInvitation(ctx, expiredInput, now.Add(-time.Hour))
+	if err != nil || !created {
+		t.Fatalf("create expired invitation list fixture: created=%v err=%v", created, err)
+	}
+	items, err := env.store.ListBrandCloudMemberInvitations(ctx, owner.BrandCloud.ID, owner.User.ID, now)
+	foundExpired := false
+	for _, item := range items {
+		if item.ID == expired.ID && item.Status == "expired" {
+			foundExpired = true
+		}
+	}
+	if err != nil || !foundExpired {
+		t.Fatalf("expected expired invitation in owner list, got %+v, %v", items, err)
+	}
+	if _, err := env.store.ListBrandCloudMemberInvitations(ctx, owner.BrandCloud.ID, target.User.ID, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("non-owner invitation list should be hidden, got %v", err)
+	}
+
+	outbox := EmailOutboxInput{
+		IdempotencyKey: "member-invitation:token-1",
+		MessageType:    "brand_cloud_membership_invitation",
+		Payload: emaildelivery.Payload{
+			RecipientEmail: target.User.Email,
+			Token:          "raw-invitation-token-1",
+			ExpiresAt:      base.ExpiresAt.Format(time.RFC3339),
+		},
+		ExpiresAt: &base.ExpiresAt,
+	}
+	base.Email = &outbox
+	if _, _, err := env.store.CreateBrandCloudMemberInvitation(ctx, base, now); err == nil {
+		t.Fatal("invitation unexpectedly committed without an email outbox cipher")
+	}
+	env.store.ConfigureEmailOutboxCipher(integrationEmailCipher(t))
+	invitation, created, err := env.store.CreateBrandCloudMemberInvitation(ctx, base, now)
+	if err != nil || !created {
+		t.Fatalf("create pending invitation: created=%v err=%v", created, err)
+	}
+	duplicate, created, err := env.store.CreateBrandCloudMemberInvitation(ctx, base, now)
+	if err != nil || created || duplicate.ID != invitation.ID {
+		t.Fatalf("matching invitation should be idempotent, got %+v created=%v err=%v", duplicate, created, err)
+	}
+	roleConflict := base
+	roleConflict.Role = model.RoleAdmin
+	if _, _, err := env.store.CreateBrandCloudMemberInvitation(ctx, roleConflict, now); !errors.Is(err, ErrConflict) {
+		t.Fatalf("pending invitation role change should conflict, got %v", err)
+	}
+
+	missingMutation := BrandCloudMemberInvitationMutation{
+		BrandCloudID: owner.BrandCloud.ID, InvitationID: "00000000-0000-0000-0000-000000000000", ActorUserID: owner.User.ID,
+		TokenHash: "missing-token", ExpiresAt: now.Add(time.Hour),
+	}
+	nonOwnerMutation := missingMutation
+	nonOwnerMutation.InvitationID = invitation.ID
+	nonOwnerMutation.ActorUserID = target.User.ID
+	if _, err := env.store.ResendBrandCloudMemberInvitation(ctx, nonOwnerMutation, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("non-owner invitation resend should be hidden, got %v", err)
+	}
+	if _, err := env.store.CancelBrandCloudMemberInvitation(ctx, nonOwnerMutation, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("non-owner invitation cancel should be hidden, got %v", err)
+	}
+	if _, err := env.store.ResendBrandCloudMemberInvitation(ctx, missingMutation, now); !errors.Is(err, ErrConflict) {
+		t.Fatalf("missing invitation resend should conflict, got %v", err)
+	}
+	mutation := missingMutation
+	mutation.InvitationID = invitation.ID
+	mutation.TokenHash = "invitation-token-2"
+	resendOutbox := outbox
+	resendOutbox.IdempotencyKey = "member-invitation:token-2"
+	resendOutbox.Payload.Token = "raw-invitation-token-2"
+	mutation.Email = &resendOutbox
+	env.store.ConfigureEmailOutboxCipher(nil)
+	if _, err := env.store.ResendBrandCloudMemberInvitation(ctx, mutation, now); err == nil {
+		t.Fatal("invitation resend unexpectedly committed without an email outbox cipher")
+	}
+	env.store.ConfigureEmailOutboxCipher(integrationEmailCipher(t))
+	resent, err := env.store.ResendBrandCloudMemberInvitation(ctx, mutation, now)
+	if err != nil || resent.ID != invitation.ID {
+		t.Fatalf("resend pending invitation: %+v, %v", resent, err)
+	}
+	if _, err := env.store.CancelBrandCloudMemberInvitation(ctx, missingMutation, now); !errors.Is(err, ErrConflict) {
+		t.Fatalf("missing invitation cancel should conflict, got %v", err)
+	}
+	canceled, err := env.store.CancelBrandCloudMemberInvitation(ctx, mutation, now)
+	if err != nil || canceled.Status != "canceled" {
+		t.Fatalf("cancel pending invitation: %+v, %v", canceled, err)
+	}
+	if _, _, err := env.store.AcceptBrandCloudMemberInvitation(ctx, target.User.ID, mutation.TokenHash, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("canceled invitation should reject acceptance, got %v", err)
+	}
+
+	base.TokenHash = "invitation-token-3"
+	invitation, created, err = env.store.CreateBrandCloudMemberInvitation(ctx, base, now)
+	if err != nil || !created {
+		t.Fatalf("recreate invitation after cancellation: created=%v err=%v", created, err)
+	}
+	if _, err := env.db.Exec(ctx, `INSERT INTO organization_members (organization_id, user_id, role) VALUES ($1, $2, 'member')`, owner.BrandCloud.ID, target.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := env.store.AcceptBrandCloudMemberInvitation(ctx, target.User.ID, base.TokenHash, now); !errors.Is(err, ErrConflict) {
+		t.Fatalf("invitation acceptance with an existing member should conflict, got %v", err)
+	}
+	if _, err := env.db.Exec(ctx, `DELETE FROM organization_members WHERE organization_id = $1 AND user_id = $2`, owner.BrandCloud.ID, target.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := env.store.AcceptBrandCloudMemberInvitation(ctx, owner.User.ID, base.TokenHash, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("wrong developer should not accept invitation, got %v", err)
+	}
+	accepted, member, err := env.store.AcceptBrandCloudMemberInvitation(ctx, target.User.ID, base.TokenHash, now)
+	if err != nil || accepted.Status != "accepted" || member.Role != model.RoleMember {
+		t.Fatalf("accept pending invitation: invitation=%+v member=%+v err=%v", accepted, member, err)
+	}
+	if _, _, err := env.store.AcceptBrandCloudMemberInvitation(ctx, target.User.ID, base.TokenHash, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("accepted invitation replay should be hidden, got %v", err)
+	}
+	base.TokenHash = "member-already-exists"
+	if _, _, err := env.store.CreateBrandCloudMemberInvitation(ctx, base, now); !errors.Is(err, ErrConflict) {
+		t.Fatalf("existing member invitation should conflict, got %v", err)
+	}
+
+	unavailableDB, err := pgxpool.New(ctx, "postgres://invalid:invalid@127.0.0.1:1/invalid?connect_timeout=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unavailableDB.Close()
+	unavailableStore := New(unavailableDB)
+	if _, _, err := unavailableStore.CreateBrandCloudMemberInvitation(ctx, base, now); err == nil {
+		t.Fatal("invitation creation unexpectedly succeeded with an unavailable database")
+	}
+	if _, err := unavailableStore.ListBrandCloudMemberInvitations(ctx, owner.BrandCloud.ID, owner.User.ID, now); err == nil {
+		t.Fatal("invitation listing unexpectedly succeeded with an unavailable database")
+	}
+	if _, err := unavailableStore.ResendBrandCloudMemberInvitation(ctx, mutation, now); err == nil {
+		t.Fatal("invitation resend unexpectedly succeeded with an unavailable database")
+	}
+	if _, err := unavailableStore.CancelBrandCloudMemberInvitation(ctx, mutation, now); err == nil {
+		t.Fatal("invitation cancellation unexpectedly succeeded with an unavailable database")
+	}
+	if _, _, err := unavailableStore.AcceptBrandCloudMemberInvitation(ctx, target.User.ID, base.TokenHash, now); err == nil {
+		t.Fatal("invitation acceptance unexpectedly succeeded with an unavailable database")
 	}
 }
 
