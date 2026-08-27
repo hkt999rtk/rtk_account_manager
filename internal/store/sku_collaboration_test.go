@@ -64,6 +64,12 @@ func TestSKUCollaborationInvitationVisibilityAndOwnershipTransferIntegration(t *
 	if err != nil || page.Page.Total != 1 || len(page.Profiles) != 1 || page.Profiles[0].ID != assignedSKU.ID {
 		t.Fatalf("collaborator SKU visibility = %+v, err=%v", page, err)
 	}
+	if _, err := env.store.UpdateSKUCollaborator(ctx, owner.User.ID, owner.BrandCloud.ID, assignedSKU.ID, target.User.ID, SKUViewerRole); err != nil {
+		t.Fatalf("change collaborator to viewer: %v", err)
+	}
+	if _, err := env.store.UpdateSKUCollaborator(ctx, owner.User.ID, owner.BrandCloud.ID, assignedSKU.ID, target.User.ID, SKUEditorRole); err != nil {
+		t.Fatalf("restore collaborator editor role: %v", err)
+	}
 	if err := env.store.TransferSKUOwnership(ctx, owner.User.ID, owner.BrandCloud.ID, assignedSKU.ID, target.User.ID); err != nil {
 		t.Fatal(err)
 	}

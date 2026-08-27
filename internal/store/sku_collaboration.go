@@ -328,10 +328,10 @@ func (s *Store) UpdateSKUCollaborator(ctx context.Context, actorUserID, brandClo
 	}
 	var assignmentID string
 	err = s.db.QueryRow(ctx, `UPDATE role_assignments ra SET role_id=$1, updated_at=now()
-		FROM roles current_role
-		WHERE ra.actor_type='user' AND ra.actor_id=$2 AND ra.role_id=current_role.id
+		FROM roles current_sku_role
+		WHERE ra.actor_type='user' AND ra.actor_id=$2 AND ra.role_id=current_sku_role.id
 		  AND ra.organization_id::text=$3 AND ra.scope_type='sku' AND ra.scope_id=$4
-		  AND current_role.name IN ('sku_editor','sku_viewer') AND ra.disabled_at IS NULL
+		  AND current_sku_role.name IN ('sku_editor','sku_viewer') AND ra.disabled_at IS NULL
 		RETURNING ra.id::text`, roleID, targetUserID, brandCloudID, skuID).Scan(&assignmentID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.SKUCollaborator{}, ErrNotFound
