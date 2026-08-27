@@ -356,7 +356,7 @@ func (s *Server) createBrandCloudUser(c *gin.Context) {
 		ActivationMode: activationMode,
 	}
 	if activationMode == "email" {
-		token, expiresAt, tokenErr := s.newAuthToken()
+		token, expiresAt, tokenErr := s.newAuthToken("brand_cloud_user_activation")
 		if tokenErr != nil {
 			writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue activation token")
 			return

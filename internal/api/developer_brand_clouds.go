@@ -148,7 +148,7 @@ func (s *Server) inviteDeveloperBrandCloudMember(c *gin.Context) {
 	if !bind(c, &req) || !validDeveloperInvitationRole(c, req.Role) {
 		return
 	}
-	token, expiresAt, err := s.newAuthToken()
+	token, expiresAt, err := s.newAuthToken("brand_cloud_membership_invitation")
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue invitation token")
 		return
@@ -200,7 +200,7 @@ func (s *Server) resendDeveloperBrandCloudMemberInvitation(c *gin.Context) {
 	if _, ok := developerBrandCloudManager(c, s); !ok {
 		return
 	}
-	token, expiresAt, err := s.newAuthToken()
+	token, expiresAt, err := s.newAuthToken("brand_cloud_membership_invitation")
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue invitation token")
 		return
@@ -329,7 +329,7 @@ func (s *Server) createBrandCloudOwnerTransfer(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	token, expiresAt, err := s.newAuthToken()
+	token, expiresAt, err := s.newAuthToken("brand_cloud_owner_transfer")
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue owner transfer token")
 		return

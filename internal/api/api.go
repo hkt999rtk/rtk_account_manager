@@ -45,6 +45,8 @@ type Server struct {
 	logger                     *zap.Logger
 	chipsetManifestFetcher     ChipsetManifestFetcher
 	emailOutboxStore           emailOutboxPersistence
+	emailVerificationTTL       time.Duration
+	passwordResetTTL           time.Duration
 }
 
 type emailOutboxPersistence interface {
@@ -60,12 +62,14 @@ var ErrAuthTokenSinkUnavailable = errors.New("auth token sink unavailable")
 
 func newServer(store Store, authService *auth.Service, sink AuthTokenSink) *Server {
 	return &Server{
-		store:         store,
-		auth:          authService,
-		authTokenSink: sink,
-		signupLimiter: newSignupLimiter(5, time.Hour),
-		signupPolicy:  loadSignupPolicy(),
-		logger:        cloudlogger.Nop(),
+		store:                store,
+		auth:                 authService,
+		authTokenSink:        sink,
+		signupLimiter:        newSignupLimiter(5, time.Hour),
+		signupPolicy:         loadSignupPolicy(),
+		logger:               cloudlogger.Nop(),
+		emailVerificationTTL: 30 * time.Minute,
+		passwordResetTTL:     30 * time.Minute,
 	}
 }
 
@@ -428,6 +432,15 @@ func (s *Server) SetLogger(logger *zap.Logger) {
 
 func (s *Server) ConfigureEmailOutbox(repository emailOutboxPersistence) {
 	s.emailOutboxStore = repository
+}
+
+func (s *Server) ConfigureAuthTokenTTLs(emailVerificationTTL, passwordResetTTL time.Duration) {
+	if emailVerificationTTL > 0 {
+		s.emailVerificationTTL = emailVerificationTTL
+	}
+	if passwordResetTTL > 0 {
+		s.passwordResetTTL = passwordResetTTL
+	}
 }
 
 func (s *Server) logDeliveryFailure(purpose, email string, err error) {
@@ -1272,7 +1285,7 @@ func (s *Server) resetPassword(c *gin.Context) {
 }
 
 func (s *Server) createAuthToken(c *gin.Context, userID, purpose string) (string, time.Time, error) {
-	token, expiresAt, err := s.newAuthToken()
+	token, expiresAt, err := s.newAuthToken(purpose)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -1290,7 +1303,7 @@ func (s *Server) createAuthToken(c *gin.Context, userID, purpose string) (string
 }
 
 func (s *Server) issueAuthToken(c *gin.Context, userID, email, purpose string) (string, time.Time, error) {
-	token, expiresAt, err := s.newAuthToken()
+	token, expiresAt, err := s.newAuthToken(purpose)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -1340,7 +1353,7 @@ func authTokenEmailOutbox(email, purpose, token string, expiresAt time.Time) sto
 }
 
 func (s *Server) issueAuthTokenForEmail(c *gin.Context, email, purpose string) (bool, error) {
-	token, expiresAt, err := s.newAuthToken()
+	token, expiresAt, err := s.newAuthToken(purpose)
 	if err != nil {
 		return false, err
 	}
@@ -1377,7 +1390,7 @@ func (s *Server) issueAuthTokenForEmail(c *gin.Context, email, purpose string) (
 }
 
 func (s *Server) issueBrandCloudLoginToken(c *gin.Context, tenantSlug, email string) (bool, error) {
-	token, expiresAt, err := s.newAuthToken()
+	token, expiresAt, err := s.newAuthToken("login_activation")
 	if err != nil {
 		return false, err
 	}
@@ -1413,12 +1426,19 @@ func (s *Server) deliverAuthToken(c *gin.Context, email, purpose, token string, 
 	return err
 }
 
-func (s *Server) newAuthToken() (string, time.Time, error) {
+func (s *Server) newAuthToken(purpose string) (string, time.Time, error) {
 	token, err := auth.RandomToken()
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	return token, time.Now().UTC().Add(30 * time.Minute), nil
+	ttl := 30 * time.Minute
+	switch purpose {
+	case "email_verification":
+		ttl = s.emailVerificationTTL
+	case "password_reset":
+		ttl = s.passwordResetTTL
+	}
+	return token, time.Now().UTC().Add(ttl), nil
 }
 
 func (s *Server) logAuthTokenDeliveryFailure(c *gin.Context, email, purpose string, err error) {
