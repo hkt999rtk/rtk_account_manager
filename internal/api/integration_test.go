@@ -1655,6 +1655,29 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 		t.Fatalf("expected duplicate developer signup 409, got %d: %s", duplicateSignupRes.Code, duplicateSignupRes.Body.String())
 	}
 
+	expiredToken := latestAuthToken(t, env.tokenSink, "developer-owner@example.com", "email_verification")
+	validStatusRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email/status", map[string]any{"token": expiredToken}, "")
+	if validStatusRes.Code != http.StatusOK || !strings.Contains(validStatusRes.Body.String(), `"status":"valid"`) {
+		t.Fatalf("expected valid verification token status, got %d: %s", validStatusRes.Code, validStatusRes.Body.String())
+	}
+	if _, err := env.db.Exec(t.Context(), `UPDATE auth_tokens SET expires_at = now() - interval '1 minute' WHERE token_hash = $1`, auth.HashToken(expiredToken)); err != nil {
+		t.Fatal(err)
+	}
+	expiredStatusRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email/status", map[string]any{"token": expiredToken}, "")
+	if expiredStatusRes.Code != http.StatusOK || !strings.Contains(expiredStatusRes.Body.String(), `"status":"expired"`) {
+		t.Fatalf("expected expired verification token status, got %d: %s", expiredStatusRes.Code, expiredStatusRes.Body.String())
+	}
+	restartedSignupRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
+		"email": "developer-owner@example.com",
+	}, "")
+	if restartedSignupRes.Code != http.StatusAccepted {
+		t.Fatalf("expected expired pending signup restart 202, got %d: %s", restartedSignupRes.Code, restartedSignupRes.Body.String())
+	}
+	restartedToken := latestAuthToken(t, env.tokenSink, "developer-owner@example.com", "email_verification")
+	if restartedToken == expiredToken {
+		t.Fatal("expected signup restart to issue a new verification token")
+	}
+
 	env.server.authTokenSink = failingAuthTokenSink{}
 	deliveryFailureRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
 		"email": "delivery-failure-developer@example.com",

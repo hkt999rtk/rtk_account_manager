@@ -860,6 +860,28 @@ func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash, passwordHash st
 	return user, nil
 }
 
+func (s *Store) EmailVerificationTokenStatus(ctx context.Context, tokenHash string) (string, error) {
+	var status string
+	err := s.db.QueryRow(ctx, `
+		SELECT CASE
+			WHEN at.consumed_at IS NOT NULL THEN 'invalid'
+			WHEN at.expires_at <= now() THEN 'expired'
+			WHEN u.email_verified OR NOT u.signup_pending_verification THEN 'invalid'
+			ELSE 'valid'
+		END
+		FROM auth_tokens at
+		JOIN users u ON u.id = at.user_id
+		WHERE at.token_hash = $1
+		  AND at.purpose = 'email_verification'
+		  AND at.scope = ''
+		  AND u.disabled_at IS NULL
+	`, tokenHash).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "invalid", nil
+	}
+	return status, err
+}
+
 func (s *Store) ResetPasswordWithToken(ctx context.Context, tokenHash, passwordHash string) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {

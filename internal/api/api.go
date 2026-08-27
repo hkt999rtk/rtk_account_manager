@@ -529,6 +529,7 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/auth/login/activate", s.activateLogin)
 	v1.POST("/auth/refresh", s.refresh)
 	v1.POST("/auth/verify-email", s.verifyEmail)
+	v1.POST("/auth/verify-email/status", s.verificationEmailStatus)
 	v1.POST("/auth/resend-verification", s.resendVerification)
 	v1.POST("/auth/forgot-password", s.forgotPassword)
 	v1.POST("/auth/reset-password", s.resetPassword)
@@ -1182,6 +1183,26 @@ type authTokenRequest struct {
 type verifyEmailRequest struct {
 	Token       string `json:"token"`
 	NewPassword string `json:"new_password"`
+}
+
+type verificationEmailStatusRequest struct {
+	Token string `json:"token"`
+}
+
+func (s *Server) verificationEmailStatus(c *gin.Context) {
+	var req verificationEmailStatusRequest
+	if !bindStrict(c, &req) {
+		return
+	}
+	if !requireNonBlank(c, "token", req.Token) {
+		return
+	}
+	status, err := s.store.EmailVerificationTokenStatus(c.Request.Context(), auth.HashToken(req.Token))
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "token_status_failed", "Could not check verification token")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": status})
 }
 
 func (s *Server) verifyEmail(c *gin.Context) {

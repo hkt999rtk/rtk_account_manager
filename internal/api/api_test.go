@@ -1163,6 +1163,12 @@ func TestAuthRecoveryValidationRejectsInvalidRequests(t *testing.T) {
 			body:   `{}`,
 		},
 		{
+			name:   "verification status missing token",
+			method: http.MethodPost,
+			path:   "/v1/auth/verify-email/status",
+			body:   `{}`,
+		},
+		{
 			name:   "verify email short new password",
 			method: http.MethodPost,
 			path:   "/v1/auth/verify-email",

@@ -156,6 +156,9 @@ func (s *Server) signup(c *gin.Context) {
 		PasswordHash:              hash,
 		SignupPendingVerification: true,
 	})
+	if errors.Is(err, store.ErrConflict) {
+		result, err = s.store.ResumeExpiredDeveloperSignup(c.Request.Context(), email)
+	}
 	if err != nil {
 		writeStoreError(c, err)
 		return

@@ -1347,6 +1347,9 @@ Constraints:
 - `POST /v1/auth/verify-email` consumes a one-time email verification token and
   a new password, stores the password hash, marks `user.email_verified=true`,
   and clears `signup_pending_verification` in one transaction.
+- `POST /v1/auth/verify-email/status` performs a non-consuming token check and
+  returns `valid`, `expired`, or `invalid`. It must not consume the token or
+  expose token contents in the response.
 - `POST /v1/auth/resend-verification` issues a replacement verification token
   for unverified users and returns an enumeration-safe `202 Accepted` for
   unknown, already verified, disabled, or throttled users.
@@ -1426,6 +1429,11 @@ security, and test requirements are defined in
   verification token, and returns `202 Accepted` without login tokens. The
   default brand cloud name is the developer email address and can later be
   changed. Signup does not collect or accept the initial password.
+- Repeating signup for an enabled, unverified, signup-pending account is allowed
+  only after its verification token has expired or no active verification token
+  remains. The existing account and default brand cloud are reused and a new
+  verification token is issued. Verified accounts and pending accounts with an
+  active verification token remain conflicts.
 - `POST /v1/auth/verify-email` requires the verification token and a new
   password of at least eight characters. It atomically stores the password,
   marks the email verified, clears the signup-pending state, and issues the
@@ -1560,6 +1568,7 @@ All endpoints are versioned under `/v1`.
 | `POST` | `/v1/auth/login` | No | Authenticate with email/password. |
 | `POST` | `/v1/auth/refresh` | No | Exchange refresh token for new access token. |
 | `POST` | `/v1/auth/verify-email` | No | Consume an email verification token and mark the user email verified. |
+| `POST` | `/v1/auth/verify-email/status` | No | Check an email verification token without consuming it and return `valid`, `expired`, or `invalid`. |
 | `POST` | `/v1/auth/resend-verification` | No | Issue a replacement email verification token for an unverified user, with enumeration-safe response semantics. |
 | `POST` | `/v1/auth/forgot-password` | No | Issue a password reset token, with enumeration-safe response semantics. |
 | `POST` | `/v1/auth/reset-password` | No | Consume a password reset token, set a new password, and revoke active refresh tokens. |

@@ -31,6 +31,7 @@ type Store interface {
 type authPersistence interface {
 	Register(context.Context, store.RegisterInput) (store.RegisterResult, error)
 	SignupDeveloper(context.Context, store.DeveloperSignupInput) (store.DeveloperSignupResult, error)
+	ResumeExpiredDeveloperSignup(context.Context, string) (store.DeveloperSignupResult, error)
 	GetUserPassword(ctx context.Context, email string) (model.User, string, error)
 	GetUserPasswordByID(ctx context.Context, userID string) (model.User, string, error)
 	CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
@@ -40,6 +41,7 @@ type authPersistence interface {
 	CreateEmailVerificationTokenForEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error)
 	CreateLoginActivationTokenForEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error)
 	VerifyEmailToken(ctx context.Context, tokenHash, passwordHash string) (model.User, error)
+	EmailVerificationTokenStatus(ctx context.Context, tokenHash string) (string, error)
 	ActivateLoginToken(ctx context.Context, tokenHash string) (model.User, error)
 	ResetPasswordWithToken(ctx context.Context, tokenHash, passwordHash string) error
 	UpdateUserPassword(ctx context.Context, userID, passwordHash string) error

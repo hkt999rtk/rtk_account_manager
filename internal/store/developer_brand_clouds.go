@@ -63,6 +63,52 @@ func (s *Store) SignupDeveloper(ctx context.Context, in DeveloperSignupInput) (D
 	return DeveloperSignupResult{User: user, BrandCloud: brandCloud}, nil
 }
 
+func (s *Store) ResumeExpiredDeveloperSignup(ctx context.Context, email string) (DeveloperSignupResult, error) {
+	user, err := scanDeveloperUser(s.db.QueryRow(ctx, `
+		SELECT u.id::text, u.email, u.display_name, u.email_verified, u.email_verified_at,
+		       u.signup_pending_verification, u.developer_cloud_limit, u.created_at, u.updated_at, u.disabled_at
+		FROM users u
+		WHERE u.email = $1
+		  AND u.disabled_at IS NULL
+		  AND u.email_verified = false
+		  AND u.signup_pending_verification = true
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM auth_tokens at
+			WHERE at.user_id = u.id
+			  AND at.purpose = 'email_verification'
+			  AND at.scope = ''
+			  AND at.consumed_at IS NULL
+			  AND at.expires_at > now()
+		  )
+	`, strings.ToLower(strings.TrimSpace(email))))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return DeveloperSignupResult{}, ErrConflict
+	}
+	if err != nil {
+		return DeveloperSignupResult{}, err
+	}
+	brandCloud, err := scanOrganization(s.db.QueryRow(ctx, `
+		SELECT o.id::text, o.name, o.tenant_slug, m.role, o.organization_kind, o.status,
+		       o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at
+		FROM organizations o
+		JOIN organization_members m ON m.organization_id = o.id
+		WHERE m.user_id = $1
+		  AND m.role = 'owner'
+		  AND m.disabled_at IS NULL
+		  AND o.organization_kind = 'brand_cloud'
+		ORDER BY o.created_at ASC
+		LIMIT 1
+	`, user.ID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return DeveloperSignupResult{}, ErrConflict
+	}
+	if err != nil {
+		return DeveloperSignupResult{}, err
+	}
+	return DeveloperSignupResult{User: user, BrandCloud: brandCloud}, nil
+}
+
 func (s *Store) CreateDeveloperBrandCloud(ctx context.Context, userID string, in BrandCloudInput) (model.Organization, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
