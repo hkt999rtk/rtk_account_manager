@@ -803,7 +803,7 @@ func (s *Store) ActivateLoginToken(ctx context.Context, tokenHash string) (model
 	return user, nil
 }
 
-func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash string) (model.User, error) {
+func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash, passwordHash string) (model.User, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return model.User{}, err
@@ -828,13 +828,14 @@ func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash string) (model.U
 	var user model.User
 	err = tx.QueryRow(ctx, `
 		UPDATE users
-		SET email_verified = true,
+		SET password_hash = $2,
+		    email_verified = true,
 		    email_verified_at = COALESCE(email_verified_at, now()),
 		    signup_pending_verification = false,
 		    updated_at = now()
 		WHERE id = $1 AND disabled_at IS NULL
 		RETURNING id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
-	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	`, userID, passwordHash).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, ErrNotFound
 	}

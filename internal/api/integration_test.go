@@ -121,7 +121,7 @@ func TestIntegrationSignupQueuesEncryptedEmailWithoutCallingSMTP(t *testing.T) {
 	env.server.ConfigureEmailOutbox(repository)
 
 	response := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
-		"email": "queued-signup@example.com", "password": "password123", "display_name": "Queued Signup",
+		"email": "queued-signup@example.com",
 	}, "")
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("signup status = %d: %s", response.Code, response.Body.String())
@@ -1111,7 +1111,8 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	accountStore := store.New(env.db)
 	verificationToken := latestAuthToken(t, env.tokenSink, "verify@example.com", "email_verification")
 	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
-		"token": verificationToken,
+		"token":        verificationToken,
+		"new_password": "password123",
 	}, "")
 	if verifyRes.Code != http.StatusOK {
 		t.Fatalf("expected verify email 200, got %d: %s", verifyRes.Code, verifyRes.Body.String())
@@ -1124,7 +1125,8 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 		t.Fatalf("expected email verification to issue initial tokens")
 	}
 	reuseVerifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
-		"token": verificationToken,
+		"token":        verificationToken,
+		"new_password": "password123",
 	}, "")
 	if reuseVerifyRes.Code != http.StatusBadRequest {
 		t.Fatalf("expected consumed verification token 400, got %d", reuseVerifyRes.Code)
@@ -1139,7 +1141,8 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	}
 	resendToken := latestAuthToken(t, env.tokenSink, "resend@example.com", "email_verification")
 	verifyResendRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
-		"token": resendToken,
+		"token":        resendToken,
+		"new_password": "password123",
 	}, "")
 	if verifyResendRes.Code != http.StatusOK {
 		t.Fatalf("expected resent verification token 200, got %d: %s", verifyResendRes.Code, verifyResendRes.Body.String())
@@ -1201,7 +1204,8 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	expiredVerifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
-		"token": expiredVerificationToken,
+		"token":        expiredVerificationToken,
+		"new_password": "password123",
 	}, "")
 	if expiredVerifyRes.Code != http.StatusBadRequest {
 		t.Fatalf("expected expired verification token 400, got %d", expiredVerifyRes.Code)
@@ -1358,7 +1362,8 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	disabledVerifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
-		"token": disabledVerificationToken,
+		"token":        disabledVerificationToken,
+		"new_password": "password123",
 	}, "")
 	if disabledVerifyRes.Code != http.StatusBadRequest {
 		t.Fatalf("expected disabled user verification token 400, got %d", disabledVerifyRes.Code)
@@ -1603,28 +1608,19 @@ func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
 	}
 }
 
-func TestIntegrationDeveloperSignupUsesRequestedBrandCloudNameAndEmailFallback(t *testing.T) {
+func TestIntegrationDeveloperSignupUsesEmailAndRejectsLegacyFields(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	namedRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
-		"email":             "named-developer@example.com",
-		"password":          "password123",
-		"display_name":      "Named Developer",
-		"organization_name": "Requested Developer Cloud",
+	legacyRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
+		"email":    "legacy-developer@example.com",
+		"password": "password123",
 	}, "")
-	if namedRes.Code != http.StatusAccepted {
-		t.Fatalf("expected named developer signup 202, got %d: %s", namedRes.Code, namedRes.Body.String())
-	}
-	named := decodeBody[developerSignupBody](t, namedRes)
-	if named.BrandCloud.Name != "Requested Developer Cloud" {
-		t.Fatalf("expected requested Brand Cloud name, got %+v", named.BrandCloud)
+	if legacyRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected legacy signup fields to be rejected, got %d: %s", legacyRes.Code, legacyRes.Body.String())
 	}
 
 	fallbackRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
-		"email":             "Fallback-Developer@Example.COM",
-		"password":          "password123",
-		"display_name":      "Fallback Developer",
-		"organization_name": "   ",
+		"email": "Fallback-Developer@Example.COM",
 	}, "")
 	if fallbackRes.Code != http.StatusAccepted {
 		t.Fatalf("expected fallback developer signup 202, got %d: %s", fallbackRes.Code, fallbackRes.Body.String())
@@ -1639,9 +1635,7 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 	env := newIntegrationEnv(t)
 
 	signupRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
-		"email":        "developer-owner@example.com",
-		"password":     "password123",
-		"display_name": "Developer Owner",
+		"email": "developer-owner@example.com",
 	}, "")
 	if signupRes.Code != http.StatusAccepted {
 		t.Fatalf("expected developer signup 202, got %d: %s", signupRes.Code, signupRes.Body.String())
@@ -1655,9 +1649,7 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 	}
 
 	duplicateSignupRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
-		"email":        "developer-owner@example.com",
-		"password":     "password123",
-		"display_name": "Duplicate Developer",
+		"email": "developer-owner@example.com",
 	}, "")
 	if duplicateSignupRes.Code != http.StatusConflict {
 		t.Fatalf("expected duplicate developer signup 409, got %d: %s", duplicateSignupRes.Code, duplicateSignupRes.Body.String())
@@ -1665,9 +1657,7 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 
 	env.server.authTokenSink = failingAuthTokenSink{}
 	deliveryFailureRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
-		"email":        "delivery-failure-developer@example.com",
-		"password":     "password123",
-		"display_name": "Delivery Failure",
+		"email": "delivery-failure-developer@example.com",
 	}, "")
 	if deliveryFailureRes.Code != http.StatusInternalServerError {
 		t.Fatalf("expected token delivery failure 500, got %d: %s", deliveryFailureRes.Code, deliveryFailureRes.Body.String())
@@ -1675,7 +1665,9 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 	env.server.authTokenSink = env.tokenSink
 
 	verifyToken := latestAuthToken(t, env.tokenSink, "developer-owner@example.com", "email_verification")
-	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{"token": verifyToken}, "")
+	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": verifyToken, "new_password": "password123",
+	}, "")
 	if verifyRes.Code != http.StatusOK {
 		t.Fatalf("expected verify 200, got %d: %s", verifyRes.Code, verifyRes.Body.String())
 	}
@@ -6876,16 +6868,16 @@ func markEvaluationOrg(t *testing.T, env integrationEnv, orgID string, quota int
 func verifiedDeveloperForTest(t *testing.T, env integrationEnv, email string) verifiedDeveloperFixture {
 	t.Helper()
 	signupRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
-		"email":        email,
-		"password":     "password123",
-		"display_name": email,
+		"email": email,
 	}, "")
 	if signupRes.Code != http.StatusAccepted {
 		t.Fatalf("expected developer signup 202, got %d: %s", signupRes.Code, signupRes.Body.String())
 	}
 	signup := decodeBody[developerSignupBody](t, signupRes)
 	verifyToken := latestAuthToken(t, env.tokenSink, email, "email_verification")
-	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{"token": verifyToken}, "")
+	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": verifyToken, "new_password": "password123",
+	}, "")
 	if verifyRes.Code != http.StatusOK {
 		t.Fatalf("expected verify 200, got %d: %s", verifyRes.Code, verifyRes.Body.String())
 	}

@@ -17,11 +17,7 @@ import (
 )
 
 type signupRequest struct {
-	Email            string  `json:"email" binding:"required,email"`
-	Password         string  `json:"password" binding:"required,min=8"`
-	DisplayName      *string `json:"display_name"`
-	OrganizationName string  `json:"organization_name,omitempty"`
-	CaptchaToken     *string `json:"captcha_token"`
+	Email string `json:"email"`
 }
 
 type signupResponse struct {
@@ -61,13 +57,11 @@ type quotaRaiseDecisionResponse struct {
 }
 
 type signupPolicy struct {
-	captchaRequired   bool
 	disposableDomains map[string]struct{}
 }
 
 func loadSignupPolicy() signupPolicy {
 	policy := signupPolicy{
-		captchaRequired: parseBoolEnv("SIGNUP_CAPTCHA_REQUIRED"),
 		disposableDomains: map[string]struct{}{
 			"mailinator.com":    {},
 			"10minutemail.com":  {},
@@ -86,11 +80,6 @@ func loadSignupPolicy() signupPolicy {
 		}
 	}
 	return policy
-}
-
-func parseBoolEnv(key string) bool {
-	value := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
-	return value == "1" || value == "true" || value == "yes" || value == "on"
 }
 
 type signupLimiter struct {
@@ -140,23 +129,31 @@ func (l *signupLimiter) allow(key string, now time.Time) bool {
 
 func (s *Server) signup(c *gin.Context) {
 	var req signupRequest
-	if !bind(c, &req) {
+	if !bindStrict(c, &req) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if !s.allowSignup(c, email, req.CaptchaToken) {
+	parsed, err := mail.ParseAddress(email)
+	if err != nil || parsed.Address != email {
+		writeError(c, http.StatusBadRequest, "invalid_request", "email must be a valid email address")
 		return
 	}
-	hash, err := auth.HashPassword(req.Password)
+	if !s.allowSignup(c, email) {
+		return
+	}
+	pendingSecret, err := auth.RandomToken()
 	if err != nil {
-		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not hash password")
+		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not initialize pending account")
+		return
+	}
+	hash, err := auth.HashPassword(pendingSecret)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not initialize pending account")
 		return
 	}
 	result, err := s.store.SignupDeveloper(c.Request.Context(), store.DeveloperSignupInput{
 		Email:                     email,
 		PasswordHash:              hash,
-		DisplayName:               req.DisplayName,
-		OrganizationName:          strings.TrimSpace(req.OrganizationName),
 		SignupPendingVerification: true,
 	})
 	if err != nil {
@@ -337,7 +334,7 @@ func (s *Server) requirePlatformAdmin() gin.HandlerFunc {
 	}
 }
 
-func (s *Server) allowSignup(c *gin.Context, email string, captchaToken *string) bool {
+func (s *Server) allowSignup(c *gin.Context, email string) bool {
 	if s.signupLimiter != nil {
 		ip := c.ClientIP()
 		if ip == "" {
@@ -347,10 +344,6 @@ func (s *Server) allowSignup(c *gin.Context, email string, captchaToken *string)
 			writeError(c, http.StatusTooManyRequests, "rate_limited", "Too many signup attempts")
 			return false
 		}
-	}
-	if s.signupPolicy.captchaRequired && (captchaToken == nil || strings.TrimSpace(*captchaToken) == "") {
-		writeError(c, http.StatusBadRequest, "captcha_required", "captcha_token must be provided")
-		return false
 	}
 	if isDisposableSignupEmail(email, s.signupPolicy.disposableDomains) {
 		writeError(c, http.StatusBadRequest, "disposable_email", "Disposable email addresses are not allowed")

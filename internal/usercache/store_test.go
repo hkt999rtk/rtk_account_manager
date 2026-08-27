@@ -251,7 +251,7 @@ func TestStoreAdditionalPlatformMutationsRefreshCache(t *testing.T) {
 	if _, ok := cache.platformAuth["user-1"]; !ok {
 		t.Fatal("expected signup developer to populate auth cache")
 	}
-	if _, err := cached.VerifyEmailToken(ctx, "verify-token"); err != nil {
+	if _, err := cached.VerifyEmailToken(ctx, "verify-token", "new-password-hash"); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := cache.platformUsers["user-1"]; !ok {
@@ -519,7 +519,7 @@ func (f *fakeBacking) GetUserPasswordByID(_ context.Context, userID string) (mod
 	return record.user, record.hash, nil
 }
 
-func (f *fakeBacking) VerifyEmailToken(context.Context, string) (model.User, error) {
+func (f *fakeBacking) VerifyEmailToken(context.Context, string, string) (model.User, error) {
 	return f.verifyUser, nil
 }
 

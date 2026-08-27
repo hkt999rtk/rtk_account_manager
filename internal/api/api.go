@@ -683,7 +683,6 @@ type registerRequest struct {
 	Password         string  `json:"password" binding:"required,min=8"`
 	DisplayName      *string `json:"display_name"`
 	OrganizationName string  `json:"organization_name" binding:"required"`
-	CaptchaToken     *string `json:"captcha_token"`
 }
 
 func (s *Server) register(c *gin.Context) {
@@ -692,7 +691,7 @@ func (s *Server) register(c *gin.Context) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if !s.allowSignup(c, email, req.CaptchaToken) {
+	if !s.allowSignup(c, email) {
 		return
 	}
 	if !requireNonBlank(c, "organization_name", req.OrganizationName) {
@@ -1167,15 +1166,29 @@ type authTokenRequest struct {
 	AppCSRPem string `json:"app_csr_pem,omitempty"`
 }
 
+type verifyEmailRequest struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
+}
+
 func (s *Server) verifyEmail(c *gin.Context) {
-	var req authTokenRequest
-	if !bind(c, &req) {
+	var req verifyEmailRequest
+	if !bindStrict(c, &req) {
 		return
 	}
 	if !requireNonBlank(c, "token", req.Token) {
 		return
 	}
-	user, err := s.store.VerifyEmailToken(c.Request.Context(), auth.HashToken(req.Token))
+	if len(req.NewPassword) < 8 {
+		writeError(c, http.StatusBadRequest, "invalid_request", "new_password must be at least 8 characters")
+		return
+	}
+	passwordHash, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not hash password")
+		return
+	}
+	user, err := s.store.VerifyEmailToken(c.Request.Context(), auth.HashToken(req.Token), passwordHash)
 	if err != nil {
 		writeError(c, http.StatusBadRequest, "invalid_token", "Invalid or expired verification token")
 		return
@@ -1185,7 +1198,7 @@ func (s *Server) verifyEmail(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
 		return
 	}
-	response, err := s.loginResponse(c.Request.Context(), user, tokens, req.AppCSRPem)
+	response, err := s.loginResponse(c.Request.Context(), user, tokens, "")
 	if err != nil {
 		writeAppCertificateError(c, err)
 		return

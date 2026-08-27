@@ -1141,6 +1141,12 @@ func TestAuthRecoveryValidationRejectsInvalidRequests(t *testing.T) {
 			body:   `{}`,
 		},
 		{
+			name:   "verify email short new password",
+			method: http.MethodPost,
+			path:   "/v1/auth/verify-email",
+			body:   `{"token":"token","new_password":"short"}`,
+		},
+		{
 			name:   "resend verification invalid email",
 			method: http.MethodPost,
 			path:   "/v1/auth/resend-verification",

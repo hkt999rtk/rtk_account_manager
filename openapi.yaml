@@ -242,13 +242,13 @@ paths:
       x-rtk-feature-id: FEAT-AM-SIGNUP-001
       x-rtk-requirement-ids:
         - REQ-E2E-CA-SIGNUP-EMAIL-001
-      summary: Verify a user's email with an OTP token.
+      summary: Verify a signup email and set its initial password.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/AuthTokenRequest"
+              $ref: "#/components/schemas/VerifyEmailRequest"
       responses:
         "200":
           description: Email verified and initial tokens issued.
@@ -4689,22 +4689,12 @@ components:
           minLength: 1
     SignupRequest:
       type: object
-      required: [email, password]
+      required: [email]
       properties:
         email:
           type: string
           format: email
-        password:
-          type: string
-          minLength: 8
-        display_name:
-          type: string
-        organization_name:
-          type: string
-          minLength: 1
-          description: Optional initial Brand Cloud name. Blank or omitted values fall back to the normalized developer email.
-        captcha_token:
-          type: string
+      additionalProperties: false
     LoginRequest:
       type: object
       required: [email, password]
@@ -4728,6 +4718,17 @@ components:
         token:
           type: string
           minLength: 1
+    VerifyEmailRequest:
+      type: object
+      required: [token, new_password]
+      properties:
+        token:
+          type: string
+          minLength: 1
+        new_password:
+          type: string
+          minLength: 8
+      additionalProperties: false
     EmailRequest:
       type: object
       required: [email]

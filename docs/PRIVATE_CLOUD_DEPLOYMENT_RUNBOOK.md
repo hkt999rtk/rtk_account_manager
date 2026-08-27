@@ -322,7 +322,6 @@ It intentionally contains placeholders only.
 | `PASSWORD_RESET_TTL` | Password reset OTP lifetime. | `30m` |
 | `OTP_RESEND_INTERVAL` | Minimum resend interval. | `60s` |
 | `OTP_MAX_ATTEMPTS` | Max wrong OTP attempts before lockout. | `5` |
-| `SIGNUP_CAPTCHA_REQUIRED` | Require a captcha token in signup payload. | `false` unless enabled. |
 | `SIGNUP_DISPOSABLE_DOMAINS` | Comma-separated disposable email domain denylist override. | Built-in denylist when unset. |
 
 ### Keycloak/OIDC SSO

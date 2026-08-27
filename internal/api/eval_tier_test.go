@@ -11,13 +11,9 @@ import (
 )
 
 func TestLoadSignupPolicyHonorsEnvironmentOverrides(t *testing.T) {
-	t.Setenv("SIGNUP_CAPTCHA_REQUIRED", "yes")
 	t.Setenv("SIGNUP_DISPOSABLE_DOMAINS", "example.com, test.invalid ")
 
 	policy := loadSignupPolicy()
-	if !policy.captchaRequired {
-		t.Fatal("expected captcha requirement to be enabled from env")
-	}
 	if _, ok := policy.disposableDomains["example.com"]; !ok {
 		t.Fatalf("expected custom disposable domain to be loaded, got %+v", policy.disposableDomains)
 	}
@@ -45,26 +41,8 @@ func TestIsDisposableSignupEmail(t *testing.T) {
 	}
 }
 
-func TestAllowSignupEnforcesCaptchaDisposableAndRateLimit(t *testing.T) {
+func TestAllowSignupEnforcesDisposableAndRateLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-
-	captchaRecorder := httptest.NewRecorder()
-	captchaContext, _ := gin.CreateTestContext(captchaRecorder)
-	captchaContext.Request = httptest.NewRequest(http.MethodPost, "/v1/auth/signup", nil)
-	captchaContext.Request.RemoteAddr = "203.0.113.10:1234"
-	captchaServer := &Server{
-		signupLimiter: newSignupLimiter(5, time.Hour),
-		signupPolicy: signupPolicy{
-			captchaRequired:   true,
-			disposableDomains: map[string]struct{}{"mailinator.com": {}},
-		},
-	}
-	if captchaServer.allowSignup(captchaContext, "user@example.com", nil) {
-		t.Fatal("expected missing captcha token to block signup")
-	}
-	if captchaRecorder.Code != http.StatusBadRequest {
-		t.Fatalf("expected captcha failure 400, got %d", captchaRecorder.Code)
-	}
 
 	disposableRecorder := httptest.NewRecorder()
 	disposableContext, _ := gin.CreateTestContext(disposableRecorder)
@@ -76,7 +54,7 @@ func TestAllowSignupEnforcesCaptchaDisposableAndRateLimit(t *testing.T) {
 			disposableDomains: map[string]struct{}{"mailinator.com": {}},
 		},
 	}
-	if disposableServer.allowSignup(disposableContext, "Display Name <user@mailinator.com>", nil) {
+	if disposableServer.allowSignup(disposableContext, "Display Name <user@mailinator.com>") {
 		t.Fatal("expected disposable email to block signup")
 	}
 	if disposableRecorder.Code != http.StatusBadRequest {
@@ -91,10 +69,10 @@ func TestAllowSignupEnforcesCaptchaDisposableAndRateLimit(t *testing.T) {
 		signupLimiter: newSignupLimiter(1, time.Hour),
 		signupPolicy:  signupPolicy{},
 	}
-	if !limitedServer.allowSignup(limitedContext, "user@example.com", nil) {
+	if !limitedServer.allowSignup(limitedContext, "user@example.com") {
 		t.Fatal("expected first signup attempt to pass")
 	}
-	if limitedServer.allowSignup(limitedContext, "user@example.com", nil) {
+	if limitedServer.allowSignup(limitedContext, "user@example.com") {
 		t.Fatal("expected second signup attempt in the same window to be rate limited")
 	}
 	if limitedRecorder.Code != http.StatusTooManyRequests {

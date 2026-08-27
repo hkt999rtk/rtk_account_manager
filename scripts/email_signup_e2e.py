@@ -243,7 +243,6 @@ def main() -> int:
                 "EMAIL_OUTBOX_POLL_INTERVAL": "1s",
                 "EMAIL_OUTBOX_BATCH_SIZE": "5",
                 "PORT": str(account_port),
-                "SIGNUP_CAPTCHA_REQUIRED": "false",
             }
             service_env.update(
                 {
