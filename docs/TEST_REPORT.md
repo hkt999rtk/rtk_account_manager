@@ -160,7 +160,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#4`
 - `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#5`
 - `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape`
-- `rtk_account_manager/internal/api`: `TestAllowSignupEnforcesCaptchaDisposableAndRateLimit`
+- `rtk_account_manager/internal/api`: `TestAllowSignupEnforcesDisposableAndRateLimit`
 - `rtk_account_manager/internal/api`: `TestAppBundleCertificateChainValidation/empty`
 - `rtk_account_manager/internal/api`: `TestAppBundleCertificateChainValidation/invalid_DER`
 - `rtk_account_manager/internal/api`: `TestAppBundleCertificateChainValidation/invalid_PEM`
@@ -173,19 +173,25 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests/forgot_password_invalid_email`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests/resend_verification_invalid_email`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests/reset_password_short_new_password`
+- `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests/verification_status_missing_token`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests/verify_email_missing_token`
+- `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests/verify_email_short_new_password`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests`
 - `rtk_account_manager/internal/api`: `TestAuthTokenDeliveryHook`
+- `rtk_account_manager/internal/api`: `TestAuthTokenLinkRoutesByPurpose/brand_cloud_membership_invitation`
 - `rtk_account_manager/internal/api`: `TestAuthTokenLinkRoutesByPurpose/email_verification`
 - `rtk_account_manager/internal/api`: `TestAuthTokenLinkRoutesByPurpose/login_activation`
 - `rtk_account_manager/internal/api`: `TestAuthTokenLinkRoutesByPurpose/password_reset`
+- `rtk_account_manager/internal/api`: `TestAuthTokenLinkRoutesByPurpose/sku_collaborator_invitation`
 - `rtk_account_manager/internal/api`: `TestAuthTokenLinkRoutesByPurpose`
 - `rtk_account_manager/internal/api`: `TestAuthTokenSinksHandleFallbackAndUnavailablePaths`
 - `rtk_account_manager/internal/api`: `TestAuthTokenSubjectAndBodyByPurpose/email_verification`
 - `rtk_account_manager/internal/api`: `TestAuthTokenSubjectAndBodyByPurpose/login_activation`
 - `rtk_account_manager/internal/api`: `TestAuthTokenSubjectAndBodyByPurpose/password_reset`
+- `rtk_account_manager/internal/api`: `TestAuthTokenSubjectAndBodyByPurpose/sku_collaborator_invitation`
 - `rtk_account_manager/internal/api`: `TestAuthTokenSubjectAndBodyByPurpose/unknown`
 - `rtk_account_manager/internal/api`: `TestAuthTokenSubjectAndBodyByPurpose`
+- `rtk_account_manager/internal/api`: `TestAuthTokenTTLConfiguration`
 - `rtk_account_manager/internal/api`: `TestBindStrictRejectsUnknownFields`
 - `rtk_account_manager/internal/api`: `TestBrandCloudContextHelpers`
 - `rtk_account_manager/internal/api`: `TestBrandCloudLogoutAndMeRejectMismatchedSubject`
@@ -284,7 +290,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationDatabaseRejectsInvalidCoreData`
 - `rtk_account_manager/internal/api`: `TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata`
 - `rtk_account_manager/internal/api`: `TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit`
-- `rtk_account_manager/internal/api`: `TestIntegrationDeveloperSignupUsesRequestedBrandCloudNameAndEmailFallback`
+- `rtk_account_manager/internal/api`: `TestIntegrationDeveloperSignupUsesEmailAndRejectsLegacyFields`
 - `rtk_account_manager/internal/api`: `TestIntegrationDeviceUserUnprovisionWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationDisabledUserCannotManageOIDCIdentities`
 - `rtk_account_manager/internal/api`: `TestIntegrationDisabledUserCannotUseExistingTokens`
@@ -324,6 +330,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationRejectsBlankNames`
 - `rtk_account_manager/internal/api`: `TestIntegrationResponsesMatchOpenAPIContract`
 - `rtk_account_manager/internal/api`: `TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness`
+- `rtk_account_manager/internal/api`: `TestIntegrationSKUCollaboratorLifecycleAndVisibility`
 - `rtk_account_manager/internal/api`: `TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationSignupQueuesEncryptedEmailWithoutCallingSMTP`
 - `rtk_account_manager/internal/api`: `TestIntegrationStoreRefreshTokenHelpers`
@@ -739,6 +746,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenRejectsExpiredToken`
 - `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenRejectsInvalidToken`
 - `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenRejectsUnsupportedCategory`
+- `rtk_account_manager/internal/store`: `TestSKUCollaborationInvitationVisibilityAndOwnershipTransferIntegration`
 - `rtk_account_manager/internal/store`: `TestScanEmailOutboxWrapsScanError`
 - `rtk_account_manager/internal/store`: `TestScanProductionRunMapsNoRowsToNotFound`
 - `rtk_account_manager/internal/store`: `TestScanProductionRunReturnsScanError`
@@ -749,6 +757,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestStoreOperationsRespectCanceledContextIntegration`
 - `rtk_account_manager/internal/store`: `TestUnprovisionDeviceRetainsClaimHistoryAndAllowsReplacementClaim`
 - `rtk_account_manager/internal/store`: `TestUserIdentityStoreEnforcesUniquenessAndListsByUser`
+- `rtk_account_manager/internal/store`: `TestValidSKUCollaboratorRole`
 - `rtk_account_manager/internal/store`: `TestValidateDeviceItemProfileRejectsInvalidFields/duplicate_service`
 - `rtk_account_manager/internal/store`: `TestValidateDeviceItemProfileRejectsInvalidFields/empty_service_options`
 - `rtk_account_manager/internal/store`: `TestValidateDeviceItemProfileRejectsInvalidFields/invalid_category`
