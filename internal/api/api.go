@@ -179,6 +179,10 @@ func authTokenSubject(purpose string) string {
 		return "Reset your Realtek Connect password"
 	case "brand_cloud_owner_transfer":
 		return "Accept Realtek Connect+ brand cloud ownership"
+	case "brand_cloud_membership_invitation":
+		return "Join a Realtek Connect+ brand cloud"
+	case "sku_collaborator_invitation":
+		return "Join a Realtek Connect+ SKU project"
 	default:
 		return "Realtek Connect account token"
 	}
@@ -195,6 +199,10 @@ func buildAuthTokenBody(delivery AuthTokenDelivery, baseURL string) string {
 		b.WriteString("Reset your Realtek Connect password with this link:\r\n\r\n")
 	case "brand_cloud_owner_transfer":
 		b.WriteString("Accept Realtek Connect+ brand cloud ownership with this link:\r\n\r\n")
+	case "brand_cloud_membership_invitation":
+		b.WriteString("Accept your Realtek Connect+ brand cloud invitation with this link:\r\n\r\n")
+	case "sku_collaborator_invitation":
+		b.WriteString("Accept your Realtek Connect+ SKU project invitation with this link:\r\n\r\n")
 	default:
 		b.WriteString("Use this Realtek Connect account token:\r\n\r\n")
 	}
@@ -223,6 +231,10 @@ func authTokenLink(purpose, token, baseURL string) string {
 		path = "/reset-password"
 	case "brand_cloud_owner_transfer":
 		path = "/brand-cloud-owner-transfer/accept"
+	case "brand_cloud_membership_invitation":
+		path = "/brand-cloud-member-invitation/accept"
+	case "sku_collaborator_invitation":
+		path = "/sku-collaborator-invitation/accept"
 	}
 	u, err := url.Parse(strings.TrimRight(strings.TrimSpace(baseURL), "/") + path)
 	if err != nil {
@@ -578,6 +590,15 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/developer/brand-clouds/:brandCloudId/pki/test-app-certificates", s.issueDeveloperPKITestAppCertificate)
 	protected.POST("/developer/brand-cloud-owner-transfers/accept", s.acceptBrandCloudOwnerTransfer)
 	protected.POST("/developer/brand-cloud-member-invitations/accept", s.acceptDeveloperBrandCloudMemberInvitation)
+	protected.GET("/developer/brand-clouds/:brandCloudId/skus/:skuId/collaborators", s.listSKUCollaborators)
+	protected.PATCH("/developer/brand-clouds/:brandCloudId/skus/:skuId/collaborators/:userId", s.updateSKUCollaborator)
+	protected.DELETE("/developer/brand-clouds/:brandCloudId/skus/:skuId/collaborators/:userId", s.removeSKUCollaborator)
+	protected.GET("/developer/brand-clouds/:brandCloudId/skus/:skuId/collaborator-invitations", s.listSKUCollaboratorInvitations)
+	protected.POST("/developer/brand-clouds/:brandCloudId/skus/:skuId/collaborator-invitations", s.inviteSKUCollaborator)
+	protected.POST("/developer/brand-clouds/:brandCloudId/skus/:skuId/collaborator-invitations/:invitationId/resend", s.resendSKUCollaboratorInvitation)
+	protected.POST("/developer/brand-clouds/:brandCloudId/skus/:skuId/collaborator-invitations/:invitationId/cancel", s.cancelSKUCollaboratorInvitation)
+	protected.POST("/developer/sku-collaborator-invitations/accept", s.acceptSKUCollaboratorInvitation)
+	protected.POST("/developer/brand-clouds/:brandCloudId/skus/:skuId/owner-transfer", s.transferSKUOwnership)
 	protected.GET("/developer/chipsets", s.listDeveloperChipsets)
 	protected.GET("/developer/chipsets/:chipsetId", s.getDeveloperChipset)
 
@@ -1515,7 +1536,7 @@ func (s *Server) me(c *gin.Context) {
 	}
 	for i := range orgPage.Organizations {
 		if orgPage.Organizations[i].OrganizationKind == model.OrganizationKindBrandCloud {
-			orgPage.Organizations[i].Capabilities = developerCapabilitiesForRole(orgPage.Organizations[i].Role)
+			orgPage.Organizations[i].Capabilities = s.developerCapabilitiesForUser(c.Request.Context(), userID, orgPage.Organizations[i].ID, orgPage.Organizations[i].Role)
 		}
 	}
 	capabilities, err := s.store.ListUserPlatformPermissions(c.Request.Context(), userID)
@@ -1765,6 +1786,10 @@ func (s *Server) listDevices(c *gin.Context) {
 		filter.BrandCloudUserID = currentBrandCloudUserID(c)
 		filter.ScopePermission = "registry_device.read"
 	}
+	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser && !s.currentUserIsPlatformAdmin(c) {
+		filter.UserID = currentUserID(c)
+		filter.ScopePermission = "registry_device.read"
+	}
 	devicePage, err := s.store.ListDevicesFiltered(c.Request.Context(), filter)
 	if err != nil {
 		writeStoreError(c, err)
@@ -1805,6 +1830,10 @@ func (s *Server) listFleetDevices(c *gin.Context) {
 		filter.BrandCloudUserID = currentBrandCloudUserID(c)
 		filter.ScopePermission = "registry_device.read"
 	}
+	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser && !s.currentUserIsPlatformAdmin(c) {
+		filter.UserID = currentUserID(c)
+		filter.ScopePermission = "registry_device.read"
+	}
 	page, err := s.store.ListDevicesFiltered(c.Request.Context(), filter)
 	if err != nil {
 		writeStoreError(c, err)
@@ -1832,14 +1861,24 @@ func (s *Server) fleetSummary(c *gin.Context) {
 	var err error
 	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
 		summary, err = s.store.FleetSummaryForBrandCloudUser(c.Request.Context(), c.Param("orgId"), currentBrandCloudUserID(c))
-	} else {
+	} else if s.currentUserIsPlatformAdmin(c) {
 		summary, err = s.store.FleetSummary(c.Request.Context(), c.Param("orgId"))
+	} else {
+		summary, err = s.store.FleetSummaryForUser(c.Request.Context(), c.Param("orgId"), currentUserID(c))
 	}
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, summary)
+}
+
+func (s *Server) currentUserIsPlatformAdmin(c *gin.Context) bool {
+	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
+		return false
+	}
+	allowed, err := s.store.IsPlatformAdmin(c.Request.Context(), currentUserID(c))
+	return err == nil && allowed
 }
 
 func (s *Server) getDevice(c *gin.Context) {
@@ -2116,7 +2155,12 @@ func (s *Server) requirePermission(permission string) gin.HandlerFunc {
 					return
 				}
 				if !allowed {
-					writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
+					canRead, _ := s.store.HasBrandCloudDevicePermission(c.Request.Context(), currentBrandCloudUserID(c), orgID, "registry_device.read", deviceID)
+					if canRead {
+						writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
+					} else {
+						writeError(c, http.StatusNotFound, "not_found", "Resource not found")
+					}
 					c.Abort()
 					return
 				}
@@ -2129,7 +2173,12 @@ func (s *Server) requirePermission(permission string) gin.HandlerFunc {
 					return
 				}
 				if !allowed {
-					writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
+					canRead, _ := s.store.HasBrandCloudPermissionForResource(c.Request.Context(), currentBrandCloudUserID(c), orgID, "registry_device.read", store.ScopeTypeSKU, profileID)
+					if canRead {
+						writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
+					} else {
+						writeError(c, http.StatusNotFound, "not_found", "Resource not found")
+					}
 					c.Abort()
 					return
 				}
@@ -2145,14 +2194,42 @@ func (s *Server) requirePermission(permission string) gin.HandlerFunc {
 				return
 			}
 		}
-		allowed, err := s.store.HasPermission(c.Request.Context(), currentUserID(c), c.Param("orgId"), permission)
+		if isAdmin, err := s.store.IsPlatformAdmin(c.Request.Context(), currentUserID(c)); err == nil && isAdmin {
+			c.Set("permission", permission)
+			c.Next()
+			return
+		}
+		var allowed bool
+		var err error
+		if deviceID := c.Param("deviceId"); deviceID != "" {
+			allowed, err = s.store.HasUserDevicePermission(c.Request.Context(), currentUserID(c), c.Param("orgId"), permission, deviceID)
+		} else if profileID := c.Param("profileId"); profileID != "" {
+			allowed, err = s.store.HasUserPermissionForResource(c.Request.Context(), currentUserID(c), c.Param("orgId"), permission, store.ScopeTypeSKU, profileID)
+		} else {
+			allowed, err = s.store.HasPermission(c.Request.Context(), currentUserID(c), c.Param("orgId"), permission)
+			if !allowed && (permission == "registry_device.read" || permission == "device_group.read" || permission == "device_tag.read") {
+				allowed, err = s.store.HasUserPermissionAnyResource(c.Request.Context(), currentUserID(c), c.Param("orgId"), permission)
+			}
+		}
 		if err != nil {
 			writeError(c, http.StatusNotFound, "not_found", "Resource not found")
 			c.Abort()
 			return
 		}
 		if !allowed {
-			writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
+			canRead := false
+			if deviceID := c.Param("deviceId"); deviceID != "" {
+				canRead, _ = s.store.HasUserDevicePermission(c.Request.Context(), currentUserID(c), c.Param("orgId"), "registry_device.read", deviceID)
+			} else if profileID := c.Param("profileId"); profileID != "" {
+				canRead, _ = s.store.HasUserPermissionForResource(c.Request.Context(), currentUserID(c), c.Param("orgId"), "registry_device.read", store.ScopeTypeSKU, profileID)
+			}
+			if canRead {
+				writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
+			} else if c.Param("deviceId") != "" || c.Param("profileId") != "" {
+				writeError(c, http.StatusNotFound, "not_found", "Resource not found")
+			} else {
+				writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
+			}
 			c.Abort()
 			return
 		}

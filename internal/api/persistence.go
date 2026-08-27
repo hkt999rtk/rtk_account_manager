@@ -26,6 +26,22 @@ type Store interface {
 	brandCloudPersistence
 	auditPersistence
 	chipsetProviderPersistence
+	skuCollaborationPersistence
+}
+
+type skuCollaborationPersistence interface {
+	CanManageSKUCollaborators(ctx context.Context, actorUserID, brandCloudID, skuID string) (bool, error)
+	GetSKUCollaboratorRole(ctx context.Context, brandCloudUserID, brandCloudID, skuID string) (string, error)
+	GetUserSKUCollaboratorRole(ctx context.Context, userID, brandCloudID, skuID string) (string, error)
+	ListSKUCollaborators(ctx context.Context, brandCloudID, skuID string) ([]model.SKUCollaborator, error)
+	CreateSKUCollaboratorInvitation(ctx context.Context, in store.SKUCollaboratorInvitationInput, now time.Time) (model.SKUCollaboratorInvitation, bool, error)
+	ListSKUCollaboratorInvitations(ctx context.Context, brandCloudID, skuID string, now time.Time) ([]model.SKUCollaboratorInvitation, error)
+	ResendSKUCollaboratorInvitation(ctx context.Context, in store.SKUCollaboratorInvitationMutation, now time.Time) (model.SKUCollaboratorInvitation, error)
+	CancelSKUCollaboratorInvitation(ctx context.Context, in store.SKUCollaboratorInvitationMutation, now time.Time) (model.SKUCollaboratorInvitation, error)
+	AcceptSKUCollaboratorInvitation(ctx context.Context, targetUserID, tokenHash string, now time.Time) (model.SKUCollaboratorInvitation, error)
+	UpdateSKUCollaborator(ctx context.Context, actorUserID, brandCloudID, skuID, targetUserID, role string) (model.SKUCollaborator, error)
+	RemoveSKUCollaborator(ctx context.Context, actorUserID, brandCloudID, skuID, targetUserID string) error
+	TransferSKUOwnership(ctx context.Context, actorUserID, brandCloudID, skuID, targetUserID string) error
 }
 
 type authPersistence interface {
@@ -96,6 +112,7 @@ type devicePersistence interface {
 	ListDevices(ctx context.Context, orgID string, limit, offset int) (store.DevicePage, error)
 	ListDevicesFiltered(ctx context.Context, in store.DeviceListFilter) (store.DevicePage, error)
 	FleetSummary(ctx context.Context, orgID string) (store.FleetSummary, error)
+	FleetSummaryForUser(ctx context.Context, orgID, userID string) (store.FleetSummary, error)
 	FleetSummaryForBrandCloudUser(ctx context.Context, orgID, brandCloudUserID string) (store.FleetSummary, error)
 	GetDevice(ctx context.Context, orgID, deviceID string) (model.Device, error)
 	UpdateDevice(ctx context.Context, orgID, deviceID string, in store.DeviceInput) (model.Device, error)
@@ -172,6 +189,9 @@ type evaluationPersistence interface {
 
 type aclPersistence interface {
 	HasPermission(ctx context.Context, userID, orgID, permission string) (bool, error)
+	HasUserPermissionForResource(ctx context.Context, userID, orgID, permission, scopeType, scopeID string) (bool, error)
+	HasUserPermissionAnyResource(ctx context.Context, userID, orgID, permission string) (bool, error)
+	HasUserDevicePermission(ctx context.Context, userID, orgID, permission, deviceID string) (bool, error)
 	ListUserPlatformPermissions(ctx context.Context, userID string) ([]string, error)
 	HasBrandCloudPermission(ctx context.Context, brandCloudUserID, orgID, permission string) (bool, error)
 	HasBrandCloudPermissionForResource(ctx context.Context, brandCloudUserID, orgID, permission, scopeType, scopeID string) (bool, error)

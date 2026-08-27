@@ -50,10 +50,12 @@ type DeviceItemProfileUpdateInput struct {
 }
 
 type DeviceItemProfileListFilter struct {
-	BrandCloudID string
-	Status       model.DeviceItemProfileStatus
-	Limit        int
-	Offset       int
+	BrandCloudID     string
+	BrandCloudUserID string
+	UserID           string
+	Status           model.DeviceItemProfileStatus
+	Limit            int
+	Offset           int
 }
 
 func (s *Store) CreateDeviceItemProfile(ctx context.Context, in DeviceItemProfileCreateInput) (model.DeviceItemProfile, error) {
@@ -128,6 +130,14 @@ func (s *Store) CreateDeviceItemProfile(ctx context.Context, in DeviceItemProfil
 	}); err != nil {
 		return model.DeviceItemProfile{}, err
 	}
+	if in.ActorUserID != nil && strings.TrimSpace(*in.ActorUserID) != "" {
+		_, err := tx.Exec(ctx, `INSERT INTO role_assignments (role_id,actor_type,actor_id,scope_type,scope_id,organization_id)
+			SELECT r.id,'user',u.id::text,'sku',$2,$1::uuid FROM users u
+			JOIN roles r ON r.name='sku_owner' AND r.disabled_at IS NULL WHERE u.id::text=$3 ON CONFLICT DO NOTHING`, in.BrandCloudID, profile.ID, strings.TrimSpace(*in.ActorUserID))
+		if err != nil {
+			return model.DeviceItemProfile{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return model.DeviceItemProfile{}, err
 	}
@@ -147,24 +157,42 @@ func (s *Store) ListDeviceItemProfiles(ctx context.Context, in DeviceItemProfile
 	}
 	status := string(in.Status)
 	var total int
+	actorType, actorID := "brand_cloud_user", strings.TrimSpace(in.BrandCloudUserID)
+	if strings.TrimSpace(in.UserID) != "" {
+		actorType, actorID = "user", strings.TrimSpace(in.UserID)
+	}
 	if err := s.db.QueryRow(ctx, `
 		SELECT count(*)::int
-		FROM device_item_profiles
-		WHERE brand_cloud_id = $1
+		FROM device_item_profiles dip
+		WHERE dip.brand_cloud_id = $1
 			AND ($2 = '' OR status = $2)
-	`, in.BrandCloudID, status).Scan(&total); err != nil {
+			AND ($3 = '' OR EXISTS (
+				SELECT 1 FROM role_assignments ra
+				JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL
+				WHERE ra.actor_type=$4 AND ra.actor_id=$3 AND ra.disabled_at IS NULL
+				  AND ra.organization_id=dip.brand_cloud_id
+				  AND (ra.scope_type='organization' OR (ra.scope_type='sku' AND ra.scope_id=dip.id::text))
+			))
+	`, in.BrandCloudID, status, actorID, actorType).Scan(&total); err != nil {
 		return DeviceItemProfilePage{}, err
 	}
 	rows, err := s.db.Query(ctx, `
 		SELECT id::text, brand_cloud_id::text, profile_key, display_name, status, category,
 			manufacturer, model, metadata_defaults, metadata_schema, ca_profile, issuer_profile,
 			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at
-		FROM device_item_profiles
-		WHERE brand_cloud_id = $1
+		FROM device_item_profiles dip
+		WHERE dip.brand_cloud_id = $1
 			AND ($2 = '' OR status = $2)
-		ORDER BY created_at DESC
-		LIMIT $3 OFFSET $4
-	`, in.BrandCloudID, status, limit, in.Offset)
+			AND ($3 = '' OR EXISTS (
+				SELECT 1 FROM role_assignments ra
+				JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL
+				WHERE ra.actor_type=$4 AND ra.actor_id=$3 AND ra.disabled_at IS NULL
+				  AND ra.organization_id=dip.brand_cloud_id
+				  AND (ra.scope_type='organization' OR (ra.scope_type='sku' AND ra.scope_id=dip.id::text))
+			))
+		ORDER BY dip.created_at DESC
+		LIMIT $5 OFFSET $6
+	`, in.BrandCloudID, status, actorID, actorType, limit, in.Offset)
 	if err != nil {
 		return DeviceItemProfilePage{}, err
 	}
