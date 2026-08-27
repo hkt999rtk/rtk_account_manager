@@ -592,6 +592,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirCandidates`
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirHonorsEnvOverride`
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirMissing`
+- `rtk_account_manager/internal/emaildelivery`: `TestAuthEmailHTMLEscapesContent`
 - `rtk_account_manager/internal/emaildelivery`: `TestCipherRejectsInvalidKey`
 - `rtk_account_manager/internal/emaildelivery`: `TestCipherRoundTripAndWrongKey`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/brand_cloud_membership_invitation`
@@ -603,6 +604,9 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/quota_approved`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates/quota_declined`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsAllTemplates`
+- `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsDesignedAccountEmails/password_reset`
+- `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsDesignedAccountEmails/signup_verification`
+- `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsDesignedAccountEmails`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererBuildsStructuredMessageWithoutSMTPFrom`
 - `rtk_account_manager/internal/emaildelivery`: `TestRendererRejectsHeaderInjection`
 - `rtk_account_manager/internal/emaildelivery`: `TestSMTPClientRequiresAndUsesSTARTTLS`
