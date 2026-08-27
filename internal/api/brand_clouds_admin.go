@@ -182,6 +182,7 @@ func (s *Server) createDeviceItemProfile(c *gin.Context) {
 
 func (s *Server) listDeviceItemProfiles(c *gin.Context) {
 	limit, offset := pagination(c)
+	isPlatformAdmin := s.currentUserIsPlatformAdmin(c)
 	status := model.DeviceItemProfileStatus(strings.TrimSpace(c.Query("status")))
 	if status != "" && status != model.DeviceItemProfileStatusActive && status != model.DeviceItemProfileStatusDisabled {
 		writeError(c, http.StatusBadRequest, "invalid_status", "status must be active or disabled")
@@ -189,13 +190,35 @@ func (s *Server) listDeviceItemProfiles(c *gin.Context) {
 	}
 	page, err := s.store.ListDeviceItemProfiles(c.Request.Context(), store.DeviceItemProfileListFilter{
 		BrandCloudID: profileBrandCloudID(c),
-		Status:       status,
-		Limit:        limit,
-		Offset:       offset,
+		BrandCloudUserID: func() string {
+			if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
+				return currentBrandCloudUserID(c)
+			}
+			return ""
+		}(),
+		UserID: func() string {
+			if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser && !isPlatformAdmin {
+				return currentUserID(c)
+			}
+			return ""
+		}(),
+		Status: status,
+		Limit:  limit,
+		Offset: offset,
 	})
 	if err != nil {
 		writeStoreError(c, err)
 		return
+	}
+	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
+		for i := range page.Profiles {
+			page.Profiles[i].CurrentUserRole, _ = s.store.GetSKUCollaboratorRole(c.Request.Context(), currentBrandCloudUserID(c), profileBrandCloudID(c), page.Profiles[i].ID)
+		}
+	}
+	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser {
+		for i := range page.Profiles {
+			page.Profiles[i].CurrentUserRole, _ = s.store.GetUserSKUCollaboratorRole(c.Request.Context(), currentUserID(c), profileBrandCloudID(c), page.Profiles[i].ID)
+		}
 	}
 	c.JSON(http.StatusOK, deviceItemProfilesResponse{DeviceItemProfiles: page.Profiles, Pagination: page.Page})
 }
@@ -205,6 +228,12 @@ func (s *Server) getDeviceItemProfile(c *gin.Context) {
 	if err != nil {
 		writeStoreError(c, err)
 		return
+	}
+	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
+		profile.CurrentUserRole, _ = s.store.GetSKUCollaboratorRole(c.Request.Context(), currentBrandCloudUserID(c), profileBrandCloudID(c), profile.ID)
+	}
+	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser {
+		profile.CurrentUserRole, _ = s.store.GetUserSKUCollaboratorRole(c.Request.Context(), currentUserID(c), profileBrandCloudID(c), profile.ID)
 	}
 	c.JSON(http.StatusOK, deviceItemProfileResponse{DeviceItemProfile: profile})
 }

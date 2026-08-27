@@ -401,6 +401,23 @@ All profile fields are independent settings. Account-manager registry fields are
 inventory facts, and neither `category`, `device_type`, `manufacturer`, `model`,
 nor metadata may be treated as service ACL input.
 
+### [REQ-AM-SKU-COLLAB-001] SKU projects use explicit developer collaboration
+
+Each device item profile is also a developer collaboration project. Developer
+membership establishes tenant identity only; except for the Brand Cloud owner's
+governance override, it does not make every SKU visible. Tenant-local Brand Cloud
+operator accounts retain their existing operational roles. SKU creation is limited
+to the Brand Cloud owner and atomically creates one `sku_owner` assignment.
+
+An owner may invite a registered developer as `sku_editor` or `sku_viewer`.
+Acceptance creates a minimal Brand Cloud membership when necessary and the
+requested SKU assignment in one transaction. Editors can operate SKU-scoped
+device, firmware, OTA, provisioning, batch, and reporting workflows but cannot
+manage collaborators or ownership. Viewers are read-only. Every SKU has exactly
+one transferable explicit owner; transfer promotes an active collaborator and
+demotes the prior owner to editor. SKU lists and all derived resources are
+filtered by effective assignment, with non-disclosing cross-SKU failures.
+
 ### [REQ-AM-FACTORY-CONTEXT-001] Factory enrollment selection uses signed production context without secret leakage
 
 <!-- rtk-requirement
@@ -1553,8 +1570,10 @@ Rules:
 - `organization_members.role` is not the new authorization source of truth; it
   is mirrored into role assignments for compatibility until membership role
   updates are fully deprecated.
-- Brand-cloud membership writes are mirrored into `role_assignments` with
-  `actor_type=brand_cloud_user` and organization scope. Brand-cloud tokens can
+- Brand-cloud owner membership is mirrored into an organization-scoped
+  governance assignment. Admin/member compatibility membership does not grant
+  SKU resource access; SKU assignments are explicit and use
+  `actor_type=brand_cloud_user`. Brand-cloud tokens can
   authorize only against their own `brand_cloud_id`; cross-brand `orgId` access
   returns not found/forbidden without exposing the other brand cloud.
 - Platform admin is global/platform scope. Brand-cloud owner/admin/member are

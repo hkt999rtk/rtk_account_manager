@@ -116,6 +116,13 @@ func TestDeviceInventoryFiltersAndConveniencePathsIntegration(t *testing.T) {
 	if unauthorized.Page.Total != 0 || len(unauthorized.Devices) != 0 {
 		t.Fatalf("unauthorized inventory = %+v, want empty", unauthorized)
 	}
+	unauthorizedUser, err := env.store.ListDevicesFiltered(ctx, DeviceListFilter{OrganizationID: registered.Organization.ID, UserID: "00000000-0000-0000-0000-000000000000", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unauthorizedUser.Page.Total != 0 || len(unauthorizedUser.Devices) != 0 {
+		t.Fatalf("unauthorized global developer inventory = %+v, want empty", unauthorizedUser)
+	}
 
 	summary, err := env.store.FleetSummary(ctx, registered.Organization.ID)
 	if err != nil {
@@ -137,6 +144,13 @@ func TestDeviceInventoryFiltersAndConveniencePathsIntegration(t *testing.T) {
 	}
 	if restrictedSummary.Total != 0 {
 		t.Fatalf("restricted fleet summary total = %d, want 0", restrictedSummary.Total)
+	}
+	restrictedUserSummary, err := env.store.FleetSummaryForUser(ctx, registered.Organization.ID, "00000000-0000-0000-0000-000000000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restrictedUserSummary.Total != 0 {
+		t.Fatalf("restricted global developer fleet summary total = %d, want 0", restrictedUserSummary.Total)
 	}
 
 	count, err := env.store.countDevices(ctx, registered.Organization.ID)

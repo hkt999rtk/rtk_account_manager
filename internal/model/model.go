@@ -261,6 +261,7 @@ type DeviceItemProfile struct {
 	DisabledAt         *time.Time              `json:"disabled_at,omitempty"`
 	CreatedAt          time.Time               `json:"created_at"`
 	UpdatedAt          time.Time               `json:"updated_at"`
+	CurrentUserRole    string                  `json:"current_user_role,omitempty"`
 }
 
 type ProductionRunStatus string
@@ -483,6 +484,33 @@ type BrandCloudMemberInvitation struct {
 	TargetUserID    string     `json:"target_user_id"`
 	TargetEmail     string     `json:"target_email"`
 	Role            Role       `json:"role"`
+	Status          string     `json:"status"`
+	ExpiresAt       time.Time  `json:"expires_at"`
+	AcceptedAt      *time.Time `json:"accepted_at,omitempty"`
+	CanceledAt      *time.Time `json:"canceled_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+}
+
+type SKUCollaborator struct {
+	AssignmentID string     `json:"assignment_id"`
+	SKUID        string     `json:"sku_id"`
+	UserID       string     `json:"user_id"`
+	Email        string     `json:"email"`
+	DisplayName  *string    `json:"display_name,omitempty"`
+	Role         string     `json:"role"`
+	DisabledAt   *time.Time `json:"disabled_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
+type SKUCollaboratorInvitation struct {
+	ID              string     `json:"id"`
+	BrandCloudID    string     `json:"brand_cloud_id"`
+	SKUID           string     `json:"sku_id"`
+	InvitedByUserID string     `json:"invited_by_user_id"`
+	TargetUserID    string     `json:"target_user_id"`
+	TargetEmail     string     `json:"target_email"`
+	Role            string     `json:"role"`
 	Status          string     `json:"status"`
 	ExpiresAt       time.Time  `json:"expires_at"`
 	AcceptedAt      *time.Time `json:"accepted_at,omitempty"`

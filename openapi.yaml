@@ -849,6 +849,144 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/skus/{skuId}/collaborators:
+    parameters:
+      - $ref: "#/components/parameters/BrandCloudId"
+      - { name: skuId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Developer Brand Clouds]
+      operationId: listSKUCollaborators
+      summary: List developers assigned to a SKU project.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: SKU collaborators. }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/skus/{skuId}/collaborators/{userId}:
+    parameters:
+      - $ref: "#/components/parameters/BrandCloudId"
+      - { name: skuId, in: path, required: true, schema: { type: string, format: uuid } }
+      - $ref: "#/components/parameters/UserId"
+    patch:
+      tags: [Developer Brand Clouds]
+      operationId: updateSKUCollaborator
+      summary: Change a SKU collaborator between editor and viewer.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties: { role: { type: string, enum: [sku_editor, sku_viewer] } }
+      responses:
+        "200": { description: Collaborator updated. }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Developer Brand Clouds]
+      operationId: removeSKUCollaborator
+      summary: Remove a developer from a SKU project.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204": { description: Collaborator removed. }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/skus/{skuId}/collaborator-invitations:
+    parameters:
+      - $ref: "#/components/parameters/BrandCloudId"
+      - { name: skuId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Developer Brand Clouds]
+      operationId: listSKUCollaboratorInvitations
+      summary: List pending and completed SKU invitations.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: SKU collaborator invitations. }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Developer Brand Clouds]
+      operationId: inviteSKUCollaborator
+      summary: Invite a registered developer to a SKU project.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              properties:
+                email: { type: string, format: email }
+                role: { type: string, enum: [sku_editor, sku_viewer] }
+      responses:
+        "202": { description: SKU invitation queued. }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/skus/{skuId}/collaborator-invitations/{invitationId}/{action}:
+    post:
+      tags: [Developer Brand Clouds]
+      operationId: mutateSKUCollaboratorInvitation
+      summary: Resend or cancel a pending SKU invitation.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - { name: skuId, in: path, required: true, schema: { type: string, format: uuid } }
+        - $ref: "#/components/parameters/InvitationId"
+        - { name: action, in: path, required: true, schema: { type: string, enum: [resend, cancel] } }
+      responses:
+        "200": { description: Invitation canceled. }
+        "202": { description: Invitation resent. }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/skus/{skuId}/owner-transfer:
+    post:
+      tags: [Developer Brand Clouds]
+      operationId: transferSKUOwnership
+      summary: Transfer explicit ownership of a SKU project.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - { name: skuId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_user_id]
+              properties: { target_user_id: { type: string, format: uuid } }
+      responses:
+        "200": { description: SKU ownership transferred. }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/developer/sku-collaborator-invitations/accept:
+    post:
+      tags: [Developer Brand Clouds]
+      operationId: acceptSKUCollaboratorInvitation
+      summary: Accept a SKU invitation as its target developer.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties: { token: { type: string, minLength: 1 } }
+      responses:
+        "200": { description: SKU assignment created. }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /v1/developer/brand-clouds/{brandCloudId}/owner-transfer:
     post:
       tags:

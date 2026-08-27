@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -63,7 +64,7 @@ func (s *Server) listDeveloperBrandClouds(c *gin.Context) {
 		return
 	}
 	for i := range page.Organizations {
-		page.Organizations[i].Capabilities = developerCapabilitiesForRole(page.Organizations[i].Role)
+		page.Organizations[i].Capabilities = s.developerCapabilitiesForUser(c.Request.Context(), currentUserID(c), page.Organizations[i].ID, page.Organizations[i].Role)
 	}
 	user, err := s.store.GetUser(c.Request.Context(), currentUserID(c))
 	if err != nil {
@@ -107,7 +108,7 @@ func (s *Server) getDeveloperBrandCloud(c *gin.Context) {
 		writeStoreError(c, err)
 		return
 	}
-	org.Capabilities = developerCapabilitiesForRole(member.Role)
+	org.Capabilities = s.developerCapabilitiesForUser(c.Request.Context(), currentUserID(c), org.ID, member.Role)
 	c.JSON(http.StatusOK, gin.H{"brand_cloud": org, "membership": member})
 }
 
@@ -119,6 +120,18 @@ func developerCapabilitiesForRole(role model.Role) []string {
 	capabilities := append(read, "fleet.device.manage", "fleet.batch.manage", "sku.manage", "sku.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "provisioning.create", "pki.test.issue")
 	if role == model.RoleOwner {
 		capabilities = append(capabilities, "team.manage")
+	}
+	return capabilities
+}
+
+func (s *Server) developerCapabilitiesForUser(ctx context.Context, userID, brandCloudID string, role model.Role) []string {
+	capabilities := developerCapabilitiesForRole(role)
+	if role != model.RoleMember {
+		return capabilities
+	}
+	allowed, err := s.store.HasUserPermissionAnyResource(ctx, userID, brandCloudID, "registry_device.manage")
+	if err == nil && allowed {
+		capabilities = append(capabilities, "fleet.device.manage", "fleet.batch.manage", "sku.manage", "sku.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "provisioning.create")
 	}
 	return capabilities
 }

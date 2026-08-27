@@ -204,6 +204,7 @@ type DeviceListFilter struct {
 	Limit            int
 	Offset           int
 	BrandCloudUserID string
+	UserID           string
 	ScopePermission  string
 }
 
@@ -221,15 +222,19 @@ type FleetSummary struct {
 }
 
 func (s *Store) FleetSummary(ctx context.Context, orgID string) (FleetSummary, error) {
-	return s.fleetSummary(ctx, orgID, "", "")
+	return s.fleetSummary(ctx, orgID, "", "", "")
 }
 
 func (s *Store) FleetSummaryForBrandCloudUser(ctx context.Context, orgID, brandCloudUserID string) (FleetSummary, error) {
-	return s.fleetSummary(ctx, orgID, brandCloudUserID, "registry_device.read")
+	return s.fleetSummary(ctx, orgID, brandCloudUserID, "brand_cloud_user", "registry_device.read")
 }
 
-func (s *Store) fleetSummary(ctx context.Context, orgID, brandCloudUserID, permission string) (FleetSummary, error) {
-	accessClause, accessArgs := fleetAccessPredicate(brandCloudUserID, permission)
+func (s *Store) FleetSummaryForUser(ctx context.Context, orgID, userID string) (FleetSummary, error) {
+	return s.fleetSummary(ctx, orgID, userID, "user", "registry_device.read")
+}
+
+func (s *Store) fleetSummary(ctx context.Context, orgID, actorID, actorType, permission string) (FleetSummary, error) {
+	accessClause, accessArgs := fleetAccessPredicate(actorID, actorType, permission)
 	queryArgs := append([]any{orgID}, accessArgs...)
 	result := FleetSummary{
 		ByStatus:       map[string]int{},
@@ -334,8 +339,8 @@ func (s *Store) fleetSummary(ctx context.Context, orgID, brandCloudUserID, permi
 	return result, nil
 }
 
-func fleetAccessPredicate(brandCloudUserID, permission string) (string, []any) {
-	if strings.TrimSpace(brandCloudUserID) == "" {
+func fleetAccessPredicate(actorID, actorType, permission string) (string, []any) {
+	if strings.TrimSpace(actorID) == "" {
 		return "", nil
 	}
 	return ` AND EXISTS (
@@ -343,10 +348,8 @@ func fleetAccessPredicate(brandCloudUserID, permission string) (string, []any) {
 		JOIN roles r ON r.id = ra.role_id AND r.disabled_at IS NULL
 		JOIN role_permissions rp ON rp.role_id = r.id
 		JOIN permissions p ON p.id = rp.permission_id
-		JOIN brand_cloud_users bcu ON bcu.id::text = ra.actor_id AND bcu.disabled_at IS NULL
-		WHERE ra.actor_type = 'brand_cloud_user' AND ra.actor_id = $2 AND p.name = $3
+		WHERE ra.actor_type = $4 AND ra.actor_id = $2 AND p.name = $3
 		  AND ra.disabled_at IS NULL AND ra.organization_id = d.organization_id
-		  AND bcu.brand_cloud_id = d.organization_id
 		  AND (
 		    ra.scope_type = 'organization'
 		    OR (ra.scope_type = 'sku' AND ra.scope_id = d.device_item_profile_id::text)
@@ -354,7 +357,7 @@ func fleetAccessPredicate(brandCloudUserID, permission string) (string, []any) {
 		    OR (ra.scope_type = 'device' AND ra.scope_id = d.id::text)
 		    OR (ra.scope_type = 'group' AND EXISTS (SELECT 1 FROM device_group_members dgm WHERE dgm.device_id = d.id AND dgm.group_id::text = ra.scope_id))
 		  )
-	)`, []any{brandCloudUserID, permission}
+	)`, []any{actorID, permission, actorType}
 }
 
 type aggregateScanner interface {
@@ -1635,23 +1638,27 @@ func (s *Store) ListDevices(ctx context.Context, orgID string, limit, offset int
 func (s *Store) ListDevicesFiltered(ctx context.Context, in DeviceListFilter) (DevicePage, error) {
 	where := []string{"d.organization_id = $1"}
 	args := []any{in.OrganizationID}
-	if strings.TrimSpace(in.BrandCloudUserID) != "" {
+	if strings.TrimSpace(in.BrandCloudUserID) != "" || strings.TrimSpace(in.UserID) != "" {
 		permission := strings.TrimSpace(in.ScopePermission)
 		if permission == "" {
 			permission = "registry_device.read"
 		}
-		args = append(args, in.BrandCloudUserID, permission)
-		userPlaceholder := "$" + strconv.Itoa(len(args)-1)
-		permissionPlaceholder := "$" + strconv.Itoa(len(args))
+		actorType, actorID := "brand_cloud_user", strings.TrimSpace(in.BrandCloudUserID)
+		if strings.TrimSpace(in.UserID) != "" {
+			actorType, actorID = "user", strings.TrimSpace(in.UserID)
+		}
+		args = append(args, actorID, permission, actorType)
+		userPlaceholder := "$" + strconv.Itoa(len(args)-2)
+		permissionPlaceholder := "$" + strconv.Itoa(len(args)-1)
+		actorTypePlaceholder := "$" + strconv.Itoa(len(args))
 		where = append(where, fmt.Sprintf(`EXISTS (
 			SELECT 1 FROM role_assignments ra
 			JOIN roles r ON r.id = ra.role_id AND r.disabled_at IS NULL
 			JOIN role_permissions rp ON rp.role_id = r.id
 			JOIN permissions p ON p.id = rp.permission_id
-			JOIN brand_cloud_users bcu ON bcu.id::text = ra.actor_id AND bcu.disabled_at IS NULL
-			WHERE ra.actor_type = 'brand_cloud_user'
+			WHERE ra.actor_type = %s
 			  AND ra.actor_id = %s AND p.name = %s AND ra.disabled_at IS NULL
-			  AND ra.organization_id = d.organization_id AND bcu.brand_cloud_id = d.organization_id
+			  AND ra.organization_id = d.organization_id
 			  AND (
 			    ra.scope_type = 'organization'
 			    OR (ra.scope_type = 'sku' AND ra.scope_id = d.device_item_profile_id::text)
@@ -1659,7 +1666,7 @@ func (s *Store) ListDevicesFiltered(ctx context.Context, in DeviceListFilter) (D
 			    OR (ra.scope_type = 'device' AND ra.scope_id = d.id::text)
 			    OR (ra.scope_type = 'group' AND EXISTS (SELECT 1 FROM device_group_members dgm WHERE dgm.device_id = d.id AND dgm.group_id::text = ra.scope_id))
 			  )
-		)`, userPlaceholder, permissionPlaceholder))
+		)`, actorTypePlaceholder, userPlaceholder, permissionPlaceholder))
 	}
 	if value := strings.TrimSpace(in.Query); value != "" {
 		args = append(args, "%"+value+"%")

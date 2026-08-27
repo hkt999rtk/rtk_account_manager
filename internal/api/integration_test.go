@@ -3435,7 +3435,7 @@ func TestIntegrationBrandCloudScopedRoleAssignmentWorkflow(t *testing.T) {
 	if res := performJSON(env.router, http.MethodGet, "/v1/developer/chipsets/missing", nil, login.Tokens.AccessToken); res.Code != http.StatusForbidden {
 		t.Fatalf("expected brand session developer chipset detail 403, got %d: %s", res.Code, res.Body.String())
 	}
-	rolesRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/roles", nil, login.Tokens.AccessToken)
+	rolesRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/roles?limit=250", nil, login.Tokens.AccessToken)
 	if rolesRes.Code != http.StatusOK || !bytes.Contains(rolesRes.Body.Bytes(), []byte("firmware_operator")) {
 		t.Fatalf("expected customer ACL role catalog 200, got %d: %s", rolesRes.Code, rolesRes.Body.String())
 	}
@@ -3527,8 +3527,8 @@ func TestIntegrationBrandCloudResourceScopeFiltersFleetQueries(t *testing.T) {
 		t.Fatalf("expected scoped device read 200, got %d: %s", scopedDeviceRes.Code, scopedDeviceRes.Body.String())
 	}
 	otherDeviceRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/devices/"+otherDevice.Device.ID, nil, memberLogin.Tokens.AccessToken)
-	if otherDeviceRes.Code != http.StatusForbidden {
-		t.Fatalf("expected out-of-scope device read 403, got %d: %s", otherDeviceRes.Code, otherDeviceRes.Body.String())
+	if otherDeviceRes.Code != http.StatusNotFound {
+		t.Fatalf("expected non-disclosing out-of-scope device read 404, got %d: %s", otherDeviceRes.Code, otherDeviceRes.Body.String())
 	}
 	deviceTagsRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/devices/"+scopedDevice.Device.ID+"/tags", nil, memberLogin.Tokens.AccessToken)
 	if deviceTagsRes.Code != http.StatusOK {
