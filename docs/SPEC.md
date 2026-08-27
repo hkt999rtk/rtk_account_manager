@@ -1438,6 +1438,31 @@ security, and test requirements are defined in
   password of at least eight characters. It atomically stores the password,
   marks the email verified, clears the signup-pending state, and issues the
   initial session so a verified signup cannot exist without a usable password.
+
+Developer signup lifecycle:
+
+| State | Persistent condition | Accepted transition | Result |
+| --- | --- | --- | --- |
+| `absent` | No enabled user exists for the normalized email | `POST /v1/auth/signup` | Create the developer user and default Brand Cloud, set signup pending, and issue a verification token |
+| `pending-active` | User is enabled, unverified, signup-pending, and an unconsumed unexpired verification token exists | `POST /v1/auth/verify-email/status`; `POST /v1/auth/verify-email` | Status returns `valid`; successful verification consumes the token and transitions to `verified` |
+| `pending-expired` | User is enabled, unverified, signup-pending, and no active verification token exists | `POST /v1/auth/signup` with the same normalized email | Reuse the user and owned default Brand Cloud, issue a fresh token, and transition to `pending-active` |
+| `verified` | Email is verified and signup-pending is false | Password login | Return a normal authenticated session; repeated signup remains a conflict |
+
+Lifecycle invariants:
+
+- `POST /v1/auth/verify-email/status` is read-only and never extends, replaces,
+  or consumes a token.
+- Token expiry alone does not delete or disable the pending user or its default
+  Brand Cloud.
+- Restarting signup never creates a second user or Brand Cloud for the same
+  pending account.
+- A verification token is consumed only by successful verification. Expired,
+  invalid, and failed verification attempts do not change account state.
+- Verification is authoritative at consumption time. A token that expires after
+  a prior `valid` status response must still be rejected atomically.
+- Issuing a replacement token invalidates prior unconsumed verification tokens;
+  only the newest active token can complete verification.
+
 - The existing `POST /v1/auth/register` endpoint remains the internal-use path
   for customer organization creation that is not part of developer signup.
 - Developers can create additional brand clouds through
