@@ -45,6 +45,8 @@ type Server struct {
 	logger                     *zap.Logger
 	chipsetManifestFetcher     ChipsetManifestFetcher
 	emailOutboxStore           emailOutboxPersistence
+	emailVerificationTTL       time.Duration
+	passwordResetTTL           time.Duration
 }
 
 type emailOutboxPersistence interface {
@@ -60,12 +62,14 @@ var ErrAuthTokenSinkUnavailable = errors.New("auth token sink unavailable")
 
 func newServer(store Store, authService *auth.Service, sink AuthTokenSink) *Server {
 	return &Server{
-		store:         store,
-		auth:          authService,
-		authTokenSink: sink,
-		signupLimiter: newSignupLimiter(5, time.Hour),
-		signupPolicy:  loadSignupPolicy(),
-		logger:        cloudlogger.Nop(),
+		store:                store,
+		auth:                 authService,
+		authTokenSink:        sink,
+		signupLimiter:        newSignupLimiter(5, time.Hour),
+		signupPolicy:         loadSignupPolicy(),
+		logger:               cloudlogger.Nop(),
+		emailVerificationTTL: 30 * time.Minute,
+		passwordResetTTL:     30 * time.Minute,
 	}
 }
 
@@ -430,6 +434,15 @@ func (s *Server) ConfigureEmailOutbox(repository emailOutboxPersistence) {
 	s.emailOutboxStore = repository
 }
 
+func (s *Server) ConfigureAuthTokenTTLs(emailVerificationTTL, passwordResetTTL time.Duration) {
+	if emailVerificationTTL > 0 {
+		s.emailVerificationTTL = emailVerificationTTL
+	}
+	if passwordResetTTL > 0 {
+		s.passwordResetTTL = passwordResetTTL
+	}
+}
+
 func (s *Server) logDeliveryFailure(purpose, email string, err error) {
 	logger := s.logger
 	if logger == nil {
@@ -516,6 +529,7 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/auth/login/activate", s.activateLogin)
 	v1.POST("/auth/refresh", s.refresh)
 	v1.POST("/auth/verify-email", s.verifyEmail)
+	v1.POST("/auth/verify-email/status", s.verificationEmailStatus)
 	v1.POST("/auth/resend-verification", s.resendVerification)
 	v1.POST("/auth/forgot-password", s.forgotPassword)
 	v1.POST("/auth/reset-password", s.resetPassword)
@@ -683,7 +697,6 @@ type registerRequest struct {
 	Password         string  `json:"password" binding:"required,min=8"`
 	DisplayName      *string `json:"display_name"`
 	OrganizationName string  `json:"organization_name" binding:"required"`
-	CaptchaToken     *string `json:"captcha_token"`
 }
 
 func (s *Server) register(c *gin.Context) {
@@ -692,7 +705,7 @@ func (s *Server) register(c *gin.Context) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if !s.allowSignup(c, email, req.CaptchaToken) {
+	if !s.allowSignup(c, email) {
 		return
 	}
 	if !requireNonBlank(c, "organization_name", req.OrganizationName) {
@@ -1167,15 +1180,49 @@ type authTokenRequest struct {
 	AppCSRPem string `json:"app_csr_pem,omitempty"`
 }
 
-func (s *Server) verifyEmail(c *gin.Context) {
-	var req authTokenRequest
-	if !bind(c, &req) {
+type verifyEmailRequest struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
+}
+
+type verificationEmailStatusRequest struct {
+	Token string `json:"token"`
+}
+
+func (s *Server) verificationEmailStatus(c *gin.Context) {
+	var req verificationEmailStatusRequest
+	if !bindStrict(c, &req) {
 		return
 	}
 	if !requireNonBlank(c, "token", req.Token) {
 		return
 	}
-	user, err := s.store.VerifyEmailToken(c.Request.Context(), auth.HashToken(req.Token))
+	status, err := s.store.EmailVerificationTokenStatus(c.Request.Context(), auth.HashToken(req.Token))
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "token_status_failed", "Could not check verification token")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": status})
+}
+
+func (s *Server) verifyEmail(c *gin.Context) {
+	var req verifyEmailRequest
+	if !bindStrict(c, &req) {
+		return
+	}
+	if !requireNonBlank(c, "token", req.Token) {
+		return
+	}
+	if len(req.NewPassword) < 8 {
+		writeError(c, http.StatusBadRequest, "invalid_request", "new_password must be at least 8 characters")
+		return
+	}
+	passwordHash, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not hash password")
+		return
+	}
+	user, err := s.store.VerifyEmailToken(c.Request.Context(), auth.HashToken(req.Token), passwordHash)
 	if err != nil {
 		writeError(c, http.StatusBadRequest, "invalid_token", "Invalid or expired verification token")
 		return
@@ -1185,7 +1232,7 @@ func (s *Server) verifyEmail(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
 		return
 	}
-	response, err := s.loginResponse(c.Request.Context(), user, tokens, req.AppCSRPem)
+	response, err := s.loginResponse(c.Request.Context(), user, tokens, "")
 	if err != nil {
 		writeAppCertificateError(c, err)
 		return
@@ -1259,7 +1306,7 @@ func (s *Server) resetPassword(c *gin.Context) {
 }
 
 func (s *Server) createAuthToken(c *gin.Context, userID, purpose string) (string, time.Time, error) {
-	token, expiresAt, err := s.newAuthToken()
+	token, expiresAt, err := s.newAuthToken(purpose)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -1277,7 +1324,7 @@ func (s *Server) createAuthToken(c *gin.Context, userID, purpose string) (string
 }
 
 func (s *Server) issueAuthToken(c *gin.Context, userID, email, purpose string) (string, time.Time, error) {
-	token, expiresAt, err := s.newAuthToken()
+	token, expiresAt, err := s.newAuthToken(purpose)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -1327,7 +1374,7 @@ func authTokenEmailOutbox(email, purpose, token string, expiresAt time.Time) sto
 }
 
 func (s *Server) issueAuthTokenForEmail(c *gin.Context, email, purpose string) (bool, error) {
-	token, expiresAt, err := s.newAuthToken()
+	token, expiresAt, err := s.newAuthToken(purpose)
 	if err != nil {
 		return false, err
 	}
@@ -1364,7 +1411,7 @@ func (s *Server) issueAuthTokenForEmail(c *gin.Context, email, purpose string) (
 }
 
 func (s *Server) issueBrandCloudLoginToken(c *gin.Context, tenantSlug, email string) (bool, error) {
-	token, expiresAt, err := s.newAuthToken()
+	token, expiresAt, err := s.newAuthToken("login_activation")
 	if err != nil {
 		return false, err
 	}
@@ -1400,12 +1447,19 @@ func (s *Server) deliverAuthToken(c *gin.Context, email, purpose, token string, 
 	return err
 }
 
-func (s *Server) newAuthToken() (string, time.Time, error) {
+func (s *Server) newAuthToken(purpose string) (string, time.Time, error) {
 	token, err := auth.RandomToken()
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	return token, time.Now().UTC().Add(30 * time.Minute), nil
+	ttl := 30 * time.Minute
+	switch purpose {
+	case "email_verification":
+		ttl = s.emailVerificationTTL
+	case "password_reset":
+		ttl = s.passwordResetTTL
+	}
+	return token, time.Now().UTC().Add(ttl), nil
 }
 
 func (s *Server) logAuthTokenDeliveryFailure(c *gin.Context, email, purpose string, err error) {

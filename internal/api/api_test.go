@@ -341,6 +341,28 @@ func TestAuthTokenDeliveryHook(t *testing.T) {
 	}
 }
 
+func TestAuthTokenTTLConfiguration(t *testing.T) {
+	server := New(nil, nil)
+	server.ConfigureAuthTokenTTLs(12*time.Minute, 7*time.Minute)
+
+	before := time.Now().UTC()
+	_, verificationExpiresAt, err := server.newAuthToken("email_verification")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, resetExpiresAt, err := server.newAuthToken("password_reset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := time.Now().UTC()
+	if verificationExpiresAt.Before(before.Add(12*time.Minute)) || verificationExpiresAt.After(after.Add(12*time.Minute)) {
+		t.Fatalf("verification expiry does not use configured TTL: %s", verificationExpiresAt)
+	}
+	if resetExpiresAt.Before(before.Add(7*time.Minute)) || resetExpiresAt.After(after.Add(7*time.Minute)) {
+		t.Fatalf("password reset expiry does not use configured TTL: %s", resetExpiresAt)
+	}
+}
+
 func TestLogAuthTokenSinkWritesDelivery(t *testing.T) {
 	core, logs := observer.New(zapcore.InfoLevel)
 	sink := NewLogAuthTokenSink(zap.New(core))
@@ -1105,7 +1127,7 @@ func TestValidationHelpersWriteErrors(t *testing.T) {
 
 func TestNewAuthTokenAndUnsupportedPurpose(t *testing.T) {
 	server := New(nil, nil)
-	token, expiresAt, err := server.newAuthToken()
+	token, expiresAt, err := server.newAuthToken("login_activation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1139,6 +1161,18 @@ func TestAuthRecoveryValidationRejectsInvalidRequests(t *testing.T) {
 			method: http.MethodPost,
 			path:   "/v1/auth/verify-email",
 			body:   `{}`,
+		},
+		{
+			name:   "verification status missing token",
+			method: http.MethodPost,
+			path:   "/v1/auth/verify-email/status",
+			body:   `{}`,
+		},
+		{
+			name:   "verify email short new password",
+			method: http.MethodPost,
+			path:   "/v1/auth/verify-email",
+			body:   `{"token":"token","new_password":"short"}`,
 		},
 		{
 			name:   "resend verification invalid email",

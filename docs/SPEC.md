@@ -1344,8 +1344,12 @@ Constraints:
 - Refresh tokens may be used to issue new access tokens.
 - Refreshing a session rotates the refresh token. The previous refresh token is revoked and must not be accepted again.
 - Logout revokes the active refresh token.
-- `POST /v1/auth/verify-email` consumes a one-time email verification token
-  and marks `user.email_verified=true`.
+- `POST /v1/auth/verify-email` consumes a one-time email verification token and
+  a new password, stores the password hash, marks `user.email_verified=true`,
+  and clears `signup_pending_verification` in one transaction.
+- `POST /v1/auth/verify-email/status` performs a non-consuming token check and
+  returns `valid`, `expired`, or `invalid`. It must not consume the token or
+  expose token contents in the response.
 - `POST /v1/auth/resend-verification` issues a replacement verification token
   for unverified users and returns an enumeration-safe `202 Accepted` for
   unknown, already verified, disabled, or throttled users.
@@ -1421,11 +1425,44 @@ security, and test requirements are defined in
 ### Developer Signup and Brand Cloud Ownership
 
 - `POST /v1/auth/signup` creates a developer user and a default brand cloud in
-  a signup-pending state, issues an email verification token, and returns
-  `202 Accepted` without login tokens. The default brand cloud name is the
-  developer email address and can later be changed.
-- `POST /v1/auth/verify-email` consumes the verification token and clears the
-  signup-pending state so the account can log in.
+  a signup-pending state from only the developer email, issues an email
+  verification token, and returns `202 Accepted` without login tokens. The
+  default brand cloud name is the developer email address and can later be
+  changed. Signup does not collect or accept the initial password.
+- Repeating signup for an enabled, unverified, signup-pending account is allowed
+  only after its verification token has expired or no active verification token
+  remains. The existing account and default brand cloud are reused and a new
+  verification token is issued. Verified accounts and pending accounts with an
+  active verification token remain conflicts.
+- `POST /v1/auth/verify-email` requires the verification token and a new
+  password of at least eight characters. It atomically stores the password,
+  marks the email verified, clears the signup-pending state, and issues the
+  initial session so a verified signup cannot exist without a usable password.
+
+Developer signup lifecycle:
+
+| State | Persistent condition | Accepted transition | Result |
+| --- | --- | --- | --- |
+| `absent` | No enabled user exists for the normalized email | `POST /v1/auth/signup` | Create the developer user and default Brand Cloud, set signup pending, and issue a verification token |
+| `pending-active` | User is enabled, unverified, signup-pending, and an unconsumed unexpired verification token exists | `POST /v1/auth/verify-email/status`; `POST /v1/auth/verify-email` | Status returns `valid`; successful verification consumes the token and transitions to `verified` |
+| `pending-expired` | User is enabled, unverified, signup-pending, and no active verification token exists | `POST /v1/auth/signup` with the same normalized email | Reuse the user and owned default Brand Cloud, issue a fresh token, and transition to `pending-active` |
+| `verified` | Email is verified and signup-pending is false | Password login | Return a normal authenticated session; repeated signup remains a conflict |
+
+Lifecycle invariants:
+
+- `POST /v1/auth/verify-email/status` is read-only and never extends, replaces,
+  or consumes a token.
+- Token expiry alone does not delete or disable the pending user or its default
+  Brand Cloud.
+- Restarting signup never creates a second user or Brand Cloud for the same
+  pending account.
+- A verification token is consumed only by successful verification. Expired,
+  invalid, and failed verification attempts do not change account state.
+- Verification is authoritative at consumption time. A token that expires after
+  a prior `valid` status response must still be rejected atomically.
+- Issuing a replacement token invalidates prior unconsumed verification tokens;
+  only the newest active token can complete verification.
+
 - The existing `POST /v1/auth/register` endpoint remains the internal-use path
   for customer organization creation that is not part of developer signup.
 - Developers can create additional brand clouds through
@@ -1556,6 +1593,7 @@ All endpoints are versioned under `/v1`.
 | `POST` | `/v1/auth/login` | No | Authenticate with email/password. |
 | `POST` | `/v1/auth/refresh` | No | Exchange refresh token for new access token. |
 | `POST` | `/v1/auth/verify-email` | No | Consume an email verification token and mark the user email verified. |
+| `POST` | `/v1/auth/verify-email/status` | No | Check an email verification token without consuming it and return `valid`, `expired`, or `invalid`. |
 | `POST` | `/v1/auth/resend-verification` | No | Issue a replacement email verification token for an unverified user, with enumeration-safe response semantics. |
 | `POST` | `/v1/auth/forgot-password` | No | Issue a password reset token, with enumeration-safe response semantics. |
 | `POST` | `/v1/auth/reset-password` | No | Consume a password reset token, set a new password, and revoke active refresh tokens. |
@@ -2349,7 +2387,6 @@ Configuration:
 | `ACCOUNT_MANAGER_USER_CACHE_ENABLED` | Enables the Redis-compatible read-through user cache. Default `false`. |
 | `ACCOUNT_MANAGER_USER_CACHE_ADDR` | Redis/Valkey address for the user cache. Default `127.0.0.1:6379`; LKE staging points this at the platform Redis service. |
 | `ACCOUNT_MANAGER_USER_CACHE_PREFIX` | Redis key prefix for user cache records. Default `account_manager:user`. |
-| `SIGNUP_CAPTCHA_REQUIRED` | Whether public signup requires a captcha token. |
 | `SIGNUP_DISPOSABLE_DOMAINS` | Comma-separated disposable email denylist override for public signup. |
 | `SENDMAIL_HTTP_BASE_URL` | Credential-free Send Mail origin used by `AUTH_TOKEN_DELIVERY=sendmail_http`; HTTPS in production. |
 | `SENDMAIL_HTTP_BEARER_TOKEN` | Bearer credential supplied through runtime secret management for the Send Mail service. |

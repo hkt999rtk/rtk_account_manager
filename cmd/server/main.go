@@ -92,6 +92,7 @@ func main() {
 		logger.Info("user cache enabled", zap.String("addr", cfg.UserCacheAddr), zap.String("prefix", cfg.UserCachePrefix))
 	}
 	server := api.NewWithAuthTokenAndNotificationSink(apiStore, authService, authTokenSink, notificationSink)
+	server.ConfigureAuthTokenTTLs(cfg.EmailVerificationTTL, cfg.PasswordResetTTL)
 	if emailOutboxDelivery(cfg.AuthTokenDelivery) {
 		server.ConfigureEmailOutbox(accountStore)
 	}

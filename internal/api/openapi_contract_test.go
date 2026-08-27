@@ -27,10 +27,7 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	contract := newResponseContract(t)
 
 	signupRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
-		"email":             "contract-signup@example.com",
-		"password":          "password123",
-		"display_name":      "Contract Signup",
-		"organization_name": "Contract Signup Org",
+		"email": "contract-signup@example.com",
 	}, "")
 	contract.validate(t, http.MethodPost, "/v1/auth/signup", signupRes)
 
@@ -125,7 +122,8 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 
 	verifyToken := latestAuthToken(t, env.tokenSink, "contract-signup@example.com", "email_verification")
 	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
-		"token": verifyToken,
+		"token":        verifyToken,
+		"new_password": "password123",
 	}, "")
 	contract.validate(t, http.MethodPost, "/v1/auth/verify-email", verifyRes)
 	signupLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{

@@ -29,7 +29,7 @@ type backingStore interface {
 	SignupDeveloper(context.Context, store.DeveloperSignupInput) (store.DeveloperSignupResult, error)
 	GetUserPassword(context.Context, string) (model.User, string, error)
 	GetUserPasswordByID(context.Context, string) (model.User, string, error)
-	VerifyEmailToken(context.Context, string) (model.User, error)
+	VerifyEmailToken(context.Context, string, string) (model.User, error)
 	ActivateLoginToken(context.Context, string) (model.User, error)
 	ResetPasswordWithToken(context.Context, string, string) error
 	UpdateUserPassword(context.Context, string, string) error
@@ -128,8 +128,8 @@ func (s *Store) GetUserPasswordByID(ctx context.Context, userID string) (model.U
 	return user, hash, nil
 }
 
-func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash string) (model.User, error) {
-	user, err := s.backing.VerifyEmailToken(ctx, tokenHash)
+func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash, passwordHash string) (model.User, error) {
+	user, err := s.backing.VerifyEmailToken(ctx, tokenHash, passwordHash)
 	if err != nil {
 		return model.User{}, err
 	}

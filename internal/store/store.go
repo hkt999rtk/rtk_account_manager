@@ -803,7 +803,7 @@ func (s *Store) ActivateLoginToken(ctx context.Context, tokenHash string) (model
 	return user, nil
 }
 
-func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash string) (model.User, error) {
+func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash, passwordHash string) (model.User, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return model.User{}, err
@@ -828,13 +828,14 @@ func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash string) (model.U
 	var user model.User
 	err = tx.QueryRow(ctx, `
 		UPDATE users
-		SET email_verified = true,
+		SET password_hash = $2,
+		    email_verified = true,
 		    email_verified_at = COALESCE(email_verified_at, now()),
 		    signup_pending_verification = false,
 		    updated_at = now()
 		WHERE id = $1 AND disabled_at IS NULL
 		RETURNING id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, created_at, updated_at, disabled_at
-	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	`, userID, passwordHash).Scan(&user.ID, &user.Email, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, ErrNotFound
 	}
@@ -857,6 +858,28 @@ func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash string) (model.U
 		return model.User{}, err
 	}
 	return user, nil
+}
+
+func (s *Store) EmailVerificationTokenStatus(ctx context.Context, tokenHash string) (string, error) {
+	var status string
+	err := s.db.QueryRow(ctx, `
+		SELECT CASE
+			WHEN at.consumed_at IS NOT NULL THEN 'invalid'
+			WHEN at.expires_at <= now() THEN 'expired'
+			WHEN u.email_verified OR NOT u.signup_pending_verification THEN 'invalid'
+			ELSE 'valid'
+		END
+		FROM auth_tokens at
+		JOIN users u ON u.id = at.user_id
+		WHERE at.token_hash = $1
+		  AND at.purpose = 'email_verification'
+		  AND at.scope = ''
+		  AND u.disabled_at IS NULL
+	`, tokenHash).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "invalid", nil
+	}
+	return status, err
 }
 
 func (s *Store) ResetPasswordWithToken(ctx context.Context, tokenHash, passwordHash string) error {
