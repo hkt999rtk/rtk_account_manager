@@ -26,7 +26,7 @@ Generated: ci-candidate
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 29 |
+| Go packages | 30 |
 | Test cases started | recorded in reports/test-events.json |
 | JSON pass events | recorded in reports/test-events.json |
 | JSON fail events | recorded in reports/test-events.json |
@@ -199,6 +199,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestChipsetDeveloperHandlersRejectBrandCloudSubject/detail`
 - `rtk_account_manager/internal/api`: `TestChipsetDeveloperHandlersRejectBrandCloudSubject/list`
 - `rtk_account_manager/internal/api`: `TestChipsetDeveloperHandlersRejectBrandCloudSubject`
+- `rtk_account_manager/internal/api`: `TestChipsetManifestRejectsDuplicateResourceLinks`
 - `rtk_account_manager/internal/api`: `TestChipsetProviderErrorsAreStableAndSanitized`
 - `rtk_account_manager/internal/api`: `TestChipsetProviderFetchRejectsDNSRebinding`
 - `rtk_account_manager/internal/api`: `TestChipsetProviderFetchSuccessfulManifest`
@@ -220,6 +221,17 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestChipsetProviderURLPolicyEdgeCasesAndDefaults/userinfo`
 - `rtk_account_manager/internal/api`: `TestChipsetProviderURLPolicyEdgeCasesAndDefaults`
 - `rtk_account_manager/internal/api`: `TestChipsetProviderURLPolicy`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/duplicate_language`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/invalid_language`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/invalid_source`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/invalid_verified_date`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/missing_languages`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/missing_recommended`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/missing_resources`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/missing_schema`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/missing_source`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/unstable_key`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile`
 - `rtk_account_manager/internal/api`: `TestDefaultChipsetFetcherDialGuards/disallowed_host`
 - `rtk_account_manager/internal/api`: `TestDefaultChipsetFetcherDialGuards/empty_resolver`
 - `rtk_account_manager/internal/api`: `TestDefaultChipsetFetcherDialGuards/invalid_address`
