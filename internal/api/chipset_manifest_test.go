@@ -424,3 +424,57 @@ func TestChipsetManifestRejectsDuplicateResourceLinks(t *testing.T) {
 		t.Fatalf("duplicate resource error = %v", err)
 	}
 }
+
+func TestChipsetResourcePackageRejectsMalformedCollections(t *testing.T) {
+	tests := map[string]string{
+		"invalid document":        `{`,
+		"chipsets not an array":   `{"$schema":"schema.json","manifest_version":"1","provider":{},"chipsets":{}}`,
+		"provider type mismatch":  `{"$schema":"schema.json","manifest_version":"1","provider":[],"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","resources":[],"sdk_releases":[]}]}`,
+		"resources not an array":  `{"$schema":"schema.json","manifest_version":"1","provider":{},"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","resources":{},"sdk_releases":[]}]}`,
+		"releases not an array":   `{"$schema":"schema.json","manifest_version":"1","provider":{},"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","resources":[],"sdk_releases":{}}]}`,
+		"release missing field":   `{"$schema":"schema.json","manifest_version":"1","provider":{},"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","resources":[],"sdk_releases":[{"name":"SDK","version":"1","recommended":false,"supported_models":[]}]}]}`,
+		"endpoints not an array":  `{"$schema":"schema.json","manifest_version":"1","provider":{},"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","resources":[],"sdk_releases":[{"name":"SDK","version":"1","recommended":false,"supported_models":[],"endpoints":{}}]}]}`,
+		"empty languages":         `{"$schema":"schema.json","manifest_version":"1","provider":{"name":"P","updated_at":"2026-08-28T00:00:00Z"},"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","resources":[{"type":"forum","title":"Forum","url":"https://example.com","source":"official","languages":[],"verified_at":"2026-08-28T00:00:00Z"}],"sdk_releases":[]}]}`,
+		"bad provider timestamp":  `{"$schema":"schema.json","manifest_version":"1","provider":{"name":"P","updated_at":"today"},"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","resources":[],"sdk_releases":[]}]}`,
+		"invalid endpoint source": `{"$schema":"schema.json","manifest_version":"1","provider":{"name":"P","updated_at":"2026-08-28T00:00:00Z"},"chipsets":[{"chipset_key":"c","vendor":"V","name":"C","resources":[],"sdk_releases":[{"name":"SDK","version":"1","recommended":false,"supported_models":[],"endpoints":[{"type":"github","title":"Code","url":"https://example.com/code","source":"third-party","languages":["en"],"verified_at":"2026-08-28T00:00:00Z"}]}]}]}`,
+	}
+	for name, raw := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateChipsetResourcePackage([]byte(raw)); !errors.Is(err, errChipsetManifestInvalid) {
+				t.Fatalf("error = %v, want manifest invalid", err)
+			}
+		})
+	}
+}
+
+func TestNormalizeChipsetLinksRejectsInvalidLegacyGovernance(t *testing.T) {
+	validDate := "2026-08-28T00:00:00Z"
+	tests := map[string][]model.ChipsetEndpoint{
+		"invalid endpoint": {{Type: "forum", Title: "Forum", URL: "://bad"}},
+		"invalid source":   {{Type: "forum", Title: "Forum", URL: "https://example.com/forum", Source: "third-party"}},
+		"invalid language": {{Type: "forum", Title: "Forum", URL: "https://example.com/forum", Languages: []string{"not_a_tag"}}},
+		"invalid date":     {{Type: "forum", Title: "Forum", URL: "https://example.com/forum", VerifiedAt: "yesterday"}},
+		"duplicate": {
+			{Type: "forum", Title: "Forum", URL: "https://example.com/forum"},
+			{Type: "forum", Title: "Duplicate", URL: "https://example.com/forum"},
+		},
+	}
+	for name, links := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := normalizeChipsetLinks(links); !errors.Is(err, errChipsetManifestInvalid) {
+				t.Fatalf("error = %v, want manifest invalid", err)
+			}
+		})
+	}
+
+	links := []model.ChipsetEndpoint{{
+		Type: " forum ", Title: " Forum ", URL: " https://example.com/forum ",
+		Source: " official ", Languages: []string{" en "}, VerifiedAt: " " + validDate + " ", Summary: " Support forum ",
+	}}
+	if err := normalizeChipsetLinks(links); err != nil {
+		t.Fatal(err)
+	}
+	if links[0].Type != "forum" || links[0].Languages[0] != "en" || links[0].Summary != "Support forum" {
+		t.Fatalf("links were not normalized: %#v", links)
+	}
+}
