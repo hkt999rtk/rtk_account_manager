@@ -47,13 +47,13 @@ MALFORMED_LINE
 
 func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	t.Chdir(t.TempDir())
+	setValidSendMailHTTPEnvironment(t)
 	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("JWT_ACCESS_SECRET", "access")
 	t.Setenv("JWT_REFRESH_SECRET", "refresh")
 	t.Setenv("ACCESS_TOKEN_TTL", "10m")
 	t.Setenv("REFRESH_TOKEN_TTL", "24h")
 	t.Setenv("PORT", "9090")
-	t.Setenv("AUTH_TOKEN_DELIVERY", "log")
 	t.Setenv("AUTH_TOKEN_BASE_URL", "https://admin.example.test")
 	t.Setenv("AZURE_EVENTHUB_CONNECTION_STRING", "Endpoint=sb://example/")
 	t.Setenv("AZURE_EVENTHUB_CHECKPOINT_FILE", "/tmp/eventhub-checkpoints.json")
@@ -92,9 +92,6 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	}
 	if cfg.Port != "9090" {
 		t.Fatalf("unexpected port: %q", cfg.Port)
-	}
-	if cfg.AuthTokenDelivery != "log" {
-		t.Fatalf("unexpected auth token delivery: %q", cfg.AuthTokenDelivery)
 	}
 	if cfg.AuthTokenBaseURL != "https://admin.example.test" {
 		t.Fatalf("unexpected auth token base URL: %q", cfg.AuthTokenBaseURL)
@@ -151,6 +148,7 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 
 func TestLoadFallsBackForInvalidDurations(t *testing.T) {
 	t.Chdir(t.TempDir())
+	setValidSendMailHTTPEnvironment(t)
 	t.Setenv("JWT_ACCESS_SECRET", "access")
 	t.Setenv("JWT_REFRESH_SECRET", "refresh")
 	t.Setenv("ACCESS_TOKEN_TTL", "invalid")
@@ -282,6 +280,7 @@ func TestLoadRequiresJWTSecrets(t *testing.T) {
 
 func TestLoadAcceptsPEMJWTSignerWithoutSharedSecrets(t *testing.T) {
 	t.Chdir(t.TempDir())
+	setValidSendMailHTTPEnvironment(t)
 	t.Setenv("JWT_SIGNER_PROVIDER", "pem")
 	t.Setenv("JWT_ACCESS_PRIVATE_KEY_PATH", "/tmp/access.key")
 	t.Setenv("JWT_ACCESS_PUBLIC_KEY_PATH", "/tmp/access.pub")
@@ -318,6 +317,7 @@ func TestLoadRejectsUnknownJWTSignerProvider(t *testing.T) {
 
 func TestLoadAcceptsPKCS11JWTSignerWithoutSharedSecrets(t *testing.T) {
 	t.Chdir(t.TempDir())
+	setValidSendMailHTTPEnvironment(t)
 	t.Setenv("JWT_SIGNER_PROVIDER", "pkcs11")
 	t.Setenv("JWT_ACCESS_PKCS11_MODULE_PATH", "/usr/lib/softhsm/libsofthsm2.so")
 	t.Setenv("JWT_ACCESS_PKCS11_TOKEN_LABEL", "access-token")

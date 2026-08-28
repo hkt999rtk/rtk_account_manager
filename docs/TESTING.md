@@ -14,7 +14,7 @@ The backend uses these test layers:
 | Fuzz smoke | `make fuzz-smoke` | Runs short seeded fuzz checks for strict JSON and contract parser behavior. |
 | Readiness smoke | `make readiness-smoke` | Emits a redacted private-cloud readiness artifact against a running deployment. |
 | Email signup helper | `make test-email-signup-helper` | Offline IMAP MIME, verification URL, and transport-policy helper tests. |
-| Live email signup E2E | Workspace `scripts/staging_email_signup_e2e.py` | Opt-in staging browser → Send Mail HTTP → IMAP → activation test; never part of required CI. |
+| Staging email signup E2E | Workspace `scripts/staging_email_signup_e2e.py` | Send Mail HTTP → IMAP → activation verification; never part of required CI. |
 
 `make integration-test` and `make test-report` expect Postgres to be reachable at `TEST_DATABASE_URL`.
 For the default local setup, start it first with `make db-up`.
@@ -107,7 +107,7 @@ cross-service channel are emitted as explicit `SKIP` checks rather than hidden.
 Use `go run ./cmd/readiness-smoke -dry-run` for configuration-only validation.
 
 The live email signup E2E uses a disposable local PostgreSQL container and
-staging Account Manager/Admin Console while connecting to the Send Mail HTTP and
+local Account Manager/Admin Console processes while connecting to the Send Mail HTTP and
 IMAP endpoints configured in `~/.env`. It captures IMAP `UIDNEXT` before signup,
 reads later messages with `BODY.PEEK[]`, and leaves mailbox state unchanged.
 The runner redacts mailbox addresses and never emits credentials, tokens,

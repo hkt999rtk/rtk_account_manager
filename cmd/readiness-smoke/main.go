@@ -32,6 +32,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	flags.StringVar(&opts.DeviceID, "device-id", opts.DeviceID, "existing device id to verify")
 	flags.StringVar(&opts.DatabaseURL, "database-url", opts.DatabaseURL, "Postgres URL for read-only migration evidence")
 	flags.StringVar(&opts.MigrationsDir, "migrations-dir", opts.MigrationsDir, "local migrations directory")
+	flags.StringVar(&opts.SendMailHTTPBaseURL, "sendmail-http-base-url", opts.SendMailHTTPBaseURL, "Send Mail HTTP origin to record as readiness evidence")
 	flags.StringVar(&opts.Broker, "cross-service-broker", opts.Broker, "cross-service broker adapter to record as optional evidence")
 	flags.StringVar(&opts.CommandStream, "command-stream", opts.CommandStream, "account-to-video command stream name")
 	flags.StringVar(&opts.EventStream, "event-stream", opts.EventStream, "video-to-account event stream name")

@@ -27,15 +27,6 @@ on:
         required: false
         default: "SKIP:not-provided"
         type: string
-      email_delivery_mode:
-        description: "Email delivery evidence mode."
-        required: true
-        default: "SKIP"
-        type: choice
-        options:
-          - sendmail_http
-          - log-only
-          - SKIP
       broker_mode:
         description: "Cross-service broker evidence mode."
         required: true
@@ -233,7 +224,6 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           RESTART_UNITS: ${{ inputs.restart_units }}
           RESTORE_DRILL_REFERENCE: ${{ inputs.restore_drill_reference }}
-          EMAIL_DELIVERY_MODE: ${{ inputs.email_delivery_mode }}
           BROKER_MODE: ${{ inputs.broker_mode }}
           RUN_READINESS_SMOKE: ${{ inputs.run_readiness_smoke }}
         run: |
@@ -249,7 +239,7 @@ jobs:
           } > deployment-evidence/summary.txt
           {
             echo "restore_drill_reference=$RESTORE_DRILL_REFERENCE"
-            echo "email_delivery_mode=$EMAIL_DELIVERY_MODE"
+            echo "email_delivery=sendmail_http"
             echo "broker_mode=$BROKER_MODE"
           } > deployment-evidence/production-evidence.txt
           marker="$state_dir/last-db-backup-ok"

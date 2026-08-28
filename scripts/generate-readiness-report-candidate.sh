@@ -44,10 +44,10 @@ read_evidence_value() {
 
 production_evidence="$EVIDENCE_DIR/production-evidence.txt"
 restore_drill_reference="$(read_evidence_value "$production_evidence" restore_drill_reference)"
-email_delivery_mode="$(read_evidence_value "$production_evidence" email_delivery_mode)"
+email_delivery="$(read_evidence_value "$production_evidence" email_delivery)"
 broker_mode="$(read_evidence_value "$production_evidence" broker_mode)"
 restore_drill_reference="${restore_drill_reference:-unknown}"
-email_delivery_mode="${email_delivery_mode:-unknown}"
+email_delivery="${email_delivery:-unknown}"
 broker_mode="${broker_mode:-unknown}"
 
 api_status="$(extract_active_line "$EVIDENCE_DIR/api-status.txt")"
@@ -71,7 +71,7 @@ Generated: $GENERATED_AT
 | Verify result | \`$VERIFY_RESULT\` |
 | Backup marker status | \`$backup_marker_status\` |
 | Restore drill reference | \`$restore_drill_reference\` |
-| Email delivery mode | \`$email_delivery_mode\` |
+| Email delivery | \`$email_delivery\` |
 | Cross-service broker mode | \`$broker_mode\` |
 | Workflow run | $RUN_URL |
 

@@ -36,29 +36,19 @@ import (
 )
 
 type integrationEnv struct {
-	router           *gin.Engine
-	server           *Server
-	db               *pgxpool.Pool
-	tokenSink        *recordingAuthTokenSink
-	notificationSink *recordingQuotaRaiseNotificationSink
+	router        *gin.Engine
+	server        *Server
+	db            *pgxpool.Pool
+	store         *store.Store
+	tokenObserver *recordingAuthTokenObserver
 }
 
-type recordingAuthTokenSink struct {
+type recordingAuthTokenObserver struct {
 	deliveries []AuthTokenDelivery
 }
 
-func (s *recordingAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthTokenDelivery) error {
+func (s *recordingAuthTokenObserver) Record(delivery AuthTokenDelivery) {
 	s.deliveries = append(s.deliveries, delivery)
-	return nil
-}
-
-type recordingQuotaRaiseNotificationSink struct {
-	deliveries []QuotaRaiseNotificationDelivery
-}
-
-func (s *recordingQuotaRaiseNotificationSink) DeliverQuotaRaiseNotification(_ context.Context, delivery QuotaRaiseNotificationDelivery) error {
-	s.deliveries = append(s.deliveries, delivery)
-	return nil
 }
 
 func newIntegrationEnv(t *testing.T) integrationEnv {
@@ -90,20 +80,31 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 
 	gin.SetMode(gin.TestMode)
 	authService := auth.NewService("test-access-secret", "test-refresh-secret", time.Minute, time.Hour)
-	tokenSink := &recordingAuthTokenSink{}
-	notificationSink := &recordingQuotaRaiseNotificationSink{}
-	server := NewWithAuthTokenAndNotificationSink(store.New(db), authService, tokenSink, notificationSink)
+	tokenObserver := &recordingAuthTokenObserver{}
+	repository := store.New(db)
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = 3
+	}
+	cipher, err := emaildelivery.NewCipher(base64.StdEncoding.EncodeToString(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.ConfigureEmailOutboxCipher(cipher)
+	server := New(repository, authService)
+	server.ConfigureEmailOutbox(repository)
+	server.authTokenQueuedHook = tokenObserver.Record
 	server.signupLimiter = nil
 	return integrationEnv{
-		router:           server.Router(),
-		server:           server,
-		db:               db,
-		tokenSink:        tokenSink,
-		notificationSink: notificationSink,
+		router:        server.Router(),
+		server:        server,
+		db:            db,
+		store:         repository,
+		tokenObserver: tokenObserver,
 	}
 }
 
-func TestIntegrationSignupQueuesEncryptedEmailForWorkerDelivery(t *testing.T) {
+func TestIntegrationSignupQueuesEncryptedEmailForSendMailHTTP(t *testing.T) {
 	env := newIntegrationEnv(t)
 	repository, ok := env.server.store.(*store.Store)
 	if !ok {
@@ -126,8 +127,8 @@ func TestIntegrationSignupQueuesEncryptedEmailForWorkerDelivery(t *testing.T) {
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("signup status = %d: %s", response.Code, response.Body.String())
 	}
-	if len(env.tokenSink.deliveries) != 0 {
-		t.Fatalf("synchronous sink unexpectedly called: %+v", env.tokenSink.deliveries)
+	if len(env.tokenObserver.deliveries) != 1 {
+		t.Fatalf("queued token observer calls = %d, want 1", len(env.tokenObserver.deliveries))
 	}
 	var tokenCount, outboxCount int
 	if err := env.db.QueryRow(context.Background(), `
@@ -283,8 +284,6 @@ func TestIntegrationOutboxQueuesEveryPlatformAuthEmail(t *testing.T) {
 	}
 	repository.ConfigureEmailOutboxCipher(cipher)
 	env.server.ConfigureEmailOutbox(repository)
-	synchronousDeliveries := len(env.tokenSink.deliveries)
-
 	for _, request := range []struct {
 		path string
 	}{
@@ -297,10 +296,6 @@ func TestIntegrationOutboxQueuesEveryPlatformAuthEmail(t *testing.T) {
 			t.Fatalf("%s status = %d: %s", request.path, response.Code, response.Body.String())
 		}
 	}
-	if len(env.tokenSink.deliveries) != synchronousDeliveries {
-		t.Fatalf("synchronous sink received outbox deliveries: before=%d after=%d", synchronousDeliveries, len(env.tokenSink.deliveries))
-	}
-
 	rows, err := env.db.Query(context.Background(), `
 		SELECT message_type, count(*), bool_and(payload_nonce IS NOT NULL AND payload_ciphertext IS NOT NULL)
 		FROM email_outbox
@@ -326,9 +321,9 @@ func TestIntegrationOutboxQueuesEveryPlatformAuthEmail(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	for _, messageType := range []string{"email_verification", "login_activation", "password_reset"} {
-		if got[messageType] != 1 {
-			t.Fatalf("%s outbox count = %d, want 1; all=%v", messageType, got[messageType], got)
+	for messageType, want := range map[string]int{"email_verification": 2, "login_activation": 1, "password_reset": 1} {
+		if got[messageType] != want {
+			t.Fatalf("%s outbox count = %d, want %d; all=%v", messageType, got[messageType], want, got)
 		}
 	}
 }
@@ -1109,7 +1104,7 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	}
 
 	accountStore := store.New(env.db)
-	verificationToken := latestAuthToken(t, env.tokenSink, "verify@example.com", "email_verification")
+	verificationToken := latestAuthToken(t, env.tokenObserver, "verify@example.com", "email_verification")
 	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
 		"token":        verificationToken,
 		"new_password": "password123",
@@ -1139,7 +1134,7 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	if resendRes.Code != http.StatusAccepted {
 		t.Fatalf("expected resend for unverified user 202, got %d", resendRes.Code)
 	}
-	resendToken := latestAuthToken(t, env.tokenSink, "resend@example.com", "email_verification")
+	resendToken := latestAuthToken(t, env.tokenObserver, "resend@example.com", "email_verification")
 	verifyResendRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
 		"token":        resendToken,
 		"new_password": "password123",
@@ -1151,12 +1146,10 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 		t.Fatal("expected resend target user id")
 	}
 	registerUser(t, env.router, "resend-delivery-failure@example.com", "Resend Delivery Failure Org")
-	failingDeliveryRouter := NewWithAuthTokenSink(
-		accountStore,
-		auth.NewService("test-access-secret", "test-refresh-secret", time.Minute, time.Hour),
-		failingAuthTokenSink{},
-	).Router()
-	registerDeliveryFailureRes := performJSON(failingDeliveryRouter, http.MethodPost, "/v1/auth/register", map[string]any{
+	failingEnqueueServer := New(accountStore, auth.NewService("test-access-secret", "test-refresh-secret", time.Minute, time.Hour))
+	failingEnqueueServer.ConfigureEmailOutbox(accountStore)
+	failingEnqueueRouter := failingEnqueueServer.Router()
+	registerDeliveryFailureRes := performJSON(failingEnqueueRouter, http.MethodPost, "/v1/auth/register", map[string]any{
 		"email":             "delivery-failure@example.com",
 		"password":          "password123",
 		"display_name":      "delivery failure",
@@ -1165,13 +1158,13 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	if registerDeliveryFailureRes.Code != http.StatusInternalServerError {
 		t.Fatalf("expected register delivery failure 500, got %d", registerDeliveryFailureRes.Code)
 	}
-	resendDeliveryFailureRes := performJSON(failingDeliveryRouter, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
+	resendDeliveryFailureRes := performJSON(failingEnqueueRouter, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
 		"email": "resend-delivery-failure@example.com",
 	}, "")
 	if resendDeliveryFailureRes.Code != http.StatusAccepted {
 		t.Fatalf("expected resend delivery failure to remain enumeration-safe 202, got %d", resendDeliveryFailureRes.Code)
 	}
-	forgotDeliveryFailureRes := performJSON(failingDeliveryRouter, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
+	forgotDeliveryFailureRes := performJSON(failingEnqueueRouter, http.MethodPost, "/v1/auth/forgot-password", map[string]any{
 		"email": "resend@example.com",
 	}, "")
 	if forgotDeliveryFailureRes.Code != http.StatusAccepted {
@@ -1277,7 +1270,7 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	if signInRes.Code != http.StatusAccepted {
 		t.Fatalf("expected sign-in 202, got %d: %s", signInRes.Code, signInRes.Body.String())
 	}
-	loginActivationToken := latestAuthToken(t, env.tokenSink, "verify@example.com", "login_activation")
+	loginActivationToken := latestAuthToken(t, env.tokenObserver, "verify@example.com", "login_activation")
 	activateLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login/activate", map[string]any{
 		"token": loginActivationToken,
 	}, "")
@@ -1318,7 +1311,7 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 		t.Fatalf("expected expired reset token 400, got %d", expiredResetRes.Code)
 	}
 
-	resetToken := latestAuthToken(t, env.tokenSink, "verify@example.com", "password_reset")
+	resetToken := latestAuthToken(t, env.tokenObserver, "verify@example.com", "password_reset")
 	resetRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
 		"token":        resetToken,
 		"new_password": "reset-password123",
@@ -1355,7 +1348,7 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	}
 
 	disabled := registerUser(t, env.router, "recovery-disabled@example.com", "Recovery Disabled Org")
-	disabledVerificationToken := latestAuthToken(t, env.tokenSink, "recovery-disabled@example.com", "email_verification")
+	disabledVerificationToken := latestAuthToken(t, env.tokenObserver, "recovery-disabled@example.com", "email_verification")
 	if _, err := env.db.Exec(context.Background(), `
 		UPDATE users SET disabled_at = now(), updated_at = now() WHERE id = $1
 	`, disabled.User.ID); err != nil {
@@ -1655,7 +1648,7 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 		t.Fatalf("expected duplicate developer signup 409, got %d: %s", duplicateSignupRes.Code, duplicateSignupRes.Body.String())
 	}
 
-	expiredToken := latestAuthToken(t, env.tokenSink, "developer-owner@example.com", "email_verification")
+	expiredToken := latestAuthToken(t, env.tokenObserver, "developer-owner@example.com", "email_verification")
 	validStatusRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email/status", map[string]any{"token": expiredToken}, "")
 	if validStatusRes.Code != http.StatusOK || !strings.Contains(validStatusRes.Body.String(), `"status":"valid"`) {
 		t.Fatalf("expected valid verification token status, got %d: %s", validStatusRes.Code, validStatusRes.Body.String())
@@ -1673,21 +1666,22 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 	if restartedSignupRes.Code != http.StatusAccepted {
 		t.Fatalf("expected expired pending signup restart 202, got %d: %s", restartedSignupRes.Code, restartedSignupRes.Body.String())
 	}
-	restartedToken := latestAuthToken(t, env.tokenSink, "developer-owner@example.com", "email_verification")
+	restartedToken := latestAuthToken(t, env.tokenObserver, "developer-owner@example.com", "email_verification")
 	if restartedToken == expiredToken {
 		t.Fatal("expected signup restart to issue a new verification token")
 	}
 
-	env.server.authTokenSink = failingAuthTokenSink{}
+	unconfiguredOutbox := store.New(env.db)
+	env.server.ConfigureEmailOutbox(unconfiguredOutbox)
 	deliveryFailureRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
 		"email": "delivery-failure-developer@example.com",
 	}, "")
 	if deliveryFailureRes.Code != http.StatusInternalServerError {
 		t.Fatalf("expected token delivery failure 500, got %d: %s", deliveryFailureRes.Code, deliveryFailureRes.Body.String())
 	}
-	env.server.authTokenSink = env.tokenSink
+	env.server.ConfigureEmailOutbox(env.store)
 
-	verifyToken := latestAuthToken(t, env.tokenSink, "developer-owner@example.com", "email_verification")
+	verifyToken := latestAuthToken(t, env.tokenObserver, "developer-owner@example.com", "email_verification")
 	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
 		"token": verifyToken, "new_password": "password123",
 	}, "")
@@ -1785,12 +1779,12 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 		t.Fatalf("expected owner invitation list 200, got %d: %s", invitationsRes.Code, invitationsRes.Body.String())
 	}
 	invitation := decodeBody[developerBrandCloudInvitationResponse](t, inviteRes).Invitation
-	invitationToken := latestAuthToken(t, env.tokenSink, "developer-member@example.com", "brand_cloud_membership_invitation")
+	invitationToken := latestAuthToken(t, env.tokenObserver, "developer-member@example.com", "brand_cloud_membership_invitation")
 	resendRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/invitations/"+invitation.ID+"/resend", nil, login.Tokens.AccessToken)
 	if resendRes.Code != http.StatusAccepted {
 		t.Fatalf("expected invitation resend 202, got %d: %s", resendRes.Code, resendRes.Body.String())
 	}
-	rotatedToken := latestAuthToken(t, env.tokenSink, "developer-member@example.com", "brand_cloud_membership_invitation")
+	rotatedToken := latestAuthToken(t, env.tokenObserver, "developer-member@example.com", "brand_cloud_membership_invitation")
 	if rotatedToken == invitationToken {
 		t.Fatal("expected resend to rotate the invitation token")
 	}
@@ -1813,7 +1807,7 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 	if reinviteRes.Code != http.StatusAccepted {
 		t.Fatalf("expected reinvitation after cancel 202, got %d: %s", reinviteRes.Code, reinviteRes.Body.String())
 	}
-	invitationToken = latestAuthToken(t, env.tokenSink, "developer-member@example.com", "brand_cloud_membership_invitation")
+	invitationToken = latestAuthToken(t, env.tokenObserver, "developer-member@example.com", "brand_cloud_membership_invitation")
 	wrongAcceptRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-cloud-member-invitations/accept", map[string]any{"token": invitationToken}, login.Tokens.AccessToken)
 	if wrongAcceptRes.Code != http.StatusNotFound {
 		t.Fatalf("expected wrong developer invitation acceptance 404, got %d: %s", wrongAcceptRes.Code, wrongAcceptRes.Body.String())
@@ -1926,7 +1920,7 @@ func TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession(t 
 		t.Fatalf("expected replacement owner transfer request 202, got %d: %s", requestRes.Code, requestRes.Body.String())
 	}
 	transfer = decodeBody[brandCloudOwnerTransferBody](t, requestRes)
-	token := latestAuthToken(t, env.tokenSink, "target-transfer@example.com", "brand_cloud_owner_transfer")
+	token := latestAuthToken(t, env.tokenObserver, "target-transfer@example.com", "brand_cloud_owner_transfer")
 
 	wrongAcceptRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-cloud-owner-transfers/accept", map[string]any{
 		"token": token,
@@ -2854,7 +2848,7 @@ func TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug(t *testing.T) 
 	if acmeSignInRes.Code != http.StatusAccepted {
 		t.Fatalf("expected acme sign-in 202, got %d: %s", acmeSignInRes.Code, acmeSignInRes.Body.String())
 	}
-	acmeLoginActivationToken := latestAuthToken(t, env.tokenSink, "shared@users.example.com", "login_activation")
+	acmeLoginActivationToken := latestAuthToken(t, env.tokenObserver, "shared@users.example.com", "login_activation")
 	tenantMismatchRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/contoso/auth/login/activate", map[string]any{
 		"token": acmeLoginActivationToken,
 	}, "")
@@ -3744,14 +3738,18 @@ func TestIntegrationQuotaRaiseValidationAndDefaultApproval(t *testing.T) {
 	if declinedBody.QuotaRaiseRequest.Status != string(model.QuotaRaiseRequestStatusDeclined) {
 		t.Fatalf("expected declined quota raise request, got %+v", declinedBody.QuotaRaiseRequest)
 	}
-	if len(env.notificationSink.deliveries) != 2 {
-		t.Fatalf("expected approval and decline notifications, got %+v", env.notificationSink.deliveries)
+	var approvedEmails, declinedEmails int
+	if err := env.db.QueryRow(context.Background(), `
+		SELECT
+			count(*) FILTER (WHERE message_type = 'quota_approved'),
+			count(*) FILTER (WHERE message_type = 'quota_declined')
+		FROM email_outbox
+		WHERE payload_nonce IS NOT NULL AND payload_ciphertext IS NOT NULL
+	`).Scan(&approvedEmails, &declinedEmails); err != nil {
+		t.Fatal(err)
 	}
-	if env.notificationSink.deliveries[0].Decision != string(model.QuotaRaiseRequestStatusApproved) || env.notificationSink.deliveries[0].RecipientEmail != "validate-quota@example.com" {
-		t.Fatalf("expected approval notification for requester, got %+v", env.notificationSink.deliveries[0])
-	}
-	if env.notificationSink.deliveries[1].Decision != string(model.QuotaRaiseRequestStatusDeclined) || env.notificationSink.deliveries[1].RecipientEmail != "validate-quota@example.com" {
-		t.Fatalf("expected decline notification for requester, got %+v", env.notificationSink.deliveries[1])
+	if approvedEmails != 1 || declinedEmails != 1 {
+		t.Fatalf("quota decision outbox counts = approved:%d declined:%d, want 1/1", approvedEmails, declinedEmails)
 	}
 }
 
@@ -6912,7 +6910,7 @@ func verifiedDeveloperForTest(t *testing.T, env integrationEnv, email string) ve
 		t.Fatalf("expected developer signup 202, got %d: %s", signupRes.Code, signupRes.Body.String())
 	}
 	signup := decodeBody[developerSignupBody](t, signupRes)
-	verifyToken := latestAuthToken(t, env.tokenSink, email, "email_verification")
+	verifyToken := latestAuthToken(t, env.tokenObserver, email, "email_verification")
 	verifyRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
 		"token": verifyToken, "new_password": "password123",
 	}, "")
@@ -6981,7 +6979,7 @@ func TestIntegrationProductCollaboratorLifecycleAndVisibility(t *testing.T) {
 		if res.Code != http.StatusAccepted {
 			t.Fatalf("invite %s: %d %s", email, res.Code, res.Body.String())
 		}
-		return latestAuthToken(t, env.tokenSink, email, "product_collaborator_invitation")
+		return latestAuthToken(t, env.tokenObserver, email, "product_collaborator_invitation")
 	}
 	accept := func(developer verifiedDeveloperFixture, token string) {
 		res := performJSON(env.router, http.MethodPost, "/v1/developer/product-collaborator-invitations/accept", map[string]any{"token": token}, developer.AccessToken)
@@ -7144,7 +7142,7 @@ func lifecycleDeactivatePayload(slug string) func(string) any {
 	}
 }
 
-func latestAuthToken(t *testing.T, sink *recordingAuthTokenSink, email, purpose string) string {
+func latestAuthToken(t *testing.T, sink *recordingAuthTokenObserver, email, purpose string) string {
 	t.Helper()
 	for i := len(sink.deliveries) - 1; i >= 0; i-- {
 		delivery := sink.deliveries[i]

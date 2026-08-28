@@ -8,9 +8,8 @@ import (
 	"rtk_account_manager/internal/emaildelivery"
 )
 
-func TestEmailDeliverySelectsSendMailHTTP(t *testing.T) {
+func TestEmailDeliveryUsesSendMailHTTP(t *testing.T) {
 	sender, renderer, err := emailDelivery(config.Config{
-		AuthTokenDelivery:       "sendmail_http",
 		AuthTokenBaseURL:        "https://account.example.com",
 		SendMailHTTPBaseURL:     "https://sm.example.com",
 		SendMailHTTPBearerToken: "opaque-token",

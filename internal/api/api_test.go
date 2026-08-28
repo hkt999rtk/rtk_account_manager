@@ -30,12 +30,6 @@ import (
 	"rtk_account_manager/internal/store"
 )
 
-type failingAuthTokenSink struct{}
-
-func (failingAuthTokenSink) DeliverAuthToken(context.Context, AuthTokenDelivery) error {
-	return errors.New("delivery failed")
-}
-
 func TestRequireAuthRejectsMissingToken(t *testing.T) {
 	server := New(nil, auth.NewService("access-secret", "refresh-secret", time.Minute, time.Hour))
 	router := server.Router()
@@ -349,37 +343,6 @@ func TestWriteClaimResolveErrorIncludesRetryability(t *testing.T) {
 	}
 }
 
-func TestAuthTokenDeliveryHook(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
-	c.Set("request_id", "req-1")
-
-	noSinkServer := New(nil, nil)
-	if err := noSinkServer.deliverAuthToken(c, "user@example.com", "email_verification", "token", time.Now()); !errors.Is(err, ErrAuthTokenSinkUnavailable) {
-		t.Fatalf("expected unavailable sink error, got %v", err)
-	}
-
-	core, logs := observer.New(zapcore.ErrorLevel)
-	errorServer := NewWithAuthTokenSink(nil, nil, failingAuthTokenSink{})
-	errorServer.SetLogger(zap.New(core))
-	if err := errorServer.deliverAuthToken(c, "User@Example.com", "email_verification", "secret-token", time.Now()); err == nil {
-		t.Fatal("expected sink delivery error")
-	}
-	entries := logs.FilterMessage("auth token delivery failed").All()
-	if len(entries) != 1 {
-		t.Fatalf("expected one delivery failure log, got %d", len(entries))
-	}
-	fields := entries[0].ContextMap()
-	if fields["purpose"] != "email_verification" || fields["email_domain"] != "example.com" || fields["request_id"] != "req-1" {
-		t.Fatalf("unexpected delivery failure log fields: %+v", fields)
-	}
-	logText := entries[0].Context
-	if fmt.Sprint(logText) == "" || strings.Contains(fmt.Sprint(logText), "secret-token") || strings.Contains(fmt.Sprint(logText), "User@Example.com") {
-		t.Fatalf("delivery failure log leaked sensitive values: %+v", logText)
-	}
-}
-
 func TestAuthTokenTTLConfiguration(t *testing.T) {
 	server := New(nil, nil)
 	server.ConfigureAuthTokenTTLs(12*time.Minute, 7*time.Minute)
@@ -402,171 +365,20 @@ func TestAuthTokenTTLConfiguration(t *testing.T) {
 	}
 }
 
-func TestLogAuthTokenSinkWritesDelivery(t *testing.T) {
-	core, logs := observer.New(zapcore.InfoLevel)
-	sink := NewLogAuthTokenSink(zap.New(core))
-	expiresAt := time.Date(2026, 5, 4, 12, 30, 0, 0, time.UTC)
+func TestEmailIssuanceRequiresOutbox(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	server := New(nil, nil)
 
-	err := sink.DeliverAuthToken(context.Background(), AuthTokenDelivery{
-		Purpose:   "password_reset",
-		Email:     "user@example.com",
-		Token:     "reset-token",
-		ExpiresAt: expiresAt,
-	})
-	if err != nil {
-		t.Fatal(err)
+	if _, _, err := server.issueAuthToken(c, "user-1", "user@example.com", "email_verification"); !errors.Is(err, ErrEmailOutboxUnavailable) {
+		t.Fatalf("issueAuthToken error = %v, want ErrEmailOutboxUnavailable", err)
 	}
-
-	entries := logs.FilterMessage("auth token delivery").All()
-	if len(entries) != 1 {
-		t.Fatalf("expected one auth token log, got %d", len(entries))
+	if _, err := server.issueAuthTokenForEmail(c, "user@example.com", "password_reset"); !errors.Is(err, ErrEmailOutboxUnavailable) {
+		t.Fatalf("issueAuthTokenForEmail error = %v, want ErrEmailOutboxUnavailable", err)
 	}
-	fields := entries[0].ContextMap()
-	if fields["purpose"] != "password_reset" || fields["email"] != "user@example.com" {
-		t.Fatalf("unexpected auth token log fields: %+v", fields)
-	}
-	if fields["token"] != "reset-token" {
-		t.Fatalf("expected auth token log delivery token, got %+v", fields)
-	}
-}
-
-func TestLogAuthTokenSinkHandlesNilLogger(t *testing.T) {
-	if err := (LogAuthTokenSink{}).DeliverAuthToken(context.Background(), AuthTokenDelivery{
-		Purpose: "login_activation",
-		Email:   "user@example.com",
-		Token:   "token",
-	}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestAuthTokenLinkRoutesByPurpose(t *testing.T) {
-	for _, tt := range []struct {
-		purpose string
-		email   string
-		want    string
-	}{
-		{purpose: "email_verification", want: "https://admin.example.test/signup/verify?token=token+with+space"},
-		{purpose: "login_activation", want: "https://admin.example.test/login/activate?token=token+with+space"},
-		{purpose: "password_reset", email: "user@example.com", want: "https://admin.example.test/reset-password?email=user%40example.com&token=token+with+space"},
-		{purpose: "brand_cloud_membership_invitation", want: "https://admin.example.test/brand-cloud-member-invitation/accept?token=token+with+space"},
-		{purpose: "product_collaborator_invitation", want: "https://admin.example.test/product-collaborator-invitation/accept?token=token+with+space"},
-	} {
-		t.Run(tt.purpose, func(t *testing.T) {
-			got := authTokenLink(tt.purpose, "token with space", tt.email, "https://admin.example.test/")
-			if got != tt.want {
-				t.Fatalf("authTokenLink() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestAuthTokenSubjectAndBodyByPurpose(t *testing.T) {
-	expiresAt := time.Date(2026, 6, 12, 8, 30, 0, 0, time.UTC)
-	for _, tt := range []struct {
-		purpose     string
-		wantSubject string
-		wantBody    string
-	}{
-		{
-			purpose:     "email_verification",
-			wantSubject: "Verify your Realtek Connect account",
-			wantBody:    "Verify your Realtek Connect account with this link:",
-		},
-		{
-			purpose:     "login_activation",
-			wantSubject: "Sign in to Realtek Connect",
-			wantBody:    "Sign in to Realtek Connect with this link:",
-		},
-		{
-			purpose:     "password_reset",
-			wantSubject: "Reset your Realtek Connect password",
-			wantBody:    "Reset your Realtek Connect password with this link:",
-		},
-		{
-			purpose:     "product_collaborator_invitation",
-			wantSubject: "Join a Realtek Connect+ Product project",
-			wantBody:    "Accept your Realtek Connect+ Product project invitation with this link:",
-		},
-		{
-			purpose:     "unknown",
-			wantSubject: "Realtek Connect account token",
-			wantBody:    "Use this Realtek Connect account token:",
-		},
-	} {
-		t.Run(tt.purpose, func(t *testing.T) {
-			if got := authTokenSubject(tt.purpose); got != tt.wantSubject {
-				t.Fatalf("authTokenSubject() = %q, want %q", got, tt.wantSubject)
-			}
-			body := buildAuthTokenBody(AuthTokenDelivery{
-				Purpose:   tt.purpose,
-				Email:     "user@example.com",
-				Token:     "token-1",
-				ExpiresAt: expiresAt,
-			}, "https://admin.example.test")
-			for _, want := range []string{tt.wantBody, "Token: token-1", "Expires: 2026-06-12T08:30:00Z"} {
-				if !strings.Contains(body, want) {
-					t.Fatalf("expected body to contain %q, got %q", want, body)
-				}
-			}
-		})
-	}
-	body := buildAuthTokenBody(AuthTokenDelivery{Purpose: "login_activation", Token: "token-2"}, "")
-	if strings.Contains(body, "https://") || !strings.Contains(body, "Token: token-2") {
-		t.Fatalf("expected token-only body without base URL, got %q", body)
-	}
-}
-
-func TestLogQuotaRaiseNotificationSinkWritesDelivery(t *testing.T) {
-	core, logs := observer.New(zapcore.InfoLevel)
-	sink := NewLogQuotaRaiseNotificationSink(zap.New(core))
-
-	approvedQuota := 12
-	decisionReason := "approved for pilot"
-	recipientName := "Owner"
-	err := sink.DeliverQuotaRaiseNotification(context.Background(), QuotaRaiseNotificationDelivery{
-		RecipientEmail:   "owner@example.com",
-		RecipientName:    &recipientName,
-		OrganizationID:   "org-1",
-		OrganizationName: "Owner Org",
-		RequestedQuota:   8,
-		ApprovedQuota:    &approvedQuota,
-		DecisionReason:   &decisionReason,
-		Decision:         "approved",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	entries := logs.FilterMessage("quota raise notification").All()
-	if len(entries) != 1 {
-		t.Fatalf("expected one quota notification log, got %d", len(entries))
-	}
-	fields := entries[0].ContextMap()
-	for key, want := range map[string]any{
-		"decision":        "approved",
-		"email":           "owner@example.com",
-		"org_id":          "org-1",
-		"org_name":        "Owner Org",
-		"requested_quota": int64(8),
-		"approved_quota":  int64(12),
-	} {
-		if got := fields[key]; got != want {
-			t.Fatalf("expected %s=%v, got %v in %+v", key, want, got, fields)
-		}
-	}
-}
-
-func TestLogQuotaNotificationSinkHandlesNilLogger(t *testing.T) {
-	delivery := QuotaRaiseNotificationDelivery{
-		RecipientEmail:   "owner@example.com",
-		OrganizationID:   "org-1",
-		OrganizationName: "Owner Org",
-		RequestedQuota:   8,
-		Decision:         "declined",
-	}
-	if err := (LogQuotaRaiseNotificationSink{}).DeliverQuotaRaiseNotification(context.Background(), delivery); err != nil {
-		t.Fatal(err)
+	if _, err := server.issueBrandCloudLoginToken(c, "tenant", "user@example.com"); !errors.Is(err, ErrEmailOutboxUnavailable) {
+		t.Fatalf("issueBrandCloudLoginToken error = %v, want ErrEmailOutboxUnavailable", err)
 	}
 }
 
@@ -921,7 +733,7 @@ func TestValidationHelpersWriteErrors(t *testing.T) {
 	}
 }
 
-func TestNewAuthTokenAndUnsupportedPurpose(t *testing.T) {
+func TestNewAuthToken(t *testing.T) {
 	server := New(nil, nil)
 	token, expiresAt, err := server.newAuthToken("login_activation")
 	if err != nil {
@@ -932,13 +744,6 @@ func TestNewAuthTokenAndUnsupportedPurpose(t *testing.T) {
 	}
 	if time.Until(expiresAt) < 29*time.Minute || time.Until(expiresAt) > 31*time.Minute {
 		t.Fatalf("expected roughly 30 minute expiry, got %s", time.Until(expiresAt))
-	}
-
-	gin.SetMode(gin.TestMode)
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
-	if _, _, err := server.createAuthToken(c, "user-1", "unsupported"); err == nil {
-		t.Fatal("expected unsupported token purpose error")
 	}
 }
 
@@ -1454,9 +1259,4 @@ func TestIsUniqueViolationClassifiesPostgresErrors(t *testing.T) {
 	if isUniqueViolation(errors.New("not a pg error")) {
 		t.Fatal("expected generic error to not be a unique violation")
 	}
-}
-
-func TestLogDeliveryFailureHandlesNilLogger(t *testing.T) {
-	server := &Server{}
-	server.logDeliveryFailure("password_reset", "user@example.com", errors.New("email provider down"))
 }

@@ -1,14 +1,11 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -25,25 +22,24 @@ import (
 )
 
 type Server struct {
-	store                      Store
-	auth                       *auth.Service
-	authTokenSink              AuthTokenSink
-	quotaRaiseNotificationSink QuotaRaiseNotificationSink
-	signupLimiter              *signupLimiter
-	signupPolicy               signupPolicy
-	oidcResolver               auth.ProviderResolver
-	oidcClient                 auth.OIDCClient
-	oidcStateTTL               time.Duration
-	oidcEnvClientSecretRef     string
-	appCertificateIssuer       AppCertificateIssuer
-	internalAuthToken          string
-	productionJWTSecret        string
-	productionJWTAudience      string
-	logger                     *zap.Logger
-	chipsetManifestFetcher     ChipsetManifestFetcher
-	emailOutboxStore           emailOutboxPersistence
-	emailVerificationTTL       time.Duration
-	passwordResetTTL           time.Duration
+	store                  Store
+	auth                   *auth.Service
+	authTokenQueuedHook    func(AuthTokenDelivery)
+	signupLimiter          *signupLimiter
+	signupPolicy           signupPolicy
+	oidcResolver           auth.ProviderResolver
+	oidcClient             auth.OIDCClient
+	oidcStateTTL           time.Duration
+	oidcEnvClientSecretRef string
+	appCertificateIssuer   AppCertificateIssuer
+	internalAuthToken      string
+	productionJWTSecret    string
+	productionJWTAudience  string
+	logger                 *zap.Logger
+	chipsetManifestFetcher ChipsetManifestFetcher
+	emailOutboxStore       emailOutboxPersistence
+	emailVerificationTTL   time.Duration
+	passwordResetTTL       time.Duration
 }
 
 type emailOutboxPersistence interface {
@@ -55,13 +51,12 @@ type emailOutboxPersistence interface {
 	GetEmailOutboxCounts(context.Context, time.Time) (store.EmailOutboxCounts, error)
 }
 
-var ErrAuthTokenSinkUnavailable = errors.New("auth token sink unavailable")
+var ErrEmailOutboxUnavailable = errors.New("email outbox unavailable")
 
-func newServer(store Store, authService *auth.Service, sink AuthTokenSink) *Server {
+func newServer(store Store, authService *auth.Service) *Server {
 	return &Server{
 		store:                store,
 		auth:                 authService,
-		authTokenSink:        sink,
 		signupLimiter:        newSignupLimiter(5, time.Hour),
 		signupPolicy:         loadSignupPolicy(),
 		logger:               cloudlogger.Nop(),
@@ -71,7 +66,7 @@ func newServer(store Store, authService *auth.Service, sink AuthTokenSink) *Serv
 }
 
 func New(store Store, authService *auth.Service) *Server {
-	return newServer(store, authService, nil)
+	return newServer(store, authService)
 }
 
 type OIDCOptions struct {
@@ -111,117 +106,6 @@ type AuthTokenDelivery struct {
 	ExpiresAt time.Time
 }
 
-type AuthTokenSink interface {
-	DeliverAuthToken(context.Context, AuthTokenDelivery) error
-}
-
-type LogAuthTokenSink struct {
-	logger *zap.Logger
-}
-
-func NewLogAuthTokenSink(logger *zap.Logger) LogAuthTokenSink {
-	return LogAuthTokenSink{logger: logger}
-}
-
-func (s LogAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthTokenDelivery) error {
-	logger := s.logger
-	if logger == nil {
-		logger = cloudlogger.Nop()
-	}
-	logger.Info(
-		"auth token delivery",
-		zap.String("purpose", delivery.Purpose),
-		zap.String("email", delivery.Email),
-		zap.String("token", delivery.Token),
-		zap.Time("expires_at", delivery.ExpiresAt.UTC()),
-	)
-	return nil
-}
-
-func authTokenSubject(purpose string) string {
-	switch purpose {
-	case "email_verification":
-		return "Verify your Realtek Connect account"
-	case "login_activation":
-		return "Sign in to Realtek Connect"
-	case "password_reset":
-		return "Reset your Realtek Connect password"
-	case "brand_cloud_owner_transfer":
-		return "Accept Realtek Connect+ brand cloud ownership"
-	case "brand_cloud_membership_invitation":
-		return "Join a Realtek Connect+ brand cloud"
-	case "product_collaborator_invitation":
-		return "Join a Realtek Connect+ Product project"
-	default:
-		return "Realtek Connect account token"
-	}
-}
-
-func buildAuthTokenBody(delivery AuthTokenDelivery, baseURL string) string {
-	var b bytes.Buffer
-	switch delivery.Purpose {
-	case "email_verification":
-		b.WriteString("Verify your Realtek Connect account with this link:\r\n\r\n")
-	case "login_activation":
-		b.WriteString("Sign in to Realtek Connect with this link:\r\n\r\n")
-	case "password_reset":
-		b.WriteString("Reset your Realtek Connect password with this link:\r\n\r\n")
-	case "brand_cloud_owner_transfer":
-		b.WriteString("Accept Realtek Connect+ brand cloud ownership with this link:\r\n\r\n")
-	case "brand_cloud_membership_invitation":
-		b.WriteString("Accept your Realtek Connect+ brand cloud invitation with this link:\r\n\r\n")
-	case "product_collaborator_invitation":
-		b.WriteString("Accept your Realtek Connect+ Product project invitation with this link:\r\n\r\n")
-	default:
-		b.WriteString("Use this Realtek Connect account token:\r\n\r\n")
-	}
-	if link := authTokenLink(delivery.Purpose, delivery.Token, delivery.Email, baseURL); link != "" {
-		fmt.Fprintf(&b, "%s\r\n\r\n", link)
-	}
-	fmt.Fprintf(&b, "Token: %s\r\n", delivery.Token)
-	if !delivery.ExpiresAt.IsZero() {
-		fmt.Fprintf(&b, "Expires: %s\r\n", delivery.ExpiresAt.UTC().Format(time.RFC3339))
-	}
-	b.WriteString("\r\nIf you did not request this email, you can ignore it.\r\n")
-	return b.String()
-}
-
-func authTokenLink(purpose, token, email, baseURL string) string {
-	if strings.TrimSpace(baseURL) == "" {
-		return ""
-	}
-	path := "/login/activate"
-	switch purpose {
-	case "email_verification":
-		path = "/signup/verify"
-	case "login_activation":
-		path = "/login/activate"
-	case "password_reset":
-		path = "/reset-password"
-	case "brand_cloud_owner_transfer":
-		path = "/brand-cloud-owner-transfer/accept"
-	case "brand_cloud_membership_invitation":
-		path = "/brand-cloud-member-invitation/accept"
-	case "product_collaborator_invitation":
-		path = "/product-collaborator-invitation/accept"
-	}
-	u, err := url.Parse(strings.TrimRight(strings.TrimSpace(baseURL), "/") + path)
-	if err != nil {
-		return ""
-	}
-	q := u.Query()
-	q.Set("token", token)
-	if purpose == "password_reset" && strings.TrimSpace(email) != "" {
-		q.Set("email", strings.TrimSpace(email))
-	}
-	u.RawQuery = q.Encode()
-	return u.String()
-}
-
-func NewWithAuthTokenSink(store Store, authService *auth.Service, sink AuthTokenSink) *Server {
-	return newServer(store, authService, sink)
-}
-
 func (s *Server) ConfigureAppCertificateIssuer(issuer AppCertificateIssuer) {
 	s.appCertificateIssuer = issuer
 }
@@ -238,76 +122,6 @@ func (s *Server) ConfigureProductionJWT(secret, audience string) {
 	}
 }
 
-type QuotaRaiseNotificationDelivery struct {
-	RecipientEmail   string
-	RecipientName    *string
-	OrganizationID   string
-	OrganizationName string
-	RequestedQuota   int
-	ApprovedQuota    *int
-	DecisionReason   *string
-	Decision         string
-}
-
-type QuotaRaiseNotificationSink interface {
-	DeliverQuotaRaiseNotification(context.Context, QuotaRaiseNotificationDelivery) error
-}
-
-type LogQuotaRaiseNotificationSink struct {
-	logger *zap.Logger
-}
-
-func NewLogQuotaRaiseNotificationSink(logger *zap.Logger) LogQuotaRaiseNotificationSink {
-	return LogQuotaRaiseNotificationSink{logger: logger}
-}
-
-func (s LogQuotaRaiseNotificationSink) DeliverQuotaRaiseNotification(_ context.Context, delivery QuotaRaiseNotificationDelivery) error {
-	logger := s.logger
-	if logger == nil {
-		logger = cloudlogger.Nop()
-	}
-	fields := []zap.Field{
-		zap.String("decision", delivery.Decision),
-		zap.String("email", delivery.RecipientEmail),
-		zap.String("org_id", delivery.OrganizationID),
-		zap.String("org_name", delivery.OrganizationName),
-		zap.Int("requested_quota", delivery.RequestedQuota),
-	}
-	if delivery.ApprovedQuota != nil {
-		fields = append(fields, zap.Int("approved_quota", *delivery.ApprovedQuota))
-	}
-	logger.Info(
-		"quota raise notification",
-		fields...,
-	)
-	return nil
-}
-
-func buildQuotaRaiseNotificationBody(delivery QuotaRaiseNotificationDelivery) string {
-	var b bytes.Buffer
-	fmt.Fprintf(&b, "Quota raise decision: %s\r\n", delivery.Decision)
-	fmt.Fprintf(&b, "Organization: %s (%s)\r\n", delivery.OrganizationName, delivery.OrganizationID)
-	if delivery.RecipientName != nil && strings.TrimSpace(*delivery.RecipientName) != "" {
-		fmt.Fprintf(&b, "Requester: %s <%s>\r\n", strings.TrimSpace(*delivery.RecipientName), delivery.RecipientEmail)
-	} else {
-		fmt.Fprintf(&b, "Requester: <%s>\r\n", delivery.RecipientEmail)
-	}
-	fmt.Fprintf(&b, "Requested quota: %d\r\n", delivery.RequestedQuota)
-	if delivery.ApprovedQuota != nil {
-		fmt.Fprintf(&b, "Approved quota: %d\r\n", *delivery.ApprovedQuota)
-	}
-	if delivery.DecisionReason != nil && strings.TrimSpace(*delivery.DecisionReason) != "" {
-		fmt.Fprintf(&b, "Decision reason: %s\r\n", strings.TrimSpace(*delivery.DecisionReason))
-	}
-	return b.String()
-}
-
-func NewWithAuthTokenAndNotificationSink(store Store, authService *auth.Service, authSink AuthTokenSink, notificationSink QuotaRaiseNotificationSink) *Server {
-	server := newServer(store, authService, authSink)
-	server.quotaRaiseNotificationSink = notificationSink
-	return server
-}
-
 func (s *Server) SetLogger(logger *zap.Logger) {
 	if logger == nil {
 		logger = cloudlogger.Nop()
@@ -319,6 +133,20 @@ func (s *Server) ConfigureEmailOutbox(repository emailOutboxPersistence) {
 	s.emailOutboxStore = repository
 }
 
+func (s *Server) requireEmailOutbox(c *gin.Context) bool {
+	if s.emailOutboxStore != nil {
+		return true
+	}
+	writeError(c, http.StatusInternalServerError, "email_outbox_unavailable", "Email delivery is unavailable")
+	return false
+}
+
+func (s *Server) notifyAuthTokenQueued(delivery AuthTokenDelivery) {
+	if s.authTokenQueuedHook != nil {
+		s.authTokenQueuedHook(delivery)
+	}
+}
+
 func (s *Server) ConfigureAuthTokenTTLs(emailVerificationTTL, passwordResetTTL time.Duration) {
 	if emailVerificationTTL > 0 {
 		s.emailVerificationTTL = emailVerificationTTL
@@ -326,18 +154,6 @@ func (s *Server) ConfigureAuthTokenTTLs(emailVerificationTTL, passwordResetTTL t
 	if passwordResetTTL > 0 {
 		s.passwordResetTTL = passwordResetTTL
 	}
-}
-
-func (s *Server) logDeliveryFailure(purpose, email string, err error) {
-	logger := s.logger
-	if logger == nil {
-		logger = cloudlogger.Nop()
-	}
-	logger.Warn("auth token delivery failed",
-		zap.String("purpose", purpose),
-		zap.String("email", email),
-		zap.Error(err),
-	)
 }
 
 func (s *Server) requestLogger() gin.HandlerFunc {
@@ -624,7 +440,7 @@ func (s *Server) register(c *gin.Context) {
 		return
 	}
 	if _, _, err := s.issueAuthToken(c, result.User.ID, result.User.Email, "email_verification"); err != nil {
-		writeError(c, http.StatusInternalServerError, "token_delivery_failed", "Could not deliver verification token")
+		writeError(c, http.StatusInternalServerError, "email_enqueue_failed", "Could not queue verification email")
 		return
 	}
 	tokens, err := s.issueTokens(c, result.User.ID)
@@ -680,7 +496,7 @@ func (s *Server) signIn(c *gin.Context) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	_, err := s.issueAuthTokenForEmail(c, email, "login_activation")
 	if err != nil {
-		if errors.Is(err, store.ErrRateLimited) {
+		if enumerationSafeEmailIssueError(err) {
 			c.Status(http.StatusAccepted)
 			return
 		}
@@ -1146,7 +962,7 @@ func (s *Server) resendVerification(c *gin.Context) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	_, err := s.issueAuthTokenForEmail(c, email, "email_verification")
 	if err != nil {
-		if errors.Is(err, store.ErrRateLimited) {
+		if enumerationSafeEmailIssueError(err) {
 			c.Status(http.StatusAccepted)
 			return
 		}
@@ -1164,7 +980,7 @@ func (s *Server) forgotPassword(c *gin.Context) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	_, err := s.issueAuthTokenForEmail(c, email, "password_reset")
 	if err != nil {
-		if errors.Is(err, store.ErrRateLimited) {
+		if enumerationSafeEmailIssueError(err) {
 			c.Status(http.StatusAccepted)
 			return
 		}
@@ -1172,6 +988,12 @@ func (s *Server) forgotPassword(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusAccepted)
+}
+
+func enumerationSafeEmailIssueError(err error) bool {
+	return errors.Is(err, store.ErrRateLimited) ||
+		errors.Is(err, ErrEmailOutboxUnavailable) ||
+		errors.Is(err, store.ErrEmailOutboxEncryptionUnavailable)
 }
 
 type resetPasswordRequest struct {
@@ -1200,58 +1022,27 @@ func (s *Server) resetPassword(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"email": email})
 }
 
-func (s *Server) createAuthToken(c *gin.Context, userID, purpose string) (string, time.Time, error) {
-	token, expiresAt, err := s.newAuthToken(purpose)
-	if err != nil {
-		return "", time.Time{}, err
-	}
-	tokenHash := auth.HashToken(token)
-	switch purpose {
-	case "email_verification":
-		return token, expiresAt, s.store.CreateEmailVerificationToken(c.Request.Context(), userID, tokenHash, expiresAt)
-	case "password_reset":
-		return token, expiresAt, s.store.CreatePasswordResetToken(c.Request.Context(), userID, tokenHash, expiresAt)
-	case "login_activation":
-		return token, expiresAt, s.store.CreateLoginActivationToken(c.Request.Context(), userID, tokenHash, expiresAt)
-	default:
-		return "", time.Time{}, errors.New("unsupported token purpose")
-	}
-}
-
 func (s *Server) issueAuthToken(c *gin.Context, userID, email, purpose string) (string, time.Time, error) {
+	if s.emailOutboxStore == nil {
+		return "", time.Time{}, ErrEmailOutboxUnavailable
+	}
 	token, expiresAt, err := s.newAuthToken(purpose)
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	if s.emailOutboxStore != nil {
-		err = s.emailOutboxStore.CreateAuthTokenAndEmail(
-			c.Request.Context(),
-			userID,
-			purpose,
-			auth.HashToken(token),
-			expiresAt,
-			authTokenEmailOutbox(email, purpose, token, expiresAt),
-		)
-		return token, expiresAt, err
-	}
-	if _, _, err := s.createAuthTokenWithValue(c, userID, purpose, token, expiresAt); err != nil {
+	err = s.emailOutboxStore.CreateAuthTokenAndEmail(
+		c.Request.Context(),
+		userID,
+		purpose,
+		auth.HashToken(token),
+		expiresAt,
+		authTokenEmailOutbox(email, purpose, token, expiresAt),
+	)
+	if err != nil {
 		return "", time.Time{}, err
 	}
-	return token, expiresAt, s.deliverAuthToken(c, email, purpose, token, expiresAt)
-}
-
-func (s *Server) createAuthTokenWithValue(c *gin.Context, userID, purpose, token string, expiresAt time.Time) (string, time.Time, error) {
-	tokenHash := auth.HashToken(token)
-	switch purpose {
-	case "email_verification":
-		return token, expiresAt, s.store.CreateEmailVerificationToken(c.Request.Context(), userID, tokenHash, expiresAt)
-	case "password_reset":
-		return token, expiresAt, s.store.CreatePasswordResetToken(c.Request.Context(), userID, tokenHash, expiresAt)
-	case "login_activation":
-		return token, expiresAt, s.store.CreateLoginActivationToken(c.Request.Context(), userID, tokenHash, expiresAt)
-	default:
-		return "", time.Time{}, errors.New("unsupported token purpose")
-	}
+	s.notifyAuthTokenQueued(AuthTokenDelivery{Purpose: purpose, Email: email, Token: token, ExpiresAt: expiresAt})
+	return token, expiresAt, nil
 }
 
 func authTokenEmailOutbox(email, purpose, token string, expiresAt time.Time) store.EmailOutboxInput {
@@ -1269,77 +1060,47 @@ func authTokenEmailOutbox(email, purpose, token string, expiresAt time.Time) sto
 }
 
 func (s *Server) issueAuthTokenForEmail(c *gin.Context, email, purpose string) (bool, error) {
+	if s.emailOutboxStore == nil {
+		return false, ErrEmailOutboxUnavailable
+	}
 	token, expiresAt, err := s.newAuthToken(purpose)
 	if err != nil {
 		return false, err
 	}
-	if s.emailOutboxStore != nil {
-		outbox := authTokenEmailOutbox(email, purpose, token, expiresAt)
-		switch purpose {
-		case "login_activation":
-			return s.emailOutboxStore.CreateLoginActivationTokenForEmailAndEmail(c.Request.Context(), email, auth.HashToken(token), expiresAt, outbox)
-		case "password_reset":
-			return s.emailOutboxStore.CreatePasswordResetTokenForEmailAndEmail(c.Request.Context(), email, auth.HashToken(token), expiresAt, outbox)
-		case "email_verification":
-			return s.emailOutboxStore.CreateEmailVerificationTokenForEmailAndEmail(c.Request.Context(), email, auth.HashToken(token), expiresAt, outbox)
-		default:
-			return false, errors.New("unsupported token purpose")
-		}
-	}
+	outbox := authTokenEmailOutbox(email, purpose, token, expiresAt)
 	var created bool
 	switch purpose {
 	case "login_activation":
-		created, err = s.store.CreateLoginActivationTokenForEmail(c.Request.Context(), email, auth.HashToken(token), expiresAt)
+		created, err = s.emailOutboxStore.CreateLoginActivationTokenForEmailAndEmail(c.Request.Context(), email, auth.HashToken(token), expiresAt, outbox)
 	case "password_reset":
-		created, err = s.store.CreatePasswordResetTokenForEmail(c.Request.Context(), email, auth.HashToken(token), expiresAt)
+		created, err = s.emailOutboxStore.CreatePasswordResetTokenForEmailAndEmail(c.Request.Context(), email, auth.HashToken(token), expiresAt, outbox)
 	case "email_verification":
-		created, err = s.store.CreateEmailVerificationTokenForEmail(c.Request.Context(), email, auth.HashToken(token), expiresAt)
+		created, err = s.emailOutboxStore.CreateEmailVerificationTokenForEmailAndEmail(c.Request.Context(), email, auth.HashToken(token), expiresAt, outbox)
 	default:
 		return false, errors.New("unsupported token purpose")
 	}
 	if err == nil && created {
-		if deliveryErr := s.deliverAuthToken(c, email, purpose, token, expiresAt); deliveryErr != nil {
-			s.logDeliveryFailure(purpose, email, deliveryErr)
-		}
+		s.notifyAuthTokenQueued(AuthTokenDelivery{Purpose: purpose, Email: email, Token: token, ExpiresAt: expiresAt})
 	}
 	return created, err
 }
 
 func (s *Server) issueBrandCloudLoginToken(c *gin.Context, tenantSlug, email string) (bool, error) {
+	if s.emailOutboxStore == nil {
+		return false, ErrEmailOutboxUnavailable
+	}
 	token, expiresAt, err := s.newAuthToken("login_activation")
 	if err != nil {
 		return false, err
 	}
-	if s.emailOutboxStore != nil {
-		return s.emailOutboxStore.CreateBrandCloudLoginActivationTokenForEmailAndEmail(
-			c.Request.Context(), tenantSlug, email, auth.HashToken(token), expiresAt,
-			authTokenEmailOutbox(email, "login_activation", token, expiresAt),
-		)
-	}
-	created, err := s.store.CreateBrandCloudLoginActivationTokenForEmail(c.Request.Context(), tenantSlug, email, auth.HashToken(token), expiresAt)
+	created, err := s.emailOutboxStore.CreateBrandCloudLoginActivationTokenForEmailAndEmail(
+		c.Request.Context(), tenantSlug, email, auth.HashToken(token), expiresAt,
+		authTokenEmailOutbox(email, "login_activation", token, expiresAt),
+	)
 	if err == nil && created {
-		if deliveryErr := s.deliverAuthToken(c, email, "login_activation", token, expiresAt); deliveryErr != nil {
-			s.logDeliveryFailure("login_activation", email, deliveryErr)
-		}
+		s.notifyAuthTokenQueued(AuthTokenDelivery{Purpose: "login_activation", Email: email, Token: token, ExpiresAt: expiresAt})
 	}
 	return created, err
-}
-
-func (s *Server) deliverAuthToken(c *gin.Context, email, purpose, token string, expiresAt time.Time) error {
-	if s.authTokenSink == nil {
-		s.logAuthTokenDeliveryFailure(c, email, purpose, ErrAuthTokenSinkUnavailable)
-		return ErrAuthTokenSinkUnavailable
-	}
-	err := s.authTokenSink.DeliverAuthToken(c.Request.Context(), AuthTokenDelivery{
-		Purpose:   purpose,
-		Email:     email,
-		Token:     token,
-		ExpiresAt: expiresAt,
-	})
-	if err != nil {
-		s.logAuthTokenDeliveryFailure(c, email, purpose, err)
-	}
-	return err
 }
 
 func (s *Server) newAuthToken(purpose string) (string, time.Time, error) {
@@ -1355,30 +1116,6 @@ func (s *Server) newAuthToken(purpose string) (string, time.Time, error) {
 		ttl = s.passwordResetTTL
 	}
 	return token, time.Now().UTC().Add(ttl), nil
-}
-
-func (s *Server) logAuthTokenDeliveryFailure(c *gin.Context, email, purpose string, err error) {
-	logger := s.logger
-	if logger == nil {
-		logger = cloudlogger.Nop()
-	}
-	fields := []zap.Field{
-		zap.String("purpose", purpose),
-		zap.String("email_domain", emailDomain(email)),
-		zap.Error(err),
-	}
-	if requestID := c.GetString("request_id"); requestID != "" {
-		fields = append(fields, zap.String("request_id", requestID))
-	}
-	logger.Error("auth token delivery failed", fields...)
-}
-
-func emailDomain(email string) string {
-	_, domain, ok := strings.Cut(strings.ToLower(strings.TrimSpace(email)), "@")
-	if !ok {
-		return ""
-	}
-	return domain
 }
 
 func (s *Server) logout(c *gin.Context) {

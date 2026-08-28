@@ -48,7 +48,7 @@ Remaining post-v2 contract follow-up gaps for this milestone snapshot:
 - Implement the already-defined transfer, reclaim, and factory-reset policy for already-claimed devices.
 - Define the unified cross-service product-readiness composition boundary beyond account-manager's current account-side readiness projection.
 - Add operational lifecycle visibility around retry, dead-letter, and latency counts without requiring direct SQL.
-- Harden production-like deployment evidence for backup freshness, restore drills, smoke checks, email delivery mode, and broker mode.
+- Harden production-like deployment evidence for backup freshness, restore drills, smoke checks, Send Mail HTTP delivery, and broker mode.
 - Keep this repo's contract docs explicit that `DELETE /devices/:deviceId` remains registry-only while product teardown still requires `POST /deactivate`, unless product policy changes later.
 
 ## Milestone And Issue Map

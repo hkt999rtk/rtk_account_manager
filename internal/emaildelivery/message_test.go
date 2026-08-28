@@ -8,7 +8,9 @@ import (
 
 func TestRendererBuildsAllTemplates(t *testing.T) {
 	now := time.Date(2026, 7, 25, 10, 0, 0, 0, time.UTC)
-	renderer := Renderer{BaseURL: "https://account.realtekconnect.com"}
+	renderer := Renderer{
+		BaseURL: "https://account.realtekconnect.com",
+	}
 	approved := 25
 	reason := "Approved for launch"
 	tests := []struct {
@@ -22,6 +24,7 @@ func TestRendererBuildsAllTemplates(t *testing.T) {
 		{"password_reset", Payload{RecipientEmail: "user@example.com", Token: "token"}, "/reset-password?email=user%40example.com"},
 		{"brand_cloud_owner_transfer", Payload{RecipientEmail: "user@example.com", Token: "token"}, "/brand-cloud-owner-transfer/accept"},
 		{"brand_cloud_membership_invitation", Payload{RecipientEmail: "user@example.com", Token: "token"}, "/brand-cloud-member-invitation/accept"},
+		{"product_collaborator_invitation", Payload{RecipientEmail: "user@example.com", Token: "token"}, "/product-collaborator-invitation/accept"},
 		{"quota_approved", Payload{RecipientEmail: "user@example.com", OrganizationName: "Acme", OrganizationID: "org-1", RequestedQuota: 20, ApprovedQuota: &approved, DecisionReason: &reason}, "Approved quota: 25"},
 		{"quota_declined", Payload{RecipientEmail: "user@example.com", OrganizationName: "Acme", OrganizationID: "org-1", RequestedQuota: 20, DecisionReason: &reason}, "Quota raise decision: declined"},
 	}
@@ -41,7 +44,7 @@ func TestRendererBuildsAllTemplates(t *testing.T) {
 	}
 }
 
-func TestRendererBuildsStructuredMessage(t *testing.T) {
+func TestRendererBuildsStructuredSendMailHTTPMessage(t *testing.T) {
 	message, err := (Renderer{BaseURL: "https://account.example.com"}).Render(
 		"outbox-1",
 		"email_verification",
@@ -147,5 +150,14 @@ func TestAuthEmailHTMLEscapesContent(t *testing.T) {
 		if !strings.Contains(got, escaped) {
 			t.Errorf("authEmailHTML does not contain escaped value %q:\n%s", escaped, got)
 		}
+	}
+}
+
+func TestRendererRejectsHeaderInjection(t *testing.T) {
+	renderer := Renderer{BaseURL: "https://example.com"}
+	if _, err := renderer.Render("id\r\nBcc: victim@example.com", "email_verification", Payload{
+		RecipientEmail: "user@example.com", Token: "token",
+	}); err == nil {
+		t.Fatal("header injection unexpectedly accepted")
 	}
 }

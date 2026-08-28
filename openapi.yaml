@@ -170,7 +170,7 @@ paths:
         - REQ-AM-EMAIL-DELIVERY-001
         - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Request an email sign-in activation token.
-      description: Returns the same `202 Accepted` status for unknown, disabled, pending, and throttled users to avoid account enumeration. Raw tokens are delivered only by the configured server-side AuthTokenSink and are never returned in the HTTP response.
+      description: Returns the same `202 Accepted` status for unknown, disabled, pending, and throttled users to avoid account enumeration. Raw tokens are transactionally written to the encrypted email outbox, delivered by the email worker through Send Mail HTTP, and never returned in the HTTP response.
       requestBody:
         required: true
         content:
@@ -267,7 +267,7 @@ paths:
       x-rtk-requirement-ids:
         - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Issue a replacement email verification token.
-      description: Returns the same status for unknown, already verified, disabled, or throttled users to avoid account enumeration. Token delivery is owned by the configured server-side AuthTokenSink adapter, not by the HTTP response body.
+      description: Returns the same status for unknown, already verified, disabled, or throttled users to avoid account enumeration. Tokens are transactionally written to the encrypted email outbox and delivered by the email worker through Send Mail HTTP, not by the HTTP response body.
       requestBody:
         required: true
         content:
@@ -288,7 +288,7 @@ paths:
       x-rtk-requirement-ids:
         - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Issue a self-service password reset token.
-      description: Returns the same status for unknown, disabled, or throttled users to avoid account enumeration. Token delivery is owned by the configured server-side AuthTokenSink adapter, not by the HTTP response body.
+      description: Returns the same status for unknown, disabled, or throttled users to avoid account enumeration. Tokens are transactionally written to the encrypted email outbox and delivered by the email worker through Send Mail HTTP, not by the HTTP response body.
       requestBody:
         required: true
         content:
@@ -450,7 +450,7 @@ paths:
       x-rtk-requirement-ids:
         - REQ-E2E-CA-SIGNUP-EMAIL-001
       summary: Request a tenant-scoped brand-cloud email sign-in activation token.
-      description: Returns the same `202 Accepted` status for unknown, disabled, pending, tenant-mismatched, and throttled users to avoid account enumeration. Raw tokens are delivered only by the configured server-side AuthTokenSink.
+      description: Returns the same `202 Accepted` status for unknown, disabled, pending, tenant-mismatched, and throttled users to avoid account enumeration. Raw tokens are transactionally written to the encrypted email outbox and delivered by the email worker through Send Mail HTTP.
       parameters:
         - $ref: "#/components/parameters/TenantSlug"
       requestBody:

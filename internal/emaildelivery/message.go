@@ -1,6 +1,7 @@
 package emaildelivery
 
 import (
+	"errors"
 	"fmt"
 	"html"
 	"net/mail"
@@ -20,10 +21,13 @@ type Renderer struct {
 	BaseURL string
 }
 
-func (r Renderer) Render(_ string, messageType string, payload Payload) (Message, error) {
+func (r Renderer) Render(outboxID, messageType string, payload Payload) (Message, error) {
 	to, err := mail.ParseAddress(strings.TrimSpace(payload.RecipientEmail))
 	if err != nil {
 		return Message{}, fmt.Errorf("invalid recipient: %w", err)
+	}
+	if hasHeaderBreak(outboxID) || hasHeaderBreak(messageType) {
+		return Message{}, errors.New("invalid email header value")
 	}
 	subject, textBody, htmlBody, err := r.content(messageType, payload)
 	if err != nil {
@@ -35,6 +39,10 @@ func (r Renderer) Render(_ string, messageType string, payload Payload) (Message
 		Text:      textBody,
 		HTML:      htmlBody,
 	}, nil
+}
+
+func hasHeaderBreak(value string) bool {
+	return strings.ContainsAny(value, "\r\n")
 }
 
 func (r Renderer) content(messageType string, payload Payload) (string, string, string, error) {
@@ -52,6 +60,8 @@ func (r Renderer) content(messageType string, payload Payload) (string, string, 
 		subject, intro = "Accept Realtek Connect+ brand cloud ownership", "Accept the Realtek Connect+ brand cloud ownership transfer"
 	case "brand_cloud_membership_invitation":
 		subject, intro = "Join a Realtek Connect+ Brand Cloud", "Accept your Realtek Connect+ Brand Cloud membership invitation"
+	case "product_collaborator_invitation":
+		subject, intro = "Join a Realtek Connect+ Product project", "Accept your Realtek Connect+ Product project invitation"
 	case "quota_approved", "quota_declined":
 		decision := strings.TrimPrefix(messageType, "quota_")
 		subject = "Quota raise " + decision
@@ -258,6 +268,8 @@ func (r Renderer) authLink(messageType, token, recipientEmail, tenantSlug string
 		path = "/brand-cloud-owner-transfer/accept"
 	case "brand_cloud_membership_invitation":
 		path = "/brand-cloud-member-invitation/accept"
+	case "product_collaborator_invitation":
+		path = "/product-collaborator-invitation/accept"
 	case "brand_cloud_user_activation":
 		path = "/brand-cloud/activate"
 	}
