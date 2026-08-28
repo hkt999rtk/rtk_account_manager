@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -36,6 +37,9 @@ const (
 	chipsetManifestMaxEndpoints = 64
 	chipsetManifestMaxModels    = 256
 )
+
+var chipsetPackageKeyPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+var chipsetLanguagePattern = regexp.MustCompile(`^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$`)
 
 type ChipsetManifestFetcher interface {
 	ValidateURL(string) error
@@ -219,6 +223,7 @@ func (f *httpChipsetManifestFetcher) Fetch(ctx context.Context, provider model.C
 }
 
 type chipsetManifestV1 struct {
+	Schema          string `json:"$schema"`
 	ManifestVersion string `json:"manifest_version"`
 	Provider        struct {
 		Name      string `json:"name"`
@@ -230,8 +235,119 @@ type chipsetManifestV1 struct {
 		Name        string                    `json:"name"`
 		Family      string                    `json:"family"`
 		Description string                    `json:"description"`
+		Resources   []model.ChipsetEndpoint   `json:"resources"`
 		SDKReleases []model.ChipsetSDKRelease `json:"sdk_releases"`
 	} `json:"chipsets"`
+}
+
+// ValidateChipsetResourcePackage validates the stricter one-chipset authoring
+// profile. Runtime parsing remains compatible with older v1 provider manifests.
+func ValidateChipsetResourcePackage(raw []byte) error {
+	if err := validateChipsetPackageRequiredFields(raw); err != nil {
+		return err
+	}
+	var manifest chipsetManifestV1
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return fmt.Errorf("%w: %v", errChipsetManifestInvalid, err)
+	}
+	if strings.TrimSpace(manifest.Schema) == "" || len(manifest.Chipsets) != 1 || !chipsetPackageKeyPattern.MatchString(strings.TrimSpace(manifest.Chipsets[0].ChipsetKey)) {
+		return fmt.Errorf("%w: package requires $schema, one chipset, and a stable lowercase chipset_key", errChipsetManifestInvalid)
+	}
+	for _, resource := range manifest.Chipsets[0].Resources {
+		if err := validateChipsetLinkGovernance(resource); err != nil {
+			return err
+		}
+	}
+	for _, release := range manifest.Chipsets[0].SDKReleases {
+		for _, endpoint := range release.Endpoints {
+			if err := validateChipsetLinkGovernance(endpoint); err != nil {
+				return err
+			}
+		}
+	}
+	_, _, err := parseChipsetManifest("00000000-0000-0000-0000-000000000000", raw)
+	return err
+}
+
+func validateChipsetPackageRequiredFields(raw []byte) error {
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &document); err != nil {
+		return fmt.Errorf("%w: %v", errChipsetManifestInvalid, err)
+	}
+	for _, field := range []string{"$schema", "manifest_version", "provider", "chipsets"} {
+		if _, ok := document[field]; !ok {
+			return fmt.Errorf("%w: package is missing %s", errChipsetManifestInvalid, field)
+		}
+	}
+	var chipsets []map[string]json.RawMessage
+	if err := json.Unmarshal(document["chipsets"], &chipsets); err != nil || len(chipsets) != 1 {
+		return fmt.Errorf("%w: package must contain exactly one chipset", errChipsetManifestInvalid)
+	}
+	for _, field := range []string{"chipset_key", "vendor", "name", "resources", "sdk_releases"} {
+		if _, ok := chipsets[0][field]; !ok {
+			return fmt.Errorf("%w: chipset is missing %s", errChipsetManifestInvalid, field)
+		}
+	}
+	var resources []map[string]json.RawMessage
+	if err := json.Unmarshal(chipsets[0]["resources"], &resources); err != nil {
+		return fmt.Errorf("%w: resources must be an array", errChipsetManifestInvalid)
+	}
+	if err := validateChipsetPackageLinkFields(resources); err != nil {
+		return err
+	}
+	var releases []map[string]json.RawMessage
+	if err := json.Unmarshal(chipsets[0]["sdk_releases"], &releases); err != nil {
+		return fmt.Errorf("%w: sdk_releases must be an array", errChipsetManifestInvalid)
+	}
+	for _, release := range releases {
+		for _, field := range []string{"name", "version", "recommended", "supported_models", "endpoints"} {
+			if _, ok := release[field]; !ok {
+				return fmt.Errorf("%w: SDK release is missing %s", errChipsetManifestInvalid, field)
+			}
+		}
+		var endpoints []map[string]json.RawMessage
+		if err := json.Unmarshal(release["endpoints"], &endpoints); err != nil {
+			return fmt.Errorf("%w: endpoints must be an array", errChipsetManifestInvalid)
+		}
+		if err := validateChipsetPackageLinkFields(endpoints); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateChipsetPackageLinkFields(links []map[string]json.RawMessage) error {
+	for _, link := range links {
+		for _, field := range []string{"type", "title", "url", "source", "languages", "verified_at"} {
+			if _, ok := link[field]; !ok {
+				return fmt.Errorf("%w: resource is missing %s", errChipsetManifestInvalid, field)
+			}
+		}
+	}
+	return nil
+}
+
+func validateChipsetLinkGovernance(link model.ChipsetEndpoint) error {
+	if link.Source != "official" && link.Source != "community" {
+		return fmt.Errorf("%w: resource source must be official or community", errChipsetManifestInvalid)
+	}
+	if len(link.Languages) == 0 {
+		return fmt.Errorf("%w: resource languages are required", errChipsetManifestInvalid)
+	}
+	seenLanguages := map[string]struct{}{}
+	for _, language := range link.Languages {
+		if !chipsetLanguagePattern.MatchString(language) {
+			return fmt.Errorf("%w: invalid resource language", errChipsetManifestInvalid)
+		}
+		if _, exists := seenLanguages[language]; exists {
+			return fmt.Errorf("%w: duplicate resource language", errChipsetManifestInvalid)
+		}
+		seenLanguages[language] = struct{}{}
+	}
+	if _, err := time.Parse(time.RFC3339, link.VerifiedAt); err != nil {
+		return fmt.Errorf("%w: invalid resource verified_at", errChipsetManifestInvalid)
+	}
+	return nil
 }
 
 func parseChipsetManifest(providerID string, raw []byte) ([]model.DeveloperChipset, string, error) {
@@ -263,6 +379,12 @@ func parseChipsetManifest(providerID string, raw []byte) ([]model.DeveloperChips
 		}
 		seenChipsets[key] = struct{}{}
 		seenReleases := map[string]struct{}{}
+		if len(source.Resources) > chipsetManifestMaxEndpoints {
+			return nil, "", errChipsetManifestInvalid
+		}
+		if err := normalizeChipsetLinks(source.Resources); err != nil {
+			return nil, "", err
+		}
 		recommended := 0
 		for releaseIndex := range source.SDKReleases {
 			release := &source.SDKReleases[releaseIndex]
@@ -285,15 +407,8 @@ func parseChipsetManifest(providerID string, raw []byte) ([]model.DeveloperChips
 			if release.Recommended {
 				recommended++
 			}
-			for endpointIndex := range release.Endpoints {
-				endpoint := &release.Endpoints[endpointIndex]
-				endpoint.Type = strings.TrimSpace(endpoint.Type)
-				endpoint.Title = strings.TrimSpace(endpoint.Title)
-				endpoint.URL = strings.TrimSpace(endpoint.URL)
-				u, err := url.Parse(endpoint.URL)
-				if endpoint.Type == "" || endpoint.Title == "" || err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil {
-					return nil, "", fmt.Errorf("%w: invalid endpoint", errChipsetManifestInvalid)
-				}
+			if err := normalizeChipsetLinks(release.Endpoints); err != nil {
+				return nil, "", err
 			}
 		}
 		if recommended > 1 {
@@ -303,10 +418,48 @@ func parseChipsetManifest(providerID string, raw []byte) ([]model.DeveloperChips
 			ID: stableChipsetID(providerID, key), ChipsetKey: key,
 			Vendor: strings.TrimSpace(source.Vendor), Name: strings.TrimSpace(source.Name),
 			Family: strings.TrimSpace(source.Family), Description: strings.TrimSpace(source.Description),
+			Resources:   source.Resources,
 			SDKReleases: source.SDKReleases,
 		})
 	}
 	return result, manifest.ManifestVersion, nil
+}
+
+func normalizeChipsetLinks(links []model.ChipsetEndpoint) error {
+	seen := map[string]struct{}{}
+	for index := range links {
+		link := &links[index]
+		link.Type = strings.TrimSpace(link.Type)
+		link.Title = strings.TrimSpace(link.Title)
+		link.URL = strings.TrimSpace(link.URL)
+		link.Source = strings.TrimSpace(link.Source)
+		link.VerifiedAt = strings.TrimSpace(link.VerifiedAt)
+		link.Summary = strings.TrimSpace(link.Summary)
+		u, err := url.Parse(link.URL)
+		if link.Type == "" || link.Title == "" || err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil {
+			return fmt.Errorf("%w: invalid endpoint", errChipsetManifestInvalid)
+		}
+		if link.Source != "" && link.Source != "official" && link.Source != "community" {
+			return fmt.Errorf("%w: invalid resource source", errChipsetManifestInvalid)
+		}
+		for languageIndex := range link.Languages {
+			link.Languages[languageIndex] = strings.TrimSpace(link.Languages[languageIndex])
+			if !chipsetLanguagePattern.MatchString(link.Languages[languageIndex]) {
+				return fmt.Errorf("%w: invalid resource language", errChipsetManifestInvalid)
+			}
+		}
+		if link.VerifiedAt != "" {
+			if _, err := time.Parse(time.RFC3339, link.VerifiedAt); err != nil {
+				return fmt.Errorf("%w: invalid resource verified_at", errChipsetManifestInvalid)
+			}
+		}
+		key := link.Type + "\x00" + link.URL
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("%w: duplicate resource link", errChipsetManifestInvalid)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
 }
 
 func validateJSONDepth(raw []byte, max int) error {
