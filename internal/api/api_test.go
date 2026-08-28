@@ -121,6 +121,48 @@ func TestPrometheusMetricsRoute(t *testing.T) {
 	}
 }
 
+func TestWriteOIDCErrorMapsPublicFailures(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{name: "disabled", err: auth.ErrOIDCDisabled, status: http.StatusBadRequest, code: "oidc_disabled"},
+		{name: "provider not found", err: auth.ErrOIDCProviderNotFound, status: http.StatusNotFound, code: "oidc_provider_not_found"},
+		{name: "invalid state", err: store.ErrOIDCStateInvalid, status: http.StatusBadRequest, code: "invalid_oidc_state"},
+		{name: "expired state", err: store.ErrOIDCStateExpired, status: http.StatusBadRequest, code: "invalid_oidc_state"},
+		{name: "unverified email", err: auth.ErrUnverifiedOIDCEmail, status: http.StatusBadRequest, code: "unverified_oidc_email"},
+		{name: "invalid token", err: auth.ErrInvalidOIDCToken, status: http.StatusBadRequest, code: "invalid_oidc_token"},
+		{name: "provider misconfigured", err: auth.ErrOIDCProviderMisconfigured, status: http.StatusServiceUnavailable, code: "oidc_provider_misconfigured"},
+		{name: "user not provisioned", err: errOIDCUserNotProvisioned, status: http.StatusForbidden, code: "user_not_provisioned"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(res)
+			writeOIDCError(ctx, fmt.Errorf("wrapped: %w", tt.err))
+
+			if res.Code != tt.status {
+				t.Fatalf("status = %d, want %d; body=%s", res.Code, tt.status, res.Body.String())
+			}
+			var body struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if body.Error.Code != tt.code {
+				t.Fatalf("error code = %q, want %q; body=%s", body.Error.Code, tt.code, res.Body.String())
+			}
+		})
+	}
+}
+
 func TestPrometheusMetricHelpersFormatLabelsDeterministically(t *testing.T) {
 	var b strings.Builder
 
