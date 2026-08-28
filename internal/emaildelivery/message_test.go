@@ -24,6 +24,7 @@ func TestRendererBuildsAllTemplates(t *testing.T) {
 		{"password_reset", Payload{RecipientEmail: "user@example.com", Token: "token"}, "/reset-password?email=user%40example.com"},
 		{"brand_cloud_owner_transfer", Payload{RecipientEmail: "user@example.com", Token: "token"}, "/brand-cloud-owner-transfer/accept"},
 		{"brand_cloud_membership_invitation", Payload{RecipientEmail: "user@example.com", Token: "token"}, "/brand-cloud-member-invitation/accept"},
+		{"product_collaborator_invitation", Payload{RecipientEmail: "user@example.com", Token: "token"}, "/product-collaborator-invitation/accept"},
 		{"quota_approved", Payload{RecipientEmail: "user@example.com", OrganizationName: "Acme", OrganizationID: "org-1", RequestedQuota: 20, ApprovedQuota: &approved, DecisionReason: &reason}, "Approved quota: 25"},
 		{"quota_declined", Payload{RecipientEmail: "user@example.com", OrganizationName: "Acme", OrganizationID: "org-1", RequestedQuota: 20, DecisionReason: &reason}, "Quota raise decision: declined"},
 	}

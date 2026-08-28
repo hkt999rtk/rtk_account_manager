@@ -849,28 +849,28 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
-  /v1/developer/brand-clouds/{brandCloudId}/skus/{skuId}/collaborators:
+  /v1/developer/brand-clouds/{brandCloudId}/products/{productId}/collaborators:
     parameters:
       - $ref: "#/components/parameters/BrandCloudId"
-      - { name: skuId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: productId, in: path, required: true, schema: { type: string, format: uuid } }
     get:
       tags: [Developer Brand Clouds]
-      operationId: listSKUCollaborators
-      summary: List developers assigned to a SKU project.
+      operationId: listProductCollaborators
+      summary: List developers assigned to a Product project.
       security: [{ bearerAuth: [] }]
       responses:
-        "200": { description: SKU collaborators. }
+        "200": { description: Product collaborators. }
         "401": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
-  /v1/developer/brand-clouds/{brandCloudId}/skus/{skuId}/collaborators/{userId}:
+  /v1/developer/brand-clouds/{brandCloudId}/products/{productId}/collaborators/{userId}:
     parameters:
       - $ref: "#/components/parameters/BrandCloudId"
-      - { name: skuId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: productId, in: path, required: true, schema: { type: string, format: uuid } }
       - $ref: "#/components/parameters/UserId"
     patch:
       tags: [Developer Brand Clouds]
-      operationId: updateSKUCollaborator
-      summary: Change a SKU collaborator between editor and viewer.
+      operationId: updateProductCollaborator
+      summary: Change a Product collaborator between editor and viewer.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -879,7 +879,7 @@ paths:
             schema:
               type: object
               required: [role]
-              properties: { role: { type: string, enum: [sku_editor, sku_viewer] } }
+              properties: { role: { type: string, enum: [product_editor, product_viewer] } }
       responses:
         "200": { description: Collaborator updated. }
         "400": { $ref: "#/components/responses/Error" }
@@ -887,30 +887,30 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
     delete:
       tags: [Developer Brand Clouds]
-      operationId: removeSKUCollaborator
-      summary: Remove a developer from a SKU project.
+      operationId: removeProductCollaborator
+      summary: Remove a developer from a Product project.
       security: [{ bearerAuth: [] }]
       responses:
         "204": { description: Collaborator removed. }
         "401": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
-  /v1/developer/brand-clouds/{brandCloudId}/skus/{skuId}/collaborator-invitations:
+  /v1/developer/brand-clouds/{brandCloudId}/products/{productId}/collaborator-invitations:
     parameters:
       - $ref: "#/components/parameters/BrandCloudId"
-      - { name: skuId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: productId, in: path, required: true, schema: { type: string, format: uuid } }
     get:
       tags: [Developer Brand Clouds]
-      operationId: listSKUCollaboratorInvitations
-      summary: List pending and completed SKU invitations.
+      operationId: listProductCollaboratorInvitations
+      summary: List pending and completed Product invitations.
       security: [{ bearerAuth: [] }]
       responses:
-        "200": { description: SKU collaborator invitations. }
+        "200": { description: Product collaborator invitations. }
         "401": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
     post:
       tags: [Developer Brand Clouds]
-      operationId: inviteSKUCollaborator
-      summary: Invite a registered developer to a SKU project.
+      operationId: inviteProductCollaborator
+      summary: Invite a registered developer to a Product project.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -921,22 +921,22 @@ paths:
               required: [email, role]
               properties:
                 email: { type: string, format: email }
-                role: { type: string, enum: [sku_editor, sku_viewer] }
+                role: { type: string, enum: [product_editor, product_viewer] }
       responses:
-        "202": { description: SKU invitation queued. }
+        "202": { description: Product invitation queued. }
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
-  /v1/developer/brand-clouds/{brandCloudId}/skus/{skuId}/collaborator-invitations/{invitationId}/{action}:
+  /v1/developer/brand-clouds/{brandCloudId}/products/{productId}/collaborator-invitations/{invitationId}/{action}:
     post:
       tags: [Developer Brand Clouds]
-      operationId: mutateSKUCollaboratorInvitation
-      summary: Resend or cancel a pending SKU invitation.
+      operationId: mutateProductCollaboratorInvitation
+      summary: Resend or cancel a pending Product invitation.
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/BrandCloudId"
-        - { name: skuId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: productId, in: path, required: true, schema: { type: string, format: uuid } }
         - $ref: "#/components/parameters/InvitationId"
         - { name: action, in: path, required: true, schema: { type: string, enum: [resend, cancel] } }
       responses:
@@ -945,15 +945,15 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
-  /v1/developer/brand-clouds/{brandCloudId}/skus/{skuId}/owner-transfer:
+  /v1/developer/brand-clouds/{brandCloudId}/products/{productId}/owner-transfer:
     post:
       tags: [Developer Brand Clouds]
-      operationId: transferSKUOwnership
-      summary: Transfer explicit ownership of a SKU project.
+      operationId: transferProductOwnership
+      summary: Transfer explicit ownership of a Product project.
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/BrandCloudId"
-        - { name: skuId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: productId, in: path, required: true, schema: { type: string, format: uuid } }
       requestBody:
         required: true
         content:
@@ -963,15 +963,15 @@ paths:
               required: [target_user_id]
               properties: { target_user_id: { type: string, format: uuid } }
       responses:
-        "200": { description: SKU ownership transferred. }
+        "200": { description: Product ownership transferred. }
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
-  /v1/developer/sku-collaborator-invitations/accept:
+  /v1/developer/product-collaborator-invitations/accept:
     post:
       tags: [Developer Brand Clouds]
-      operationId: acceptSKUCollaboratorInvitation
-      summary: Accept a SKU invitation as its target developer.
+      operationId: acceptProductCollaboratorInvitation
+      summary: Accept a Product invitation as its target developer.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -982,7 +982,7 @@ paths:
               required: [token]
               properties: { token: { type: string, minLength: 1 } }
       responses:
-        "200": { description: SKU assignment created. }
+        "200": { description: Product assignment created. }
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
@@ -3414,7 +3414,7 @@ paths:
         - name: scope_type
           in: query
           required: true
-          schema: { type: string, enum: [sku, region, group, device] }
+          schema: { type: string, enum: [product, region, group, device] }
         - name: scope_id
           in: query
           required: true
@@ -3552,7 +3552,7 @@ paths:
       x-rtk-feature-id: FEAT-PROV-ONBOARD-001
       x-rtk-requirement-ids:
         - REQ-E2E-PROV-ACCOUNT-001
-      summary: List production runs for an organization SKU profile.
+      summary: List production runs for an organization Product profile.
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/OrgId"
@@ -3561,7 +3561,7 @@ paths:
         - $ref: "#/components/parameters/Offset"
       responses:
         "200":
-          description: Production runs for a SKU.
+          description: Production runs for a Product.
           content:
             application/json:
               schema:
@@ -3580,7 +3580,7 @@ paths:
       x-rtk-feature-id: FEAT-PROV-ONBOARD-001
       x-rtk-requirement-ids:
         - REQ-E2E-PROV-ACCOUNT-001
-      summary: Create a production run for an organization SKU profile.
+      summary: Create a production run for an organization Product profile.
       security: [{ bearerAuth: [] }]
       parameters:
         - $ref: "#/components/parameters/OrgId"
@@ -3830,9 +3830,9 @@ paths:
         - REQ-E2E-PROV-ACCOUNT-001
       security:
         - bearerAuth: []
-      summary: List SKU profiles available to an organization.
+      summary: List Product profiles available to an organization.
       description: >
-        Returns the organization's Device Item Profiles (the canonical SKU
+        Returns the organization's Device Item Profiles (the canonical Product
         profiles) for Brand Fleet management. The response includes service
         options and device/firmware policy fields; callers must translate
         internal service identifiers into customer-facing labels.
@@ -3846,7 +3846,7 @@ paths:
         - $ref: "#/components/parameters/Offset"
       responses:
         "200":
-          description: Organization SKU profile list.
+          description: Organization Product profile list.
           content:
             application/json:
               schema:
@@ -3864,7 +3864,7 @@ paths:
       x-rtk-requirement-ids:
         - REQ-E2E-PROV-ACCOUNT-001
       security: [{ bearerAuth: [] }]
-      summary: Create a SKU profile for the organization.
+      summary: Create a Product profile for the organization.
       parameters: [{ $ref: "#/components/parameters/OrgId" }]
       requestBody:
         required: true
@@ -3873,7 +3873,7 @@ paths:
             schema: { $ref: "#/components/schemas/DeviceItemProfileRequest" }
       responses:
         "201":
-          description: SKU profile created.
+          description: Product profile created.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/DeviceItemProfileResponse" }
@@ -3890,13 +3890,13 @@ paths:
         - REQ-E2E-PROV-ACCOUNT-001
       security:
         - bearerAuth: []
-      summary: Get an organization SKU profile.
+      summary: Get an organization Product profile.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/ProfileId"
       responses:
         "200":
-          description: Organization SKU profile.
+          description: Organization Product profile.
           content:
             application/json:
               schema:
@@ -3914,7 +3914,7 @@ paths:
       x-rtk-requirement-ids:
         - REQ-E2E-PROV-ACCOUNT-001
       security: [{ bearerAuth: [] }]
-      summary: Update a SKU profile for the organization.
+      summary: Update a Product profile for the organization.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/ProfileId"
@@ -3925,7 +3925,7 @@ paths:
             schema: { $ref: "#/components/schemas/DeviceItemProfileRequest" }
       responses:
         "200":
-          description: SKU profile updated.
+          description: Product profile updated.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/DeviceItemProfileResponse" }
@@ -3939,13 +3939,13 @@ paths:
       x-rtk-requirement-ids:
         - REQ-E2E-PROV-ACCOUNT-001
       security: [{ bearerAuth: [] }]
-      summary: Disable a SKU profile for the organization.
+      summary: Disable a Product profile for the organization.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/ProfileId"
       responses:
         "200":
-          description: SKU profile disabled.
+          description: Product profile disabled.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/DeviceItemProfileResponse" }
@@ -4031,7 +4031,7 @@ paths:
         - name: q
           in: query
           schema: { type: string }
-        - name: sku_id
+        - name: product_id
           in: query
           schema: { type: string, format: uuid }
         - name: group_id
@@ -4073,7 +4073,7 @@ paths:
           schema: { type: string }
         - name: sort
           in: query
-          schema: { type: string, enum: [name, model, sku, status, updated_at, last_seen_at, created_at] }
+          schema: { type: string, enum: [name, model, product, status, updated_at, last_seen_at, created_at] }
         - name: direction
           in: query
           schema: { type: string, enum: [asc, desc], default: desc }
@@ -4104,7 +4104,7 @@ paths:
         - $ref: "#/components/parameters/OrgId"
       responses:
         "200":
-          description: Fleet counts aggregated by status, SKU, model, region, and service.
+          description: Fleet counts aggregated by status, Product, model, region, and service.
           content:
             application/json:
               schema:
@@ -5074,7 +5074,7 @@ components:
           type: string
         scope_type:
           type: string
-          enum: [platform, organization, sku, region, group, device]
+          enum: [platform, organization, product, region, group, device]
         scope_id:
           type: string
         organization_id:
@@ -5105,7 +5105,7 @@ components:
           minLength: 1
         scope_type:
           type: string
-          enum: [organization, sku, region, group, device]
+          enum: [organization, product, region, group, device]
         scope_id:
           type: string
         organization_id:
@@ -6900,7 +6900,7 @@ components:
         device_item_profile_id:
           type: string
           format: uuid
-          description: Canonical SKU/device profile assigned during the provision or claim flow.
+          description: Canonical Product/device profile assigned during the provision or claim flow.
         name:
           type: string
         category:
@@ -6932,13 +6932,13 @@ components:
           format: date-time
     FleetSummary:
       type: object
-      required: [total, by_status, by_sku, by_model, by_firmware, by_region, service_enabled, updated_at]
+      required: [total, by_status, by_product, by_model, by_firmware, by_region, service_enabled, updated_at]
       properties:
         total: { type: integer, minimum: 0 }
         by_status:
           type: object
           additionalProperties: { type: integer, minimum: 0 }
-        by_sku:
+        by_product:
           type: object
           additionalProperties: { type: integer, minimum: 0 }
         by_model:
@@ -6953,12 +6953,12 @@ components:
         service_enabled:
           type: object
           additionalProperties: { type: integer, minimum: 0 }
-        by_sku_region:
+        by_product_region:
           type: object
           additionalProperties:
             type: object
             additionalProperties: { type: integer, minimum: 0 }
-        by_sku_firmware:
+        by_product_firmware:
           type: object
           additionalProperties:
             type: object

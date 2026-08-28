@@ -113,11 +113,11 @@ func (s *Server) getDeveloperBrandCloud(c *gin.Context) {
 }
 
 func developerCapabilitiesForRole(role model.Role) []string {
-	read := []string{"fleet.read", "sku.read", "firmware.release.read", "ota.plan.read", "reports.read", "team.read", "provisioning.read"}
+	read := []string{"fleet.read", "product.read", "firmware.release.read", "ota.plan.read", "reports.read", "team.read", "provisioning.read"}
 	if role == model.RoleMember {
 		return read
 	}
-	capabilities := append(read, "fleet.device.manage", "fleet.batch.manage", "sku.manage", "sku.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "provisioning.create", "pki.test.issue")
+	capabilities := append(read, "fleet.device.manage", "fleet.batch.manage", "product.manage", "product.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "provisioning.create", "pki.test.issue")
 	if role == model.RoleOwner {
 		capabilities = append(capabilities, "team.manage")
 	}
@@ -131,7 +131,7 @@ func (s *Server) developerCapabilitiesForUser(ctx context.Context, userID, brand
 	}
 	allowed, err := s.store.HasUserPermissionAnyResource(ctx, userID, brandCloudID, "registry_device.manage")
 	if err == nil && allowed {
-		capabilities = append(capabilities, "fleet.device.manage", "fleet.batch.manage", "sku.manage", "sku.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "provisioning.create")
+		capabilities = append(capabilities, "fleet.device.manage", "fleet.batch.manage", "product.manage", "product.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "provisioning.create")
 	}
 	return capabilities
 }

@@ -12,17 +12,17 @@ import (
 	"rtk_account_manager/internal/store"
 )
 
-func TestValidSKUCollaboratorRole(t *testing.T) {
+func TestValidProductCollaboratorRole(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	for _, role := range []string{store.SKUEditorRole, store.SKUViewerRole} {
+	for _, role := range []string{store.ProductEditorRole, store.ProductViewerRole} {
 		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
-		if !validSKUCollaboratorRole(ctx, role) {
+		if !validProductCollaboratorRole(ctx, role) {
 			t.Fatalf("valid role %q was rejected", role)
 		}
 	}
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
-	if validSKUCollaboratorRole(ctx, store.SKUOwnerRole) {
+	if validProductCollaboratorRole(ctx, store.ProductOwnerRole) {
 		t.Fatal("owner role was accepted as a collaborator role")
 	}
 	if recorder.Code != http.StatusBadRequest {

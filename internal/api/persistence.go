@@ -26,22 +26,22 @@ type Store interface {
 	brandCloudPersistence
 	auditPersistence
 	chipsetProviderPersistence
-	skuCollaborationPersistence
+	productCollaborationPersistence
 }
 
-type skuCollaborationPersistence interface {
-	CanManageSKUCollaborators(ctx context.Context, actorUserID, brandCloudID, skuID string) (bool, error)
-	GetSKUCollaboratorRole(ctx context.Context, brandCloudUserID, brandCloudID, skuID string) (string, error)
-	GetUserSKUCollaboratorRole(ctx context.Context, userID, brandCloudID, skuID string) (string, error)
-	ListSKUCollaborators(ctx context.Context, brandCloudID, skuID string) ([]model.SKUCollaborator, error)
-	CreateSKUCollaboratorInvitation(ctx context.Context, in store.SKUCollaboratorInvitationInput, now time.Time) (model.SKUCollaboratorInvitation, bool, error)
-	ListSKUCollaboratorInvitations(ctx context.Context, brandCloudID, skuID string, now time.Time) ([]model.SKUCollaboratorInvitation, error)
-	ResendSKUCollaboratorInvitation(ctx context.Context, in store.SKUCollaboratorInvitationMutation, now time.Time) (model.SKUCollaboratorInvitation, error)
-	CancelSKUCollaboratorInvitation(ctx context.Context, in store.SKUCollaboratorInvitationMutation, now time.Time) (model.SKUCollaboratorInvitation, error)
-	AcceptSKUCollaboratorInvitation(ctx context.Context, targetUserID, tokenHash string, now time.Time) (model.SKUCollaboratorInvitation, error)
-	UpdateSKUCollaborator(ctx context.Context, actorUserID, brandCloudID, skuID, targetUserID, role string) (model.SKUCollaborator, error)
-	RemoveSKUCollaborator(ctx context.Context, actorUserID, brandCloudID, skuID, targetUserID string) error
-	TransferSKUOwnership(ctx context.Context, actorUserID, brandCloudID, skuID, targetUserID string) error
+type productCollaborationPersistence interface {
+	CanManageProductCollaborators(ctx context.Context, actorUserID, brandCloudID, productID string) (bool, error)
+	GetProductCollaboratorRole(ctx context.Context, brandCloudUserID, brandCloudID, productID string) (string, error)
+	GetUserProductCollaboratorRole(ctx context.Context, userID, brandCloudID, productID string) (string, error)
+	ListProductCollaborators(ctx context.Context, brandCloudID, productID string) ([]model.ProductCollaborator, error)
+	CreateProductCollaboratorInvitation(ctx context.Context, in store.ProductCollaboratorInvitationInput, now time.Time) (model.ProductCollaboratorInvitation, bool, error)
+	ListProductCollaboratorInvitations(ctx context.Context, brandCloudID, productID string, now time.Time) ([]model.ProductCollaboratorInvitation, error)
+	ResendProductCollaboratorInvitation(ctx context.Context, in store.ProductCollaboratorInvitationMutation, now time.Time) (model.ProductCollaboratorInvitation, error)
+	CancelProductCollaboratorInvitation(ctx context.Context, in store.ProductCollaboratorInvitationMutation, now time.Time) (model.ProductCollaboratorInvitation, error)
+	AcceptProductCollaboratorInvitation(ctx context.Context, targetUserID, tokenHash string, now time.Time) (model.ProductCollaboratorInvitation, error)
+	UpdateProductCollaborator(ctx context.Context, actorUserID, brandCloudID, productID, targetUserID, role string) (model.ProductCollaborator, error)
+	RemoveProductCollaborator(ctx context.Context, actorUserID, brandCloudID, productID, targetUserID string) error
+	TransferProductOwnership(ctx context.Context, actorUserID, brandCloudID, productID, targetUserID string) error
 }
 
 type authPersistence interface {
