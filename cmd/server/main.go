@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/smtp"
 	"os"
 	"strings"
 
@@ -44,29 +43,13 @@ func main() {
 	if err != nil {
 		fatal(logger, "configure auth token signer failed", err)
 	}
-	var authTokenSink api.AuthTokenSink
-	switch cfg.AuthTokenDelivery {
-	case "log":
-		authTokenSink = api.NewLogAuthTokenSink(logger)
-	case "smtp", "sendmail_http":
-		// Email delivery is performed by the durable email worker.
-		authTokenSink = nil
-	default:
-		fatal(logger, "unsupported auth token delivery", nil, zap.String("delivery", cfg.AuthTokenDelivery))
-	}
-	var notificationSink api.QuotaRaiseNotificationSink
-	if cfg.AuthTokenDelivery == "log" {
-		notificationSink = api.NewLogQuotaRaiseNotificationSink(logger)
-	}
 	accountStore := store.New(db)
 	accountStore.ConfigureAuthTokenRateLimit(cfg.AuthTokenRateLimitMax, cfg.AuthTokenRateLimitWindow)
-	if emailOutboxDelivery(cfg.AuthTokenDelivery) {
-		cipher, err := emaildelivery.NewCipher(cfg.EmailOutboxEncryptionKey)
-		if err != nil {
-			fatal(logger, "configure email outbox encryption failed", err)
-		}
-		accountStore.ConfigureEmailOutboxCipher(cipher)
+	cipher, err := emaildelivery.NewCipher(cfg.EmailOutboxEncryptionKey)
+	if err != nil {
+		fatal(logger, "configure email outbox encryption failed", err)
 	}
+	accountStore.ConfigureEmailOutboxCipher(cipher)
 	if cfg.BootstrapPlatformAdminEmail != "" || cfg.BootstrapPlatformAdminPassword != "" {
 		if cfg.BootstrapPlatformAdminEmail == "" || cfg.BootstrapPlatformAdminPassword == "" {
 			fatal(logger, "bootstrap platform admin config incomplete", nil)
@@ -91,11 +74,9 @@ func main() {
 		apiStore = usercache.NewStore(apiStore, cache, logger)
 		logger.Info("user cache enabled", zap.String("addr", cfg.UserCacheAddr), zap.String("prefix", cfg.UserCachePrefix))
 	}
-	server := api.NewWithAuthTokenAndNotificationSink(apiStore, authService, authTokenSink, notificationSink)
+	server := api.New(apiStore, authService)
 	server.ConfigureAuthTokenTTLs(cfg.EmailVerificationTTL, cfg.PasswordResetTTL)
-	if emailOutboxDelivery(cfg.AuthTokenDelivery) {
-		server.ConfigureEmailOutbox(accountStore)
-	}
+	server.ConfigureEmailOutbox(accountStore)
 	server.SetLogger(logger)
 	server.ConfigureInternalAuthToken(cfg.InternalAuthToken)
 	server.ConfigureProductionJWT(cfg.FactoryProductionJWTSecret, cfg.FactoryProductionJWTAudience)
@@ -141,10 +122,6 @@ func main() {
 	}
 }
 
-func emailOutboxDelivery(delivery string) bool {
-	return delivery == "smtp" || delivery == "sendmail_http"
-}
-
 func newAuthService(cfg config.Config) (*auth.Service, error) {
 	switch strings.ToLower(strings.TrimSpace(cfg.JWTSignerProvider)) {
 	case "", "hs256":
@@ -184,40 +161,6 @@ func newAuthService(cfg config.Config) (*auth.Service, error) {
 	default:
 		return nil, fmt.Errorf("unsupported JWT signer provider %q", cfg.JWTSignerProvider)
 	}
-}
-
-func quotaRaiseNotificationSink(cfg config.Config, logger *zap.Logger) api.QuotaRaiseNotificationSink {
-	if cfg.SMTPHost != "" && cfg.SMTPFrom != "" {
-		addr, auth, err := smtpConfig(cfg)
-		if err != nil {
-			logger.Warn("SMTP quota raise notification sink unavailable", zap.Error(err))
-		} else {
-			return api.NewSMTPQuotaRaiseNotificationSink(addr, cfg.SMTPFrom, auth)
-		}
-	}
-	return api.NewLogQuotaRaiseNotificationSink(logger)
-}
-
-func smtpConfig(cfg config.Config) (string, smtp.Auth, error) {
-	if strings.TrimSpace(cfg.SMTPHost) == "" {
-		return "", nil, fmt.Errorf("SMTP_HOST is required")
-	}
-	if strings.TrimSpace(cfg.SMTPFrom) == "" {
-		return "", nil, fmt.Errorf("SMTP_FROM is required")
-	}
-	addr := strings.TrimSpace(cfg.SMTPHost)
-	if cfg.SMTPPort != "" && !strings.Contains(addr, ":") {
-		addr = addr + ":" + strings.TrimSpace(cfg.SMTPPort)
-	}
-	var auth smtp.Auth
-	if cfg.SMTPUsername != "" || cfg.SMTPPassword != "" {
-		host := strings.TrimSpace(cfg.SMTPHost)
-		if i := strings.Index(host, ":"); i >= 0 {
-			host = host[:i]
-		}
-		auth = smtp.PlainAuth("", cfg.SMTPUsername, cfg.SMTPPassword, host)
-	}
-	return addr, auth, nil
 }
 
 func fatal(logger *zap.Logger, message string, err error, fields ...zap.Field) {

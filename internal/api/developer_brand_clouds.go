@@ -113,11 +113,11 @@ func (s *Server) getDeveloperBrandCloud(c *gin.Context) {
 }
 
 func developerCapabilitiesForRole(role model.Role) []string {
-	read := []string{"fleet.read", "sku.read", "firmware.release.read", "ota.plan.read", "reports.read", "team.read", "provisioning.read"}
+	read := []string{"fleet.read", "product.read", "firmware.release.read", "ota.plan.read", "reports.read", "team.read", "provisioning.read"}
 	if role == model.RoleMember {
 		return read
 	}
-	capabilities := append(read, "fleet.device.manage", "fleet.batch.manage", "sku.manage", "sku.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "provisioning.create", "pki.test.issue")
+	capabilities := append(read, "fleet.device.manage", "fleet.batch.manage", "product.manage", "product.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "provisioning.create", "pki.test.issue")
 	if role == model.RoleOwner {
 		capabilities = append(capabilities, "team.manage")
 	}
@@ -131,7 +131,7 @@ func (s *Server) developerCapabilitiesForUser(ctx context.Context, userID, brand
 	}
 	allowed, err := s.store.HasUserPermissionAnyResource(ctx, userID, brandCloudID, "registry_device.manage")
 	if err == nil && allowed {
-		capabilities = append(capabilities, "fleet.device.manage", "fleet.batch.manage", "sku.manage", "sku.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "provisioning.create")
+		capabilities = append(capabilities, "fleet.device.manage", "fleet.batch.manage", "product.manage", "product.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "provisioning.create")
 	}
 	return capabilities
 }
@@ -157,6 +157,9 @@ func (s *Server) inviteDeveloperBrandCloudMember(c *gin.Context) {
 	if _, ok := developerBrandCloudManager(c, s); !ok {
 		return
 	}
+	if !s.requireEmailOutbox(c) {
+		return
+	}
 	var req developerBrandCloudInvitationRequest
 	if !bind(c, &req) || !validDeveloperInvitationRole(c, req.Role) {
 		return
@@ -167,24 +170,17 @@ func (s *Server) inviteDeveloperBrandCloudMember(c *gin.Context) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	var outbox *store.EmailOutboxInput
-	if s.emailOutboxStore != nil {
-		value := authTokenEmailOutbox(email, "brand_cloud_membership_invitation", token, expiresAt)
-		outbox = &value
-	}
+	outbox := authTokenEmailOutbox(email, "brand_cloud_membership_invitation", token, expiresAt)
 	invitation, created, err := s.store.CreateBrandCloudMemberInvitation(c.Request.Context(), store.BrandCloudMemberInvitationInput{
 		BrandCloudID: c.Param("brandCloudId"), InvitedByUserID: currentUserID(c), TargetEmail: email,
-		Role: req.Role, TokenHash: auth.HashToken(token), ExpiresAt: expiresAt, Email: outbox,
+		Role: req.Role, TokenHash: auth.HashToken(token), ExpiresAt: expiresAt, Email: &outbox,
 	}, time.Now().UTC())
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	if created && s.emailOutboxStore == nil {
-		if err := s.deliverAuthToken(c, invitation.TargetEmail, "brand_cloud_membership_invitation", token, expiresAt); err != nil {
-			writeError(c, http.StatusInternalServerError, "token_delivery_failed", "Could not deliver invitation token")
-			return
-		}
+	if created {
+		s.notifyAuthTokenQueued(AuthTokenDelivery{Purpose: "brand_cloud_membership_invitation", Email: invitation.TargetEmail, Token: token, ExpiresAt: expiresAt})
 	}
 	c.JSON(http.StatusAccepted, developerBrandCloudInvitationResponse{Invitation: invitation})
 }
@@ -213,30 +209,24 @@ func (s *Server) resendDeveloperBrandCloudMemberInvitation(c *gin.Context) {
 	if _, ok := developerBrandCloudManager(c, s); !ok {
 		return
 	}
+	if !s.requireEmailOutbox(c) {
+		return
+	}
 	token, expiresAt, err := s.newAuthToken("brand_cloud_membership_invitation")
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue invitation token")
 		return
 	}
-	var outbox *store.EmailOutboxInput
-	if s.emailOutboxStore != nil {
-		value := authTokenEmailOutbox("pending@example.invalid", "brand_cloud_membership_invitation", token, expiresAt)
-		outbox = &value
-	}
+	outbox := authTokenEmailOutbox("pending@example.invalid", "brand_cloud_membership_invitation", token, expiresAt)
 	invitation, err := s.store.ResendBrandCloudMemberInvitation(c.Request.Context(), store.BrandCloudMemberInvitationMutation{
 		BrandCloudID: c.Param("brandCloudId"), InvitationID: c.Param("invitationId"), ActorUserID: currentUserID(c),
-		TokenHash: auth.HashToken(token), ExpiresAt: expiresAt, Email: outbox,
+		TokenHash: auth.HashToken(token), ExpiresAt: expiresAt, Email: &outbox,
 	}, time.Now().UTC())
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	if s.emailOutboxStore == nil {
-		if err := s.deliverAuthToken(c, invitation.TargetEmail, "brand_cloud_membership_invitation", token, expiresAt); err != nil {
-			writeError(c, http.StatusInternalServerError, "token_delivery_failed", "Could not deliver invitation token")
-			return
-		}
-	}
+	s.notifyAuthTokenQueued(AuthTokenDelivery{Purpose: "brand_cloud_membership_invitation", Email: invitation.TargetEmail, Token: token, ExpiresAt: expiresAt})
 	c.JSON(http.StatusAccepted, developerBrandCloudInvitationResponse{Invitation: invitation})
 }
 
@@ -338,6 +328,9 @@ func (s *Server) createBrandCloudOwnerTransfer(c *gin.Context) {
 	if _, ok := developerBrandCloudManager(c, s); !ok {
 		return
 	}
+	if !s.requireEmailOutbox(c) {
+		return
+	}
 	var req brandCloudOwnerTransferRequest
 	if !bind(c, &req) {
 		return
@@ -348,29 +341,20 @@ func (s *Server) createBrandCloudOwnerTransfer(c *gin.Context) {
 		return
 	}
 	targetEmail := strings.ToLower(strings.TrimSpace(req.TargetEmail))
-	var emailOutbox *store.EmailOutboxInput
-	if s.emailOutboxStore != nil {
-		value := authTokenEmailOutbox(targetEmail, "brand_cloud_owner_transfer", token, expiresAt)
-		emailOutbox = &value
-	}
+	emailOutbox := authTokenEmailOutbox(targetEmail, "brand_cloud_owner_transfer", token, expiresAt)
 	transfer, err := s.store.CreateBrandCloudOwnerTransfer(c.Request.Context(), store.BrandCloudOwnerTransferInput{
 		BrandCloudID:      c.Param("brandCloudId"),
 		RequestedByUserID: currentUserID(c),
 		TargetEmail:       targetEmail,
 		TokenHash:         auth.HashToken(token),
 		ExpiresAt:         expiresAt,
-		Email:             emailOutbox,
+		Email:             &emailOutbox,
 	})
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	if s.emailOutboxStore == nil {
-		if err := s.deliverAuthToken(c, targetEmail, "brand_cloud_owner_transfer", token, expiresAt); err != nil {
-			writeError(c, http.StatusInternalServerError, "token_delivery_failed", "Could not deliver owner transfer token")
-			return
-		}
-	}
+	s.notifyAuthTokenQueued(AuthTokenDelivery{Purpose: "brand_cloud_owner_transfer", Email: targetEmail, Token: token, ExpiresAt: expiresAt})
 	c.JSON(http.StatusAccepted, brandCloudOwnerTransferResponse{OwnerTransfer: transfer})
 }
 

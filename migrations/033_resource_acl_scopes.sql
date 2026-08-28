@@ -4,7 +4,7 @@ ALTER TABLE role_assignments ADD CONSTRAINT role_assignments_actor_type_check
 
 ALTER TABLE role_assignments DROP CONSTRAINT IF EXISTS role_assignments_scope_type_check;
 ALTER TABLE role_assignments ADD CONSTRAINT role_assignments_scope_type_check
-    CHECK (scope_type IN ('platform', 'organization', 'sku', 'region', 'group', 'device'));
+    CHECK (scope_type IN ('platform', 'organization', 'product', 'region', 'group', 'device'));
 
 ALTER TABLE role_assignments DROP CONSTRAINT IF EXISTS role_assignments_scope_consistency;
 ALTER TABLE role_assignments ADD CONSTRAINT role_assignments_scope_consistency CHECK (
@@ -12,12 +12,12 @@ ALTER TABLE role_assignments ADD CONSTRAINT role_assignments_scope_consistency C
     OR
     (scope_type = 'organization' AND scope_id IS NOT NULL AND organization_id IS NOT NULL AND scope_id = organization_id::text)
     OR
-    (scope_type IN ('sku', 'region', 'group', 'device') AND scope_id IS NOT NULL AND organization_id IS NOT NULL)
+    (scope_type IN ('product', 'region', 'group', 'device') AND scope_id IS NOT NULL AND organization_id IS NOT NULL)
 );
 
 ALTER TABLE external_group_mappings DROP CONSTRAINT IF EXISTS external_group_mappings_scope_type_check;
 ALTER TABLE external_group_mappings ADD CONSTRAINT external_group_mappings_scope_type_check
-    CHECK (scope_type IN ('platform', 'organization', 'sku', 'region', 'group', 'device'));
+    CHECK (scope_type IN ('platform', 'organization', 'product', 'region', 'group', 'device'));
 
 ALTER TABLE external_group_mappings DROP CONSTRAINT IF EXISTS external_group_mappings_scope_consistency;
 ALTER TABLE external_group_mappings ADD CONSTRAINT external_group_mappings_scope_consistency CHECK (
@@ -25,7 +25,7 @@ ALTER TABLE external_group_mappings ADD CONSTRAINT external_group_mappings_scope
     OR
     (scope_type = 'organization' AND scope_id IS NOT NULL AND organization_id IS NOT NULL AND scope_id = organization_id::text)
     OR
-    (scope_type IN ('sku', 'region', 'group', 'device') AND scope_id IS NOT NULL AND organization_id IS NOT NULL)
+    (scope_type IN ('product', 'region', 'group', 'device') AND scope_id IS NOT NULL AND organization_id IS NOT NULL)
 );
 
 CREATE INDEX IF NOT EXISTS role_assignments_resource_scope_idx

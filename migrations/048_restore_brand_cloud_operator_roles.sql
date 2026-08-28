@@ -1,4 +1,4 @@
--- Tenant-local Brand Cloud users are operational identities. SKU project
+-- Tenant-local Brand Cloud users are operational identities. Product project
 -- collaboration applies to developer (`user`) actors, so preserve the legacy
 -- organization role projection for Brand Cloud login sessions.
 INSERT INTO role_assignments (role_id, actor_type, actor_id, scope_type, scope_id, organization_id)

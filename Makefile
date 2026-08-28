@@ -6,7 +6,7 @@ UNIT_TEST_PACKAGES := ./internal/api ./internal/auth ./internal/broker ./interna
 RACE_TEST_PACKAGES := ./internal/channel ./internal/broker ./internal/worker/... ./internal/auth ./internal/config ./internal/readiness
 FUZZ_SMOKE_TIME ?= 2s
 
-.PHONY: tidy test test-email-signup-helper integration-test test-report check-report-candidates test-race test-repeat fuzz-smoke build release check-release readiness-smoke test-email-signup-e2e run run-outbox-worker run-inbox-worker run-email-worker db-up db-down migrate cleanup-tokens
+.PHONY: tidy test test-email-signup-helper integration-test test-report check-report-candidates test-race test-repeat fuzz-smoke build release check-release readiness-smoke run run-outbox-worker run-inbox-worker run-email-worker db-up db-down migrate cleanup-tokens
 
 tidy:
 	go mod tidy
@@ -78,9 +78,6 @@ check-release: release
 
 readiness-smoke:
 	go run ./cmd/readiness-smoke
-
-test-email-signup-e2e:
-	$(PYTHON) ./scripts/email_signup_e2e.py --admin-repo "$(ADMIN_REPO)"
 
 run:
 	go run ./cmd/server

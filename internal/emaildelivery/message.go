@@ -1,34 +1,24 @@
 package emaildelivery
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"html"
-	"mime"
-	"mime/multipart"
-	"mime/quotedprintable"
 	"net/mail"
 	"net/url"
 	"strings"
-	"time"
 )
 
 type Message struct {
-	EnvelopeFrom string
-	Recipient    string
-	ReplyTo      string
-	Subject      string
-	Text         string
-	HTML         string
-	Data         []byte
+	Recipient string
+	ReplyTo   string
+	Subject   string
+	Text      string
+	HTML      string
 }
 
 type Renderer struct {
-	From     string
-	FromName string
-	BaseURL  string
-	Now      func() time.Time
+	BaseURL string
 }
 
 func (r Renderer) Render(outboxID, messageType string, payload Payload) (Message, error) {
@@ -43,91 +33,12 @@ func (r Renderer) Render(outboxID, messageType string, payload Payload) (Message
 	if err != nil {
 		return Message{}, err
 	}
-	message := Message{
+	return Message{
 		Recipient: to.Address,
 		Subject:   subject,
 		Text:      textBody,
 		HTML:      htmlBody,
-	}
-	if strings.TrimSpace(r.From) == "" {
-		return message, nil
-	}
-	from, err := mailbox(r.FromName, r.From)
-	if err != nil {
-		return Message{}, fmt.Errorf("invalid SMTP_FROM: %w", err)
-	}
-	now := time.Now().UTC()
-	if r.Now != nil {
-		now = r.Now().UTC()
-	}
-	domain := "realtekconnect.com"
-	if parsed, parseErr := mail.ParseAddress(r.From); parseErr == nil {
-		if at := strings.LastIndex(parsed.Address, "@"); at >= 0 {
-			domain = parsed.Address[at+1:]
-		}
-	}
-	messageID := fmt.Sprintf("<%s@%s>", strings.TrimSpace(outboxID), domain)
-
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	textHeader := make(map[string][]string)
-	textHeader["Content-Type"] = []string{`text/plain; charset="UTF-8"`}
-	textHeader["Content-Transfer-Encoding"] = []string{"quoted-printable"}
-	part, err := writer.CreatePart(textHeader)
-	if err != nil {
-		return Message{}, err
-	}
-	qp := quotedprintable.NewWriter(part)
-	if _, err := qp.Write([]byte(textBody)); err != nil {
-		return Message{}, err
-	}
-	if err := qp.Close(); err != nil {
-		return Message{}, err
-	}
-	htmlHeader := make(map[string][]string)
-	htmlHeader["Content-Type"] = []string{`text/html; charset="UTF-8"`}
-	htmlHeader["Content-Transfer-Encoding"] = []string{"quoted-printable"}
-	part, err = writer.CreatePart(htmlHeader)
-	if err != nil {
-		return Message{}, err
-	}
-	qp = quotedprintable.NewWriter(part)
-	if _, err := qp.Write([]byte(htmlBody)); err != nil {
-		return Message{}, err
-	}
-	if err := qp.Close(); err != nil {
-		return Message{}, err
-	}
-	if err := writer.Close(); err != nil {
-		return Message{}, err
-	}
-
-	var raw bytes.Buffer
-	fmt.Fprintf(&raw, "Date: %s\r\n", now.Format(time.RFC1123Z))
-	fmt.Fprintf(&raw, "Message-ID: %s\r\n", messageID)
-	fmt.Fprintf(&raw, "From: %s\r\n", from.String())
-	fmt.Fprintf(&raw, "To: %s\r\n", to.String())
-	fmt.Fprintf(&raw, "Subject: %s\r\n", mime.QEncoding.Encode("UTF-8", subject))
-	fmt.Fprint(&raw, "MIME-Version: 1.0\r\n")
-	fmt.Fprintf(&raw, "Content-Type: multipart/alternative; boundary=%q\r\n\r\n", writer.Boundary())
-	raw.Write(body.Bytes())
-	message.EnvelopeFrom = from.Address
-	message.Data = raw.Bytes()
-	return message, nil
-}
-
-func mailbox(name, address string) (*mail.Address, error) {
-	if hasHeaderBreak(name) || hasHeaderBreak(address) {
-		return nil, errors.New("header line break is not allowed")
-	}
-	parsed, err := mail.ParseAddress(strings.TrimSpace(address))
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(name) != "" {
-		parsed.Name = strings.TrimSpace(name)
-	}
-	return parsed, nil
+	}, nil
 }
 
 func hasHeaderBreak(value string) bool {
@@ -149,6 +60,8 @@ func (r Renderer) content(messageType string, payload Payload) (string, string, 
 		subject, intro = "Accept Realtek Connect+ brand cloud ownership", "Accept the Realtek Connect+ brand cloud ownership transfer"
 	case "brand_cloud_membership_invitation":
 		subject, intro = "Join a Realtek Connect+ Brand Cloud", "Accept your Realtek Connect+ Brand Cloud membership invitation"
+	case "product_collaborator_invitation":
+		subject, intro = "Join a Realtek Connect+ Product project", "Accept your Realtek Connect+ Product project invitation"
 	case "quota_approved", "quota_declined":
 		decision := strings.TrimPrefix(messageType, "quota_")
 		subject = "Quota raise " + decision
@@ -355,6 +268,8 @@ func (r Renderer) authLink(messageType, token, recipientEmail, tenantSlug string
 		path = "/brand-cloud-owner-transfer/accept"
 	case "brand_cloud_membership_invitation":
 		path = "/brand-cloud-member-invitation/accept"
+	case "product_collaborator_invitation":
+		path = "/product-collaborator-invitation/accept"
 	case "brand_cloud_user_activation":
 		path = "/brand-cloud/activate"
 	}

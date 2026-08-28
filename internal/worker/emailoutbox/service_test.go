@@ -42,9 +42,8 @@ func TestServiceSendsAndClearsPayload(t *testing.T) {
 	item := encryptedItem(t, cipher, now, nil)
 	repository := &fakeStore{items: []model.EmailOutbox{item}}
 	sender := &fakeSender{}
-	service := NewService(repository, cipher, emaildelivery.Renderer{
-		From: "no-reply@realtekconnect.com", BaseURL: "https://example.com", Now: func() time.Time { return now },
-	}, sender, Options{Now: func() time.Time { return now }, Jitter: func(time.Duration) time.Duration { return 0 }})
+	service := NewService(repository, cipher, emaildelivery.Renderer{BaseURL: "https://example.com"}, sender,
+		Options{Now: func() time.Time { return now }, Jitter: func(time.Duration) time.Duration { return 0 }})
 	stats, err := service.RunOnce(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -72,7 +71,7 @@ func TestServiceRetriesTransientAndDeadLettersPermanent(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			repository := &fakeStore{items: []model.EmailOutbox{encryptedItem(t, cipher, now, nil)}}
 			service := NewService(repository, cipher, emaildelivery.Renderer{
-				From: "no-reply@realtekconnect.com", BaseURL: "https://example.com",
+				BaseURL: "https://example.com",
 			}, &fakeSender{err: test.sendErr}, Options{
 				Now: func() time.Time { return now }, RetryBase: 30 * time.Second,
 				Jitter: func(time.Duration) time.Duration { return 0 },

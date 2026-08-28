@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"go.uber.org/zap"
 
@@ -65,24 +63,11 @@ type emailSender interface {
 
 func emailDelivery(cfg config.Config) (emailSender, emaildelivery.Renderer, error) {
 	renderer := emaildelivery.Renderer{BaseURL: cfg.AuthTokenBaseURL}
-	switch cfg.AuthTokenDelivery {
-	case "smtp":
-		client, err := emaildelivery.NewSMTPClient(emaildelivery.SMTPConfig{
-			Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername,
-			Password: cfg.SMTPPassword, Encryption: cfg.SMTPEncryption, Timeout: 15 * time.Second,
-		})
-		renderer.From = cfg.SMTPFrom
-		renderer.FromName = cfg.SMTPFromName
-		return client, renderer, err
-	case "sendmail_http":
-		client, err := emaildelivery.NewSendMailHTTPClient(emaildelivery.SendMailHTTPConfig{
-			BaseURL: cfg.SendMailHTTPBaseURL, BearerToken: cfg.SendMailHTTPBearerToken,
-			Timeout: cfg.SendMailHTTPTimeout,
-		})
-		return client, renderer, err
-	default:
-		return nil, renderer, fmt.Errorf("unsupported AUTH_TOKEN_DELIVERY %q", cfg.AuthTokenDelivery)
-	}
+	client, err := emaildelivery.NewSendMailHTTPClient(emaildelivery.SendMailHTTPConfig{
+		BaseURL: cfg.SendMailHTTPBaseURL, BearerToken: cfg.SendMailHTTPBearerToken,
+		Timeout: cfg.SendMailHTTPTimeout,
+	})
+	return client, renderer, err
 }
 
 func fatal(logger *zap.Logger, message string, err error) {

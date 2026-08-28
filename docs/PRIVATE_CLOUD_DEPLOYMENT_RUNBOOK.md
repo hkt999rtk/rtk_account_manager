@@ -48,7 +48,7 @@ Evaluation acceptance:
 - `GET /v1/health` returns `200`.
 - A smoke user can log in, list organizations, and read an existing device.
 - Provisioning/readiness evidence is collected when a provisioned device exists.
-- Optional SMTP and cross-service channel gaps are explicitly marked `SKIP`.
+- Send Mail HTTP configuration is verified and cross-service channel gaps are explicitly marked `SKIP`.
 
 ### Production-Like Private Deployment
 
@@ -72,8 +72,7 @@ Production-like acceptance:
 - Database migration and rollback boundaries are reviewed before promotion.
 - API, workers, and cleanup jobs have service supervision.
 - Backup and restore are rehearsed in a test environment.
-- Quota decision notifications are configured through SMTP or explicitly run in
-  log-only mode for evaluation.
+- Quota decision notifications are delivered through the Send Mail HTTP outbox worker.
 - Platform-admin operations are restricted to approved operator accounts.
 
 ## Deployment Package
@@ -86,7 +85,7 @@ The service package should contain:
 | `rtk-account-manager-migrate` | Migration binary built from `./cmd/migrate`. |
 | `rtk-account-manager-outbox-worker` | Outbox worker binary built from `./cmd/outbox-worker`. |
 | `rtk-account-manager-inbox-worker` | Inbox worker binary built from `./cmd/inbox-worker`. |
-| `rtk-account-manager-email-worker` | SMTP email outbox worker built from `./cmd/email-worker`. |
+| `rtk-account-manager-email-worker` | Send Mail HTTP outbox worker built from `./cmd/email-worker`. |
 | `rtk-account-manager-email-outbox-admin` | Safe email queue list/requeue command built from `./cmd/email-outbox-admin`. |
 | `rtk-account-manager-cleanup-tokens` | Token cleanup binary built from `./cmd/cleanup-tokens`. |
 | `migrations/` | SQL migration files installed beside the binaries' working directory. |
@@ -220,7 +219,7 @@ Manual deploy inputs:
 | `verify` | Run package verification after restart. |
 | `run_readiness_smoke` | Run login, organization read, device read, and provisioning/readiness smoke when smoke secrets are configured. |
 | `restore_drill_reference` | Operator reference for the latest restore drill, or `SKIP:<reason>`. |
-| `smtp_mode` | `configured`, `log-only`, or `SKIP`. |
+| `email_delivery` | Must be `sendmail_http`. |
 | `broker_mode` | `enabled`, `disabled`, or `SKIP`. |
 
 `SKIP:<reason>` values are acceptable only when the omission is deliberate and
@@ -281,7 +280,7 @@ Deploy sequence:
    - restore-drill reference from the manual deploy input
    - `/v1/health` smoke result
    - optional login, organization, device, and provisioning/readiness smoke result
-   - SMTP mode and cross-service broker mode
+   - Send Mail HTTP configuration and cross-service broker mode
    - concise systemd status summaries
    - redacted runtime env-key inventory
 10. Upload concise readiness evidence plus raw diagnostics artifacts.
@@ -317,7 +316,6 @@ It intentionally contains placeholders only.
 | `PORT` | API bind port. | `8080` by code default; staging deploy uses `18081` to avoid `rtk_video_cloud` on `18080`. |
 | `ACCESS_TOKEN_TTL` | Access token lifetime. | `15m` |
 | `REFRESH_TOKEN_TTL` | Refresh token lifetime. | `720h` |
-| `AUTH_TOKEN_DELIVERY` | Verification/reset token delivery adapter. | `log` for local/test; production requires `smtp`. |
 | `EMAIL_VERIFICATION_TTL` | Email verification OTP lifetime. | `30m` |
 | `PASSWORD_RESET_TTL` | Password reset OTP lifetime. | `30m` |
 | `OTP_RESEND_INTERVAL` | Minimum resend interval. | `60s` |
@@ -347,22 +345,18 @@ Platform-admin-managed providers store only `client_secret_ref` values such as
 `env:OIDC_CLIENT_SECRET`. Do not put raw client secrets in API payloads,
 database rows, issue comments, reports, or deployment evidence.
 
-### SMTP And Quota Notifications
+### Send Mail HTTP And Quota Notifications
 
 Auth-token, owner-transfer, and quota-decision notifications use an encrypted
 PostgreSQL outbox. Run `rtk-account-manager-email-worker` alongside the API.
-Temporary SMTP failure is retried independently and does not roll back the API
+Temporary Send Mail HTTP failure is retried independently and does not roll back the API
 mutation.
 
 | Variable | Purpose | Secret |
 | --- | --- | --- |
-| `SMTP_HOST` | SMTP host or host:port. | No |
-| `SMTP_PORT` | SMTP port when not embedded in `SMTP_HOST`. | No |
-| `SMTP_USERNAME` | SMTP username; required in production. | Usually yes |
-| `SMTP_PASSWORD` | SMTP password. | Yes |
-| `SMTP_FROM` | Sender address. | No |
-| `SMTP_FROM_NAME` | Sender display name. | No; default `Realtek Connect` |
-| `SMTP_ENCRYPTION` | SMTP transport policy. | No; production requires `starttls` |
+| `SENDMAIL_HTTP_BASE_URL` | Credential-free HTTPS origin for the Send Mail service. | No |
+| `SENDMAIL_HTTP_BEARER_TOKEN` | Bearer credential for the Send Mail service. | Yes |
+| `SENDMAIL_HTTP_TIMEOUT` | HTTP request timeout. | No; default `15s` |
 | `AUTH_TOKEN_BASE_URL` | Browser origin used to build token links. | No |
 | `EMAIL_OUTBOX_ENCRYPTION_KEY` | Base64-encoded 32-byte AES-GCM key. | Yes |
 | `EMAIL_OUTBOX_POLL_INTERVAL` | Worker polling interval. | No; default `5s` |
@@ -371,9 +365,8 @@ mutation.
 | `EMAIL_OUTBOX_RETRY_BASE` | Initial retry delay. | No; default `30s` |
 | `EMAIL_OUTBOX_RETRY_MAX` | Retry ceiling. | No; default `30m` |
 
-Evaluation deployments may use log-only delivery. Production must configure
-verified STARTTLS and must not reuse or rotate the encryption key until the
-queue has been drained.
+All deployments must configure Send Mail HTTP and must not reuse or rotate the
+encryption key until the queue has been drained.
 
 ### Cross-Service Channel
 
@@ -398,7 +391,7 @@ Never commit real values for:
 - `DATABASE_URL`
 - JWT signing secrets
 - OIDC client secrets and provider token material
-- SMTP password or relay credentials
+- email delivery credentials
 - Azure Event Hubs connection strings
 - future cloud-provider credentials
 
@@ -589,8 +582,8 @@ Operator endpoints:
 | `POST /v1/admin/quota-raise-requests/{requestId}/approve` | Approve a pending quota raise. |
 | `POST /v1/admin/quota-raise-requests/{requestId}/decline` | Decline a pending quota raise. |
 
-Quota approval/decline should trigger requester notification through SMTP when
-configured, or through logs in evaluation mode.
+Quota approval/decline triggers requester notification through the Send Mail
+HTTP outbox worker.
 
 ## User Cache Operations
 
@@ -718,10 +711,10 @@ Attach redacted evidence to deployment sign-off:
 - auth/login smoke result
 - organization/device read smoke result
 - provisioning/readiness smoke result or explicit `SKIP`
-- SMTP mode: `configured`, `log-only`, or `SKIP`
+- email delivery: `sendmail_http`
 - cross-service channel mode: enabled, disabled, or `SKIP`
 - backup timestamp and restore-drill reference
 - worker service status when lifecycle channel is enabled
 
-Evidence must not include passwords, JWTs, DSNs, SMTP credentials, Event Hubs
+Evidence must not include passwords, JWTs, DSNs, email delivery credentials, Event Hubs
 connection strings, or customer payloads beyond intentionally redacted IDs.

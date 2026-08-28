@@ -164,7 +164,7 @@ func (s *Server) signup(c *gin.Context) {
 		return
 	}
 	if _, _, err := s.issueAuthToken(c, result.User.ID, result.User.Email, "email_verification"); err != nil {
-		writeError(c, http.StatusInternalServerError, "token_delivery_failed", "Could not deliver verification token")
+		writeError(c, http.StatusInternalServerError, "email_enqueue_failed", "Could not queue verification email")
 		return
 	}
 	c.JSON(http.StatusAccepted, signupResponse{User: result.User, BrandCloud: result.BrandCloud, Organization: result.BrandCloud})
@@ -268,6 +268,9 @@ func parseQuotaRaiseStatusFilter(c *gin.Context) (model.QuotaRaiseRequestStatus,
 }
 
 func (s *Server) decideQuotaRaiseRequest(c *gin.Context, approved bool) {
+	if !s.requireEmailOutbox(c) {
+		return
+	}
 	var req quotaRaiseDecisionRequest
 	if !bindOptional(c, &req) {
 		return
@@ -278,42 +281,19 @@ func (s *Server) decideQuotaRaiseRequest(c *gin.Context, approved bool) {
 		DecidedBy:      currentUserID(c),
 		DecisionReason: req.DecisionReason,
 		Approved:       approved,
-		EnqueueEmail:   s.emailOutboxStore != nil,
+		EnqueueEmail:   true,
 	}
 	if approved {
 		if req.ApprovedQuota != nil {
 			decision.ApprovedQuota = *req.ApprovedQuota
 		}
 	}
-	request, org, requester, err := s.store.DecideQuotaRaiseRequest(c.Request.Context(), decision)
+	request, org, _, err := s.store.DecideQuotaRaiseRequest(c.Request.Context(), decision)
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	if s.emailOutboxStore == nil && s.quotaRaiseNotificationSink != nil {
-		if err := s.quotaRaiseNotificationSink.DeliverQuotaRaiseNotification(c.Request.Context(), QuotaRaiseNotificationDelivery{
-			RecipientEmail:   requester.Email,
-			RecipientName:    requester.DisplayName,
-			OrganizationID:   org.ID,
-			OrganizationName: org.Name,
-			RequestedQuota:   request.RequestedQuota,
-			ApprovedQuota:    approvedQuotaForNotification(org, approved),
-			DecisionReason:   request.DecisionReason,
-			Decision:         string(request.Status),
-		}); err != nil {
-			writeError(c, http.StatusInternalServerError, "notification_delivery_failed", "Could not deliver quota-raise decision notification")
-			return
-		}
-	}
 	c.JSON(http.StatusOK, quotaRaiseDecisionResponse{QuotaRaiseRequest: request, Organization: org})
-}
-
-func approvedQuotaForNotification(org model.Organization, approved bool) *int {
-	if !approved {
-		return nil
-	}
-	quota := org.EvaluationDeviceQuota
-	return &quota
 }
 
 func (s *Server) requirePlatformAdmin() gin.HandlerFunc {

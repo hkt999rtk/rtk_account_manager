@@ -90,7 +90,7 @@ func TestDeviceInventoryFiltersAndConveniencePathsIntegration(t *testing.T) {
 		Readiness:      "pending",
 		Firmware:       " ",
 		Firmwares:      []string{"", "2.0.0"},
-		Sort:           "sku",
+		Sort:           "product",
 		Direction:      "ASC",
 		Limit:          500,
 		Offset:         -10,

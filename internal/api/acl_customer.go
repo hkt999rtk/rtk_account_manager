@@ -78,11 +78,11 @@ func (s *Server) createCustomerACLAssignment(c *gin.Context) {
 	if !requireNonBlank(c, "role_name", req.RoleName) || !requireNonBlank(c, "actor_id", actorID) || !requireNonBlank(c, "scope_type", scopeType) {
 		return
 	}
-	if req.RoleName == store.SKUOwnerRole || req.RoleName == store.SKUEditorRole || req.RoleName == store.SKUViewerRole {
-		writeError(c, http.StatusBadRequest, "managed_sku_role", "Use the SKU collaborator API to manage SKU roles")
+	if req.RoleName == store.ProductOwnerRole || req.RoleName == store.ProductEditorRole || req.RoleName == store.ProductViewerRole {
+		writeError(c, http.StatusBadRequest, "managed_product_role", "Use the Product collaborator API to manage Product roles")
 		return
 	}
-	if scopeType != store.ScopeTypeOrganization && scopeType != store.ScopeTypeSKU && scopeType != store.ScopeTypeRegion && scopeType != store.ScopeTypeGroup && scopeType != store.ScopeTypeDevice {
+	if scopeType != store.ScopeTypeOrganization && scopeType != store.ScopeTypeProduct && scopeType != store.ScopeTypeRegion && scopeType != store.ScopeTypeGroup && scopeType != store.ScopeTypeDevice {
 		writeError(c, http.StatusBadRequest, "invalid_scope_type", "Unsupported assignment scope")
 		return
 	}

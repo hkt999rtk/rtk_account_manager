@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/base64"
 	"fmt"
-	"net/mail"
 	"net/url"
 	"os"
 	"strconv"
@@ -34,15 +33,7 @@ type Config struct {
 	AccessTokenTTL                 time.Duration
 	RefreshTokenTTL                time.Duration
 	Port                           string
-	AuthTokenDelivery              string
 	AuthTokenBaseURL               string
-	SMTPHost                       string
-	SMTPPort                       string
-	SMTPUsername                   string
-	SMTPPassword                   string
-	SMTPFrom                       string
-	SMTPFromName                   string
-	SMTPEncryption                 string
 	SendMailHTTPBaseURL            string
 	SendMailHTTPBearerToken        string
 	SendMailHTTPTimeout            time.Duration
@@ -129,7 +120,7 @@ func Load() (Config, error) {
 	default:
 		return Config{}, fmt.Errorf("JWT_SIGNER_PROVIDER must be hs256, pem, or pkcs11")
 	}
-	if err := validateEmailConfig(cfg, false); err != nil {
+	if err := validateEmailConfig(cfg); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
@@ -163,22 +154,14 @@ func LoadEmailWorker() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if err := validateEmailConfig(cfg, true); err != nil {
+	if err := validateEmailConfig(cfg); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
 }
 
-func validateEmailConfig(cfg Config, worker bool) error {
+func validateEmailConfig(cfg Config) error {
 	production := strings.EqualFold(strings.TrimSpace(cfg.LogEnv), "production")
-	delivery := strings.ToLower(strings.TrimSpace(cfg.AuthTokenDelivery))
-	emailDelivery := delivery == "smtp" || delivery == "sendmail_http"
-	if production && !emailDelivery {
-		return fmt.Errorf("AUTH_TOKEN_DELIVERY must be smtp or sendmail_http in production")
-	}
-	if !worker && !emailDelivery {
-		return nil
-	}
 	if strings.TrimSpace(cfg.AuthTokenBaseURL) == "" {
 		return fmt.Errorf("AUTH_TOKEN_BASE_URL is required")
 	}
@@ -196,29 +179,33 @@ func validateEmailConfig(cfg Config, worker bool) error {
 	if len(decoded) != 32 {
 		return fmt.Errorf("EMAIL_OUTBOX_ENCRYPTION_KEY must decode to exactly 32 bytes")
 	}
-	if delivery == "sendmail_http" {
-		return validateSendMailHTTPConfig(cfg, production)
+	for _, setting := range []struct {
+		key   string
+		value time.Duration
+	}{
+		{"EMAIL_OUTBOX_POLL_INTERVAL", cfg.EmailOutboxPollInterval},
+		{"EMAIL_OUTBOX_RETRY_BASE", cfg.EmailOutboxRetryBase},
+		{"EMAIL_OUTBOX_RETRY_MAX", cfg.EmailOutboxRetryMax},
+	} {
+		if err := validatePositiveDuration(setting.key, setting.value); err != nil {
+			return err
+		}
 	}
-	if strings.TrimSpace(cfg.SMTPHost) == "" {
-		return fmt.Errorf("SMTP_HOST is required")
+	for _, setting := range []struct {
+		key   string
+		value int
+	}{
+		{"EMAIL_OUTBOX_BATCH_SIZE", cfg.EmailOutboxBatchSize},
+		{"EMAIL_OUTBOX_MAX_ATTEMPTS", cfg.EmailOutboxMaxAttempts},
+	} {
+		if err := validatePositiveInt(setting.key, setting.value); err != nil {
+			return err
+		}
 	}
-	if strings.TrimSpace(cfg.SMTPFrom) == "" {
-		return fmt.Errorf("SMTP_FROM is required")
+	if cfg.EmailOutboxRetryMax < cfg.EmailOutboxRetryBase {
+		return fmt.Errorf("EMAIL_OUTBOX_RETRY_MAX must be greater than or equal to EMAIL_OUTBOX_RETRY_BASE")
 	}
-	if _, err := mail.ParseAddress(strings.TrimSpace(cfg.SMTPFrom)); err != nil {
-		return fmt.Errorf("SMTP_FROM must be a valid mailbox: %w", err)
-	}
-	encryption := strings.ToLower(strings.TrimSpace(cfg.SMTPEncryption))
-	if encryption != "starttls" && encryption != "none" {
-		return fmt.Errorf("SMTP_ENCRYPTION must be starttls or none")
-	}
-	if production && encryption != "starttls" {
-		return fmt.Errorf("SMTP_ENCRYPTION must be starttls in production")
-	}
-	if production && (strings.TrimSpace(cfg.SMTPUsername) == "" || strings.TrimSpace(cfg.SMTPPassword) == "") {
-		return fmt.Errorf("SMTP_USERNAME and SMTP_PASSWORD are required in production")
-	}
-	return nil
+	return validateSendMailHTTPConfig(cfg, production)
 }
 
 func validateSendMailHTTPConfig(cfg Config, production bool) error {
@@ -239,8 +226,31 @@ func validateSendMailHTTPConfig(cfg Config, production bool) error {
 	if strings.TrimSpace(cfg.SendMailHTTPBearerToken) == "" {
 		return fmt.Errorf("SENDMAIL_HTTP_BEARER_TOKEN is required")
 	}
-	if cfg.SendMailHTTPTimeout <= 0 {
-		return fmt.Errorf("SENDMAIL_HTTP_TIMEOUT must be positive")
+	return validatePositiveDuration("SENDMAIL_HTTP_TIMEOUT", cfg.SendMailHTTPTimeout)
+}
+
+func validatePositiveDuration(key string, value time.Duration) error {
+	if raw := strings.TrimSpace(os.Getenv(key)); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil || parsed <= 0 {
+			return fmt.Errorf("%s must be a positive duration", key)
+		}
+	}
+	if value <= 0 {
+		return fmt.Errorf("%s must be a positive duration", key)
+	}
+	return nil
+}
+
+func validatePositiveInt(key string, value int) error {
+	if raw := strings.TrimSpace(os.Getenv(key)); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			return fmt.Errorf("%s must be a positive integer", key)
+		}
+	}
+	if value <= 0 {
+		return fmt.Errorf("%s must be a positive integer", key)
 	}
 	return nil
 }
@@ -287,15 +297,7 @@ func load() (Config, error) {
 		AccessTokenTTL:                 duration("ACCESS_TOKEN_TTL", 15*time.Minute),
 		RefreshTokenTTL:                duration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
 		Port:                           getenv("PORT", "8080"),
-		AuthTokenDelivery:              getenv("AUTH_TOKEN_DELIVERY", "log"),
 		AuthTokenBaseURL:               getenv("AUTH_TOKEN_BASE_URL", ""),
-		SMTPHost:                       getenv("SMTP_HOST", ""),
-		SMTPPort:                       getenv("SMTP_PORT", "587"),
-		SMTPUsername:                   getenv("SMTP_USERNAME", ""),
-		SMTPPassword:                   getenv("SMTP_PASSWORD", ""),
-		SMTPFrom:                       getenv("SMTP_FROM", ""),
-		SMTPFromName:                   getenv("SMTP_FROM_NAME", "Realtek Connect"),
-		SMTPEncryption:                 getenv("SMTP_ENCRYPTION", "starttls"),
 		SendMailHTTPBaseURL:            getenv("SENDMAIL_HTTP_BASE_URL", ""),
 		SendMailHTTPBearerToken:        getenv("SENDMAIL_HTTP_BEARER_TOKEN", ""),
 		SendMailHTTPTimeout:            duration("SENDMAIL_HTTP_TIMEOUT", 15*time.Second),

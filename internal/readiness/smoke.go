@@ -26,22 +26,22 @@ const (
 )
 
 type Options struct {
-	BaseURL        string
-	ServiceVersion string
-	Email          string
-	Password       string
-	OrganizationID string
-	DeviceID       string
-	DatabaseURL    string
-	MigrationsDir  string
-	SMTPHost       string
-	SMTPFrom       string
-	Broker         string
-	CommandStream  string
-	EventStream    string
-	DryRun         bool
-	Now            func() time.Time
-	HTTPClient     *http.Client
+	BaseURL                 string
+	ServiceVersion          string
+	Email                   string
+	Password                string
+	OrganizationID          string
+	DeviceID                string
+	DatabaseURL             string
+	MigrationsDir           string
+	SendMailHTTPBaseURL     string
+	SendMailHTTPBearerToken string
+	Broker                  string
+	CommandStream           string
+	EventStream             string
+	DryRun                  bool
+	Now                     func() time.Time
+	HTTPClient              *http.Client
 }
 
 type Report struct {
@@ -121,19 +121,19 @@ type provisioningResponse struct {
 
 func OptionsFromEnv() Options {
 	return Options{
-		BaseURL:        getenv("ACCOUNT_MANAGER_BASE_URL", "http://localhost:8080"),
-		ServiceVersion: os.Getenv("ACCOUNT_MANAGER_VERSION"),
-		Email:          os.Getenv("READINESS_SMOKE_EMAIL"),
-		Password:       os.Getenv("READINESS_SMOKE_PASSWORD"),
-		OrganizationID: os.Getenv("READINESS_SMOKE_ORG_ID"),
-		DeviceID:       os.Getenv("READINESS_SMOKE_DEVICE_ID"),
-		DatabaseURL:    os.Getenv("DATABASE_URL"),
-		MigrationsDir:  getenv("READINESS_MIGRATIONS_DIR", "migrations"),
-		SMTPHost:       os.Getenv("SMTP_HOST"),
-		SMTPFrom:       os.Getenv("SMTP_FROM"),
-		Broker:         os.Getenv("CROSS_SERVICE_BROKER"),
-		CommandStream:  os.Getenv("ACCOUNT_VIDEO_COMMANDS_STREAM"),
-		EventStream:    os.Getenv("VIDEO_ACCOUNT_EVENTS_STREAM"),
+		BaseURL:                 getenv("ACCOUNT_MANAGER_BASE_URL", "http://localhost:8080"),
+		ServiceVersion:          os.Getenv("ACCOUNT_MANAGER_VERSION"),
+		Email:                   os.Getenv("READINESS_SMOKE_EMAIL"),
+		Password:                os.Getenv("READINESS_SMOKE_PASSWORD"),
+		OrganizationID:          os.Getenv("READINESS_SMOKE_ORG_ID"),
+		DeviceID:                os.Getenv("READINESS_SMOKE_DEVICE_ID"),
+		DatabaseURL:             os.Getenv("DATABASE_URL"),
+		MigrationsDir:           getenv("READINESS_MIGRATIONS_DIR", "migrations"),
+		SendMailHTTPBaseURL:     os.Getenv("SENDMAIL_HTTP_BASE_URL"),
+		SendMailHTTPBearerToken: os.Getenv("SENDMAIL_HTTP_BEARER_TOKEN"),
+		Broker:                  os.Getenv("CROSS_SERVICE_BROKER"),
+		CommandStream:           os.Getenv("ACCOUNT_VIDEO_COMMANDS_STREAM"),
+		EventStream:             os.Getenv("VIDEO_ACCOUNT_EVENTS_STREAM"),
 	}
 }
 
@@ -260,11 +260,15 @@ func runMigrationCheck(ctx context.Context, opts Options) CheckEvidence {
 }
 
 func optionalChecks(opts Options) []CheckEvidence {
-	smtpStatus := StatusSkip
-	smtpSummary := "SMTP is not configured"
-	if strings.TrimSpace(opts.SMTPHost) != "" && strings.TrimSpace(opts.SMTPFrom) != "" {
-		smtpStatus = StatusPass
-		smtpSummary = "SMTP notification settings are present"
+	emailStatus := StatusFail
+	emailSummary := "sendmail_http configuration is incomplete"
+	emailDetails := map[string]any{
+		"base_url":         strings.TrimSpace(opts.SendMailHTTPBaseURL),
+		"token_configured": strings.TrimSpace(opts.SendMailHTTPBearerToken) != "",
+	}
+	if endpoint, err := url.Parse(strings.TrimSpace(opts.SendMailHTTPBaseURL)); err == nil && endpoint.Scheme == "https" && endpoint.Host != "" && strings.TrimSpace(opts.SendMailHTTPBearerToken) != "" {
+		emailStatus = StatusPass
+		emailSummary = "sendmail_http settings are present"
 	}
 
 	brokerStatus := StatusSkip
@@ -279,7 +283,7 @@ func optionalChecks(opts Options) []CheckEvidence {
 	}
 
 	return []CheckEvidence{
-		check("smtp_optional", smtpStatus, smtpSummary, nil),
+		check("sendmail_http_configuration", emailStatus, emailSummary, emailDetails),
 		check("cross_service_channel_optional", brokerStatus, brokerSummary, brokerDetails),
 	}
 }

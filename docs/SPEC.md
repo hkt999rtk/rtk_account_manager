@@ -223,21 +223,11 @@ brand-cloud user and membership.
 Enumeration safety is mandatory. Sign-in and forgot-password request endpoints
 return `202 Accepted` for syntactically valid requests whether the email is
 unknown, disabled, pending activation, rate limited, or eligible. Raw tokens are
-never returned in HTTP responses. Delivery is handled only through the
-configured `AuthTokenSink`. Supported adapters are:
-
-- `AUTH_TOKEN_DELIVERY=log`: dev/test adapter that records the raw token in
-  server logs. Logs are sensitive operational material.
-- `AUTH_TOKEN_DELIVERY=sendmail_http`: deployed-cloud adapter that
-  transactionally writes encrypted jobs to `email_outbox`.
-  `rtk-account-manager-email-worker` delivers them through the configured HTTPS
-  Send Mail origin with Bearer authentication, bounded retry, and dead-letter
-  handling.
-- `AUTH_TOKEN_DELIVERY=smtp`: compatibility adapter for deployments that
-  explicitly select direct SMTP; it uses verified STARTTLS in production.
-
-Both durable delivery adapters use `EMAIL_OUTBOX_ENCRYPTION_KEY` and
-`AUTH_TOKEN_BASE_URL`. The HTTPS adapter additionally uses
+never returned in HTTP responses. Delivery always transactionally writes
+encrypted jobs to `email_outbox`. `rtk-account-manager-email-worker` delivers
+them through the configured HTTPS Send Mail origin with Bearer authentication,
+bounded retry, and dead-letter handling. The delivery path uses
+`EMAIL_OUTBOX_ENCRYPTION_KEY`, `AUTH_TOKEN_BASE_URL`,
 `SENDMAIL_HTTP_BASE_URL`, `SENDMAIL_HTTP_BEARER_TOKEN`, and
 `SENDMAIL_HTTP_TIMEOUT`.
 
@@ -388,7 +378,7 @@ A device is a registry entry owned by an organization. The server assigns each d
 ### Device Item Profile
 
 A device item profile, also called a product profile, is the brand-cloud or
-factory policy vocabulary for one device item, SKU, or equivalent product line.
+factory policy vocabulary for one device item, Product, or equivalent product line.
 It may define inventory defaults such as `category`, `manufacturer`, `model`,
 and metadata shape, plus the device certificate `ca_profile` or
 `issuer_profile`, canonical `service_options`, and claim/provisioning policy
@@ -401,26 +391,26 @@ All profile fields are independent settings. Account-manager registry fields are
 inventory facts, and neither `category`, `device_type`, `manufacturer`, `model`,
 nor metadata may be treated as service ACL input.
 
-### [REQ-AM-SKU-COLLAB-001] SKU projects use explicit developer collaboration
+### [REQ-AM-PRODUCT-COLLAB-001] Product projects use explicit developer collaboration
 
 <!-- rtk-requirement
-{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active","renamed_from_revision":"2aa8fcc8ddf8460fd6f0813631d3af33a042785cff0a0f7d4d6e6a571bfbb83a"}
 -->
 
 Each device item profile is also a developer collaboration project. Developer
 membership establishes tenant identity only; except for the Brand Cloud owner's
-governance override, it does not make every SKU visible. Tenant-local Brand Cloud
-operator accounts retain their existing operational roles. SKU creation is limited
-to the Brand Cloud owner and atomically creates one `sku_owner` assignment.
+governance override, it does not make every Product visible. Tenant-local Brand Cloud
+operator accounts retain their existing operational roles. Product creation is limited
+to the Brand Cloud owner and atomically creates one `product_owner` assignment.
 
-An owner may invite a registered developer as `sku_editor` or `sku_viewer`.
+An owner may invite a registered developer as `product_editor` or `product_viewer`.
 Acceptance creates a minimal Brand Cloud membership when necessary and the
-requested SKU assignment in one transaction. Editors can operate SKU-scoped
+requested Product assignment in one transaction. Editors can operate Product-scoped
 device, firmware, OTA, provisioning, batch, and reporting workflows but cannot
-manage collaborators or ownership. Viewers are read-only. Every SKU has exactly
+manage collaborators or ownership. Viewers are read-only. Every Product has exactly
 one transferable explicit owner; transfer promotes an active collaborator and
-demotes the prior owner to editor. SKU lists and all derived resources are
-filtered by effective assignment, with non-disclosing cross-SKU failures.
+demotes the prior owner to editor. Product lists and all derived resources are
+filtered by effective assignment, with non-disclosing cross-Product failures.
 
 ### [REQ-AM-FACTORY-CONTEXT-001] Factory enrollment selection uses signed production context without secret leakage
 
@@ -439,7 +429,7 @@ whose immutable `brand_cloud_id`, `device_item_profile_id`, and
 The factory enrollment JWT is not a user/session token. It is secret bearer
 material for the factory path and must not be logged. CSR fields, tenant slugs,
 URL names, and request-body selector overrides must not select the cloud CA or
-SKU CA. See `docs/FACTORY_PRODUCTION_RUNS.md`.
+Product CA. See `docs/FACTORY_PRODUCTION_RUNS.md`.
 
 ### Device Group
 
@@ -1387,9 +1377,9 @@ Constraints:
   issued tokens per user/purpose per hour.
 - Auth token and quota-decision email are committed to `email_outbox` in the
   same PostgreSQL transaction as the associated token or quota mutation.
-  Temporary SMTP failure therefore does not fail the API request. The worker
+  Temporary Send Mail HTTP failure therefore does not fail the API request. The worker
   claims rows with leases, retries transient failures, expires stale token
-  email, and dead-letters permanent failures. Log sinks remain local/test-only.
+  email, and dead-letters permanent failures.
 - Keycloak/OIDC SSO is available as an external authentication option when
   enabled through environment or platform-admin provider configuration.
 - Expired or revoked refresh tokens may be removed by an explicit maintenance command.
@@ -1576,7 +1566,7 @@ Rules:
   updates are fully deprecated.
 - Brand-cloud owner membership is mirrored into an organization-scoped
   governance assignment. Admin/member compatibility membership does not grant
-  SKU resource access; SKU assignments are explicit and use
+  Product resource access; Product assignments are explicit and use
   `actor_type=brand_cloud_user`. Brand-cloud tokens can
   authorize only against their own `brand_cloud_id`; cross-brand `orgId` access
   returns not found/forbidden without exposing the other brand cloud.
@@ -2363,7 +2353,7 @@ Recommended status codes:
 ## [FEAT-AM-OPERATIONS-001] Runtime configuration and persistence resilience
 
 <!-- rtk-feature
-{"owner":"rtk_account_manager","risk":"high","status":"active","change_paths":["repos/rtk_account_manager/**"],"commit_anchors":["workspace","account_manager"],"surfaces":[{"kind":"operator-workflow","source":"repos/rtk_account_manager/README.md","selector":"AUTH_TOKEN_DELIVERY=sendmail_http"},{"kind":"operator-workflow","source":"repos/rtk_account_manager/cmd/user-cache/main.go","selector":"user-cache"}]}
+{"owner":"rtk_account_manager","risk":"high","status":"active","change_paths":["repos/rtk_account_manager/**"],"commit_anchors":["workspace","account_manager"],"surfaces":[{"kind":"operator-workflow","source":"repos/rtk_account_manager/README.md","selector":"SENDMAIL_HTTP_BASE_URL"},{"kind":"operator-workflow","source":"repos/rtk_account_manager/cmd/user-cache/main.go","selector":"user-cache"}]}
 -->
 
 ### [REQ-AM-RUNTIME-CONFIG-001] Runtime validates selected signer and email-delivery configuration
@@ -2402,7 +2392,6 @@ Configuration:
 | `ACCESS_TOKEN_TTL` | Access token lifetime. |
 | `REFRESH_TOKEN_TTL` | Refresh token lifetime. |
 | `PORT` | HTTP server port. |
-| `AUTH_TOKEN_DELIVERY` | Auth verification/reset token delivery adapter. Use `log` for the local dev/test adapter. |
 | `EMAIL_VERIFICATION_TTL` | Email verification token lifetime, default `30m`. |
 | `PASSWORD_RESET_TTL` | Password reset token lifetime, default `30m`. |
 | `OTP_RESEND_INTERVAL` | Minimum resend interval, default `60s`. |
@@ -2411,16 +2400,9 @@ Configuration:
 | `ACCOUNT_MANAGER_USER_CACHE_ADDR` | Redis/Valkey address for the user cache. Default `127.0.0.1:6379`; LKE staging points this at the platform Redis service. |
 | `ACCOUNT_MANAGER_USER_CACHE_PREFIX` | Redis key prefix for user cache records. Default `account_manager:user`. |
 | `SIGNUP_DISPOSABLE_DOMAINS` | Comma-separated disposable email denylist override for public signup. |
-| `SENDMAIL_HTTP_BASE_URL` | Credential-free Send Mail origin used by `AUTH_TOKEN_DELIVERY=sendmail_http`; HTTPS in production. |
+| `SENDMAIL_HTTP_BASE_URL` | Credential-free Send Mail origin; HTTPS in production. |
 | `SENDMAIL_HTTP_BEARER_TOKEN` | Bearer credential supplied through runtime secret management for the Send Mail service. |
 | `SENDMAIL_HTTP_TIMEOUT` | Send Mail request timeout, default `15s`. |
-| `SMTP_HOST` | SMTP host used only when the direct SMTP compatibility adapter is selected. |
-| `SMTP_PORT` | SMTP port, default `587`. |
-| `SMTP_USERNAME` | SMTP username for production direct-SMTP delivery. |
-| `SMTP_PASSWORD` | SMTP password for production direct-SMTP delivery. |
-| `SMTP_FROM` | SMTP sender address used with `SMTP_HOST`. |
-| `SMTP_FROM_NAME` | Sender display name, default `Realtek Connect`. |
-| `SMTP_ENCRYPTION` | `starttls` in production; `none` is local/test-only. |
 | `EMAIL_OUTBOX_ENCRYPTION_KEY` | Base64-encoded 32-byte AES-256-GCM key for encrypted outbox payloads. |
 | `EMAIL_OUTBOX_POLL_INTERVAL` | Worker polling interval, default `5s`. |
 | `EMAIL_OUTBOX_BATCH_SIZE` | Worker claim batch size, default `20`. |
