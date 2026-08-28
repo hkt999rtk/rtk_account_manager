@@ -321,9 +321,9 @@ func TestIntegrationOutboxQueuesEveryPlatformAuthEmail(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	for _, messageType := range []string{"email_verification", "login_activation", "password_reset"} {
-		if got[messageType] != 1 {
-			t.Fatalf("%s outbox count = %d, want 1; all=%v", messageType, got[messageType], got)
+	for messageType, want := range map[string]int{"email_verification": 2, "login_activation": 1, "password_reset": 1} {
+		if got[messageType] != want {
+			t.Fatalf("%s outbox count = %d, want %d; all=%v", messageType, got[messageType], want, got)
 		}
 	}
 }

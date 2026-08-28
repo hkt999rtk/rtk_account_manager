@@ -26,7 +26,7 @@ Generated: ci-candidate
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 29 |
+| Go packages | 30 |
 | Test cases started | recorded in reports/test-events.json |
 | JSON pass events | recorded in reports/test-events.json |
 | JSON fail events | recorded in reports/test-events.json |
@@ -180,9 +180,14 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestBrandCloudContextHelpers`
 - `rtk_account_manager/internal/api`: `TestBrandCloudLogoutAndMeRejectMismatchedSubject`
 - `rtk_account_manager/internal/api`: `TestBrandCloudRefreshRejectsPlatformAndWrongTenantTokens`
+- `rtk_account_manager/internal/api`: `TestCanonicalServiceOptions/duplicate`
+- `rtk_account_manager/internal/api`: `TestCanonicalServiceOptions/empty`
+- `rtk_account_manager/internal/api`: `TestCanonicalServiceOptions/invalid`
+- `rtk_account_manager/internal/api`: `TestCanonicalServiceOptions`
 - `rtk_account_manager/internal/api`: `TestChipsetDeveloperHandlersRejectBrandCloudSubject/detail`
 - `rtk_account_manager/internal/api`: `TestChipsetDeveloperHandlersRejectBrandCloudSubject/list`
 - `rtk_account_manager/internal/api`: `TestChipsetDeveloperHandlersRejectBrandCloudSubject`
+- `rtk_account_manager/internal/api`: `TestChipsetManifestRejectsDuplicateResourceLinks`
 - `rtk_account_manager/internal/api`: `TestChipsetProviderErrorsAreStableAndSanitized`
 - `rtk_account_manager/internal/api`: `TestChipsetProviderFetchRejectsDNSRebinding`
 - `rtk_account_manager/internal/api`: `TestChipsetProviderFetchSuccessfulManifest`
@@ -204,6 +209,28 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestChipsetProviderURLPolicyEdgeCasesAndDefaults/userinfo`
 - `rtk_account_manager/internal/api`: `TestChipsetProviderURLPolicyEdgeCasesAndDefaults`
 - `rtk_account_manager/internal/api`: `TestChipsetProviderURLPolicy`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/duplicate_language`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/invalid_language`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/invalid_source`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/invalid_verified_date`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/missing_languages`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/missing_recommended`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/missing_resources`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/missing_schema`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/missing_source`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile/unstable_key`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageProfile`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageRejectsMalformedCollections/bad_provider_timestamp`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageRejectsMalformedCollections/chipsets_not_an_array`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageRejectsMalformedCollections/empty_languages`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageRejectsMalformedCollections/endpoints_not_an_array`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageRejectsMalformedCollections/invalid_document`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageRejectsMalformedCollections/invalid_endpoint_source`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageRejectsMalformedCollections/provider_type_mismatch`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageRejectsMalformedCollections/release_missing_field`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageRejectsMalformedCollections/releases_not_an_array`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageRejectsMalformedCollections/resources_not_an_array`
+- `rtk_account_manager/internal/api`: `TestChipsetResourcePackageRejectsMalformedCollections`
 - `rtk_account_manager/internal/api`: `TestDefaultChipsetFetcherDialGuards/disallowed_host`
 - `rtk_account_manager/internal/api`: `TestDefaultChipsetFetcherDialGuards/empty_resolver`
 - `rtk_account_manager/internal/api`: `TestDefaultChipsetFetcherDialGuards/invalid_address`
@@ -338,6 +365,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestNewAppCertificateBundle`
 - `rtk_account_manager/internal/api`: `TestNewAuthToken`
 - `rtk_account_manager/internal/api`: `TestNewHTTPAppCertificateIssuerValidatesConfig`
+- `rtk_account_manager/internal/api`: `TestNormalizeChipsetLinksRejectsInvalidLegacyGovernance/duplicate`
+- `rtk_account_manager/internal/api`: `TestNormalizeChipsetLinksRejectsInvalidLegacyGovernance/invalid_date`
+- `rtk_account_manager/internal/api`: `TestNormalizeChipsetLinksRejectsInvalidLegacyGovernance/invalid_endpoint`
+- `rtk_account_manager/internal/api`: `TestNormalizeChipsetLinksRejectsInvalidLegacyGovernance/invalid_language`
+- `rtk_account_manager/internal/api`: `TestNormalizeChipsetLinksRejectsInvalidLegacyGovernance/invalid_source`
+- `rtk_account_manager/internal/api`: `TestNormalizeChipsetLinksRejectsInvalidLegacyGovernance`
 - `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes/array`
 - `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes/missing`
 - `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes/single_group`
@@ -360,6 +393,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestParseChipsetManifestRejectsStructuralLimits`
 - `rtk_account_manager/internal/api`: `TestParseChipsetManifestRejectsUnsupportedVersionAndExcessiveDepth`
 - `rtk_account_manager/internal/api`: `TestParseChipsetManifestV1`
+- `rtk_account_manager/internal/api`: `TestParseDeviceClaimTokenCategoryRejectsUnknownValue`
 - `rtk_account_manager/internal/api`: `TestPostgresStoreSatisfiesAPIPersistenceBoundaries`
 - `rtk_account_manager/internal/api`: `TestPrometheusMetricHelpersFormatLabelsDeterministically`
 - `rtk_account_manager/internal/api`: `TestPrometheusMetricsRoute`
@@ -386,14 +420,25 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsRefreshTokenAsBearer`
 - `rtk_account_manager/internal/api`: `TestRootRouteDescribesAPIService`
 - `rtk_account_manager/internal/api`: `TestSignupLimiterEvictsStaleEntries`
+- `rtk_account_manager/internal/api`: `TestSplitCSVQuery`
 - `rtk_account_manager/internal/api`: `TestTrimPtrNormalizesOptionalStrings`
 - `rtk_account_manager/internal/api`: `TestUnknownRouteStillReturnsNotFound`
+- `rtk_account_manager/internal/api`: `TestValidSKUCollaboratorRole`
 - `rtk_account_manager/internal/api`: `TestValidationHelpersWriteErrors`
 - `rtk_account_manager/internal/api`: `TestValueOrEmpty`
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability/invalid_token`
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability/quota_exceeded`
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability/service_unavailable`
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/disabled`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/expired_state`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/invalid_state`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/invalid_token`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/provider_misconfigured`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/provider_not_found`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/unverified_email`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/user_not_provisioned`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures`
 - `rtk_account_manager/internal/api`: `TestWriteStatusMetricsSortsStatuses`
 - `rtk_account_manager/internal/auth`: `TestBrandCloudTokenClaimsCarryScopedSubject`
 - `rtk_account_manager/internal/auth`: `TestEndUserTokenClaimsCarryGlobalSubject`
@@ -540,6 +585,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields/source_service`
 - `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields/target_service`
 - `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields`
+- `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed/EMAIL_OUTBOX_BATCH_SIZE`
+- `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed/EMAIL_OUTBOX_MAX_ATTEMPTS`
+- `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed/EMAIL_OUTBOX_POLL_INTERVAL`
+- `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed/EMAIL_OUTBOX_RETRY_BASE`
+- `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed/EMAIL_OUTBOX_RETRY_MAX`
+- `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed`
 - `rtk_account_manager/internal/config`: `TestLoadAcceptsPEMJWTSignerWithoutSharedSecrets`
 - `rtk_account_manager/internal/config`: `TestLoadAcceptsPKCS11JWTSignerWithoutSharedSecrets`
 - `rtk_account_manager/internal/config`: `TestLoadDotEnvSetsMissingValuesAndPreservesExistingEnv`
@@ -562,12 +613,6 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/config`: `TestLoadWorkerValidatesDirectLifecycleHTTP/unsafe_URL`
 - `rtk_account_manager/internal/config`: `TestLoadWorkerValidatesDirectLifecycleHTTP/valid`
 - `rtk_account_manager/internal/config`: `TestLoadWorkerValidatesDirectLifecycleHTTP`
-- `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed`
-- `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed/EMAIL_OUTBOX_BATCH_SIZE`
-- `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed/EMAIL_OUTBOX_MAX_ATTEMPTS`
-- `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed/EMAIL_OUTBOX_POLL_INTERVAL`
-- `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed/EMAIL_OUTBOX_RETRY_BASE`
-- `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed/EMAIL_OUTBOX_RETRY_MAX`
 - `rtk_account_manager/internal/config`: `TestProductionEmailConfigurationFailsClosed`
 - `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration/credential_URL`
 - `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration/invalid_timeout`
@@ -734,6 +779,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenRejectsInvalidToken`
 - `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenRejectsUnsupportedCategory`
 - `rtk_account_manager/internal/store`: `TestSKUCollaborationInvitationVisibilityAndOwnershipTransferIntegration`
+- `rtk_account_manager/internal/store`: `TestSKUCollaboratorPendingInvitationLifecycleIntegration`
 - `rtk_account_manager/internal/store`: `TestScanEmailOutboxWrapsScanError`
 - `rtk_account_manager/internal/store`: `TestScanProductionRunMapsNoRowsToNotFound`
 - `rtk_account_manager/internal/store`: `TestScanProductionRunReturnsScanError`

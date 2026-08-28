@@ -41,9 +41,11 @@ type EmailOutboxCounts struct {
 	DeliveryLatency  time.Duration
 }
 
+var ErrEmailOutboxEncryptionUnavailable = errors.New("email outbox encryption is not configured")
+
 func (s *Store) enqueueEmailTx(ctx context.Context, tx pgx.Tx, in EmailOutboxInput) error {
 	if s.emailOutboxCipher == nil {
-		return errors.New("email outbox encryption is not configured")
+		return ErrEmailOutboxEncryptionUnavailable
 	}
 	nonce, ciphertext, err := s.emailOutboxCipher.Encrypt(in.Payload)
 	if err != nil {

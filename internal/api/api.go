@@ -496,7 +496,7 @@ func (s *Server) signIn(c *gin.Context) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	_, err := s.issueAuthTokenForEmail(c, email, "login_activation")
 	if err != nil {
-		if errors.Is(err, store.ErrRateLimited) {
+		if enumerationSafeEmailIssueError(err) {
 			c.Status(http.StatusAccepted)
 			return
 		}
@@ -962,7 +962,7 @@ func (s *Server) resendVerification(c *gin.Context) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	_, err := s.issueAuthTokenForEmail(c, email, "email_verification")
 	if err != nil {
-		if errors.Is(err, store.ErrRateLimited) {
+		if enumerationSafeEmailIssueError(err) {
 			c.Status(http.StatusAccepted)
 			return
 		}
@@ -980,7 +980,7 @@ func (s *Server) forgotPassword(c *gin.Context) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	_, err := s.issueAuthTokenForEmail(c, email, "password_reset")
 	if err != nil {
-		if errors.Is(err, store.ErrRateLimited) {
+		if enumerationSafeEmailIssueError(err) {
 			c.Status(http.StatusAccepted)
 			return
 		}
@@ -988,6 +988,12 @@ func (s *Server) forgotPassword(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusAccepted)
+}
+
+func enumerationSafeEmailIssueError(err error) bool {
+	return errors.Is(err, store.ErrRateLimited) ||
+		errors.Is(err, ErrEmailOutboxUnavailable) ||
+		errors.Is(err, store.ErrEmailOutboxEncryptionUnavailable)
 }
 
 type resetPasswordRequest struct {

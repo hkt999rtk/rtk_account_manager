@@ -134,6 +134,7 @@ require_passed_test() {
 }
 
 require_passed_test "Auth and sessions" "TestIntegrationRegisterLoginRefreshAndLogout"
+require_passed_test "Email outbox required" "TestEmailIssuanceRequiresOutbox"
 require_passed_test "Disabled users" "TestIntegrationDisabledUserCannotUseExistingTokens"
 require_passed_test "Organization access" "TestIntegrationOwnerCanUpdateOrganization"
 require_passed_test "Member management" "TestIntegrationLastOwnerCannotBeRemovedOrDowngraded"
