@@ -453,6 +453,15 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability/quota_exceeded`
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability/service_unavailable`
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/disabled`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/expired_state`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/invalid_state`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/invalid_token`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/provider_misconfigured`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/provider_not_found`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/unverified_email`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/user_not_provisioned`
+- `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures`
 - `rtk_account_manager/internal/api`: `TestWriteStatusMetricsSortsStatuses`
 - `rtk_account_manager/internal/auth`: `TestBrandCloudTokenClaimsCarryScopedSubject`
 - `rtk_account_manager/internal/auth`: `TestEndUserTokenClaimsCarryGlobalSubject`
