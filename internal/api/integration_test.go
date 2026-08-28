@@ -1323,8 +1323,8 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 		"token":        resetToken,
 		"new_password": "reset-password123",
 	}, "")
-	if resetRes.Code != http.StatusNoContent {
-		t.Fatalf("expected reset password 204, got %d: %s", resetRes.Code, resetRes.Body.String())
+	if resetRes.Code != http.StatusOK || !strings.Contains(resetRes.Body.String(), `"email":"verify@example.com"`) {
+		t.Fatalf("expected reset password email response, got %d: %s", resetRes.Code, resetRes.Body.String())
 	}
 	reuseResetRes := performJSON(env.router, http.MethodPost, "/v1/auth/reset-password", map[string]any{
 		"token":        resetToken,

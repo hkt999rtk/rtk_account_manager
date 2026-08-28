@@ -885,36 +885,41 @@ func (s *Store) EmailVerificationTokenStatus(ctx context.Context, tokenHash stri
 	return status, err
 }
 
-func (s *Store) ResetPasswordWithToken(ctx context.Context, tokenHash, passwordHash string) error {
+func (s *Store) ResetPasswordWithToken(ctx context.Context, tokenHash, passwordHash string) (string, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer tx.Rollback(ctx)
 
 	userID, err := consumeAuthTokenTx(ctx, tx, tokenHash, "password_reset", "")
 	if err != nil {
-		return err
+		return "", err
 	}
-	tag, err := tx.Exec(ctx, `
+	var email string
+	err = tx.QueryRow(ctx, `
 		UPDATE users
 		SET password_hash = $2, updated_at = now()
 		WHERE id = $1 AND disabled_at IS NULL
-	`, userID, passwordHash)
-	if err != nil {
-		return err
+		RETURNING email
+	`, userID, passwordHash).Scan(&email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
+	if err != nil {
+		return "", err
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE refresh_tokens
 		SET revoked_at = now()
 		WHERE user_id = $1 AND revoked_at IS NULL
 	`, userID); err != nil {
-		return err
+		return "", err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return email, nil
 }
 
 func (s *Store) createAuthToken(ctx context.Context, userID, purpose, scope, tokenHash string, expiresAt time.Time) error {

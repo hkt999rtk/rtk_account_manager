@@ -31,7 +31,7 @@ type backingStore interface {
 	GetUserPasswordByID(context.Context, string) (model.User, string, error)
 	VerifyEmailToken(context.Context, string, string) (model.User, error)
 	ActivateLoginToken(context.Context, string) (model.User, error)
-	ResetPasswordWithToken(context.Context, string, string) error
+	ResetPasswordWithToken(context.Context, string, string) (string, error)
 	UpdateUserPassword(context.Context, string, string) error
 	GetBrandCloudUserPassword(context.Context, string, string) (store.BrandCloudLoginResult, error)
 	ActivateBrandCloudLoginToken(context.Context, string, string) (store.BrandCloudLoginResult, error)
@@ -148,14 +148,15 @@ func (s *Store) ActivateLoginToken(ctx context.Context, tokenHash string) (model
 	return user, nil
 }
 
-func (s *Store) ResetPasswordWithToken(ctx context.Context, tokenHash, passwordHash string) error {
-	if err := s.backing.ResetPasswordWithToken(ctx, tokenHash, passwordHash); err != nil {
-		return err
+func (s *Store) ResetPasswordWithToken(ctx context.Context, tokenHash, passwordHash string) (string, error) {
+	email, err := s.backing.ResetPasswordWithToken(ctx, tokenHash, passwordHash)
+	if err != nil {
+		return "", err
 	}
 	if err := s.cache.FlushPlatformAuth(ctx); err != nil {
 		s.warn("flush platform auth cache failed", err)
 	}
-	return nil
+	return email, nil
 }
 
 func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash string) error {

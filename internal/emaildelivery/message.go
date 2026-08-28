@@ -67,7 +67,7 @@ func (r Renderer) content(messageType string, payload Payload) (string, string, 
 	default:
 		return "", "", "", fmt.Errorf("unsupported email message type %q", messageType)
 	}
-	link := r.authLink(messageType, payload.Token, payload.TenantSlug)
+	link := r.authLink(messageType, payload.Token, payload.RecipientEmail, payload.TenantSlug)
 	text := intro + ":\r\n\r\n" + link + "\r\n"
 	if payload.Token != "" {
 		text += "\r\nToken: " + payload.Token + "\r\n"
@@ -246,7 +246,7 @@ func authEmailHTML(content authEmailContent) string {
 	return b.String()
 }
 
-func (r Renderer) authLink(messageType, token, tenantSlug string) string {
+func (r Renderer) authLink(messageType, token, recipientEmail, tenantSlug string) string {
 	base := strings.TrimRight(strings.TrimSpace(r.BaseURL), "/")
 	path := "/login/activate"
 	switch messageType {
@@ -267,6 +267,9 @@ func (r Renderer) authLink(messageType, token, tenantSlug string) string {
 	}
 	q := u.Query()
 	q.Set("token", token)
+	if messageType == "password_reset" && strings.TrimSpace(recipientEmail) != "" {
+		q.Set("email", strings.TrimSpace(recipientEmail))
+	}
 	if messageType == "brand_cloud_user_activation" {
 		q.Set("tenant", strings.TrimSpace(tenantSlug))
 	}
