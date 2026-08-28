@@ -47,7 +47,7 @@ concurrency:
 jobs:
   deploy:
     name: Deploy release on video-cloud-cd.local
-    runs-on: [self-hosted, Linux, X64, account-manager-cd]
+    runs-on: [self-hosted, Linux, X64]
     environment: staging
     steps:
       - name: Check out repository

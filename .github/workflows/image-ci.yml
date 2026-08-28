@@ -18,7 +18,7 @@ permissions:
 jobs:
   build:
     name: Build deployable image
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 30
     steps:
       - name: Check out repository
