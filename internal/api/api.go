@@ -1008,11 +1008,12 @@ func (s *Server) resetPassword(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not hash password")
 		return
 	}
-	if err := s.store.ResetPasswordWithToken(c.Request.Context(), auth.HashToken(req.Token), newHash); err != nil {
+	email, err := s.store.ResetPasswordWithToken(c.Request.Context(), auth.HashToken(req.Token), newHash)
+	if err != nil {
 		writeError(c, http.StatusBadRequest, "invalid_token", "Invalid or expired reset token")
 		return
 	}
-	c.Status(http.StatusNoContent)
+	c.JSON(http.StatusOK, gin.H{"email": email})
 }
 
 func (s *Server) issueAuthToken(c *gin.Context, userID, email, purpose string) (string, time.Time, error) {
