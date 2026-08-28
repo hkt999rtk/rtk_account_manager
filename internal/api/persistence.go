@@ -59,7 +59,7 @@ type authPersistence interface {
 	VerifyEmailToken(ctx context.Context, tokenHash, passwordHash string) (model.User, error)
 	EmailVerificationTokenStatus(ctx context.Context, tokenHash string) (string, error)
 	ActivateLoginToken(ctx context.Context, tokenHash string) (model.User, error)
-	ResetPasswordWithToken(ctx context.Context, tokenHash, passwordHash string) error
+	ResetPasswordWithToken(ctx context.Context, tokenHash, passwordHash string) (string, error)
 	UpdateUserPassword(ctx context.Context, userID, passwordHash string) error
 	SaveRefreshToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
 	RotateRefreshToken(ctx context.Context, oldTokenHash, newTokenHash, userID string, newExpiresAt time.Time) error
