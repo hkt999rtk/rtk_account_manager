@@ -43,29 +43,13 @@ func main() {
 	if err != nil {
 		fatal(logger, "configure auth token signer failed", err)
 	}
-	var authTokenSink api.AuthTokenSink
-	switch cfg.AuthTokenDelivery {
-	case "log":
-		authTokenSink = api.NewLogAuthTokenSink(logger)
-	case "sendmail_http":
-		// Email delivery is performed by the durable email worker.
-		authTokenSink = nil
-	default:
-		fatal(logger, "unsupported auth token delivery", nil, zap.String("delivery", cfg.AuthTokenDelivery))
-	}
-	var notificationSink api.QuotaRaiseNotificationSink
-	if cfg.AuthTokenDelivery == "log" {
-		notificationSink = api.NewLogQuotaRaiseNotificationSink(logger)
-	}
 	accountStore := store.New(db)
 	accountStore.ConfigureAuthTokenRateLimit(cfg.AuthTokenRateLimitMax, cfg.AuthTokenRateLimitWindow)
-	if emailOutboxDelivery(cfg.AuthTokenDelivery) {
-		cipher, err := emaildelivery.NewCipher(cfg.EmailOutboxEncryptionKey)
-		if err != nil {
-			fatal(logger, "configure email outbox encryption failed", err)
-		}
-		accountStore.ConfigureEmailOutboxCipher(cipher)
+	cipher, err := emaildelivery.NewCipher(cfg.EmailOutboxEncryptionKey)
+	if err != nil {
+		fatal(logger, "configure email outbox encryption failed", err)
 	}
+	accountStore.ConfigureEmailOutboxCipher(cipher)
 	if cfg.BootstrapPlatformAdminEmail != "" || cfg.BootstrapPlatformAdminPassword != "" {
 		if cfg.BootstrapPlatformAdminEmail == "" || cfg.BootstrapPlatformAdminPassword == "" {
 			fatal(logger, "bootstrap platform admin config incomplete", nil)
@@ -90,11 +74,9 @@ func main() {
 		apiStore = usercache.NewStore(apiStore, cache, logger)
 		logger.Info("user cache enabled", zap.String("addr", cfg.UserCacheAddr), zap.String("prefix", cfg.UserCachePrefix))
 	}
-	server := api.NewWithAuthTokenAndNotificationSink(apiStore, authService, authTokenSink, notificationSink)
+	server := api.New(apiStore, authService)
 	server.ConfigureAuthTokenTTLs(cfg.EmailVerificationTTL, cfg.PasswordResetTTL)
-	if emailOutboxDelivery(cfg.AuthTokenDelivery) {
-		server.ConfigureEmailOutbox(accountStore)
-	}
+	server.ConfigureEmailOutbox(accountStore)
 	server.SetLogger(logger)
 	server.ConfigureInternalAuthToken(cfg.InternalAuthToken)
 	server.ConfigureProductionJWT(cfg.FactoryProductionJWTSecret, cfg.FactoryProductionJWTAudience)
@@ -138,10 +120,6 @@ func main() {
 	if err := httpServer.ListenAndServe(); err != nil {
 		fatal(logger, "server stopped", err)
 	}
-}
-
-func emailOutboxDelivery(delivery string) bool {
-	return delivery == "sendmail_http"
 }
 
 func newAuthService(cfg config.Config) (*auth.Service, error) {

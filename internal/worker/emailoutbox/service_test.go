@@ -70,7 +70,9 @@ func TestServiceRetriesTransientAndDeadLettersPermanent(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			repository := &fakeStore{items: []model.EmailOutbox{encryptedItem(t, cipher, now, nil)}}
-			service := NewService(repository, cipher, emaildelivery.Renderer{BaseURL: "https://example.com"}, &fakeSender{err: test.sendErr}, Options{
+			service := NewService(repository, cipher, emaildelivery.Renderer{
+				BaseURL: "https://example.com",
+			}, &fakeSender{err: test.sendErr}, Options{
 				Now: func() time.Time { return now }, RetryBase: 30 * time.Second,
 				Jitter: func(time.Duration) time.Duration { return 0 },
 			})

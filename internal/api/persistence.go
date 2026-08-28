@@ -50,12 +50,6 @@ type authPersistence interface {
 	ResumeExpiredDeveloperSignup(context.Context, string) (store.DeveloperSignupResult, error)
 	GetUserPassword(ctx context.Context, email string) (model.User, string, error)
 	GetUserPasswordByID(ctx context.Context, userID string) (model.User, string, error)
-	CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
-	CreatePasswordResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
-	CreateLoginActivationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
-	CreatePasswordResetTokenForEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error)
-	CreateEmailVerificationTokenForEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error)
-	CreateLoginActivationTokenForEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error)
 	VerifyEmailToken(ctx context.Context, tokenHash, passwordHash string) (model.User, error)
 	EmailVerificationTokenStatus(ctx context.Context, tokenHash string) (string, error)
 	ActivateLoginToken(ctx context.Context, tokenHash string) (model.User, error)
@@ -65,7 +59,6 @@ type authPersistence interface {
 	RotateRefreshToken(ctx context.Context, oldTokenHash, newTokenHash, userID string, newExpiresAt time.Time) error
 	RevokeRefreshToken(ctx context.Context, tokenHash string) error
 	GetBrandCloudUserPassword(ctx context.Context, tenantSlug, email string) (store.BrandCloudLoginResult, error)
-	CreateBrandCloudLoginActivationTokenForEmail(ctx context.Context, tenantSlug, email, tokenHash string, expiresAt time.Time) (bool, error)
 	ActivateBrandCloudLoginToken(ctx context.Context, tenantSlug, tokenHash string) (store.BrandCloudLoginResult, error)
 	GetBrandCloudUser(ctx context.Context, brandCloudUserID string) (model.BrandCloudUser, error)
 	GetBrandCloudMember(ctx context.Context, brandCloudID, brandCloudUserID string) (model.BrandCloudMember, error)

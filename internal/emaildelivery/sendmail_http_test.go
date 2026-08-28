@@ -68,7 +68,7 @@ func TestSendMailHTTPClientClassifiesResponses(t *testing.T) {
 		{"forbidden", http.StatusForbidden, `{"error":"forbidden"}`, false, true},
 		{"timeout", http.StatusRequestTimeout, `{"error":"timeout"}`, true, true},
 		{"rate limited", http.StatusTooManyRequests, `{"error":"limited"}`, true, true},
-		{"upstream failed", http.StatusBadGateway, `{"error":"upstream"}`, true, true},
+		{"upstream delivery failed", http.StatusBadGateway, `{"error":"upstream"}`, true, true},
 		{"invalid accepted response", http.StatusAccepted, `{"status":"unknown"}`, false, true},
 	}
 	for _, test := range tests {

@@ -223,18 +223,11 @@ brand-cloud user and membership.
 Enumeration safety is mandatory. Sign-in and forgot-password request endpoints
 return `202 Accepted` for syntactically valid requests whether the email is
 unknown, disabled, pending activation, rate limited, or eligible. Raw tokens are
-never returned in HTTP responses. Delivery is handled only through the
-configured `AuthTokenSink`. Supported adapters are:
-
-- `AUTH_TOKEN_DELIVERY=log`: dev/test adapter that records the raw token in
-  server logs. Logs are sensitive operational material.
-- `AUTH_TOKEN_DELIVERY=sendmail_http`: deployed-cloud adapter that
-  transactionally writes encrypted jobs to `email_outbox`.
-  `rtk-account-manager-email-worker` delivers them through the configured HTTPS
-  Send Mail origin with Bearer authentication, bounded retry, and dead-letter
-  handling.
-Durable delivery uses `EMAIL_OUTBOX_ENCRYPTION_KEY` and
-`AUTH_TOKEN_BASE_URL`. The HTTP adapter additionally uses
+never returned in HTTP responses. Delivery always transactionally writes
+encrypted jobs to `email_outbox`. `rtk-account-manager-email-worker` delivers
+them through the configured HTTPS Send Mail origin with Bearer authentication,
+bounded retry, and dead-letter handling. The delivery path uses
+`EMAIL_OUTBOX_ENCRYPTION_KEY`, `AUTH_TOKEN_BASE_URL`,
 `SENDMAIL_HTTP_BASE_URL`, `SENDMAIL_HTTP_BEARER_TOKEN`, and
 `SENDMAIL_HTTP_TIMEOUT`.
 
@@ -399,10 +392,6 @@ inventory facts, and neither `category`, `device_type`, `manufacturer`, `model`,
 nor metadata may be treated as service ACL input.
 
 ### [REQ-AM-SKU-COLLAB-001] SKU projects use explicit developer collaboration
-
-<!-- rtk-requirement
-{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
--->
 
 Each device item profile is also a developer collaboration project. Developer
 membership establishes tenant identity only; except for the Brand Cloud owner's
@@ -1386,7 +1375,7 @@ Constraints:
   same PostgreSQL transaction as the associated token or quota mutation.
   Temporary Send Mail HTTP failure therefore does not fail the API request. The worker
   claims rows with leases, retries transient failures, expires stale token
-  email, and dead-letters permanent failures. Log sinks remain local/test-only.
+  email, and dead-letters permanent failures.
 - Keycloak/OIDC SSO is available as an external authentication option when
   enabled through environment or platform-admin provider configuration.
 - Expired or revoked refresh tokens may be removed by an explicit maintenance command.
@@ -2360,7 +2349,7 @@ Recommended status codes:
 ## [FEAT-AM-OPERATIONS-001] Runtime configuration and persistence resilience
 
 <!-- rtk-feature
-{"owner":"rtk_account_manager","risk":"high","status":"active","change_paths":["repos/rtk_account_manager/**"],"commit_anchors":["workspace","account_manager"],"surfaces":[{"kind":"operator-workflow","source":"repos/rtk_account_manager/README.md","selector":"AUTH_TOKEN_DELIVERY=sendmail_http"},{"kind":"operator-workflow","source":"repos/rtk_account_manager/cmd/user-cache/main.go","selector":"user-cache"}]}
+{"owner":"rtk_account_manager","risk":"high","status":"active","change_paths":["repos/rtk_account_manager/**"],"commit_anchors":["workspace","account_manager"],"surfaces":[{"kind":"operator-workflow","source":"repos/rtk_account_manager/README.md","selector":"SENDMAIL_HTTP_BASE_URL"},{"kind":"operator-workflow","source":"repos/rtk_account_manager/cmd/user-cache/main.go","selector":"user-cache"}]}
 -->
 
 ### [REQ-AM-RUNTIME-CONFIG-001] Runtime validates selected signer and email-delivery configuration
@@ -2399,7 +2388,6 @@ Configuration:
 | `ACCESS_TOKEN_TTL` | Access token lifetime. |
 | `REFRESH_TOKEN_TTL` | Refresh token lifetime. |
 | `PORT` | HTTP server port. |
-| `AUTH_TOKEN_DELIVERY` | Auth verification/reset token delivery adapter. Use `log` for the local dev/test adapter. |
 | `EMAIL_VERIFICATION_TTL` | Email verification token lifetime, default `30m`. |
 | `PASSWORD_RESET_TTL` | Password reset token lifetime, default `30m`. |
 | `OTP_RESEND_INTERVAL` | Minimum resend interval, default `60s`. |
@@ -2408,7 +2396,7 @@ Configuration:
 | `ACCOUNT_MANAGER_USER_CACHE_ADDR` | Redis/Valkey address for the user cache. Default `127.0.0.1:6379`; LKE staging points this at the platform Redis service. |
 | `ACCOUNT_MANAGER_USER_CACHE_PREFIX` | Redis key prefix for user cache records. Default `account_manager:user`. |
 | `SIGNUP_DISPOSABLE_DOMAINS` | Comma-separated disposable email denylist override for public signup. |
-| `SENDMAIL_HTTP_BASE_URL` | Credential-free Send Mail origin used by `AUTH_TOKEN_DELIVERY=sendmail_http`; HTTPS in production. |
+| `SENDMAIL_HTTP_BASE_URL` | Credential-free Send Mail origin; HTTPS in production. |
 | `SENDMAIL_HTTP_BEARER_TOKEN` | Bearer credential supplied through runtime secret management for the Send Mail service. |
 | `SENDMAIL_HTTP_TIMEOUT` | Send Mail request timeout, default `15s`. |
 | `EMAIL_OUTBOX_ENCRYPTION_KEY` | Base64-encoded 32-byte AES-256-GCM key for encrypted outbox payloads. |

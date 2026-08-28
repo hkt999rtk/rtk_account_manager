@@ -61,6 +61,9 @@ func (s *Server) inviteSKUCollaborator(c *gin.Context) {
 	if !s.requireSKUCollaboratorManager(c) {
 		return
 	}
+	if !s.requireEmailOutbox(c) {
+		return
+	}
 	var req skuCollaboratorInvitationRequest
 	if !bind(c, &req) || !validSKUCollaboratorRole(c, strings.TrimSpace(req.Role)) {
 		return
@@ -71,24 +74,17 @@ func (s *Server) inviteSKUCollaborator(c *gin.Context) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	var outbox *store.EmailOutboxInput
-	if s.emailOutboxStore != nil {
-		value := authTokenEmailOutbox(email, "sku_collaborator_invitation", token, expiresAt)
-		outbox = &value
-	}
+	outbox := authTokenEmailOutbox(email, "sku_collaborator_invitation", token, expiresAt)
 	invitation, created, err := s.store.CreateSKUCollaboratorInvitation(c.Request.Context(), store.SKUCollaboratorInvitationInput{
 		BrandCloudID: c.Param("brandCloudId"), SKUID: c.Param("skuId"), InvitedByUserID: currentUserID(c),
-		TargetEmail: email, Role: strings.TrimSpace(req.Role), TokenHash: auth.HashToken(token), ExpiresAt: expiresAt, Email: outbox,
+		TargetEmail: email, Role: strings.TrimSpace(req.Role), TokenHash: auth.HashToken(token), ExpiresAt: expiresAt, Email: &outbox,
 	}, time.Now().UTC())
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	if created && s.emailOutboxStore == nil {
-		if err := s.deliverAuthToken(c, invitation.TargetEmail, "sku_collaborator_invitation", token, expiresAt); err != nil {
-			writeError(c, http.StatusInternalServerError, "token_delivery_failed", "Could not deliver invitation token")
-			return
-		}
+	if created {
+		s.notifyAuthTokenQueued(AuthTokenDelivery{Purpose: "sku_collaborator_invitation", Email: invitation.TargetEmail, Token: token, ExpiresAt: expiresAt})
 	}
 	c.JSON(http.StatusAccepted, gin.H{"invitation": invitation})
 }
@@ -109,27 +105,21 @@ func (s *Server) resendSKUCollaboratorInvitation(c *gin.Context) {
 	if !s.requireSKUCollaboratorManager(c) {
 		return
 	}
+	if !s.requireEmailOutbox(c) {
+		return
+	}
 	token, expiresAt, err := s.newAuthToken("sku_collaborator_invitation")
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue invitation token")
 		return
 	}
-	var outbox *store.EmailOutboxInput
-	if s.emailOutboxStore != nil {
-		value := authTokenEmailOutbox("pending@example.invalid", "sku_collaborator_invitation", token, expiresAt)
-		outbox = &value
-	}
-	item, err := s.store.ResendSKUCollaboratorInvitation(c.Request.Context(), store.SKUCollaboratorInvitationMutation{BrandCloudID: c.Param("brandCloudId"), SKUID: c.Param("skuId"), InvitationID: c.Param("invitationId"), ActorUserID: currentUserID(c), TokenHash: auth.HashToken(token), ExpiresAt: expiresAt, Email: outbox}, time.Now().UTC())
+	outbox := authTokenEmailOutbox("pending@example.invalid", "sku_collaborator_invitation", token, expiresAt)
+	item, err := s.store.ResendSKUCollaboratorInvitation(c.Request.Context(), store.SKUCollaboratorInvitationMutation{BrandCloudID: c.Param("brandCloudId"), SKUID: c.Param("skuId"), InvitationID: c.Param("invitationId"), ActorUserID: currentUserID(c), TokenHash: auth.HashToken(token), ExpiresAt: expiresAt, Email: &outbox}, time.Now().UTC())
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	if s.emailOutboxStore == nil {
-		if err := s.deliverAuthToken(c, item.TargetEmail, "sku_collaborator_invitation", token, expiresAt); err != nil {
-			writeError(c, http.StatusInternalServerError, "token_delivery_failed", "Could not deliver invitation token")
-			return
-		}
-	}
+	s.notifyAuthTokenQueued(AuthTokenDelivery{Purpose: "sku_collaborator_invitation", Email: item.TargetEmail, Token: token, ExpiresAt: expiresAt})
 	c.JSON(http.StatusAccepted, gin.H{"invitation": item})
 }
 

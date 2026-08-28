@@ -78,8 +78,9 @@ Backend account and device manager for organization-scoped users and registry-on
 
    The readiness smoke is read-only. It records service version input, health,
    migration status, login, organization/device reads, and provisioning/readiness
-   evidence when the referenced resources already exist. Missing optional
-   cross-service channel settings are recorded as explicit `SKIP` checks.
+   evidence when the referenced resources already exist. Send Mail HTTP
+   configuration is checked explicitly; missing cross-service channel settings
+   are recorded as `SKIP`.
    Use `go run ./cmd/readiness-smoke -dry-run` to validate configuration without
    network or database calls.
 
@@ -100,21 +101,15 @@ The optional local Keycloak/OIDC login flow is documented in `docs/KEYCLOAK_LOCA
 Private-cloud deployment packaging, systemd templates, migration/upgrade/rollback, and backup/restore operations are documented in `docs/PRIVATE_CLOUD_DEPLOYMENT_RUNBOOK.md`; reference deploy assets live under `deploy/`.
 The service logging migration to `rtk_cloud_logger` zap and central journald forwarding is documented in `docs/SERVICE_LOGGING_MIGRATION.md`.
 Linode staging runtime is K8s-only and is operated from the workspace; see `docs/linode-staging-k8s.md`.
-Auth verification, email sign-in, and password reset tokens use `AUTH_TOKEN_DELIVERY`.
-Set `AUTH_TOKEN_DELIVERY=log` for dev/test to write generated one-time tokens to
-the API server log. Production supports only `AUTH_TOKEN_DELIVERY=sendmail_http`.
-Set `EMAIL_OUTBOX_ENCRYPTION_KEY`, `AUTH_TOKEN_BASE_URL`,
-`SENDMAIL_HTTP_BASE_URL`, `SENDMAIL_HTTP_BEARER_TOKEN`, and
-`SENDMAIL_HTTP_TIMEOUT` to enqueue and deliver verification, login activation,
-password reset, owner-transfer, and quota decision messages through the
-Send Mail HTTP API. The worker sends `to`, `subject`, `text`, and `html` to
-`POST /send`; sender identity is owned by that service. Run
-`rtk-account-manager-email-worker` to drain the durable PostgreSQL outbox.
-`AUTH_TOKEN_BASE_URL` must point at the Admin Console browser origin so messages
-can link to `/signup/verify`, `/login/activate`, and `/reset-password`.
-Production rejects log delivery, incomplete HTTP configuration, and non-HTTPS
-Send Mail origins. Live delivery E2E is operated from the workspace staging
-deployment flow; `make test-email-signup-helper` runs the offline IMAP parser tests.
+Auth verification, email sign-in, password reset, invitations, owner transfer,
+and quota-decision notifications are transactionally written to the encrypted
+PostgreSQL outbox. Run `rtk-account-manager-email-worker` to deliver every
+message through the Send Mail HTTP API. Configure `AUTH_TOKEN_BASE_URL`,
+`SENDMAIL_HTTP_BASE_URL`, `SENDMAIL_HTTP_BEARER_TOKEN`,
+`SENDMAIL_HTTP_TIMEOUT`, and `EMAIL_OUTBOX_ENCRYPTION_KEY`. The worker sends
+`to`, `subject`, `text`, and `html` to `POST /send`; production requires HTTPS.
+The workspace-level staging email E2E uses the same HTTP delivery path and IMAP
+only to verify the received message.
 Set `CROSS_SERVICE_BROKER=azure_eventhubs` plus `AZURE_EVENTHUB_CONNECTION_STRING` to run the workers against Azure Event Hubs instead of the local `log` adapter. The inbox worker persists Azure consumer checkpoints at `.state/azure_eventhubs/<stream>__<consumer-group>.json` by default; set `AZURE_EVENTHUB_CHECKPOINT_FILE` to override that path.
 
 Set `ACCOUNT_MANAGER_USER_CACHE_ENABLED=true` to enable the Redis-compatible

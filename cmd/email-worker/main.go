@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -64,9 +63,6 @@ type emailSender interface {
 
 func emailDelivery(cfg config.Config) (emailSender, emaildelivery.Renderer, error) {
 	renderer := emaildelivery.Renderer{BaseURL: cfg.AuthTokenBaseURL}
-	if cfg.AuthTokenDelivery != "sendmail_http" {
-		return nil, renderer, fmt.Errorf("unsupported AUTH_TOKEN_DELIVERY %q", cfg.AuthTokenDelivery)
-	}
 	client, err := emaildelivery.NewSendMailHTTPClient(emaildelivery.SendMailHTTPConfig{
 		BaseURL: cfg.SendMailHTTPBaseURL, BearerToken: cfg.SendMailHTTPBearerToken,
 		Timeout: cfg.SendMailHTTPTimeout,
