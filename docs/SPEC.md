@@ -403,6 +403,10 @@ nor metadata may be treated as service ACL input.
 
 ### [REQ-AM-SKU-COLLAB-001] SKU projects use explicit developer collaboration
 
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
 Each device item profile is also a developer collaboration project. Developer
 membership establishes tenant identity only; except for the Brand Cloud owner's
 governance override, it does not make every SKU visible. Tenant-local Brand Cloud

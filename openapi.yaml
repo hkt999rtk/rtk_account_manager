@@ -5969,6 +5969,10 @@ components:
         type: { type: string }
         title: { type: string }
         url: { type: string, format: uri, pattern: '^https://' }
+        source: { type: string, enum: [official, community] }
+        languages: { type: array, items: { type: string } }
+        verified_at: { type: string, format: date-time }
+        summary: { type: string }
         metadata: { type: object, additionalProperties: true }
     ChipsetSDKRelease:
       type: object
@@ -5991,6 +5995,7 @@ components:
         name: { type: string }
         family: { type: string }
         description: { type: string }
+        resources: { type: array, maxItems: 64, items: { $ref: "#/components/schemas/ChipsetEndpoint" } }
         sdk_releases: { type: array, items: { $ref: "#/components/schemas/ChipsetSDKRelease" } }
         stale: { type: boolean }
         last_successful_refresh_at: { type: string, format: date-time }

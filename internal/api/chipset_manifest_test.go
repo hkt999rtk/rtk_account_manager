@@ -377,3 +377,50 @@ func TestChipsetProviderFetchSuccessfulManifest(t *testing.T) {
 		t.Fatalf("result = %+v", result)
 	}
 }
+
+func TestChipsetResourcePackageProfile(t *testing.T) {
+	valid := []byte(`{
+		"$schema":"chipset-resource-package-v1.schema.json",
+		"manifest_version":"1",
+		"provider":{"name":"Realtek","updated_at":"2026-08-28T00:00:00Z"},
+		"chipsets":[{
+			"chipset_key":"realtek-amebapro2","vendor":"Realtek","name":"AmebaPro2",
+			"resources":[{"type":"product","title":"Product","url":"https://example.com/product","source":"official","languages":["en","zh-TW"],"verified_at":"2026-08-28T00:00:00Z"}],
+			"sdk_releases":[{"name":"SDK","version":"1","recommended":true,"supported_models":["AMB82 MINI"],"endpoints":[{"type":"github","title":"Code","url":"https://example.com/code","source":"official","languages":["en"],"verified_at":"2026-08-28T00:00:00Z"}]}]
+		}]
+	}`)
+	if err := ValidateChipsetResourcePackage(valid); err != nil {
+		t.Fatalf("valid package: %v", err)
+	}
+	chipsets, _, err := parseChipsetManifest("11111111-1111-1111-1111-111111111111", valid)
+	if err != nil || len(chipsets) != 1 || len(chipsets[0].Resources) != 1 || chipsets[0].Resources[0].Source != "official" {
+		t.Fatalf("resources = %#v, err = %v", chipsets, err)
+	}
+
+	tests := map[string]string{
+		"missing schema":        strings.Replace(string(valid), `"$schema":"chipset-resource-package-v1.schema.json",`, "", 1),
+		"missing resources":     strings.Replace(string(valid), `"resources":[{"type":"product","title":"Product","url":"https://example.com/product","source":"official","languages":["en","zh-TW"],"verified_at":"2026-08-28T00:00:00Z"}],`, "", 1),
+		"missing recommended":   strings.Replace(string(valid), `"recommended":true,`, "", 1),
+		"unstable key":          strings.Replace(string(valid), "realtek-amebapro2", "Realtek AmebaPro2", 1),
+		"missing source":        strings.Replace(string(valid), `"source":"official",`, "", 1),
+		"invalid source":        strings.Replace(string(valid), `"source":"official"`, `"source":"third-party"`, 1),
+		"missing languages":     strings.Replace(string(valid), `"languages":["en","zh-TW"],`, "", 1),
+		"invalid language":      strings.Replace(string(valid), `"languages":["en","zh-TW"]`, `"languages":["not_a_tag"]`, 1),
+		"duplicate language":    strings.Replace(string(valid), `"languages":["en","zh-TW"]`, `"languages":["en","en"]`, 1),
+		"invalid verified date": strings.Replace(string(valid), "2026-08-28T00:00:00Z", "2026-08-28", 2),
+	}
+	for name, raw := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateChipsetResourcePackage([]byte(raw)); err == nil {
+				t.Fatal("expected invalid package")
+			}
+		})
+	}
+}
+
+func TestChipsetManifestRejectsDuplicateResourceLinks(t *testing.T) {
+	raw := []byte(`{"manifest_version":"1","provider":{"name":"Realtek","updated_at":"2026-08-28T00:00:00Z"},"chipsets":[{"chipset_key":"ameba","vendor":"Realtek","name":"Ameba","resources":[{"type":"forum","title":"Forum","url":"https://example.com/forum"},{"type":"forum","title":"Forum duplicate","url":"https://example.com/forum"}],"sdk_releases":[]}]}`)
+	if _, _, err := parseChipsetManifest("provider", raw); !errors.Is(err, errChipsetManifestInvalid) {
+		t.Fatalf("duplicate resource error = %v", err)
+	}
+}

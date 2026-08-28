@@ -14,10 +14,14 @@ const (
 )
 
 type ChipsetEndpoint struct {
-	Type     string         `json:"type"`
-	Title    string         `json:"title"`
-	URL      string         `json:"url"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	Type       string         `json:"type"`
+	Title      string         `json:"title"`
+	URL        string         `json:"url"`
+	Source     string         `json:"source,omitempty"`
+	Languages  []string       `json:"languages,omitempty"`
+	VerifiedAt string         `json:"verified_at,omitempty"`
+	Summary    string         `json:"summary,omitempty"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
 func (e *ChipsetEndpoint) UnmarshalJSON(data []byte) error {
@@ -25,13 +29,22 @@ func (e *ChipsetEndpoint) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
 	}
-	for name, target := range map[string]*string{"type": &e.Type, "title": &e.Title, "url": &e.URL} {
+	for name, target := range map[string]*string{
+		"type": &e.Type, "title": &e.Title, "url": &e.URL, "source": &e.Source,
+		"verified_at": &e.VerifiedAt, "summary": &e.Summary,
+	} {
 		if raw, ok := fields[name]; ok {
 			if err := json.Unmarshal(raw, target); err != nil {
 				return err
 			}
 			delete(fields, name)
 		}
+	}
+	if raw, ok := fields["languages"]; ok {
+		if err := json.Unmarshal(raw, &e.Languages); err != nil {
+			return err
+		}
+		delete(fields, "languages")
 	}
 	if raw, ok := fields["metadata"]; ok {
 		if err := json.Unmarshal(raw, &e.Metadata); err != nil {
@@ -70,6 +83,7 @@ type DeveloperChipset struct {
 	Name                    string              `json:"name"`
 	Family                  string              `json:"family,omitempty"`
 	Description             string              `json:"description,omitempty"`
+	Resources               []ChipsetEndpoint   `json:"resources,omitempty"`
 	SDKReleases             []ChipsetSDKRelease `json:"sdk_releases"`
 	Stale                   bool                `json:"stale"`
 	LastSuccessfulRefreshAt time.Time           `json:"last_successful_refresh_at"`
