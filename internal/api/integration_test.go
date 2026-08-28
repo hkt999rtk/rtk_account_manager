@@ -2039,6 +2039,11 @@ func TestIntegrationPlatformAdminMissingBrandResourcesReturnNotFound(t *testing.
 
 func TestIntegrationPrometheusMetricsReportsEmptySnapshot(t *testing.T) {
 	env := newIntegrationEnv(t)
+	repository, ok := env.server.store.(*store.Store)
+	if !ok {
+		t.Fatal("integration store is not the concrete store")
+	}
+	env.server.ConfigureEmailOutbox(repository)
 
 	req := httptest.NewRequest(http.MethodGet, "/metrics/prometheus", nil)
 	res := httptest.NewRecorder()
@@ -2059,6 +2064,16 @@ func TestIntegrationPrometheusMetricsReportsEmptySnapshot(t *testing.T) {
 		`rtk_account_manager_quota_raise_requests{status="pending"} 0` + "\n",
 		`rtk_account_manager_quota_raise_requests{status="approved"} 0` + "\n",
 		`rtk_account_manager_quota_raise_requests{status="declined"} 0` + "\n",
+		`rtk_account_manager_email_outbox{status="pending"} 0` + "\n",
+		`rtk_account_manager_email_outbox{status="retrying"} 0` + "\n",
+		`rtk_account_manager_email_outbox{status="sent"} 0` + "\n",
+		`rtk_account_manager_email_outbox{status="dead_lettered"} 0` + "\n",
+		`rtk_account_manager_email_outbox{status="expired"} 0` + "\n",
+		"rtk_account_manager_email_outbox_oldest_pending_seconds 0\n",
+		`rtk_account_manager_email_delivery_total{outcome="sent"} 0` + "\n",
+		`rtk_account_manager_email_delivery_total{outcome="dead_lettered"} 0` + "\n",
+		`rtk_account_manager_email_delivery_total{outcome="expired"} 0` + "\n",
+		"rtk_account_manager_email_delivery_latency_seconds 0\n",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected prometheus body to contain %q, got:\n%s", want, body)
