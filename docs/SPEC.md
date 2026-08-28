@@ -401,7 +401,7 @@ nor metadata may be treated as service ACL input.
 ### [REQ-AM-PRODUCT-COLLAB-001] Product projects use explicit developer collaboration
 
 <!-- rtk-requirement
-{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active","renamed_from_revision":"2aa8fcc8ddf8460fd6f0813631d3af33a042785cff0a0f7d4d6e6a571bfbb83a"}
 -->
 
 Each device item profile is also a developer collaboration project. Developer
