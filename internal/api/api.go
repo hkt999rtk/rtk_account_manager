@@ -206,7 +206,7 @@ func buildAuthTokenBody(delivery AuthTokenDelivery, baseURL string) string {
 	default:
 		b.WriteString("Use this Realtek Connect account token:\r\n\r\n")
 	}
-	if link := authTokenLink(delivery.Purpose, delivery.Token, baseURL); link != "" {
+	if link := authTokenLink(delivery.Purpose, delivery.Token, delivery.Email, baseURL); link != "" {
 		fmt.Fprintf(&b, "%s\r\n\r\n", link)
 	}
 	fmt.Fprintf(&b, "Token: %s\r\n", delivery.Token)
@@ -217,7 +217,7 @@ func buildAuthTokenBody(delivery AuthTokenDelivery, baseURL string) string {
 	return b.String()
 }
 
-func authTokenLink(purpose, token, baseURL string) string {
+func authTokenLink(purpose, token, email, baseURL string) string {
 	if strings.TrimSpace(baseURL) == "" {
 		return ""
 	}
@@ -242,6 +242,9 @@ func authTokenLink(purpose, token, baseURL string) string {
 	}
 	q := u.Query()
 	q.Set("token", token)
+	if purpose == "password_reset" && strings.TrimSpace(email) != "" {
+		q.Set("email", strings.TrimSpace(email))
+	}
 	u.RawQuery = q.Encode()
 	return u.String()
 }
@@ -1319,11 +1322,12 @@ func (s *Server) resetPassword(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not hash password")
 		return
 	}
-	if err := s.store.ResetPasswordWithToken(c.Request.Context(), auth.HashToken(req.Token), newHash); err != nil {
+	email, err := s.store.ResetPasswordWithToken(c.Request.Context(), auth.HashToken(req.Token), newHash)
+	if err != nil {
 		writeError(c, http.StatusBadRequest, "invalid_token", "Invalid or expired reset token")
 		return
 	}
-	c.Status(http.StatusNoContent)
+	c.JSON(http.StatusOK, gin.H{"email": email})
 }
 
 func (s *Server) createAuthToken(c *gin.Context, userID, purpose string) (string, time.Time, error) {

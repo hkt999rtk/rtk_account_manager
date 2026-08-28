@@ -270,7 +270,7 @@ func TestStoreAdditionalPlatformMutationsRefreshCache(t *testing.T) {
 	if got := cache.platformAuth["user-1"].hash; got != "new-hash" {
 		t.Fatalf("expected refreshed password hash, got %q", got)
 	}
-	if err := cached.ResetPasswordWithToken(ctx, "reset-token", "reset-hash"); err != nil {
+	if _, err := cached.ResetPasswordWithToken(ctx, "reset-token", "reset-hash"); err != nil {
 		t.Fatal(err)
 	}
 	if len(cache.platformAuth) != 0 {
@@ -527,8 +527,8 @@ func (f *fakeBacking) ActivateLoginToken(context.Context, string) (model.User, e
 	return f.activateUser, nil
 }
 
-func (f *fakeBacking) ResetPasswordWithToken(context.Context, string, string) error {
-	return nil
+func (f *fakeBacking) ResetPasswordWithToken(context.Context, string, string) (string, error) {
+	return "owner@example.com", nil
 }
 
 func (f *fakeBacking) UpdateUserPassword(context.Context, string, string) error {

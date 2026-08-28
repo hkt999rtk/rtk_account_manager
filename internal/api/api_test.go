@@ -597,16 +597,17 @@ func TestSendSMTPMailDeliversMessage(t *testing.T) {
 func TestAuthTokenLinkRoutesByPurpose(t *testing.T) {
 	for _, tt := range []struct {
 		purpose string
+		email   string
 		want    string
 	}{
 		{purpose: "email_verification", want: "https://admin.example.test/signup/verify?token=token+with+space"},
 		{purpose: "login_activation", want: "https://admin.example.test/login/activate?token=token+with+space"},
-		{purpose: "password_reset", want: "https://admin.example.test/reset-password?token=token+with+space"},
+		{purpose: "password_reset", email: "user@example.com", want: "https://admin.example.test/reset-password?email=user%40example.com&token=token+with+space"},
 		{purpose: "brand_cloud_membership_invitation", want: "https://admin.example.test/brand-cloud-member-invitation/accept?token=token+with+space"},
 		{purpose: "sku_collaborator_invitation", want: "https://admin.example.test/sku-collaborator-invitation/accept?token=token+with+space"},
 	} {
 		t.Run(tt.purpose, func(t *testing.T) {
-			got := authTokenLink(tt.purpose, "token with space", "https://admin.example.test/")
+			got := authTokenLink(tt.purpose, "token with space", tt.email, "https://admin.example.test/")
 			if got != tt.want {
 				t.Fatalf("authTokenLink() = %q, want %q", got, tt.want)
 			}
