@@ -9,7 +9,7 @@ A production operator must choose the exact manufacturing scope before a factory
 can request device certificates:
 
 - brand cloud
-- device item profile, also called SKU or product profile
+- device item profile, also called Product or product profile
 - production validity period
 - allowed device quantity
 - optional factory and batch identifiers
@@ -17,7 +17,7 @@ can request device certificates:
 Account Manager persists that scope as a production run and signs a factory
 enrollment JWT. The factory enrollment daemon uses that JWT as the canonical
 certificate selector. URL names, tenant slugs, CSR fields, and request-body
-overrides must not select the cloud CA or SKU CA.
+overrides must not select the cloud CA or Product CA.
 
 ## PKI Selection Model
 
@@ -27,14 +27,14 @@ The intended device-certificate hierarchy is:
 Platform Root CA
   -> Platform Device CA
       -> Developer Cloud Device CA
-          -> SKU CA
+          -> Product CA
               -> Device Certificate
 ```
 
 Account Manager does not sign certificates directly in this flow. It binds the
 production run to `brand_cloud_id` and `device_item_profile_id`; the factory
 enrollment daemon forwards those immutable identifiers to certissuer. Certissuer
-then resolves the Developer Cloud Device CA and SKU CA through issuer policy.
+then resolves the Developer Cloud Device CA and Product CA through issuer policy.
 
 ## API
 
@@ -86,7 +86,7 @@ Response:
 | `jti` | yes | Unique JWT id for audit and replay correlation. |
 | `production_run_id` | yes | Stable production-run id. |
 | `brand_cloud_id` | yes | Immutable developer cloud selector. |
-| `device_item_profile_id` | yes | Immutable SKU/profile selector. |
+| `device_item_profile_id` | yes | Immutable Product/profile selector. |
 | `profile_key` | no | Human-readable profile key for audit/debug only. |
 | `factory_id` | no | Factory identifier selected for this run. |
 | `batch_id` | no | Manufacturing batch identifier. |

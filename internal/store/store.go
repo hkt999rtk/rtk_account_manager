@@ -187,7 +187,7 @@ type DevicePage struct {
 type DeviceListFilter struct {
 	OrganizationID   string
 	Query            string
-	SKU              string
+	Product          string
 	GroupID          string
 	GroupIDs         []string
 	Region           string
@@ -209,16 +209,16 @@ type DeviceListFilter struct {
 }
 
 type FleetSummary struct {
-	Total          int                       `json:"total"`
-	ByStatus       map[string]int            `json:"by_status"`
-	BySKU          map[string]int            `json:"by_sku"`
-	ByModel        map[string]int            `json:"by_model"`
-	ByFirmware     map[string]int            `json:"by_firmware"`
-	ByRegion       map[string]int            `json:"by_region"`
-	ServiceEnabled map[string]int            `json:"service_enabled"`
-	BySKURegion    map[string]map[string]int `json:"by_sku_region"`
-	BySKUFirmware  map[string]map[string]int `json:"by_sku_firmware"`
-	UpdatedAt      time.Time                 `json:"updated_at"`
+	Total             int                       `json:"total"`
+	ByStatus          map[string]int            `json:"by_status"`
+	ByProduct         map[string]int            `json:"by_product"`
+	ByModel           map[string]int            `json:"by_model"`
+	ByFirmware        map[string]int            `json:"by_firmware"`
+	ByRegion          map[string]int            `json:"by_region"`
+	ServiceEnabled    map[string]int            `json:"service_enabled"`
+	ByProductRegion   map[string]map[string]int `json:"by_product_region"`
+	ByProductFirmware map[string]map[string]int `json:"by_product_firmware"`
+	UpdatedAt         time.Time                 `json:"updated_at"`
 }
 
 func (s *Store) FleetSummary(ctx context.Context, orgID string) (FleetSummary, error) {
@@ -237,15 +237,15 @@ func (s *Store) fleetSummary(ctx context.Context, orgID, actorID, actorType, per
 	accessClause, accessArgs := fleetAccessPredicate(actorID, actorType, permission)
 	queryArgs := append([]any{orgID}, accessArgs...)
 	result := FleetSummary{
-		ByStatus:       map[string]int{},
-		BySKU:          map[string]int{},
-		ByModel:        map[string]int{},
-		ByFirmware:     map[string]int{},
-		ByRegion:       map[string]int{},
-		ServiceEnabled: map[string]int{},
-		BySKURegion:    map[string]map[string]int{},
-		BySKUFirmware:  map[string]map[string]int{},
-		UpdatedAt:      time.Now().UTC(),
+		ByStatus:          map[string]int{},
+		ByProduct:         map[string]int{},
+		ByModel:           map[string]int{},
+		ByFirmware:        map[string]int{},
+		ByRegion:          map[string]int{},
+		ServiceEnabled:    map[string]int{},
+		ByProductRegion:   map[string]map[string]int{},
+		ByProductFirmware: map[string]map[string]int{},
+		UpdatedAt:         time.Now().UTC(),
 	}
 	if err := s.db.QueryRow(ctx, "SELECT count(*) FROM devices d WHERE d.organization_id = $1"+accessClause, queryArgs...).Scan(&result.Total); err != nil {
 		return FleetSummary{}, err
@@ -253,7 +253,7 @@ func (s *Store) fleetSummary(ctx context.Context, orgID, actorID, actorType, per
 	if err := scanDeviceAggregate(ctx, s.db, "SELECT d.status, count(*) FROM devices d WHERE d.organization_id = $1"+accessClause+" GROUP BY d.status", result.ByStatus, queryArgs...); err != nil {
 		return FleetSummary{}, err
 	}
-	if err := scanDeviceAggregate(ctx, s.db, "SELECT COALESCE(d.device_item_profile_id::text, '未設定'), count(*) FROM devices d WHERE d.organization_id = $1"+accessClause+" GROUP BY d.device_item_profile_id", result.BySKU, queryArgs...); err != nil {
+	if err := scanDeviceAggregate(ctx, s.db, "SELECT COALESCE(d.device_item_profile_id::text, '未設定'), count(*) FROM devices d WHERE d.organization_id = $1"+accessClause+" GROUP BY d.device_item_profile_id", result.ByProduct, queryArgs...); err != nil {
 		return FleetSummary{}, err
 	}
 	if err := scanDeviceAggregate(ctx, s.db, "SELECT COALESCE(NULLIF(d.model, ''), '未提供'), count(*) FROM devices d WHERE d.organization_id = $1"+accessClause+" GROUP BY d.model", result.ByModel, queryArgs...); err != nil {
@@ -273,16 +273,16 @@ func (s *Store) fleetSummary(ctx context.Context, orgID, actorID, actorType, per
 		return FleetSummary{}, err
 	}
 	for rows.Next() {
-		var sku, region string
+		var product, region string
 		var count int
-		if err := rows.Scan(&sku, &region, &count); err != nil {
+		if err := rows.Scan(&product, &region, &count); err != nil {
 			rows.Close()
 			return FleetSummary{}, err
 		}
-		if result.BySKURegion[sku] == nil {
-			result.BySKURegion[sku] = map[string]int{}
+		if result.ByProductRegion[product] == nil {
+			result.ByProductRegion[product] = map[string]int{}
 		}
-		result.BySKURegion[sku][region] = count
+		result.ByProductRegion[product][region] = count
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -297,16 +297,16 @@ func (s *Store) fleetSummary(ctx context.Context, orgID, actorID, actorType, per
 		return FleetSummary{}, err
 	}
 	for rows.Next() {
-		var sku, firmware string
+		var product, firmware string
 		var count int
-		if err := rows.Scan(&sku, &firmware, &count); err != nil {
+		if err := rows.Scan(&product, &firmware, &count); err != nil {
 			rows.Close()
 			return FleetSummary{}, err
 		}
-		if result.BySKUFirmware[sku] == nil {
-			result.BySKUFirmware[sku] = map[string]int{}
+		if result.ByProductFirmware[product] == nil {
+			result.ByProductFirmware[product] = map[string]int{}
 		}
-		result.BySKUFirmware[sku][firmware] = count
+		result.ByProductFirmware[product][firmware] = count
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -352,7 +352,7 @@ func fleetAccessPredicate(actorID, actorType, permission string) (string, []any)
 		  AND ra.disabled_at IS NULL AND ra.organization_id = d.organization_id
 		  AND (
 		    ra.scope_type = 'organization'
-		    OR (ra.scope_type = 'sku' AND ra.scope_id = d.device_item_profile_id::text)
+		    OR (ra.scope_type = 'product' AND ra.scope_id = d.device_item_profile_id::text)
 		    OR (ra.scope_type = 'region' AND ra.scope_id = COALESCE(NULLIF(d.metadata ->> 'region', ''), '未設定'))
 		    OR (ra.scope_type = 'device' AND ra.scope_id = d.id::text)
 		    OR (ra.scope_type = 'group' AND EXISTS (SELECT 1 FROM device_group_members dgm WHERE dgm.device_id = d.id AND dgm.group_id::text = ra.scope_id))
@@ -1666,7 +1666,7 @@ func (s *Store) ListDevicesFiltered(ctx context.Context, in DeviceListFilter) (D
 			  AND ra.organization_id = d.organization_id
 			  AND (
 			    ra.scope_type = 'organization'
-			    OR (ra.scope_type = 'sku' AND ra.scope_id = d.device_item_profile_id::text)
+			    OR (ra.scope_type = 'product' AND ra.scope_id = d.device_item_profile_id::text)
 			    OR (ra.scope_type = 'region' AND ra.scope_id = COALESCE(NULLIF(d.metadata ->> 'region', ''), '未設定'))
 			    OR (ra.scope_type = 'device' AND ra.scope_id = d.id::text)
 			    OR (ra.scope_type = 'group' AND EXISTS (SELECT 1 FROM device_group_members dgm WHERE dgm.device_id = d.id AND dgm.group_id::text = ra.scope_id))
@@ -1695,7 +1695,7 @@ func (s *Store) ListDevicesFiltered(ctx context.Context, in DeviceListFilter) (D
 		}
 		where = append(where, fmt.Sprintf("%s IN (%s)", column, strings.Join(placeholders, ",")))
 	}
-	addAnyFilter("d.device_item_profile_id", []string{in.SKU})
+	addAnyFilter("d.device_item_profile_id", []string{in.Product})
 	addAnyFilter("d.category", []string{in.Category})
 	addAnyFilter("d.model", []string{in.Model})
 	addAnyFilter("d.status", append([]string{in.Status}, in.Statuses...))
@@ -1729,7 +1729,7 @@ func (s *Store) ListDevicesFiltered(ctx context.Context, in DeviceListFilter) (D
 	switch strings.TrimSpace(in.Sort) {
 	case "name", "model", "status", "updated_at", "last_seen_at", "created_at":
 		sortColumn = "d." + strings.TrimSpace(in.Sort)
-	case "sku":
+	case "product":
 		sortColumn = "d.device_item_profile_id"
 	}
 	direction := "DESC"

@@ -212,12 +212,12 @@ func (s *Server) listDeviceItemProfiles(c *gin.Context) {
 	}
 	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
 		for i := range page.Profiles {
-			page.Profiles[i].CurrentUserRole, _ = s.store.GetSKUCollaboratorRole(c.Request.Context(), currentBrandCloudUserID(c), profileBrandCloudID(c), page.Profiles[i].ID)
+			page.Profiles[i].CurrentUserRole, _ = s.store.GetProductCollaboratorRole(c.Request.Context(), currentBrandCloudUserID(c), profileBrandCloudID(c), page.Profiles[i].ID)
 		}
 	}
 	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser {
 		for i := range page.Profiles {
-			page.Profiles[i].CurrentUserRole, _ = s.store.GetUserSKUCollaboratorRole(c.Request.Context(), currentUserID(c), profileBrandCloudID(c), page.Profiles[i].ID)
+			page.Profiles[i].CurrentUserRole, _ = s.store.GetUserProductCollaboratorRole(c.Request.Context(), currentUserID(c), profileBrandCloudID(c), page.Profiles[i].ID)
 		}
 	}
 	c.JSON(http.StatusOK, deviceItemProfilesResponse{DeviceItemProfiles: page.Profiles, Pagination: page.Page})
@@ -230,10 +230,10 @@ func (s *Server) getDeviceItemProfile(c *gin.Context) {
 		return
 	}
 	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
-		profile.CurrentUserRole, _ = s.store.GetSKUCollaboratorRole(c.Request.Context(), currentBrandCloudUserID(c), profileBrandCloudID(c), profile.ID)
+		profile.CurrentUserRole, _ = s.store.GetProductCollaboratorRole(c.Request.Context(), currentBrandCloudUserID(c), profileBrandCloudID(c), profile.ID)
 	}
 	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser {
-		profile.CurrentUserRole, _ = s.store.GetUserSKUCollaboratorRole(c.Request.Context(), currentUserID(c), profileBrandCloudID(c), profile.ID)
+		profile.CurrentUserRole, _ = s.store.GetUserProductCollaboratorRole(c.Request.Context(), currentUserID(c), profileBrandCloudID(c), profile.ID)
 	}
 	c.JSON(http.StatusOK, deviceItemProfileResponse{DeviceItemProfile: profile})
 }

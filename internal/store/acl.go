@@ -18,7 +18,7 @@ const (
 	ActorTypeBrandCloudUser          = "brand_cloud_user"
 	ScopeTypePlatform                = "platform"
 	ScopeTypeOrganization            = "organization"
-	ScopeTypeSKU                     = "sku"
+	ScopeTypeProduct                 = "product"
 	ScopeTypeRegion                  = "region"
 	ScopeTypeGroup                   = "group"
 	ScopeTypeDevice                  = "device"
@@ -177,7 +177,7 @@ func (s *Store) HasUserDevicePermission(ctx context.Context, userID, orgID, perm
 		JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL JOIN role_permissions rp ON rp.role_id=r.id
 		JOIN permissions p ON p.id=rp.permission_id AND p.name=$3 JOIN users u ON u.id::text=ra.actor_id AND u.disabled_at IS NULL
 		WHERE d.id::text=$2 AND d.organization_id::text=$4 AND (ra.scope_type='organization'
-		 OR (ra.scope_type='sku' AND ra.scope_id=d.device_item_profile_id::text)
+		 OR (ra.scope_type='product' AND ra.scope_id=d.device_item_profile_id::text)
 		 OR (ra.scope_type='region' AND ra.scope_id=COALESCE(NULLIF(d.metadata->>'region',''),'未設定'))
 		 OR (ra.scope_type='device' AND ra.scope_id=d.id::text)
 		 OR (ra.scope_type='group' AND EXISTS (SELECT 1 FROM device_group_members dgm WHERE dgm.device_id=d.id AND dgm.group_id::text=ra.scope_id)))
@@ -289,7 +289,7 @@ func (s *Store) HasBrandCloudDevicePermission(ctx context.Context, brandCloudUse
 			WHERE d.id::text = $2 AND d.organization_id::text = $4
 			  AND (
 			    ra.scope_type = 'organization'
-			    OR (ra.scope_type = 'sku' AND ra.scope_id = d.device_item_profile_id::text)
+			    OR (ra.scope_type = 'product' AND ra.scope_id = d.device_item_profile_id::text)
 			    OR (ra.scope_type = 'region' AND ra.scope_id = COALESCE(NULLIF(d.metadata ->> 'region', ''), '未設定'))
 			    OR (ra.scope_type = 'device' AND ra.scope_id = d.id::text)
 			    OR (ra.scope_type = 'group' AND EXISTS (SELECT 1 FROM device_group_members dgm WHERE dgm.device_id = d.id AND dgm.group_id::text = ra.scope_id))
@@ -634,7 +634,7 @@ func (s *Store) DisableRoleAssignmentForOrganization(ctx context.Context, organi
 		UPDATE role_assignments
 		SET disabled_at = now()
 		WHERE id::text = $1 AND organization_id::text = $2 AND disabled_at IS NULL
-		  AND role_id NOT IN (SELECT id FROM roles WHERE name = 'sku_owner')
+		  AND role_id NOT IN (SELECT id FROM roles WHERE name = 'product_owner')
 		RETURNING organization_id::text
 	`, assignmentID, organizationID).Scan(&orgID)
 	if err == pgx.ErrNoRows {
@@ -876,7 +876,7 @@ func normalizeScope(scopeType string, scopeID, orgID *string) (*string, *string)
 	if scopeType == ScopeTypePlatform {
 		return nil, nil
 	}
-	if scopeType != ScopeTypeOrganization && scopeType != ScopeTypeSKU && scopeType != ScopeTypeRegion && scopeType != ScopeTypeGroup && scopeType != ScopeTypeDevice {
+	if scopeType != ScopeTypeOrganization && scopeType != ScopeTypeProduct && scopeType != ScopeTypeRegion && scopeType != ScopeTypeGroup && scopeType != ScopeTypeDevice {
 		return scopeID, orgID
 	}
 	if orgID == nil && scopeID != nil {

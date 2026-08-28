@@ -492,9 +492,9 @@ type BrandCloudMemberInvitation struct {
 	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
-type SKUCollaborator struct {
+type ProductCollaborator struct {
 	AssignmentID string     `json:"assignment_id"`
-	SKUID        string     `json:"sku_id"`
+	ProductID    string     `json:"product_id"`
 	UserID       string     `json:"user_id"`
 	Email        string     `json:"email"`
 	DisplayName  *string    `json:"display_name,omitempty"`
@@ -503,10 +503,10 @@ type SKUCollaborator struct {
 	CreatedAt    time.Time  `json:"created_at"`
 }
 
-type SKUCollaboratorInvitation struct {
+type ProductCollaboratorInvitation struct {
 	ID              string     `json:"id"`
 	BrandCloudID    string     `json:"brand_cloud_id"`
-	SKUID           string     `json:"sku_id"`
+	ProductID       string     `json:"product_id"`
 	InvitedByUserID string     `json:"invited_by_user_id"`
 	TargetUserID    string     `json:"target_user_id"`
 	TargetEmail     string     `json:"target_email"`

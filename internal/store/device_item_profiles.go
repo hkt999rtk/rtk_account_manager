@@ -132,8 +132,8 @@ func (s *Store) CreateDeviceItemProfile(ctx context.Context, in DeviceItemProfil
 	}
 	if in.ActorUserID != nil && strings.TrimSpace(*in.ActorUserID) != "" {
 		_, err := tx.Exec(ctx, `INSERT INTO role_assignments (role_id,actor_type,actor_id,scope_type,scope_id,organization_id)
-			SELECT r.id,'user',u.id::text,'sku',$2,$1::uuid FROM users u
-			JOIN roles r ON r.name='sku_owner' AND r.disabled_at IS NULL WHERE u.id::text=$3 ON CONFLICT DO NOTHING`, in.BrandCloudID, profile.ID, strings.TrimSpace(*in.ActorUserID))
+			SELECT r.id,'user',u.id::text,'product',$2,$1::uuid FROM users u
+			JOIN roles r ON r.name='product_owner' AND r.disabled_at IS NULL WHERE u.id::text=$3 ON CONFLICT DO NOTHING`, in.BrandCloudID, profile.ID, strings.TrimSpace(*in.ActorUserID))
 		if err != nil {
 			return model.DeviceItemProfile{}, err
 		}
@@ -171,7 +171,7 @@ func (s *Store) ListDeviceItemProfiles(ctx context.Context, in DeviceItemProfile
 				JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL
 				WHERE ra.actor_type=$4 AND ra.actor_id=$3 AND ra.disabled_at IS NULL
 				  AND ra.organization_id=dip.brand_cloud_id
-				  AND (ra.scope_type='organization' OR (ra.scope_type='sku' AND ra.scope_id=dip.id::text))
+				  AND (ra.scope_type='organization' OR (ra.scope_type='product' AND ra.scope_id=dip.id::text))
 			))
 	`, in.BrandCloudID, status, actorID, actorType).Scan(&total); err != nil {
 		return DeviceItemProfilePage{}, err
@@ -188,7 +188,7 @@ func (s *Store) ListDeviceItemProfiles(ctx context.Context, in DeviceItemProfile
 				JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL
 				WHERE ra.actor_type=$4 AND ra.actor_id=$3 AND ra.disabled_at IS NULL
 				  AND ra.organization_id=dip.brand_cloud_id
-				  AND (ra.scope_type='organization' OR (ra.scope_type='sku' AND ra.scope_id=dip.id::text))
+				  AND (ra.scope_type='organization' OR (ra.scope_type='product' AND ra.scope_id=dip.id::text))
 			))
 		ORDER BY dip.created_at DESC
 		LIMIT $5 OFFSET $6
