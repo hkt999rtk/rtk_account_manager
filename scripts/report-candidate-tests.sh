@@ -135,7 +135,7 @@ present 2026-05-13T00:00:00Z
 EOF
 cat >"$evidence/production-evidence.txt" <<'EOF'
 restore_drill_reference=runbook-restore-2026-05-13
-smtp_mode=log-only
+email_delivery_mode=log-only
 broker_mode=disabled
 EOF
 cat >"$evidence/smoke-results.txt" <<'EOF'
@@ -170,7 +170,7 @@ assert_contains "$readiness_output" "| Deployed version | \`vready\` |"
 assert_contains "$readiness_output" "| Verify result | \`success\` |"
 assert_contains "$readiness_output" "| Backup marker status | \`present 2026-05-13T00:00:00Z\` |"
 assert_contains "$readiness_output" "| Restore drill reference | \`runbook-restore-2026-05-13\` |"
-assert_contains "$readiness_output" "| SMTP mode | \`log-only\` |"
+assert_contains "$readiness_output" "| Email delivery mode | \`log-only\` |"
 assert_contains "$readiness_output" "| Cross-service broker mode | \`disabled\` |"
 assert_contains "$readiness_output" "| \`health\` | \`PASS\` |"
 assert_contains "$readiness_output" "| \`login\` | \`PASS\` |"

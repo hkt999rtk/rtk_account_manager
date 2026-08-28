@@ -233,11 +233,8 @@ configured `AuthTokenSink`. Supported adapters are:
   `rtk-account-manager-email-worker` delivers them through the configured HTTPS
   Send Mail origin with Bearer authentication, bounded retry, and dead-letter
   handling.
-- `AUTH_TOKEN_DELIVERY=smtp`: compatibility adapter for deployments that
-  explicitly select direct SMTP; it uses verified STARTTLS in production.
-
-Both durable delivery adapters use `EMAIL_OUTBOX_ENCRYPTION_KEY` and
-`AUTH_TOKEN_BASE_URL`. The HTTPS adapter additionally uses
+Durable delivery uses `EMAIL_OUTBOX_ENCRYPTION_KEY` and
+`AUTH_TOKEN_BASE_URL`. The HTTP adapter additionally uses
 `SENDMAIL_HTTP_BASE_URL`, `SENDMAIL_HTTP_BEARER_TOKEN`, and
 `SENDMAIL_HTTP_TIMEOUT`.
 
@@ -1387,7 +1384,7 @@ Constraints:
   issued tokens per user/purpose per hour.
 - Auth token and quota-decision email are committed to `email_outbox` in the
   same PostgreSQL transaction as the associated token or quota mutation.
-  Temporary SMTP failure therefore does not fail the API request. The worker
+  Temporary Send Mail HTTP failure therefore does not fail the API request. The worker
   claims rows with leases, retries transient failures, expires stale token
   email, and dead-letters permanent failures. Log sinks remain local/test-only.
 - Keycloak/OIDC SSO is available as an external authentication option when
@@ -2414,13 +2411,6 @@ Configuration:
 | `SENDMAIL_HTTP_BASE_URL` | Credential-free Send Mail origin used by `AUTH_TOKEN_DELIVERY=sendmail_http`; HTTPS in production. |
 | `SENDMAIL_HTTP_BEARER_TOKEN` | Bearer credential supplied through runtime secret management for the Send Mail service. |
 | `SENDMAIL_HTTP_TIMEOUT` | Send Mail request timeout, default `15s`. |
-| `SMTP_HOST` | SMTP host used only when the direct SMTP compatibility adapter is selected. |
-| `SMTP_PORT` | SMTP port, default `587`. |
-| `SMTP_USERNAME` | SMTP username for production direct-SMTP delivery. |
-| `SMTP_PASSWORD` | SMTP password for production direct-SMTP delivery. |
-| `SMTP_FROM` | SMTP sender address used with `SMTP_HOST`. |
-| `SMTP_FROM_NAME` | Sender display name, default `Realtek Connect`. |
-| `SMTP_ENCRYPTION` | `starttls` in production; `none` is local/test-only. |
 | `EMAIL_OUTBOX_ENCRYPTION_KEY` | Base64-encoded 32-byte AES-256-GCM key for encrypted outbox payloads. |
 | `EMAIL_OUTBOX_POLL_INTERVAL` | Worker polling interval, default `5s`. |
 | `EMAIL_OUTBOX_BATCH_SIZE` | Worker claim batch size, default `20`. |

@@ -24,8 +24,6 @@ func TestUtilityHelpersAndEnvFallbacks(t *testing.T) {
 	t.Setenv("READINESS_SMOKE_DEVICE_ID", "device-1")
 	t.Setenv("DATABASE_URL", "postgres://rtk:secret@localhost:5432/rtk_account_manager?sslmode=disable")
 	t.Setenv("READINESS_MIGRATIONS_DIR", "schema")
-	t.Setenv("SMTP_HOST", "smtp.internal")
-	t.Setenv("SMTP_FROM", "noreply@example.com")
 	t.Setenv("CROSS_SERVICE_BROKER", "azure_eventhubs")
 	t.Setenv("ACCOUNT_VIDEO_COMMANDS_STREAM", "account.video.commands")
 	t.Setenv("VIDEO_ACCOUNT_EVENTS_STREAM", "video.account.events")
@@ -37,7 +35,7 @@ func TestUtilityHelpersAndEnvFallbacks(t *testing.T) {
 	if opts.ServiceVersion != "2026.05.07+abc123" || opts.Email != "owner@example.com" || opts.Password != "secret" {
 		t.Fatalf("unexpected env-derived options: %+v", opts)
 	}
-	if opts.MigrationsDir != "schema" || opts.SMTPHost != "smtp.internal" || opts.Broker != "azure_eventhubs" {
+	if opts.MigrationsDir != "schema" || opts.Broker != "azure_eventhubs" {
 		t.Fatalf("unexpected optional env-derived options: %+v", opts)
 	}
 
@@ -235,8 +233,6 @@ func TestReadinessFallbackLookupsAndSuccessPaths(t *testing.T) {
 		ServiceVersion: "2026.05.07+abc123",
 		Email:          "owner@example.com",
 		Password:       "secret",
-		SMTPHost:       "smtp.internal",
-		SMTPFrom:       "noreply@example.com",
 		Broker:         "azure_eventhubs",
 		CommandStream:  "account.video.commands",
 		EventStream:    "video.account.events",
@@ -248,7 +244,6 @@ func TestReadinessFallbackLookupsAndSuccessPaths(t *testing.T) {
 	for _, name := range []string{
 		"service_version",
 		"health",
-		"smtp_optional",
 		"cross_service_channel_optional",
 		"auth_login",
 		"organization_smoke",

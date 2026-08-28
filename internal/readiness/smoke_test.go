@@ -21,8 +21,6 @@ func TestOptionsFromEnvReadsSmokeSettings(t *testing.T) {
 	t.Setenv("READINESS_SMOKE_DEVICE_ID", "device-1")
 	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("READINESS_MIGRATIONS_DIR", "/migrations")
-	t.Setenv("SMTP_HOST", "smtp.internal")
-	t.Setenv("SMTP_FROM", "noreply@example.com")
 	t.Setenv("CROSS_SERVICE_BROKER", "azure_eventhubs")
 	t.Setenv("ACCOUNT_VIDEO_COMMANDS_STREAM", "commands")
 	t.Setenv("VIDEO_ACCOUNT_EVENTS_STREAM", "events")
@@ -36,8 +34,6 @@ func TestOptionsFromEnvReadsSmokeSettings(t *testing.T) {
 		opts.DeviceID != "device-1" ||
 		opts.DatabaseURL != "postgres://example" ||
 		opts.MigrationsDir != "/migrations" ||
-		opts.SMTPHost != "smtp.internal" ||
-		opts.SMTPFrom != "noreply@example.com" ||
 		opts.Broker != "azure_eventhubs" ||
 		opts.CommandStream != "commands" ||
 		opts.EventStream != "events" {
@@ -68,9 +64,8 @@ func TestRunDryRunProducesRedactedSkips(t *testing.T) {
 	}
 	assertCheck(t, report, "configuration", StatusPass)
 	assertCheck(t, report, "service_version", StatusSkip)
-	assertCheck(t, report, "smtp_optional", StatusSkip)
 	assertCheck(t, report, "cross_service_channel_optional", StatusSkip)
-	if report.Summary.Pass != 1 || report.Summary.Skip != 3 || report.Summary.Fail != 0 {
+	if report.Summary.Pass != 1 || report.Summary.Skip != 2 || report.Summary.Fail != 0 {
 		t.Fatalf("unexpected summary: %+v", report.Summary)
 	}
 
@@ -124,8 +119,6 @@ func TestRunSmokeReadsHealthAuthOrgDeviceAndProvisioning(t *testing.T) {
 		Password:       "secret-password",
 		OrganizationID: "org-1",
 		DeviceID:       "device-1",
-		SMTPHost:       "smtp.internal",
-		SMTPFrom:       "noreply@example.com",
 		Broker:         "azure_eventhubs",
 		CommandStream:  "account.video.commands",
 		EventStream:    "video.account.events",
@@ -137,7 +130,6 @@ func TestRunSmokeReadsHealthAuthOrgDeviceAndProvisioning(t *testing.T) {
 	for _, name := range []string{
 		"service_version",
 		"health",
-		"smtp_optional",
 		"cross_service_channel_optional",
 		"auth_login",
 		"organization_smoke",

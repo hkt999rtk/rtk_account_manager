@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -12,10 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/smtp"
 	"net/url"
 	"os"
 	"strings"
@@ -391,206 +388,13 @@ func TestLogAuthTokenSinkWritesDelivery(t *testing.T) {
 	}
 }
 
-func TestSMTPAuthTokenSinkWritesDelivery(t *testing.T) {
-	sink := NewSMTPAuthTokenSink("smtp.example:587", "no-reply@example.com", "https://admin.example.test/", nil)
-	var gotAddr string
-	var gotFrom string
-	var gotTo []string
-	var gotMsg []byte
-	sink.sendMail = func(addr string, _ smtp.Auth, from string, to []string, msg []byte) error {
-		gotAddr = addr
-		gotFrom = from
-		gotTo = append([]string(nil), to...)
-		gotMsg = append([]byte(nil), msg...)
-		return nil
-	}
-	expiresAt := time.Date(2026, 6, 12, 8, 30, 0, 0, time.UTC)
-
-	err := sink.DeliverAuthToken(context.Background(), AuthTokenDelivery{
-		Purpose:   "login_activation",
-		Email:     "user@example.com",
-		Token:     "login-token",
-		ExpiresAt: expiresAt,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if gotAddr != "smtp.example:587" || gotFrom != "no-reply@example.com" {
-		t.Fatalf("unexpected SMTP envelope: addr=%q from=%q", gotAddr, gotFrom)
-	}
-	if len(gotTo) != 1 || gotTo[0] != "user@example.com" {
-		t.Fatalf("unexpected recipients: %+v", gotTo)
-	}
-	message := string(gotMsg)
-	for _, want := range []string{
-		"To: user@example.com",
-		"From: no-reply@example.com",
-		"Subject: Sign in to Realtek Connect",
-		"https://admin.example.test/login/activate?token=login-token",
-		"Token: login-token",
-		"Expires: 2026-06-12T08:30:00Z",
-	} {
-		if !strings.Contains(message, want) {
-			t.Fatalf("expected SMTP auth message to contain %q, got %q", want, message)
-		}
-	}
-}
-
-func TestAuthTokenSinksHandleFallbackAndUnavailablePaths(t *testing.T) {
+func TestLogAuthTokenSinkHandlesNilLogger(t *testing.T) {
 	if err := (LogAuthTokenSink{}).DeliverAuthToken(context.Background(), AuthTokenDelivery{
 		Purpose: "login_activation",
 		Email:   "user@example.com",
 		Token:   "token",
 	}); err != nil {
 		t.Fatal(err)
-	}
-	smtpSink := SMTPAuthTokenSink{}
-	if err := smtpSink.DeliverAuthToken(context.Background(), AuthTokenDelivery{
-		Purpose: "login_activation",
-		Email:   "user@example.com",
-		Token:   "token",
-	}); err == nil {
-		t.Fatal("expected unavailable SMTP auth token sink error")
-	}
-}
-
-func TestSendSMTPMailTimesOut(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		conn, err := listener.Accept()
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		time.Sleep(500 * time.Millisecond)
-	}()
-
-	start := time.Now()
-	err = smtpSendMailWithTimeout(50*time.Millisecond)(listener.Addr().String(), nil, "from@example.com", []string{"to@example.com"}, []byte("message"))
-	if err == nil {
-		t.Fatal("expected timeout error")
-	}
-	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Fatalf("SMTP timeout took too long: %s", elapsed)
-	}
-	<-done
-}
-
-func TestSendSMTPMailDeliversMessage(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	messageCh := make(chan string, 1)
-	errCh := make(chan error, 1)
-	go func() {
-		conn, err := listener.Accept()
-		if err != nil {
-			errCh <- err
-			return
-		}
-		defer conn.Close()
-		reader := bufio.NewReader(conn)
-		writer := bufio.NewWriter(conn)
-		writeLine := func(line string) error {
-			if _, err := writer.WriteString(line + "\r\n"); err != nil {
-				return err
-			}
-			return writer.Flush()
-		}
-		if err := writeLine("220 smtp.test ESMTP"); err != nil {
-			errCh <- err
-			return
-		}
-		var data strings.Builder
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				errCh <- err
-				return
-			}
-			line = strings.TrimRight(line, "\r\n")
-			switch {
-			case strings.HasPrefix(line, "EHLO "):
-				if _, err := writer.WriteString("250-smtp.test\r\n250 SIZE\r\n"); err != nil {
-					errCh <- err
-					return
-				}
-				if err := writer.Flush(); err != nil {
-					errCh <- err
-					return
-				}
-			case strings.HasPrefix(line, "MAIL FROM:"):
-				if err := writeLine("250 ok"); err != nil {
-					errCh <- err
-					return
-				}
-			case strings.HasPrefix(line, "RCPT TO:"):
-				if err := writeLine("250 ok"); err != nil {
-					errCh <- err
-					return
-				}
-			case line == "DATA":
-				if err := writeLine("354 end with dot"); err != nil {
-					errCh <- err
-					return
-				}
-				for {
-					msgLine, err := reader.ReadString('\n')
-					if err != nil {
-						errCh <- err
-						return
-					}
-					if strings.TrimRight(msgLine, "\r\n") == "." {
-						break
-					}
-					data.WriteString(msgLine)
-				}
-				if err := writeLine("250 queued"); err != nil {
-					errCh <- err
-					return
-				}
-			case line == "QUIT":
-				if err := writeLine("221 bye"); err != nil {
-					errCh <- err
-					return
-				}
-				messageCh <- data.String()
-				errCh <- nil
-				return
-			default:
-				errCh <- fmt.Errorf("unexpected SMTP command %q", line)
-				return
-			}
-		}
-	}()
-
-	err = smtpSendMailWithTimeout(time.Second)(
-		listener.Addr().String(),
-		nil,
-		"from@example.com",
-		[]string{"to@example.com"},
-		[]byte("Subject: Test\r\n\r\nhello\r\n"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := <-errCh; err != nil {
-		t.Fatal(err)
-	}
-	message := <-messageCh
-	for _, want := range []string{"Subject: Test", "hello"} {
-		if !strings.Contains(message, want) {
-			t.Fatalf("expected SMTP message to contain %q, got %q", want, message)
-		}
 	}
 }
 
@@ -710,7 +514,7 @@ func TestLogQuotaRaiseNotificationSinkWritesDelivery(t *testing.T) {
 	}
 }
 
-func TestQuotaNotificationSinksHandleFallbackAndUnavailablePaths(t *testing.T) {
+func TestLogQuotaNotificationSinkHandlesNilLogger(t *testing.T) {
 	delivery := QuotaRaiseNotificationDelivery{
 		RecipientEmail:   "owner@example.com",
 		OrganizationID:   "org-1",
@@ -720,64 +524,6 @@ func TestQuotaNotificationSinksHandleFallbackAndUnavailablePaths(t *testing.T) {
 	}
 	if err := (LogQuotaRaiseNotificationSink{}).DeliverQuotaRaiseNotification(context.Background(), delivery); err != nil {
 		t.Fatal(err)
-	}
-	smtpSink := SMTPQuotaRaiseNotificationSink{}
-	if err := smtpSink.DeliverQuotaRaiseNotification(context.Background(), delivery); err == nil {
-		t.Fatal("expected unavailable SMTP quota notification sink error")
-	}
-}
-
-func TestSMTPQuotaRaiseNotificationSinkWritesDelivery(t *testing.T) {
-	sink := NewSMTPQuotaRaiseNotificationSink("smtp.example:587", "no-reply@example.com", nil)
-	var gotAddr string
-	var gotFrom string
-	var gotTo []string
-	var gotMsg []byte
-	sink.sendMail = func(addr string, _ smtp.Auth, from string, to []string, msg []byte) error {
-		gotAddr = addr
-		gotFrom = from
-		gotTo = append([]string(nil), to...)
-		gotMsg = append([]byte(nil), msg...)
-		return nil
-	}
-
-	approvedQuota := 12
-	decisionReason := "approved for pilot"
-	recipientName := "Owner"
-	err := sink.DeliverQuotaRaiseNotification(context.Background(), QuotaRaiseNotificationDelivery{
-		RecipientEmail:   "owner@example.com",
-		RecipientName:    &recipientName,
-		OrganizationID:   "org-1",
-		OrganizationName: "Owner Org",
-		RequestedQuota:   8,
-		ApprovedQuota:    &approvedQuota,
-		DecisionReason:   &decisionReason,
-		Decision:         "approved",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if gotAddr != "smtp.example:587" || gotFrom != "no-reply@example.com" {
-		t.Fatalf("unexpected SMTP envelope: addr=%q from=%q", gotAddr, gotFrom)
-	}
-	if len(gotTo) != 1 || gotTo[0] != "owner@example.com" {
-		t.Fatalf("unexpected recipients: %+v", gotTo)
-	}
-	for _, want := range []string{
-		"To: owner@example.com",
-		"From: no-reply@example.com",
-		"Subject: Quota raise approved",
-		"Quota raise decision: approved",
-		"Organization: Owner Org (org-1)",
-		"Requester: Owner <owner@example.com>",
-		"Requested quota: 8",
-		"Approved quota: 12",
-		"Decision reason: approved for pilot",
-	} {
-		if !strings.Contains(string(gotMsg), want) {
-			t.Fatalf("expected SMTP message to contain %q, got %q", want, string(gotMsg))
-		}
 	}
 }
 
@@ -1669,5 +1415,5 @@ func TestIsUniqueViolationClassifiesPostgresErrors(t *testing.T) {
 
 func TestLogDeliveryFailureHandlesNilLogger(t *testing.T) {
 	server := &Server{}
-	server.logDeliveryFailure("password_reset", "user@example.com", errors.New("smtp down"))
+	server.logDeliveryFailure("password_reset", "user@example.com", errors.New("email provider down"))
 }
