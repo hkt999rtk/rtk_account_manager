@@ -345,6 +345,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminCreatesProductionRunJWT`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminDeviceItemProfileLifecycle`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminMissingBrandResourcesReturnNotFound`
+- `rtk_account_manager/internal/api`: `TestIntegrationProductCollaboratorLifecycleAndVisibility`
 - `rtk_account_manager/internal/api`: `TestIntegrationPrometheusMetricsReportsEmptySnapshot`
 - `rtk_account_manager/internal/api`: `TestIntegrationProvisioningEndpoints`
 - `rtk_account_manager/internal/api`: `TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness`
@@ -353,7 +354,6 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationRejectsBlankNames`
 - `rtk_account_manager/internal/api`: `TestIntegrationResponsesMatchOpenAPIContract`
 - `rtk_account_manager/internal/api`: `TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness`
-- `rtk_account_manager/internal/api`: `TestIntegrationProductCollaboratorLifecycleAndVisibility`
 - `rtk_account_manager/internal/api`: `TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationSignupQueuesEncryptedEmailForWorkerDelivery`
 - `rtk_account_manager/internal/api`: `TestIntegrationStoreRefreshTokenHelpers`
@@ -765,6 +765,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestOnlineChangedProjectionSetsStatusAndLastSeenAt`
 - `rtk_account_manager/internal/store`: `TestOutboxMessagePersistenceAndReadyList`
 - `rtk_account_manager/internal/store`: `TestOwnerTransferAndEmailOutboxCommitOrRollbackTogether`
+- `rtk_account_manager/internal/store`: `TestProductCollaborationInvitationVisibilityAndOwnershipTransferIntegration`
+- `rtk_account_manager/internal/store`: `TestProductCollaboratorPendingInvitationLifecycleIntegration`
 - `rtk_account_manager/internal/store`: `TestProjectDeviceProvisioningAndOnlineRules`
 - `rtk_account_manager/internal/store`: `TestProjectDeviceRejectsDisabledDevicesExceptDeactivateResults`
 - `rtk_account_manager/internal/store`: `TestQuotaDecisionAndEmailOutboxCommitOrRollbackTogether`
@@ -785,8 +787,6 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenRejectsExpiredToken`
 - `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenRejectsInvalidToken`
 - `rtk_account_manager/internal/store`: `TestResolveDeviceClaimTokenRejectsUnsupportedCategory`
-- `rtk_account_manager/internal/store`: `TestProductCollaborationInvitationVisibilityAndOwnershipTransferIntegration`
-- `rtk_account_manager/internal/store`: `TestProductCollaboratorPendingInvitationLifecycleIntegration`
 - `rtk_account_manager/internal/store`: `TestScanEmailOutboxWrapsScanError`
 - `rtk_account_manager/internal/store`: `TestScanProductionRunMapsNoRowsToNotFound`
 - `rtk_account_manager/internal/store`: `TestScanProductionRunReturnsScanError`
