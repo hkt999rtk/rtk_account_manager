@@ -1,137 +1,40 @@
 package emaildelivery
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
 	"html"
-	"mime"
-	"mime/multipart"
-	"mime/quotedprintable"
 	"net/mail"
 	"net/url"
 	"strings"
-	"time"
 )
 
 type Message struct {
-	EnvelopeFrom string
-	Recipient    string
-	ReplyTo      string
-	Subject      string
-	Text         string
-	HTML         string
-	Data         []byte
+	Recipient string
+	ReplyTo   string
+	Subject   string
+	Text      string
+	HTML      string
 }
 
 type Renderer struct {
-	From     string
-	FromName string
-	BaseURL  string
-	Now      func() time.Time
+	BaseURL string
 }
 
-func (r Renderer) Render(outboxID, messageType string, payload Payload) (Message, error) {
+func (r Renderer) Render(_ string, messageType string, payload Payload) (Message, error) {
 	to, err := mail.ParseAddress(strings.TrimSpace(payload.RecipientEmail))
 	if err != nil {
 		return Message{}, fmt.Errorf("invalid recipient: %w", err)
-	}
-	if hasHeaderBreak(outboxID) || hasHeaderBreak(messageType) {
-		return Message{}, errors.New("invalid email header value")
 	}
 	subject, textBody, htmlBody, err := r.content(messageType, payload)
 	if err != nil {
 		return Message{}, err
 	}
-	message := Message{
+	return Message{
 		Recipient: to.Address,
 		Subject:   subject,
 		Text:      textBody,
 		HTML:      htmlBody,
-	}
-	if strings.TrimSpace(r.From) == "" {
-		return message, nil
-	}
-	from, err := mailbox(r.FromName, r.From)
-	if err != nil {
-		return Message{}, fmt.Errorf("invalid SMTP_FROM: %w", err)
-	}
-	now := time.Now().UTC()
-	if r.Now != nil {
-		now = r.Now().UTC()
-	}
-	domain := "realtekconnect.com"
-	if parsed, parseErr := mail.ParseAddress(r.From); parseErr == nil {
-		if at := strings.LastIndex(parsed.Address, "@"); at >= 0 {
-			domain = parsed.Address[at+1:]
-		}
-	}
-	messageID := fmt.Sprintf("<%s@%s>", strings.TrimSpace(outboxID), domain)
-
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	textHeader := make(map[string][]string)
-	textHeader["Content-Type"] = []string{`text/plain; charset="UTF-8"`}
-	textHeader["Content-Transfer-Encoding"] = []string{"quoted-printable"}
-	part, err := writer.CreatePart(textHeader)
-	if err != nil {
-		return Message{}, err
-	}
-	qp := quotedprintable.NewWriter(part)
-	if _, err := qp.Write([]byte(textBody)); err != nil {
-		return Message{}, err
-	}
-	if err := qp.Close(); err != nil {
-		return Message{}, err
-	}
-	htmlHeader := make(map[string][]string)
-	htmlHeader["Content-Type"] = []string{`text/html; charset="UTF-8"`}
-	htmlHeader["Content-Transfer-Encoding"] = []string{"quoted-printable"}
-	part, err = writer.CreatePart(htmlHeader)
-	if err != nil {
-		return Message{}, err
-	}
-	qp = quotedprintable.NewWriter(part)
-	if _, err := qp.Write([]byte(htmlBody)); err != nil {
-		return Message{}, err
-	}
-	if err := qp.Close(); err != nil {
-		return Message{}, err
-	}
-	if err := writer.Close(); err != nil {
-		return Message{}, err
-	}
-
-	var raw bytes.Buffer
-	fmt.Fprintf(&raw, "Date: %s\r\n", now.Format(time.RFC1123Z))
-	fmt.Fprintf(&raw, "Message-ID: %s\r\n", messageID)
-	fmt.Fprintf(&raw, "From: %s\r\n", from.String())
-	fmt.Fprintf(&raw, "To: %s\r\n", to.String())
-	fmt.Fprintf(&raw, "Subject: %s\r\n", mime.QEncoding.Encode("UTF-8", subject))
-	fmt.Fprint(&raw, "MIME-Version: 1.0\r\n")
-	fmt.Fprintf(&raw, "Content-Type: multipart/alternative; boundary=%q\r\n\r\n", writer.Boundary())
-	raw.Write(body.Bytes())
-	message.EnvelopeFrom = from.Address
-	message.Data = raw.Bytes()
-	return message, nil
-}
-
-func mailbox(name, address string) (*mail.Address, error) {
-	if hasHeaderBreak(name) || hasHeaderBreak(address) {
-		return nil, errors.New("header line break is not allowed")
-	}
-	parsed, err := mail.ParseAddress(strings.TrimSpace(address))
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(name) != "" {
-		parsed.Name = strings.TrimSpace(name)
-	}
-	return parsed, nil
-}
-
-func hasHeaderBreak(value string) bool {
-	return strings.ContainsAny(value, "\r\n")
+	}, nil
 }
 
 func (r Renderer) content(messageType string, payload Payload) (string, string, string, error) {

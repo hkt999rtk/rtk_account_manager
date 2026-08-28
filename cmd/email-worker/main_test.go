@@ -22,28 +22,7 @@ func TestEmailDeliverySelectsSendMailHTTP(t *testing.T) {
 	if _, ok := sender.(*emaildelivery.SendMailHTTPClient); !ok {
 		t.Fatalf("sender = %T", sender)
 	}
-	if renderer.BaseURL != "https://account.example.com" || renderer.From != "" {
-		t.Fatalf("renderer = %+v", renderer)
-	}
-}
-
-func TestEmailDeliveryKeepsSMTPCompatibility(t *testing.T) {
-	sender, renderer, err := emailDelivery(config.Config{
-		AuthTokenDelivery: "smtp",
-		AuthTokenBaseURL:  "https://account.example.com",
-		SMTPHost:          "smtp.example.com",
-		SMTPPort:          "587",
-		SMTPFrom:          "no-reply@example.com",
-		SMTPFromName:      "Example",
-		SMTPEncryption:    "starttls",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := sender.(*emaildelivery.SMTPClient); !ok {
-		t.Fatalf("sender = %T", sender)
-	}
-	if renderer.From != "no-reply@example.com" || renderer.FromName != "Example" {
+	if renderer.BaseURL != "https://account.example.com" {
 		t.Fatalf("renderer = %+v", renderer)
 	}
 }

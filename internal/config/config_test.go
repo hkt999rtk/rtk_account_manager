@@ -55,11 +55,6 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	t.Setenv("PORT", "9090")
 	t.Setenv("AUTH_TOKEN_DELIVERY", "log")
 	t.Setenv("AUTH_TOKEN_BASE_URL", "https://admin.example.test")
-	t.Setenv("SMTP_HOST", "smtp.example")
-	t.Setenv("SMTP_PORT", "2525")
-	t.Setenv("SMTP_USERNAME", "smtp-user")
-	t.Setenv("SMTP_PASSWORD", "smtp-pass")
-	t.Setenv("SMTP_FROM", "noreply@example.com")
 	t.Setenv("AZURE_EVENTHUB_CONNECTION_STRING", "Endpoint=sb://example/")
 	t.Setenv("AZURE_EVENTHUB_CHECKPOINT_FILE", "/tmp/eventhub-checkpoints.json")
 	t.Setenv("OIDC_ENABLED", "true")
@@ -103,9 +98,6 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	}
 	if cfg.AuthTokenBaseURL != "https://admin.example.test" {
 		t.Fatalf("unexpected auth token base URL: %q", cfg.AuthTokenBaseURL)
-	}
-	if cfg.SMTPHost != "smtp.example" || cfg.SMTPPort != "2525" || cfg.SMTPUsername != "smtp-user" || cfg.SMTPPassword != "smtp-pass" || cfg.SMTPFrom != "noreply@example.com" {
-		t.Fatalf("unexpected smtp config: %+v", cfg)
 	}
 	if cfg.CrossServiceBroker != "log" {
 		t.Fatalf("unexpected broker: %q", cfg.CrossServiceBroker)

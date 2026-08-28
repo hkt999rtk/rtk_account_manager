@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/base64"
 	"fmt"
-	"net/mail"
 	"net/url"
 	"os"
 	"strconv"
@@ -36,13 +35,6 @@ type Config struct {
 	Port                           string
 	AuthTokenDelivery              string
 	AuthTokenBaseURL               string
-	SMTPHost                       string
-	SMTPPort                       string
-	SMTPUsername                   string
-	SMTPPassword                   string
-	SMTPFrom                       string
-	SMTPFromName                   string
-	SMTPEncryption                 string
 	SendMailHTTPBaseURL            string
 	SendMailHTTPBearerToken        string
 	SendMailHTTPTimeout            time.Duration
@@ -172,12 +164,15 @@ func LoadEmailWorker() (Config, error) {
 func validateEmailConfig(cfg Config, worker bool) error {
 	production := strings.EqualFold(strings.TrimSpace(cfg.LogEnv), "production")
 	delivery := strings.ToLower(strings.TrimSpace(cfg.AuthTokenDelivery))
-	emailDelivery := delivery == "smtp" || delivery == "sendmail_http"
+	emailDelivery := delivery == "sendmail_http"
 	if production && !emailDelivery {
-		return fmt.Errorf("AUTH_TOKEN_DELIVERY must be smtp or sendmail_http in production")
+		return fmt.Errorf("AUTH_TOKEN_DELIVERY must be sendmail_http in production")
 	}
 	if !worker && !emailDelivery {
 		return nil
+	}
+	if worker && !emailDelivery {
+		return fmt.Errorf("AUTH_TOKEN_DELIVERY must be sendmail_http for email worker")
 	}
 	if strings.TrimSpace(cfg.AuthTokenBaseURL) == "" {
 		return fmt.Errorf("AUTH_TOKEN_BASE_URL is required")
@@ -196,29 +191,7 @@ func validateEmailConfig(cfg Config, worker bool) error {
 	if len(decoded) != 32 {
 		return fmt.Errorf("EMAIL_OUTBOX_ENCRYPTION_KEY must decode to exactly 32 bytes")
 	}
-	if delivery == "sendmail_http" {
-		return validateSendMailHTTPConfig(cfg, production)
-	}
-	if strings.TrimSpace(cfg.SMTPHost) == "" {
-		return fmt.Errorf("SMTP_HOST is required")
-	}
-	if strings.TrimSpace(cfg.SMTPFrom) == "" {
-		return fmt.Errorf("SMTP_FROM is required")
-	}
-	if _, err := mail.ParseAddress(strings.TrimSpace(cfg.SMTPFrom)); err != nil {
-		return fmt.Errorf("SMTP_FROM must be a valid mailbox: %w", err)
-	}
-	encryption := strings.ToLower(strings.TrimSpace(cfg.SMTPEncryption))
-	if encryption != "starttls" && encryption != "none" {
-		return fmt.Errorf("SMTP_ENCRYPTION must be starttls or none")
-	}
-	if production && encryption != "starttls" {
-		return fmt.Errorf("SMTP_ENCRYPTION must be starttls in production")
-	}
-	if production && (strings.TrimSpace(cfg.SMTPUsername) == "" || strings.TrimSpace(cfg.SMTPPassword) == "") {
-		return fmt.Errorf("SMTP_USERNAME and SMTP_PASSWORD are required in production")
-	}
-	return nil
+	return validateSendMailHTTPConfig(cfg, production)
 }
 
 func validateSendMailHTTPConfig(cfg Config, production bool) error {
@@ -289,13 +262,6 @@ func load() (Config, error) {
 		Port:                           getenv("PORT", "8080"),
 		AuthTokenDelivery:              getenv("AUTH_TOKEN_DELIVERY", "log"),
 		AuthTokenBaseURL:               getenv("AUTH_TOKEN_BASE_URL", ""),
-		SMTPHost:                       getenv("SMTP_HOST", ""),
-		SMTPPort:                       getenv("SMTP_PORT", "587"),
-		SMTPUsername:                   getenv("SMTP_USERNAME", ""),
-		SMTPPassword:                   getenv("SMTP_PASSWORD", ""),
-		SMTPFrom:                       getenv("SMTP_FROM", ""),
-		SMTPFromName:                   getenv("SMTP_FROM_NAME", "Realtek Connect"),
-		SMTPEncryption:                 getenv("SMTP_ENCRYPTION", "starttls"),
 		SendMailHTTPBaseURL:            getenv("SENDMAIL_HTTP_BASE_URL", ""),
 		SendMailHTTPBearerToken:        getenv("SENDMAIL_HTTP_BEARER_TOKEN", ""),
 		SendMailHTTPTimeout:            duration("SENDMAIL_HTTP_TIMEOUT", 15*time.Second),

@@ -3,14 +3,11 @@ package api
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/smtp"
 	"net/url"
 	"strconv"
 	"strings"
@@ -139,34 +136,6 @@ func (s LogAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthToken
 		zap.Time("expires_at", delivery.ExpiresAt.UTC()),
 	)
 	return nil
-}
-
-type SMTPAuthTokenSink struct {
-	host     string
-	from     string
-	baseURL  string
-	auth     smtp.Auth
-	sendMail func(string, smtp.Auth, string, []string, []byte) error
-}
-
-func NewSMTPAuthTokenSink(host, from, baseURL string, auth smtp.Auth) SMTPAuthTokenSink {
-	return SMTPAuthTokenSink{
-		host:     host,
-		from:     from,
-		baseURL:  strings.TrimRight(strings.TrimSpace(baseURL), "/"),
-		auth:     auth,
-		sendMail: smtpSendMailWithTimeout(15 * time.Second),
-	}
-}
-
-func (s SMTPAuthTokenSink) DeliverAuthToken(_ context.Context, delivery AuthTokenDelivery) error {
-	if s.sendMail == nil {
-		return errors.New("smtp auth token sink unavailable")
-	}
-	subject := authTokenSubject(delivery.Purpose)
-	body := buildAuthTokenBody(delivery, s.baseURL)
-	msg := buildSMTPMessage(s.from, delivery.Email, subject, body)
-	return s.sendMail(s.host, s.auth, s.from, []string{delivery.Email}, msg)
 }
 
 func authTokenSubject(purpose string) string {
@@ -314,32 +283,6 @@ func (s LogQuotaRaiseNotificationSink) DeliverQuotaRaiseNotification(_ context.C
 	return nil
 }
 
-type SMTPQuotaRaiseNotificationSink struct {
-	host     string
-	from     string
-	auth     smtp.Auth
-	sendMail func(string, smtp.Auth, string, []string, []byte) error
-}
-
-func NewSMTPQuotaRaiseNotificationSink(host, from string, auth smtp.Auth) SMTPQuotaRaiseNotificationSink {
-	return SMTPQuotaRaiseNotificationSink{
-		host:     host,
-		from:     from,
-		auth:     auth,
-		sendMail: smtpSendMailWithTimeout(15 * time.Second),
-	}
-}
-
-func (s SMTPQuotaRaiseNotificationSink) DeliverQuotaRaiseNotification(_ context.Context, delivery QuotaRaiseNotificationDelivery) error {
-	if s.sendMail == nil {
-		return errors.New("smtp quota raise notification sink unavailable")
-	}
-	subject := fmt.Sprintf("Quota raise %s", delivery.Decision)
-	body := buildQuotaRaiseNotificationBody(delivery)
-	msg := buildSMTPMessage(s.from, delivery.RecipientEmail, subject, body)
-	return s.sendMail(s.host, s.auth, s.from, []string{delivery.RecipientEmail}, msg)
-}
-
 func buildQuotaRaiseNotificationBody(delivery QuotaRaiseNotificationDelivery) string {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "Quota raise decision: %s\r\n", delivery.Decision)
@@ -357,79 +300,6 @@ func buildQuotaRaiseNotificationBody(delivery QuotaRaiseNotificationDelivery) st
 		fmt.Fprintf(&b, "Decision reason: %s\r\n", strings.TrimSpace(*delivery.DecisionReason))
 	}
 	return b.String()
-}
-
-func buildSMTPMessage(from, to, subject, body string) []byte {
-	var b bytes.Buffer
-	fmt.Fprintf(&b, "To: %s\r\n", to)
-	fmt.Fprintf(&b, "From: %s\r\n", from)
-	fmt.Fprintf(&b, "Subject: %s\r\n", subject)
-	b.WriteString("MIME-Version: 1.0\r\n")
-	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
-	b.WriteString("\r\n")
-	b.WriteString(body)
-	return b.Bytes()
-}
-
-func smtpSendMailWithTimeout(timeout time.Duration) func(string, smtp.Auth, string, []string, []byte) error {
-	return func(addr string, auth smtp.Auth, from string, to []string, msg []byte) error {
-		return sendSMTPMail(addr, auth, from, to, msg, timeout)
-	}
-}
-
-func sendSMTPMail(addr string, auth smtp.Auth, from string, to []string, msg []byte, timeout time.Duration) error {
-	if timeout <= 0 {
-		timeout = 15 * time.Second
-	}
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		host = addr
-	}
-	conn, err := (&net.Dialer{Timeout: timeout}).Dial("tcp", addr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
-		return err
-	}
-	client, err := smtp.NewClient(conn, host)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-	if ok, _ := client.Extension("STARTTLS"); ok {
-		if err := client.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil {
-			return err
-		}
-	}
-	if auth != nil {
-		if ok, _ := client.Extension("AUTH"); ok {
-			if err := client.Auth(auth); err != nil {
-				return err
-			}
-		}
-	}
-	if err := client.Mail(from); err != nil {
-		return err
-	}
-	for _, recipient := range to {
-		if err := client.Rcpt(recipient); err != nil {
-			return err
-		}
-	}
-	w, err := client.Data()
-	if err != nil {
-		return err
-	}
-	if _, err := w.Write(msg); err != nil {
-		_ = w.Close()
-		return err
-	}
-	if err := w.Close(); err != nil {
-		return err
-	}
-	return client.Quit()
 }
 
 func NewWithAuthTokenAndNotificationSink(store Store, authService *auth.Service, authSink AuthTokenSink, notificationSink QuotaRaiseNotificationSink) *Server {

@@ -103,7 +103,7 @@ func newIntegrationEnv(t *testing.T) integrationEnv {
 	}
 }
 
-func TestIntegrationSignupQueuesEncryptedEmailWithoutCallingSMTP(t *testing.T) {
+func TestIntegrationSignupQueuesEncryptedEmailForWorkerDelivery(t *testing.T) {
 	env := newIntegrationEnv(t)
 	repository, ok := env.server.store.(*store.Store)
 	if !ok {
