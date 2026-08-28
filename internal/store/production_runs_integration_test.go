@@ -134,7 +134,7 @@ func TestCreateProductionRunBindsBrandCloudAndProfile(t *testing.T) {
 		ProfileKey:     "cam-prod-v1",
 		DisplayName:    "Camera Production V1",
 		Category:       model.DeviceCategoryIPCamera,
-		CAProfile:      "sku-ca-prod-v1",
+		CAProfile:      "product-ca-prod-v1",
 		IssuerProfile:  "factory-line-a",
 		ServiceOptions: []string{"video_streaming"},
 	})
@@ -195,7 +195,7 @@ func TestCreateProductionRunRejectsDisabledOrCrossBrandProfile(t *testing.T) {
 		ProfileKey:     "cam-disabled",
 		DisplayName:    "Disabled Camera",
 		Category:       model.DeviceCategoryIPCamera,
-		CAProfile:      "sku-ca-disabled",
+		CAProfile:      "product-ca-disabled",
 		IssuerProfile:  "factory-line-a",
 		ServiceOptions: []string{"video_streaming"},
 	})

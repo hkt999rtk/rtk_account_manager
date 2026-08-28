@@ -2307,7 +2307,7 @@ func TestIntegrationPlatformAdminDeviceItemProfileLifecycle(t *testing.T) {
 		"category":          "generic",
 		"manufacturer":      "Realtek Semiconductor",
 		"model":             "API-100B",
-		"metadata_defaults": map[string]any{"region": "tw", "sku": "api-100b"},
+		"metadata_defaults": map[string]any{"region": "tw", "product": "api-100b"},
 		"metadata_schema":   map[string]any{"type": "object", "additionalProperties": true},
 		"ca_profile":        "brand-ca-b",
 		"issuer_profile":    "issuer-b",
@@ -2399,7 +2399,7 @@ func TestIntegrationPlatformAdminCreatesProductionRunJWT(t *testing.T) {
 		"profile_key":     "prod-api-cam-v1",
 		"display_name":    "Production API Camera V1",
 		"category":        "ip_camera",
-		"ca_profile":      "sku-ca-prod-api",
+		"ca_profile":      "product-ca-prod-api",
 		"issuer_profile":  "factory-line-a",
 		"service_options": []string{"video_streaming"},
 	}, admin.Tokens.AccessToken)
@@ -3471,13 +3471,13 @@ func TestIntegrationBrandCloudScopedRoleAssignmentWorkflow(t *testing.T) {
 		t.Fatalf("expected scoped assignment list 200, got %d: %s", listRes.Code, listRes.Body.String())
 	}
 	assignmentRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+brand.BrandCloud.ID+"/role-assignments", map[string]any{
-		"role_name": "firmware_operator", "actor_id": brandUser.BrandCloudUser.ID, "scope_type": "sku", "scope_id": "sku-camera-pro",
+		"role_name": "firmware_operator", "actor_id": brandUser.BrandCloudUser.ID, "scope_type": "product", "scope_id": "product-camera-pro",
 	}, login.Tokens.AccessToken)
 	if assignmentRes.Code != http.StatusCreated {
 		t.Fatalf("expected scoped assignment create 201, got %d: %s", assignmentRes.Code, assignmentRes.Body.String())
 	}
 	assignment := decodeBody[aclRoleAssignmentBody](t, assignmentRes)
-	if assignment.RoleAssignment.ScopeType != "sku" || assignment.RoleAssignment.ScopeID == nil || *assignment.RoleAssignment.ScopeID != "sku-camera-pro" {
+	if assignment.RoleAssignment.ScopeType != "product" || assignment.RoleAssignment.ScopeID == nil || *assignment.RoleAssignment.ScopeID != "product-camera-pro" {
 		t.Fatalf("unexpected scoped assignment: %+v", assignment.RoleAssignment)
 	}
 	deleteRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+brand.BrandCloud.ID+"/role-assignments/"+assignment.RoleAssignment.ID, nil, login.Tokens.AccessToken)
@@ -6955,70 +6955,70 @@ func createBrandCloudForTest(t *testing.T, env integrationEnv, accessToken, name
 	return decodeBody[brandCloudBody](t, res)
 }
 
-func TestIntegrationSKUCollaboratorLifecycleAndVisibility(t *testing.T) {
+func TestIntegrationProductCollaboratorLifecycleAndVisibility(t *testing.T) {
 	env := newIntegrationEnv(t)
-	owner := verifiedDeveloperForTest(t, env, "sku-api-owner@example.com")
-	editor := verifiedDeveloperForTest(t, env, "sku-api-editor@example.com")
-	viewer := verifiedDeveloperForTest(t, env, "sku-api-viewer@example.com")
+	owner := verifiedDeveloperForTest(t, env, "product-api-owner@example.com")
+	editor := verifiedDeveloperForTest(t, env, "product-api-editor@example.com")
+	viewer := verifiedDeveloperForTest(t, env, "product-api-viewer@example.com")
 
-	createSKU := func(key string) model.DeviceItemProfile {
+	createProduct := func(key string) model.DeviceItemProfile {
 		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.BrandCloudID+"/device-item-profiles", map[string]any{
 			"profile_key": key, "display_name": key, "category": "ip_camera",
-			"ca_profile": "sku-api-ca", "issuer_profile": "sku-api-issuer",
+			"ca_profile": "product-api-ca", "issuer_profile": "product-api-issuer",
 			"service_options": []string{"video_streaming"},
 		}, owner.AccessToken)
 		if res.Code != http.StatusCreated {
-			t.Fatalf("create SKU %s: %d %s", key, res.Code, res.Body.String())
+			t.Fatalf("create Product %s: %d %s", key, res.Code, res.Body.String())
 		}
 		return decodeBody[deviceItemProfileBody](t, res).DeviceItemProfile
 	}
-	sku := createSKU("sku-api-assigned")
-	_ = createSKU("sku-api-hidden")
-	base := "/v1/developer/brand-clouds/" + owner.BrandCloudID + "/skus/" + sku.ID
+	product := createProduct("product-api-assigned")
+	_ = createProduct("product-api-hidden")
+	base := "/v1/developer/brand-clouds/" + owner.BrandCloudID + "/products/" + product.ID
 
 	invite := func(email, role string) string {
 		res := performJSON(env.router, http.MethodPost, base+"/collaborator-invitations", map[string]any{"email": email, "role": role}, owner.AccessToken)
 		if res.Code != http.StatusAccepted {
 			t.Fatalf("invite %s: %d %s", email, res.Code, res.Body.String())
 		}
-		return latestAuthToken(t, env.tokenSink, email, "sku_collaborator_invitation")
+		return latestAuthToken(t, env.tokenSink, email, "product_collaborator_invitation")
 	}
 	accept := func(developer verifiedDeveloperFixture, token string) {
-		res := performJSON(env.router, http.MethodPost, "/v1/developer/sku-collaborator-invitations/accept", map[string]any{"token": token}, developer.AccessToken)
+		res := performJSON(env.router, http.MethodPost, "/v1/developer/product-collaborator-invitations/accept", map[string]any{"token": token}, developer.AccessToken)
 		if res.Code != http.StatusOK {
-			t.Fatalf("accept SKU invitation: %d %s", res.Code, res.Body.String())
+			t.Fatalf("accept Product invitation: %d %s", res.Code, res.Body.String())
 		}
 	}
 
-	accept(editor, invite("sku-api-editor@example.com", store.SKUEditorRole))
+	accept(editor, invite("product-api-editor@example.com", store.ProductEditorRole))
 	profilesRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+owner.BrandCloudID+"/device-item-profiles", nil, editor.AccessToken)
 	if profilesRes.Code != http.StatusOK {
-		t.Fatalf("list assigned SKUs: %d %s", profilesRes.Code, profilesRes.Body.String())
+		t.Fatalf("list assigned Products: %d %s", profilesRes.Code, profilesRes.Body.String())
 	}
 	profiles := decodeBody[deviceItemProfilesBody](t, profilesRes)
-	if profiles.Pagination.Total != 1 || len(profiles.DeviceItemProfiles) != 1 || profiles.DeviceItemProfiles[0].ID != sku.ID {
-		t.Fatalf("editor visibility = %+v, want only %s", profiles, sku.ID)
+	if profiles.Pagination.Total != 1 || len(profiles.DeviceItemProfiles) != 1 || profiles.DeviceItemProfiles[0].ID != product.ID {
+		t.Fatalf("editor visibility = %+v, want only %s", profiles, product.ID)
 	}
 
-	updateRes := performJSON(env.router, http.MethodPatch, base+"/collaborators/"+editor.UserID, map[string]any{"role": store.SKUViewerRole}, owner.AccessToken)
+	updateRes := performJSON(env.router, http.MethodPatch, base+"/collaborators/"+editor.UserID, map[string]any{"role": store.ProductViewerRole}, owner.AccessToken)
 	if updateRes.Code != http.StatusOK {
 		t.Fatalf("update collaborator: %d %s", updateRes.Code, updateRes.Body.String())
 	}
-	updateRes = performJSON(env.router, http.MethodPatch, base+"/collaborators/"+editor.UserID, map[string]any{"role": store.SKUEditorRole}, owner.AccessToken)
+	updateRes = performJSON(env.router, http.MethodPatch, base+"/collaborators/"+editor.UserID, map[string]any{"role": store.ProductEditorRole}, owner.AccessToken)
 	if updateRes.Code != http.StatusOK {
 		t.Fatalf("restore editor role: %d %s", updateRes.Code, updateRes.Body.String())
 	}
 
-	_ = invite("sku-api-viewer@example.com", store.SKUViewerRole)
+	_ = invite("product-api-viewer@example.com", store.ProductViewerRole)
 	var invitationsBody struct {
-		Invitations []model.SKUCollaboratorInvitation `json:"invitations"`
+		Invitations []model.ProductCollaboratorInvitation `json:"invitations"`
 	}
 	listInvitationsRes := performJSON(env.router, http.MethodGet, base+"/collaborator-invitations", nil, owner.AccessToken)
 	if listInvitationsRes.Code != http.StatusOK {
 		t.Fatalf("list invitations: %d %s", listInvitationsRes.Code, listInvitationsRes.Body.String())
 	}
 	invitationsBody = decodeBody[struct {
-		Invitations []model.SKUCollaboratorInvitation `json:"invitations"`
+		Invitations []model.ProductCollaboratorInvitation `json:"invitations"`
 	}](t, listInvitationsRes)
 	if len(invitationsBody.Invitations) == 0 {
 		t.Fatal("expected pending viewer invitation")
@@ -7033,7 +7033,7 @@ func TestIntegrationSKUCollaboratorLifecycleAndVisibility(t *testing.T) {
 		t.Fatalf("cancel invitation: %d %s", cancelRes.Code, cancelRes.Body.String())
 	}
 
-	accept(viewer, invite("sku-api-viewer@example.com", store.SKUViewerRole))
+	accept(viewer, invite("product-api-viewer@example.com", store.ProductViewerRole))
 	removeRes := performJSON(env.router, http.MethodDelete, base+"/collaborators/"+viewer.UserID, nil, owner.AccessToken)
 	if removeRes.Code != http.StatusNoContent {
 		t.Fatalf("remove collaborator: %d %s", removeRes.Code, removeRes.Body.String())
@@ -7041,7 +7041,7 @@ func TestIntegrationSKUCollaboratorLifecycleAndVisibility(t *testing.T) {
 
 	transferRes := performJSON(env.router, http.MethodPost, base+"/owner-transfer", map[string]any{"target_user_id": editor.UserID}, owner.AccessToken)
 	if transferRes.Code != http.StatusOK {
-		t.Fatalf("transfer SKU owner: %d %s", transferRes.Code, transferRes.Body.String())
+		t.Fatalf("transfer Product owner: %d %s", transferRes.Code, transferRes.Body.String())
 	}
 	oldOwnerRes := performJSON(env.router, http.MethodGet, base+"/collaborators", nil, owner.AccessToken)
 	if oldOwnerRes.Code != http.StatusNotFound {

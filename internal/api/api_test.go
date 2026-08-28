@@ -450,7 +450,7 @@ func TestAuthTokenLinkRoutesByPurpose(t *testing.T) {
 		{purpose: "login_activation", want: "https://admin.example.test/login/activate?token=token+with+space"},
 		{purpose: "password_reset", email: "user@example.com", want: "https://admin.example.test/reset-password?email=user%40example.com&token=token+with+space"},
 		{purpose: "brand_cloud_membership_invitation", want: "https://admin.example.test/brand-cloud-member-invitation/accept?token=token+with+space"},
-		{purpose: "sku_collaborator_invitation", want: "https://admin.example.test/sku-collaborator-invitation/accept?token=token+with+space"},
+		{purpose: "product_collaborator_invitation", want: "https://admin.example.test/product-collaborator-invitation/accept?token=token+with+space"},
 	} {
 		t.Run(tt.purpose, func(t *testing.T) {
 			got := authTokenLink(tt.purpose, "token with space", tt.email, "https://admin.example.test/")
@@ -484,9 +484,9 @@ func TestAuthTokenSubjectAndBodyByPurpose(t *testing.T) {
 			wantBody:    "Reset your Realtek Connect password with this link:",
 		},
 		{
-			purpose:     "sku_collaborator_invitation",
-			wantSubject: "Join a Realtek Connect+ SKU project",
-			wantBody:    "Accept your Realtek Connect+ SKU project invitation with this link:",
+			purpose:     "product_collaborator_invitation",
+			wantSubject: "Join a Realtek Connect+ Product project",
+			wantBody:    "Accept your Realtek Connect+ Product project invitation with this link:",
 		},
 		{
 			purpose:     "unknown",

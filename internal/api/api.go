@@ -150,8 +150,8 @@ func authTokenSubject(purpose string) string {
 		return "Accept Realtek Connect+ brand cloud ownership"
 	case "brand_cloud_membership_invitation":
 		return "Join a Realtek Connect+ brand cloud"
-	case "sku_collaborator_invitation":
-		return "Join a Realtek Connect+ SKU project"
+	case "product_collaborator_invitation":
+		return "Join a Realtek Connect+ Product project"
 	default:
 		return "Realtek Connect account token"
 	}
@@ -170,8 +170,8 @@ func buildAuthTokenBody(delivery AuthTokenDelivery, baseURL string) string {
 		b.WriteString("Accept Realtek Connect+ brand cloud ownership with this link:\r\n\r\n")
 	case "brand_cloud_membership_invitation":
 		b.WriteString("Accept your Realtek Connect+ brand cloud invitation with this link:\r\n\r\n")
-	case "sku_collaborator_invitation":
-		b.WriteString("Accept your Realtek Connect+ SKU project invitation with this link:\r\n\r\n")
+	case "product_collaborator_invitation":
+		b.WriteString("Accept your Realtek Connect+ Product project invitation with this link:\r\n\r\n")
 	default:
 		b.WriteString("Use this Realtek Connect account token:\r\n\r\n")
 	}
@@ -202,8 +202,8 @@ func authTokenLink(purpose, token, email, baseURL string) string {
 		path = "/brand-cloud-owner-transfer/accept"
 	case "brand_cloud_membership_invitation":
 		path = "/brand-cloud-member-invitation/accept"
-	case "sku_collaborator_invitation":
-		path = "/sku-collaborator-invitation/accept"
+	case "product_collaborator_invitation":
+		path = "/product-collaborator-invitation/accept"
 	}
 	u, err := url.Parse(strings.TrimRight(strings.TrimSpace(baseURL), "/") + path)
 	if err != nil {
@@ -463,15 +463,15 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/developer/brand-clouds/:brandCloudId/pki/test-app-certificates", s.issueDeveloperPKITestAppCertificate)
 	protected.POST("/developer/brand-cloud-owner-transfers/accept", s.acceptBrandCloudOwnerTransfer)
 	protected.POST("/developer/brand-cloud-member-invitations/accept", s.acceptDeveloperBrandCloudMemberInvitation)
-	protected.GET("/developer/brand-clouds/:brandCloudId/skus/:skuId/collaborators", s.listSKUCollaborators)
-	protected.PATCH("/developer/brand-clouds/:brandCloudId/skus/:skuId/collaborators/:userId", s.updateSKUCollaborator)
-	protected.DELETE("/developer/brand-clouds/:brandCloudId/skus/:skuId/collaborators/:userId", s.removeSKUCollaborator)
-	protected.GET("/developer/brand-clouds/:brandCloudId/skus/:skuId/collaborator-invitations", s.listSKUCollaboratorInvitations)
-	protected.POST("/developer/brand-clouds/:brandCloudId/skus/:skuId/collaborator-invitations", s.inviteSKUCollaborator)
-	protected.POST("/developer/brand-clouds/:brandCloudId/skus/:skuId/collaborator-invitations/:invitationId/resend", s.resendSKUCollaboratorInvitation)
-	protected.POST("/developer/brand-clouds/:brandCloudId/skus/:skuId/collaborator-invitations/:invitationId/cancel", s.cancelSKUCollaboratorInvitation)
-	protected.POST("/developer/sku-collaborator-invitations/accept", s.acceptSKUCollaboratorInvitation)
-	protected.POST("/developer/brand-clouds/:brandCloudId/skus/:skuId/owner-transfer", s.transferSKUOwnership)
+	protected.GET("/developer/brand-clouds/:brandCloudId/products/:productId/collaborators", s.listProductCollaborators)
+	protected.PATCH("/developer/brand-clouds/:brandCloudId/products/:productId/collaborators/:userId", s.updateProductCollaborator)
+	protected.DELETE("/developer/brand-clouds/:brandCloudId/products/:productId/collaborators/:userId", s.removeProductCollaborator)
+	protected.GET("/developer/brand-clouds/:brandCloudId/products/:productId/collaborator-invitations", s.listProductCollaboratorInvitations)
+	protected.POST("/developer/brand-clouds/:brandCloudId/products/:productId/collaborator-invitations", s.inviteProductCollaborator)
+	protected.POST("/developer/brand-clouds/:brandCloudId/products/:productId/collaborator-invitations/:invitationId/resend", s.resendProductCollaboratorInvitation)
+	protected.POST("/developer/brand-clouds/:brandCloudId/products/:productId/collaborator-invitations/:invitationId/cancel", s.cancelProductCollaboratorInvitation)
+	protected.POST("/developer/product-collaborator-invitations/accept", s.acceptProductCollaboratorInvitation)
+	protected.POST("/developer/brand-clouds/:brandCloudId/products/:productId/owner-transfer", s.transferProductOwnership)
 	protected.GET("/developer/chipsets", s.listDeveloperChipsets)
 	protected.GET("/developer/chipsets/:chipsetId", s.getDeveloperChipset)
 
@@ -1683,7 +1683,7 @@ func (s *Server) listFleetDevices(c *gin.Context) {
 	filter := store.DeviceListFilter{
 		OrganizationID: c.Param("orgId"),
 		Query:          c.Query("q"),
-		SKU:            c.Query("sku_id"),
+		Product:        c.Query("product_id"),
 		GroupID:        c.Query("group_id"),
 		GroupIDs:       splitCSVQuery(c.Query("group_ids")),
 		Region:         c.Query("region"),
@@ -1715,7 +1715,7 @@ func (s *Server) listFleetDevices(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"devices": page.Devices, "pagination": page.Page, "query": gin.H{
 		"server_side": true,
-		"q":           c.Query("q"), "sku_id": c.Query("sku_id"), "group_id": c.Query("group_id"), "region": c.Query("region"), "category": c.Query("category"), "model": c.Query("model"), "status": c.Query("status"),
+		"q":           c.Query("q"), "product_id": c.Query("product_id"), "group_id": c.Query("group_id"), "region": c.Query("region"), "category": c.Query("category"), "model": c.Query("model"), "status": c.Query("status"),
 	}})
 }
 
@@ -2040,14 +2040,14 @@ func (s *Server) requirePermission(permission string) gin.HandlerFunc {
 				}
 			}
 			if profileID := c.Param("profileId"); profileID != "" {
-				allowed, err = s.store.HasBrandCloudPermissionForResource(c.Request.Context(), currentBrandCloudUserID(c), orgID, permission, store.ScopeTypeSKU, profileID)
+				allowed, err = s.store.HasBrandCloudPermissionForResource(c.Request.Context(), currentBrandCloudUserID(c), orgID, permission, store.ScopeTypeProduct, profileID)
 				if err != nil {
 					writeError(c, http.StatusNotFound, "not_found", "Resource not found")
 					c.Abort()
 					return
 				}
 				if !allowed {
-					canRead, _ := s.store.HasBrandCloudPermissionForResource(c.Request.Context(), currentBrandCloudUserID(c), orgID, "registry_device.read", store.ScopeTypeSKU, profileID)
+					canRead, _ := s.store.HasBrandCloudPermissionForResource(c.Request.Context(), currentBrandCloudUserID(c), orgID, "registry_device.read", store.ScopeTypeProduct, profileID)
 					if canRead {
 						writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
 					} else {
@@ -2078,7 +2078,7 @@ func (s *Server) requirePermission(permission string) gin.HandlerFunc {
 		if deviceID := c.Param("deviceId"); deviceID != "" {
 			allowed, err = s.store.HasUserDevicePermission(c.Request.Context(), currentUserID(c), c.Param("orgId"), permission, deviceID)
 		} else if profileID := c.Param("profileId"); profileID != "" {
-			allowed, err = s.store.HasUserPermissionForResource(c.Request.Context(), currentUserID(c), c.Param("orgId"), permission, store.ScopeTypeSKU, profileID)
+			allowed, err = s.store.HasUserPermissionForResource(c.Request.Context(), currentUserID(c), c.Param("orgId"), permission, store.ScopeTypeProduct, profileID)
 		} else {
 			allowed, err = s.store.HasPermission(c.Request.Context(), currentUserID(c), c.Param("orgId"), permission)
 			if !allowed && (permission == "registry_device.read" || permission == "device_group.read" || permission == "device_tag.read") {
@@ -2095,7 +2095,7 @@ func (s *Server) requirePermission(permission string) gin.HandlerFunc {
 			if deviceID := c.Param("deviceId"); deviceID != "" {
 				canRead, _ = s.store.HasUserDevicePermission(c.Request.Context(), currentUserID(c), c.Param("orgId"), "registry_device.read", deviceID)
 			} else if profileID := c.Param("profileId"); profileID != "" {
-				canRead, _ = s.store.HasUserPermissionForResource(c.Request.Context(), currentUserID(c), c.Param("orgId"), "registry_device.read", store.ScopeTypeSKU, profileID)
+				canRead, _ = s.store.HasUserPermissionForResource(c.Request.Context(), currentUserID(c), c.Param("orgId"), "registry_device.read", store.ScopeTypeProduct, profileID)
 			}
 			if canRead {
 				writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")

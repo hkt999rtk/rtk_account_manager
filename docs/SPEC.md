@@ -385,7 +385,7 @@ A device is a registry entry owned by an organization. The server assigns each d
 ### Device Item Profile
 
 A device item profile, also called a product profile, is the brand-cloud or
-factory policy vocabulary for one device item, SKU, or equivalent product line.
+factory policy vocabulary for one device item, Product, or equivalent product line.
 It may define inventory defaults such as `category`, `manufacturer`, `model`,
 and metadata shape, plus the device certificate `ca_profile` or
 `issuer_profile`, canonical `service_options`, and claim/provisioning policy
@@ -398,26 +398,26 @@ All profile fields are independent settings. Account-manager registry fields are
 inventory facts, and neither `category`, `device_type`, `manufacturer`, `model`,
 nor metadata may be treated as service ACL input.
 
-### [REQ-AM-SKU-COLLAB-001] SKU projects use explicit developer collaboration
+### [REQ-AM-PRODUCT-COLLAB-001] Product projects use explicit developer collaboration
 
 <!-- rtk-requirement
-{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active","renamed_from_revision":"2aa8fcc8ddf8460fd6f0813631d3af33a042785cff0a0f7d4d6e6a571bfbb83a"}
 -->
 
 Each device item profile is also a developer collaboration project. Developer
 membership establishes tenant identity only; except for the Brand Cloud owner's
-governance override, it does not make every SKU visible. Tenant-local Brand Cloud
-operator accounts retain their existing operational roles. SKU creation is limited
-to the Brand Cloud owner and atomically creates one `sku_owner` assignment.
+governance override, it does not make every Product visible. Tenant-local Brand Cloud
+operator accounts retain their existing operational roles. Product creation is limited
+to the Brand Cloud owner and atomically creates one `product_owner` assignment.
 
-An owner may invite a registered developer as `sku_editor` or `sku_viewer`.
+An owner may invite a registered developer as `product_editor` or `product_viewer`.
 Acceptance creates a minimal Brand Cloud membership when necessary and the
-requested SKU assignment in one transaction. Editors can operate SKU-scoped
+requested Product assignment in one transaction. Editors can operate Product-scoped
 device, firmware, OTA, provisioning, batch, and reporting workflows but cannot
-manage collaborators or ownership. Viewers are read-only. Every SKU has exactly
+manage collaborators or ownership. Viewers are read-only. Every Product has exactly
 one transferable explicit owner; transfer promotes an active collaborator and
-demotes the prior owner to editor. SKU lists and all derived resources are
-filtered by effective assignment, with non-disclosing cross-SKU failures.
+demotes the prior owner to editor. Product lists and all derived resources are
+filtered by effective assignment, with non-disclosing cross-Product failures.
 
 ### [REQ-AM-FACTORY-CONTEXT-001] Factory enrollment selection uses signed production context without secret leakage
 
@@ -436,7 +436,7 @@ whose immutable `brand_cloud_id`, `device_item_profile_id`, and
 The factory enrollment JWT is not a user/session token. It is secret bearer
 material for the factory path and must not be logged. CSR fields, tenant slugs,
 URL names, and request-body selector overrides must not select the cloud CA or
-SKU CA. See `docs/FACTORY_PRODUCTION_RUNS.md`.
+Product CA. See `docs/FACTORY_PRODUCTION_RUNS.md`.
 
 ### Device Group
 
@@ -1573,7 +1573,7 @@ Rules:
   updates are fully deprecated.
 - Brand-cloud owner membership is mirrored into an organization-scoped
   governance assignment. Admin/member compatibility membership does not grant
-  SKU resource access; SKU assignments are explicit and use
+  Product resource access; Product assignments are explicit and use
   `actor_type=brand_cloud_user`. Brand-cloud tokens can
   authorize only against their own `brand_cloud_id`; cross-brand `orgId` access
   returns not found/forbidden without exposing the other brand cloud.
