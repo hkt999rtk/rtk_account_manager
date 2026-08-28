@@ -1,6 +1,6 @@
 # Test Report
 
-Generated: 2026-08-28T05:18:10Z
+Generated: ci-candidate
 
 ## Summary
 
@@ -17,7 +17,7 @@ Generated: 2026-08-28T05:18:10Z
 
 | Metric | Value |
 | --- | --- |
-| Total statement coverage | 80.2% |
+| Total statement coverage | recorded in reports/coverage.txt |
 | Minimum required coverage | 80.0% |
 | Coverage mode | atomic |
 | Coverage scope | ./internal/... |
@@ -27,9 +27,9 @@ Generated: 2026-08-28T05:18:10Z
 | Metric | Value |
 | --- | --- |
 | Go packages | 30 |
-| Test cases started | 696 |
-| JSON pass events | 716 |
-| JSON fail events | 0 |
+| Test cases started | recorded in reports/test-events.json |
+| JSON pass events | recorded in reports/test-events.json |
+| JSON fail events | recorded in reports/test-events.json |
 | Integration database | Postgres via TEST_DATABASE_URL |
 
 ## Correctness Gates
