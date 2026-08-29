@@ -50,7 +50,7 @@ for path in "${required_files[@]}"; do
   fi
 done
 
-if ! find "$release_dir/migrations" -maxdepth 1 -type f -name '*.sql' | grep -q .; then
+if [ -z "$(find "$release_dir/migrations" -maxdepth 1 -type f -name '*.sql' -print -quit)" ]; then
   echo "release has no SQL migrations" >&2
   exit 1
 fi
