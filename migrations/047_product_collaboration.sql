@@ -1,6 +1,6 @@
 ALTER TABLE roles DROP CONSTRAINT IF EXISTS roles_scope_type_check;
 ALTER TABLE roles ADD CONSTRAINT roles_scope_type_check
-    CHECK (scope_type IN ('platform', 'organization', 'product'));
+    CHECK (scope_type IN ('platform', 'organization', 'product', 'region', 'group', 'device'));
 
 INSERT INTO permissions (name, domain, action, description)
 VALUES
