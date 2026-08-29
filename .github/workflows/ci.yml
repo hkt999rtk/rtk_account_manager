@@ -45,12 +45,6 @@ jobs:
           database_url="postgres://rtk:rtk_password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/rtk_account_manager?sslmode=disable"
           printf 'DATABASE_URL=%s\nTEST_DATABASE_URL=%s\n' "$database_url" "$database_url" >> "$GITHUB_ENV"
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: false
-
       - name: Download dependencies
         run: go mod download
 
@@ -100,12 +94,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: false
 
       - name: Download dependencies
         run: go mod download
