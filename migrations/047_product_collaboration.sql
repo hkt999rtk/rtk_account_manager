@@ -1,6 +1,59 @@
 ALTER TABLE roles DROP CONSTRAINT IF EXISTS roles_scope_type_check;
+
+UPDATE roles
+SET name = CASE name
+        WHEN 'sku_owner' THEN 'product_owner'
+        WHEN 'sku_editor' THEN 'product_editor'
+        WHEN 'sku_viewer' THEN 'product_viewer'
+        ELSE name
+    END,
+    scope_type = CASE WHEN scope_type = 'sku' THEN 'product' ELSE scope_type END
+WHERE name IN ('sku_owner', 'sku_editor', 'sku_viewer') OR scope_type = 'sku';
+
 ALTER TABLE roles ADD CONSTRAINT roles_scope_type_check
     CHECK (scope_type IN ('platform', 'organization', 'product', 'region', 'group', 'device'));
+
+ALTER TABLE role_assignments DROP CONSTRAINT IF EXISTS role_assignments_scope_type_check;
+ALTER TABLE role_assignments DROP CONSTRAINT IF EXISTS role_assignments_scope_consistency;
+UPDATE role_assignments SET scope_type = 'product' WHERE scope_type = 'sku';
+ALTER TABLE role_assignments ADD CONSTRAINT role_assignments_scope_type_check
+    CHECK (scope_type IN ('platform', 'organization', 'product', 'region', 'group', 'device'));
+ALTER TABLE role_assignments ADD CONSTRAINT role_assignments_scope_consistency CHECK (
+    (scope_type = 'platform' AND scope_id IS NULL AND organization_id IS NULL)
+    OR
+    (scope_type = 'organization' AND scope_id IS NOT NULL AND organization_id IS NOT NULL AND scope_id = organization_id::text)
+    OR
+    (scope_type IN ('product', 'region', 'group', 'device') AND scope_id IS NOT NULL AND organization_id IS NOT NULL)
+);
+
+ALTER TABLE external_group_mappings DROP CONSTRAINT IF EXISTS external_group_mappings_scope_type_check;
+ALTER TABLE external_group_mappings DROP CONSTRAINT IF EXISTS external_group_mappings_scope_consistency;
+UPDATE external_group_mappings SET scope_type = 'product' WHERE scope_type = 'sku';
+ALTER TABLE external_group_mappings ADD CONSTRAINT external_group_mappings_scope_type_check
+    CHECK (scope_type IN ('platform', 'organization', 'product', 'region', 'group', 'device'));
+ALTER TABLE external_group_mappings ADD CONSTRAINT external_group_mappings_scope_consistency CHECK (
+    (scope_type = 'platform' AND scope_id IS NULL AND organization_id IS NULL)
+    OR
+    (scope_type = 'organization' AND scope_id IS NOT NULL AND organization_id IS NOT NULL AND scope_id = organization_id::text)
+    OR
+    (scope_type IN ('product', 'region', 'group', 'device') AND scope_id IS NOT NULL AND organization_id IS NOT NULL)
+);
+
+UPDATE permissions
+SET name = CASE name
+        WHEN 'sku.create' THEN 'product.create'
+        WHEN 'sku_collaborator.manage' THEN 'product_collaborator.manage'
+        WHEN 'sku_owner.transfer' THEN 'product_owner.transfer'
+        ELSE name
+    END,
+    domain = CASE domain
+        WHEN 'sku' THEN 'product'
+        WHEN 'sku_collaborator' THEN 'product_collaborator'
+        WHEN 'sku_owner' THEN 'product_owner'
+        ELSE domain
+    END
+WHERE name IN ('sku.create', 'sku_collaborator.manage', 'sku_owner.transfer')
+   OR domain IN ('sku', 'sku_collaborator', 'sku_owner');
 
 INSERT INTO permissions (name, domain, action, description)
 VALUES
@@ -60,6 +113,33 @@ JOIN roles r ON r.name = rpm.role_name
 JOIN permissions p ON p.name = rpm.permission_name
 ON CONFLICT DO NOTHING;
 
+DO $$
+BEGIN
+    IF to_regclass('public.product_collaborator_invitations') IS NULL
+       AND to_regclass('public.sku_collaborator_invitations') IS NOT NULL THEN
+        ALTER TABLE sku_collaborator_invitations RENAME TO product_collaborator_invitations;
+    END IF;
+END
+$$;
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'product_collaborator_invitations'
+          AND column_name = 'sku_id'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'product_collaborator_invitations'
+          AND column_name = 'product_id'
+    ) THEN
+        ALTER TABLE product_collaborator_invitations RENAME COLUMN sku_id TO product_id;
+    END IF;
+END
+$$;
+
 CREATE TABLE IF NOT EXISTS product_collaborator_invitations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     brand_cloud_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -80,6 +160,17 @@ CREATE TABLE IF NOT EXISTS product_collaborator_invitations (
     CONSTRAINT product_collaborator_invitations_email_normalized CHECK (target_email = lower(btrim(target_email)))
 );
 
+ALTER TABLE product_collaborator_invitations DROP CONSTRAINT IF EXISTS sku_collaborator_invitations_role_check;
+ALTER TABLE product_collaborator_invitations DROP CONSTRAINT IF EXISTS product_collaborator_invitations_role_check;
+UPDATE product_collaborator_invitations
+SET role = CASE role
+    WHEN 'sku_editor' THEN 'product_editor'
+    WHEN 'sku_viewer' THEN 'product_viewer'
+    ELSE role
+END;
+ALTER TABLE product_collaborator_invitations ADD CONSTRAINT product_collaborator_invitations_role_check
+    CHECK (role IN ('product_editor', 'product_viewer'));
+
 CREATE UNIQUE INDEX IF NOT EXISTS product_collaborator_invitations_pending_target_idx
     ON product_collaborator_invitations (product_id, target_user_id)
     WHERE status = 'pending';
@@ -87,12 +178,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS product_collaborator_invitations_pending_targe
 CREATE INDEX IF NOT EXISTS product_collaborator_invitations_product_status_idx
     ON product_collaborator_invitations (product_id, status, created_at DESC);
 
+DROP TRIGGER IF EXISTS sku_collaborator_invitations_set_updated_at ON product_collaborator_invitations;
 DROP TRIGGER IF EXISTS product_collaborator_invitations_set_updated_at ON product_collaborator_invitations;
 CREATE TRIGGER product_collaborator_invitations_set_updated_at
     BEFORE UPDATE ON product_collaborator_invitations
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 ALTER TABLE email_outbox DROP CONSTRAINT IF EXISTS email_outbox_message_type_check;
+UPDATE email_outbox
+SET message_type = 'product_collaborator_invitation'
+WHERE message_type = 'sku_collaborator_invitation';
 ALTER TABLE email_outbox ADD CONSTRAINT email_outbox_message_type_check
     CHECK (message_type IN (
         'email_verification', 'login_activation', 'password_reset',
