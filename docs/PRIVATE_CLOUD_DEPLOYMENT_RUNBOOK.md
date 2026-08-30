@@ -633,7 +633,7 @@ the API runtime.
 
 ## Upgrade
 
-1. Identify source commit, artifact checksum, contracts submodule commit, and
+1. Identify source commit, artifact checksum, workspace contracts repository commit, and
    migration list.
 2. Confirm CI passed for the exact artifact source.
 3. Confirm backup freshness and restore target availability.
@@ -705,7 +705,7 @@ Store dumps in operator-owned encrypted backup storage, not in this repository.
 Attach redacted evidence to deployment sign-off:
 
 - artifact version and source commit
-- contracts submodule commit
+- workspace contracts repository commit
 - migration list and latest applied migration
 - `/v1/health` result
 - auth/login smoke result
