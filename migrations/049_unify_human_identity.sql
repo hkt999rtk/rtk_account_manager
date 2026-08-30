@@ -77,9 +77,7 @@ LEFT JOIN identity_cutover_existing_users existing ON existing.id = u.id
 ON CONFLICT (brand_cloud_user_id) DO UPDATE SET
     user_id = EXCLUDED.user_id,
     normalized_email = EXCLUDED.normalized_email,
-    result = EXCLUDED.result,
-    conflict_status = EXCLUDED.conflict_status,
-    migrated_at = now();
+    conflict_status = EXCLUDED.conflict_status;
 
 INSERT INTO organization_members (
     organization_id,
@@ -157,16 +155,12 @@ WHERE actor_type = 'brand_cloud_user';
 UPDATE brand_cloud_refresh_tokens
 SET revoked_at = COALESCE(revoked_at, now());
 
-UPDATE auth_tokens
-SET subject_type = 'user'
-WHERE subject_type = 'platform_user';
-
 ALTER TABLE auth_tokens
     DROP CONSTRAINT IF EXISTS auth_tokens_subject_type_check;
 
-ALTER TABLE auth_tokens
-    ADD CONSTRAINT auth_tokens_subject_type_check
-    CHECK (subject_type IN ('user', 'brand_cloud_user'));
+UPDATE auth_tokens
+SET subject_type = 'user'
+WHERE subject_type = 'platform_user';
 
 UPDATE app_certificates
 SET revoked_at = COALESCE(revoked_at, now()), updated_at = now()
@@ -181,6 +175,10 @@ ALTER TABLE app_certificates
 
 DELETE FROM auth_tokens
 WHERE subject_type = 'brand_cloud_user';
+
+ALTER TABLE auth_tokens
+    ADD CONSTRAINT auth_tokens_subject_type_check
+    CHECK (subject_type IN ('user', 'brand_cloud_user'));
 
 DO $$
 BEGIN
