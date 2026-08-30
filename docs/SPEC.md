@@ -193,7 +193,7 @@ This scope does not:
 {"owner":"cloud_platform","risk":"critical","status":"active","change_paths":["repos/rtk_account_manager/**","repos/rtk_cloud_admin/**","scripts/go/rtk-cloud/main.go","scripts/staging_email_signup_e2e.py"],"commit_anchors":["workspace","account_manager","cloud_admin"],"surfaces":[{"kind":"operator-workflow","source":"scripts/staging_email_signup_e2e.py","selector":"RUN_LIVE_EMAIL_E2E=1"},{"kind":"operator-workflow","source":"scripts/go/rtk-cloud/main.go","selector":"email-activate-owners"}]}
 -->
 
-### [REQ-AM-EMAIL-DELIVERY-001] One-time account email is tenant-scoped, enumeration-safe, and delivered through the configured outbox adapter
+### [REQ-AM-EMAIL-DELIVERY-001] One-time human account email is global, enumeration-safe, and delivered through the configured outbox adapter
 
 <!-- rtk-requirement
 {"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci","staging"],"evidence":["json","junit"],"required":true,"status":"active"}
@@ -211,14 +211,9 @@ Console user sign-in is split into two steps:
 2. `POST /v1/auth/login/activate` consumes the one-time token and issues the
    same access/refresh token response shape as password login.
 
-Brand-cloud users use tenant-scoped equivalents:
-
-1. `POST /v1/brand-clouds/:tenantSlug/auth/sign-in`
-2. `POST /v1/brand-clouds/:tenantSlug/auth/login/activate`
-
-The tenant slug is part of the brand-cloud authentication namespace. A brand
-activation token must succeed only for the tenant where the email has an active
-brand-cloud user and membership.
+Platform operators, developers, and Brand Cloud owners/admins/members all use
+those global endpoints. Brand Cloud is selected from `/v1/me` memberships after
+authentication and is never an input to identity proof.
 
 Enumeration safety is mandatory. Sign-in and forgot-password request endpoints
 return `202 Accepted` for syntactically valid requests whether the email is
@@ -231,9 +226,9 @@ bounded retry, and dead-letter handling. The delivery path uses
 `SENDMAIL_HTTP_BASE_URL`, `SENDMAIL_HTTP_BEARER_TOKEN`, and
 `SENDMAIL_HTTP_TIMEOUT`.
 
-`auth_tokens` stores only token hashes. Tenant-scoped login tokens also carry a
-server-side `scope` value such as `brand_cloud:<tenantSlug>`; console login,
-email verification, and password reset use the empty scope. Token purposes are:
+`auth_tokens` stores only token hashes. Human console login, email verification,
+and password reset use the global user subject and empty tenant scope. Token
+purposes are:
 
 - `email_verification`: signup verification.
 - `login_activation`: email sign-in activation.
@@ -246,9 +241,8 @@ Forgot password uses the same email activation lifecycle:
 2. `POST /v1/auth/reset-password` consumes the token, writes the new password
    hash, and revokes active refresh tokens.
 
-Password login remains available as a migration fallback for platform,
-customer, and brand-cloud console users. APP end users are explicitly out of
-scope for this first version and keep using `/v1/app/end-users/*`.
+Password login remains available through the single `/v1/auth/login` endpoint.
+APP end users remain a separate identity class under `/v1/app/end-users/*`.
 
 ### [REQ-E2E-CA-SIGNUP-EMAIL-001] Cloud Send Mail and IMAP customer signup activation completes
 
@@ -266,7 +260,21 @@ Acceptance: Cloud Send Mail and IMAP customer signup activation completes.
 
 Acceptance: Load-test Brand owners complete formal email activation.
 
-## [FEAT-AM-IDENTITY-001] Tenant identity, membership, credentials, and registry invariants
+`POST /v1/admin/brand-clouds/:brandCloudId/users` always targets global `users`
+plus `organization_members`:
+
+- `activation_mode=email` is required for an owner. It creates or reuses the
+  global user, sends a one-time global activation/assignment email, and exposes
+  no password or token in the response.
+- `activation_mode=immediate` is accepted only when a staging/load-test feature
+  flag is enabled, only for `admin` or `member`, and only from an authenticated
+  platform admin. It requires an initial password for a new user and records the
+  actor, reason, target user, Brand Cloud, and rotation decision in audit.
+- Production rejects `immediate`. Existing global users keep their current
+  password unless guarded staging rotation is explicitly requested.
+- Replays are idempotent and return `{user, member}`.
+
+## [FEAT-AM-IDENTITY-001] Global human identity, tenant membership, credentials, and registry invariants
 
 <!-- rtk-feature
 {"owner":"rtk_account_manager","risk":"critical","status":"active","change_paths":["repos/rtk_account_manager/**"],"commit_anchors":["workspace","account_manager"],"surfaces":[{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/auth/login"},{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/app/end-users/auth/login"},{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/orgs/{orgId}/devices"}]}
@@ -292,14 +300,14 @@ Account Manager is the source of truth for brand cloud state, membership, and
 audit. `rtk_cloud_admin` may proxy or present brand cloud management, but it
 must not store authoritative brand cloud records in SQLite.
 
-### Platform User
+### Human User
 
-A platform user is a Realtek platform or operator account authenticated by email
-and password, stored in `users`. Platform users authenticate through
-`/v1/auth/login`; platform-admin authority is represented by
+A human user is a Realtek platform operator, developer, or Brand Cloud team
+account authenticated by email and password or configured OIDC, stored in
+`users`. All human users authenticate through `/v1/auth/login` or the other
+global `/v1/auth/*` flows; platform-admin authority is represented by
 `users.platform_admin=true` and platform-scoped ACL role assignments. Platform
-users may carry global operator privileges, but they are not customer-visible
-brand-cloud accounts.
+users may also hold Brand Cloud memberships without creating another identity.
 
 The `users` table is also the global developer identity table. A developer can
 own or join multiple brand clouds, defaults to `developer_cloud_limit=8`, and
@@ -307,15 +315,15 @@ uses `/v1/auth/login` for the primary developer console session. Platform-admin
 users are developers too; bootstrap ensures the root admin owns the initial
 `Realtek Connect+` brand cloud.
 
-### Brand Cloud User
+### Brand Cloud Membership
 
 A developer is a global human identity stored in `users`. Developer membership
 in a brand cloud is represented by `organization_members` where
 `organizations.organization_kind='brand_cloud'`. Each brand cloud has exactly
-one active owner in the developer model. `brand_cloud_users` and tenant-scoped
-`/v1/brand-clouds/:tenantSlug/auth/*` login remain legacy compatibility surfaces
-for brand-scoped accounts, but new developer signup, cloud creation, cloud
-listing, and ownership transfer use global developer sessions.
+one active owner. A tenant slug identifies request scope only after login.
+`brand_cloud_users`, `brand_cloud_memberships`, tenant refresh tokens, and
+`/v1/brand-clouds/:tenantSlug/auth/*` are migration inputs removed by the
+coordinated identity cutover.
 
 ### [REQ-AM-END-USER-ISOLATION-001] APP end users retain one global subject with isolated Brand projections
 
@@ -329,8 +337,8 @@ consumer may bind devices from many brand clouds and must keep the same
 email, phone, social, or passkey identity.
 
 End users authenticate only through the APP-required endpoints under
-`/v1/app/end-users/*`. They do not authenticate through platform `/v1/auth/*`
-or brand-cloud developer `/v1/brand-clouds/:tenantSlug/auth/*` endpoints.
+`/v1/app/end-users/*`. They do not authenticate through human `/v1/auth/*`
+endpoints.
 
 Brand developer/admin users see only the brand-scoped projection represented by
 `brand_cloud_end_users` and `device_user_bindings` for their own
@@ -352,9 +360,8 @@ is validated.
 ### Organization Member
 
 An organization member links a global user/developer to a customer organization
-or brand cloud and assigns a role. For brand clouds, this is the canonical
-developer membership and ownership model. `brand_cloud_memberships` remains for
-legacy tenant-scoped brand-cloud users.
+or Brand Cloud and assigns a role. It is the only human membership and ownership
+model after cutover.
 
 ### Brand Cloud Membership
 
@@ -504,12 +511,7 @@ erDiagram
 erDiagram
     ORGANIZATIONS ||--o{ ORGANIZATION_MEMBERS : legacy_memberships
     USERS ||--o{ ORGANIZATION_MEMBERS : platform_memberships
-    ORGANIZATIONS ||--o{ BRAND_CLOUD_USERS : owns_namespace
-    ORGANIZATIONS ||--o{ BRAND_CLOUD_MEMBERSHIPS : scoped_to
-    BRAND_CLOUD_USERS ||--o{ BRAND_CLOUD_MEMBERSHIPS : has_roles
-    USERS ||--o{ REFRESH_TOKENS : platform_sessions
-    BRAND_CLOUD_USERS ||--o{ BRAND_CLOUD_REFRESH_TOKENS : brand_sessions
-    ORGANIZATIONS ||--o{ BRAND_CLOUD_REFRESH_TOKENS : session_scope
+    USERS ||--o{ REFRESH_TOKENS : human_sessions
     USERS ||--o{ AUTH_TOKENS : verification_recovery
     USERS ||--o{ USER_IDENTITIES : oidc_links
     IDENTITY_PROVIDERS ||--o{ USER_IDENTITIES : issues_subjects
@@ -534,28 +536,9 @@ erDiagram
         uuid user_id PK,FK
         text role
     }
-    BRAND_CLOUD_USERS {
-        uuid id PK
-        uuid brand_cloud_id FK
-        text email
-        text password_hash
-        timestamptz disabled_at
-    }
-    BRAND_CLOUD_MEMBERSHIPS {
-        uuid brand_cloud_id FK
-        uuid brand_cloud_user_id FK
-        text role
-    }
     REFRESH_TOKENS {
         uuid id PK
         uuid user_id FK
-        text token_hash UK
-        timestamptz revoked_at
-    }
-    BRAND_CLOUD_REFRESH_TOKENS {
-        uuid id PK
-        uuid brand_cloud_user_id FK
-        uuid brand_cloud_id FK
         text token_hash UK
         timestamptz revoked_at
     }
@@ -787,16 +770,14 @@ erDiagram
 
 Notes:
 
-- `role_assignments.actor_id` is a polymorphic text key. For
-  `actor_type='user'` it logically references `users.id`; for
-  `actor_type='brand_cloud_user'` it logically references
-  `brand_cloud_users.id`.
+- `role_assignments.actor_id` is a polymorphic text key. Human assignments use
+  `actor_type='user'` and logically reference `users.id`.
 - `device_operations.device_id` and `device_message_inbox.operation_id` are
   maintained as lifecycle correlation keys; they are shown as operational ER
   links even where the database uses text or application-level integrity rather
   than a direct foreign-key constraint.
-- Brand-cloud user identity, login, and refresh-token state are intentionally
-  separated from platform `users` and `refresh_tokens`.
+- Brand Cloud membership is organization-scoped authorization state; identity,
+  login, and refresh-token state remain global in `users` and `refresh_tokens`.
 
 ### [REQ-AM-ORG-DATA-001] Organization records reject blank names and preserve tenant kind
 
@@ -808,7 +789,7 @@ Notes:
 | --- | --- | --- | --- |
 | `id` | UUID | Yes | Primary key, generated by server/database. |
 | `name` | Text | Yes | Organization display name. |
-| `tenant_slug` | Text | Brand clouds only | Brand-cloud login namespace. Unique for `organization_kind='brand_cloud'`. |
+| `tenant_slug` | Text | Brand clouds only | Post-login routing/display key. Unique for `organization_kind='brand_cloud'`; never an authentication namespace. |
 | `organization_kind` | Text | Yes | One of `customer_org`, `brand_cloud`. |
 | `status` | Text | Yes | One of `active`, `disabled`. |
 | `tier` | Text | Yes | One of `evaluation`, `commercial`; defaults to `commercial`. |
@@ -828,13 +809,14 @@ Constraints:
 {"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
 -->
 
-`users` is the platform and legacy account table. It is not the target storage
-for new brand-cloud developer/admin users or APP end-user identities.
+`users` is the authoritative global table for every human console identity,
+including platform operators and Brand Cloud owners/admins/members. APP consumer
+identities remain separate in `end_users`.
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `id` | UUID | Yes | Primary key, generated by server/database. |
-| `email` | Text | Yes | Globally unique, normalized email address for platform and legacy accounts. |
+| `email` | Text | Yes | Globally unique, normalized email address for every human console account. |
 | `password_hash` | Text | Yes | Hashed password; raw passwords are never stored. |
 | `display_name` | Text | No | User display name. |
 | `email_verified` | Boolean | Yes | Set after email verification succeeds. |
@@ -849,50 +831,38 @@ for new brand-cloud developer/admin users or APP end-user identities.
 Constraints:
 
 - `email` must be stored lowercase and trimmed.
-- `email` remains globally unique in `users`; do not remove this constraint in
-  the brand-cloud namespace phase.
+- `email` remains globally unique in `users`.
 - Disabled users must not authenticate, refresh tokens, or access protected organization/device APIs with existing access tokens.
 - Self-service account deletion is implemented as account-manager user soft-disable by setting `disabled_at`; it does not remove organizations, memberships, devices, or product-level device state.
 
-### [REQ-AM-BRAND-USER-BOUNDARY-001] Brand users remain tenant-scoped and cannot gain platform or APP identity authority
+### [REQ-AM-BRAND-USER-BOUNDARY-001] Legacy Brand Cloud users migrate to global users without gaining unrelated authority
 
 <!-- rtk-requirement
 {"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
 -->
 
-Brand-cloud user storage is retained for tenant-scoped legacy brand-cloud
-login. New developer ownership, developer-created clouds, cloud limits, and
-owner transfer use global `users` plus `organization_members`.
+`brand_cloud_users` and `brand_cloud_memberships` are read-only migration
+sources during the maintenance-window cutover and are removed after validation.
+The migration normalizes email and records every old-to-new id decision in
+`brand_cloud_user_migrations` with result and conflict status:
 
-| Field | Type | Required | Notes |
-| --- | --- | --- | --- |
-| `id` | UUID | Yes | Primary key, generated by server/database. |
-| `brand_cloud_id` | UUID | Yes | References the owning `organizations.id` where `organization_kind='brand_cloud'`. |
-| `email` | Text | Yes | Normalized email address, unique only within the same brand cloud. |
-| `password_hash` | Text | Yes | Hashed password for brand-cloud login. |
-| `display_name` | Text | No | Brand-cloud account display name. |
-| `email_verified` | Boolean | Yes | Platform-admin provisioning creates verified brand-cloud users. |
-| `email_verified_at` | Timestamp | No | Verification timestamp. |
-| `signup_pending_verification` | Boolean | Yes | Reserved for future self-service brand signup. |
-| `created_at` | Timestamp | Yes | Creation timestamp. |
-| `updated_at` | Timestamp | Yes | Last update timestamp. |
-| `disabled_at` | Timestamp | No | Set when the brand-cloud account is disabled. |
+- an existing `users` row wins; its password and verification state are never
+  overwritten
+- otherwise one global user is created when all source rows have the same
+  usable password hash
+- different hashes, missing credentials, or unverified source rows create a
+  pending global user that must complete email activation/password reset
+- memberships collapse by organization with role precedence
+  `owner > admin > member`
+- ACL assignments change subject from `brand_cloud_user` to `user`; historical
+  audit records retain their original actor identifiers
 
-Constraints:
-
-- `(brand_cloud_id, email)` is unique after lowercasing and trimming email.
-- The same normalized email may exist in multiple brand clouds as different
-  `brand_cloud_users.id` values.
-- Brand-cloud users authenticate through legacy
-  `/v1/brand-clouds/:tenantSlug/auth/*` endpoints.
-- Brand-cloud users must not carry `platform_admin`; platform privileges remain
-  on platform users only.
-- Brand-cloud users must not be used for APP consumer identity. Consumer end
-  users use the global `end_users` identity model and brand-scoped projection
-  tables instead.
-- `organization_members` is canonical for global developer membership in brand
-  clouds; `brand_cloud_memberships` is canonical only for legacy
-  tenant-scoped brand-cloud users.
+Preflight and post-migration checks require equal source mapping counts, no
+unmapped ACL subject, no duplicate global email or membership, and at least one
+enabled owner for every existing Brand Cloud. Cutover revokes tenant refresh and
+activation tokens plus legacy `app-brand-cloud-user` certificates. Rollback is
+the pre-cutover PostgreSQL backup plus the previous service release; mixed old
+and new identity writes are not supported.
 
 ### `end_users`
 
@@ -992,21 +962,13 @@ Constraints:
 - Device-control and app-token issuance must authorize against active
   `device_user_bindings`; a global app certificate alone is not sufficient.
 
-### `brand_cloud_memberships`
+### Legacy Brand Cloud Identity Tables
 
-| Field | Type | Required | Notes |
-| --- | --- | --- | --- |
-| `brand_cloud_id` | UUID | Yes | References the brand cloud organization. |
-| `brand_cloud_user_id` | UUID | Yes | References `brand_cloud_users.id`. |
-| `role` | Text | Yes | One of `owner`, `admin`, `member`. |
-| `created_at` | Timestamp | Yes | Membership creation timestamp. |
-| `updated_at` | Timestamp | Yes | Last update timestamp. |
-
-Constraints:
-
-- `(brand_cloud_id, brand_cloud_user_id)` is unique.
-- Membership writes are mirrored into `role_assignments` with
-  `actor_type='brand_cloud_user'` and organization scope.
+`brand_cloud_users`, `brand_cloud_memberships`, and
+`brand_cloud_refresh_tokens` accept no writes once maintenance begins. They are
+used only by the deterministic migration described in
+[REQ-AM-BRAND-USER-BOUNDARY-001] and are dropped after all cutover assertions
+pass.
 
 ### [REQ-AM-MEMBERSHIP-INVARIANT-001] Every customer organization retains an active owner and denies inactive membership access
 
@@ -1025,35 +987,17 @@ Constraints:
 Constraints:
 
 - `(organization_id, user_id)` is unique.
-- Every `customer_org` must have at least one `owner`.
-- The database must reject committing a `customer_org` without at least one `owner`.
-- A `brand_cloud` is platform-managed and may be created before brand-cloud
-  users exist.
-- Brand-cloud legacy membership rows may remain during migration, but
-  brand-cloud user identity and login authority come from
-  `brand_cloud_users` and `brand_cloud_memberships`.
+- Every `customer_org` and active `brand_cloud` must have at least one enabled
+  `owner` before cutover completes.
+- Public signup creates its Brand Cloud and owner membership in the same
+  transaction.
+- Platform provisioning may create a Brand Cloud with a pending emailed owner,
+  but it is not operational until activation commits the owner membership.
 - The database must reject deleting or downgrading the final `owner` membership for an organization.
 - A user must not access organization resources without an active membership.
 
-For the brand-scoped account target model, brand-cloud owner/admin/member role
-assignment must reference `brand_cloud_users` rather than global `users`. The
-legacy `organization_members` representation may remain for `customer_org` and
-for migration compatibility, but it must not be treated as the final
-customer-visible brand-cloud identity model.
-
-### `brand_cloud_refresh_tokens`
-
-| Field | Type | Required | Notes |
-| --- | --- | --- | --- |
-| `id` | UUID | Yes | Primary key. |
-| `brand_cloud_user_id` | UUID | Yes | References `brand_cloud_users.id`. |
-| `brand_cloud_id` | UUID | Yes | References the brand cloud organization. |
-| `token_hash` | Text | Yes | Hash of the brand-cloud refresh token. |
-| `expires_at` | Timestamp | Yes | Expiration timestamp. |
-| `revoked_at` | Timestamp | No | Set on brand-cloud logout or token rotation. |
-| `created_at` | Timestamp | Yes | Creation timestamp. |
-
-Brand-cloud sessions do not reuse `refresh_tokens.user_id`.
+Brand Cloud owner/admin/member assignments reference global `users.id` through
+`organization_members` and mirrored `actor_type='user'` ACL assignments.
 
 ### [REQ-AM-DEVICE-DATA-001] Device records reject blank names and preserve registry state
 
@@ -1165,21 +1109,19 @@ Stores one-time email verification, login activation, and password reset tokens.
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `id` | UUID | Yes | Primary key. |
-| `user_id` | UUID | No | Legacy/platform FK to `users.id`; null for brand-cloud subjects. |
-| `subject_type` | Text | Yes | One of `platform_user`, `brand_cloud_user`. |
-| `subject_id` | UUID | Yes | `users.id` for platform subjects, `brand_cloud_users.id` for brand-cloud subjects. |
+| `user_id` | UUID | Yes | FK to the global human `users.id`. |
+| `subject_type` | Text | Yes | `user` for every human console token. |
+| `subject_id` | UUID | Yes | The global `users.id`. |
 | `purpose` | Text | Yes | One of `email_verification`, `login_activation`, `password_reset`. |
-| `scope` | Text | Yes | Empty for global platform flows; `brand_cloud:<tenantSlug>` for brand-cloud login activation. |
+| `scope` | Text | Yes | Empty for global human flows; organization selection happens after authentication. |
 | `token_hash` | Text | Yes | Unique hash of the one-time token. |
 | `expires_at` | Timestamp | Yes | Expiration timestamp. |
 | `consumed_at` | Timestamp | No | Set after successful one-time use. |
 | `created_at` | Timestamp | Yes | Creation timestamp. |
 
 Auth tokens must be stored hashed, not in raw form, and are throttled by
-`subject_type`, `subject_id`, `purpose`, and scope when applicable.
-Tenant-scoped brand-cloud login activation tokens store a scope such as
-`brand_cloud:<tenantSlug>` and reference `brand_cloud_users.id`; they must not
-create or require a global `users` row.
+`subject_type`, `subject_id`, and `purpose`. Cutover invalidates all legacy
+tenant-scoped activation tokens rather than translating them.
 
 ### Keycloak/OIDC Tables
 
@@ -1344,13 +1286,12 @@ Constraints:
 -->
 
 - Users authenticate with email and password.
-- `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout`, `/v1/me`,
-  OIDC login, email verification, and password reset are platform-user flows.
+- `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout`, `/v1/me`, OIDC
+  login, email verification, and password reset are the only human-account
+  flows.
 - Passwords must be hashed with a modern password hashing algorithm.
-- API access uses JWT bearer tokens. Access and refresh JWT claims include
-  `subject_type`; platform tokens use `subject_type=platform_user`, and
-  brand-cloud tokens use `subject_type=brand_cloud_user` plus
-  `brand_cloud_user_id`, `brand_cloud_id`, and `tenant_slug`.
+- API access uses JWT bearer tokens. Every human access/refresh token identifies
+  the global `users.id`; it does not embed a selected Brand Cloud as identity.
 - Protected endpoints require `Authorization: Bearer <access_token>`.
 - Refresh tokens may be used to issue new access tokens.
 - Refreshing a session rotates the refresh token. The previous refresh token is revoked and must not be accepted again.
@@ -1384,21 +1325,16 @@ Constraints:
   enabled through environment or platform-admin provider configuration.
 - Expired or revoked refresh tokens may be removed by an explicit maintenance command.
 
-### Brand Cloud Authentication
+### Brand Cloud Selection After Authentication
 
-- Brand-cloud login uses
-  `POST /v1/brand-clouds/:tenantSlug/auth/login`.
-- `tenantSlug` resolves the brand-cloud authentication namespace. The same
-  normalized email and password in two brand clouds authenticates to different
-  `brand_cloud_users.id` subjects.
-- Brand-cloud refresh and logout use
-  `brand_cloud_refresh_tokens`; platform refresh tokens are rejected by
-  brand-cloud refresh endpoints, and brand-cloud refresh tokens are rejected by
-  `/v1/auth/refresh`.
-- `GET /v1/brand-clouds/:tenantSlug/me` returns the current brand-cloud user,
-  membership, and brand cloud.
-- Brand-cloud user provisioning is platform-admin-only in this phase. Public
-  self-service brand signup and brand-cloud password reset are follow-up scope.
+- `GET /v1/me` returns the global user, global capabilities, and all active
+  organization memberships with role and effective capabilities.
+- Clients choose a Brand Cloud from that response; each organization-scoped
+  API still validates the persisted membership.
+- `/v1/brand-clouds/:tenantSlug/auth/*` and tenant-specific `/me` are absent
+  after cutover and return `404`.
+- Tenant JWT subjects and tenant refresh grants are rejected, even if they have
+  not reached their encoded expiry.
 
 ### [REQ-AM-APP-AUTHORIZATION-001] APP end-user authentication and device control require active Brand binding
 
@@ -1409,10 +1345,9 @@ Constraints:
 - V1 end-user login, claim, and device-control entry is APP-required. Web
   device-control for end users is out of scope.
 - APP end-user login uses `POST /v1/app/end-users/auth/login`.
-- APP end-user refresh and logout use `end_user_refresh_tokens`; platform and
-  brand-cloud refresh tokens are rejected by APP end-user refresh endpoints, and
-  APP end-user refresh tokens are rejected by platform and brand-cloud refresh
-  endpoints.
+- APP end-user refresh and logout use `end_user_refresh_tokens`; human refresh
+  tokens are rejected by APP end-user refresh endpoints, and APP end-user
+  refresh tokens are rejected by `/v1/auth/refresh`.
 - End-user JWTs use `subject_type=end_user`, include `end_user_id`, and do not
   include or expose the full brand list.
 - APP certificate bootstrap for end users uses CSR subject
@@ -1439,7 +1374,9 @@ security, and test requirements are defined in
   a signup-pending state from only the developer email, issues an email
   verification token, and returns `202 Accepted` without login tokens. The
   default brand cloud name is the developer email address and can later be
-  changed. Signup does not collect or accept the initial password.
+  changed. The same transaction creates `organization_members(role='owner')`;
+  any user, Brand Cloud, owner-membership, or email-outbox failure rolls back
+  the whole signup. Signup does not collect or accept the initial password.
 - Repeating signup for an enabled, unverified, signup-pending account is allowed
   only after its verification token has expired or no active verification token
   remains. The existing account and default brand cloud are reused and a new
@@ -1538,8 +1475,8 @@ repository's evaluation-tier behavior.
 
 ## 6. Authorization
 
-Authorization is permission based and scope aware. Legacy `owner`, `admin`, and
-`member` memberships remain for membership lifecycle and compatibility, but
+Authorization is permission based and scope aware. `owner`, `admin`, and
+`member` memberships drive membership lifecycle, while
 route authorization is evaluated through persisted role assignments and
 permission bindings.
 
@@ -1556,20 +1493,19 @@ Rules:
 - `platform_admin` is a global platform scope for Realtek operators. It does not
   make the platform user a brand-cloud owner or admin unless the platform user is
   explicitly acting through platform-admin delegation.
-- Brand-cloud `owner`, `admin`, and `member` roles are scoped to one brand
-  cloud and belong to brand-cloud users. APP end-user device roles are stored in
-  `device_user_bindings` instead. Neither class implies `platform_admin`.
+- Brand Cloud `owner`, `admin`, and `member` roles are scoped assignments of a
+  global `user`. APP end-user device roles are stored in
+  `device_user_bindings` instead. Neither kind implies `platform_admin`.
 - Runtime route checks use permission names such as `registry_device.manage`,
   `claim.resolve`, and `lifecycle_operation.inspect`.
 - `organization_members.role` is not the new authorization source of truth; it
   is mirrored into role assignments for compatibility until membership role
   updates are fully deprecated.
-- Brand-cloud owner membership is mirrored into an organization-scoped
-  governance assignment. Admin/member compatibility membership does not grant
-  Product resource access; Product assignments are explicit and use
-  `actor_type=brand_cloud_user`. Brand-cloud tokens can
-  authorize only against their own `brand_cloud_id`; cross-brand `orgId` access
-  returns not found/forbidden without exposing the other brand cloud.
+- Brand Cloud membership is mirrored into organization-scoped
+  `actor_type=user` assignments. Product access remains explicit. A global user
+  token authorizes a Brand Cloud request only when its user has the required
+  active organization membership/assignment; cross-brand `orgId` access returns
+  not found/forbidden without exposing the other Brand Cloud.
 - Platform admin is global/platform scope. Brand-cloud owner/admin/member are
   brand-cloud scope and do not imply `platform_admin`.
 - Only `owner` may invite/add members, remove members, or change member roles.
@@ -1620,15 +1556,6 @@ All endpoints are versioned under `/v1`.
 | `GET` | `/v1/me/identities` | Yes | List current user's linked external identities. |
 | `DELETE` | `/v1/me/identities/:identityId` | Yes | Unlink one of the current user's external identities when policy allows. |
 
-### Brand Cloud Auth
-
-| Method | Path | Auth | Description |
-| --- | --- | --- | --- |
-| `POST` | `/v1/brand-clouds/:tenantSlug/auth/login` | No | Authenticate a brand-scoped user inside one tenant slug namespace. |
-| `POST` | `/v1/brand-clouds/:tenantSlug/auth/refresh` | No | Rotate a brand-cloud refresh token and return brand-cloud tokens. |
-| `POST` | `/v1/brand-clouds/:tenantSlug/auth/logout` | Yes | Revoke one brand-cloud refresh token. |
-| `GET` | `/v1/brand-clouds/:tenantSlug/me` | Yes | Return the current brand-cloud user and membership. |
-
 ### APP End-User Auth
 
 | Method | Path | Auth | Description |
@@ -1663,13 +1590,12 @@ All endpoints are versioned under `/v1`.
 | `GET` | `/v1/admin/brand-clouds` | Yes | Platform admin | List brand cloud organizations. |
 | `GET` | `/v1/admin/brand-clouds/:brandCloudId` | Yes | Platform admin | Read one brand cloud organization. |
 | `PATCH` | `/v1/admin/brand-clouds/:brandCloudId` | Yes | Platform admin | Update brand cloud name, tenant slug, status, or metadata. |
-| `POST` | `/v1/admin/brand-clouds/:brandCloudId/members` | Yes | Platform admin | Assign/update a brand-cloud membership by `brand_cloud_user_id`; platform `user_id` values are not accepted. |
-| `POST` | `/v1/admin/brand-clouds/:brandCloudId/users` | Yes | Platform admin | Create/reactivate a brand-scoped user and membership; response returns `brand_cloud_user` and `brand_cloud_member`. |
-| `GET` | `/v1/admin/brand-clouds/:brandCloudId/users` | Yes | Platform admin | List brand-scoped users, including active, pending-verification, and disabled states. |
-| `POST` | `/v1/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/approve` | Yes | Platform admin | Approve a pending brand-cloud user activation and mark the brand-scoped user verified. |
-| `POST` | `/v1/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/disable` | Yes | Platform admin | Disable brand-cloud access and revoke active brand-cloud refresh tokens. |
-| `POST` | `/v1/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/enable` | Yes | Platform admin | Re-enable a disabled brand-cloud user without changing tenant scope. |
-| `DELETE` | `/v1/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId` | Yes | Platform admin | Soft-delete brand-cloud access by disabling the brand-scoped user. |
+| `POST` | `/v1/admin/brand-clouds/:brandCloudId/members` | Yes | Platform admin | Assign/update a global `user_id` membership in the Brand Cloud. |
+| `POST` | `/v1/admin/brand-clouds/:brandCloudId/users` | Yes | Platform admin | Find/create a global user, apply guarded activation policy, and upsert membership; response returns `user` and `member`. |
+| `GET` | `/v1/admin/brand-clouds/:brandCloudId/users` | Yes | Platform admin | List global users joined to this Brand Cloud, including activation and membership state. |
+| `POST` | `/v1/admin/brand-clouds/:brandCloudId/users/:userId/disable` | Yes | Platform admin | Disable this Brand Cloud membership without disabling an unrelated global account. |
+| `POST` | `/v1/admin/brand-clouds/:brandCloudId/users/:userId/enable` | Yes | Platform admin | Re-enable this Brand Cloud membership. |
+| `DELETE` | `/v1/admin/brand-clouds/:brandCloudId/users/:userId` | Yes | Platform admin | Remove this Brand Cloud membership while preserving last-owner invariants. |
 | `POST` | `/v1/admin/brand-clouds/:brandCloudId/device-item-profiles/:profileId/production-runs` | Yes | Platform admin | Create a factory production run for a selected production period and quantity, then issue a factory enrollment JWT. The JWT carries immutable `brand_cloud_id`, `device_item_profile_id`, `production_run_id`, validity, and quantity claims; factory CSR fields, URL names, tenant slugs, and request body overrides are not CA selectors. |
 | `POST` | `/v1/admin/quota-raise-requests/:requestId/approve` | Yes | Platform admin | Approve a pending quota raise request and apply the approved evaluation quota. |
 | `POST` | `/v1/admin/quota-raise-requests/:requestId/decline` | Yes | Platform admin | Decline a pending quota raise request with an optional decision reason. |
@@ -2440,11 +2366,10 @@ When enabled, the user cache is a best-effort API Store decorator. Postgres
 remains authoritative; Redis-compatible records have no TTL and are populated
 through read-through misses or refreshed/deleted after successful Account
 Manager write paths. Redis outage or write failure must not fail a user query or
-roll back a committed mutation. The decorator covers platform/developer users,
-brand-cloud users, and end users for profile and login/auth projections. The
-`user-cache` maintenance command currently rebuilds, deletes, and inspects only
-platform users in the `users` table; brand-cloud and end-user cache repair uses
-normal read-through refill or direct key deletion.
+roll back a committed mutation. The decorator covers global human users and end
+users for profile and login/auth projections. The `user-cache` maintenance
+command rebuilds, deletes, and inspects human users in `users`; end-user cache
+repair uses normal read-through refill or direct key deletion.
 
 ### [REQ-AM-OIDC-SECRET-001] OIDC client secrets stay in runtime secret management and out of logs
 
@@ -2488,13 +2413,13 @@ Test coverage areas:
 - Admin and member cannot disable or enable users.
 - Refresh token rotation rejects previously used refresh tokens.
 - Logout revokes refresh tokens.
-- Brand-cloud schema tests cover `tenant_slug`, `brand_cloud_users`,
-  `brand_cloud_memberships`, `brand_cloud_refresh_tokens`, and
-  `actor_type=brand_cloud_user`.
-- Brand-cloud auth tests cover same email in two brand clouds producing
-  different brand-cloud subjects, wrong slug/password rejection, platform
-  login rejection for brand-cloud users, brand-cloud refresh/logout isolation,
-  and same-brand-only org route authorization.
+- Identity migration tests cover existing global users, one legacy tenant user,
+  same-email/same-hash and same-email/different-hash merges, missing/unverified
+  credentials, role precedence, owner invariants, ACL remapping, migration audit
+  rows, and token/certificate revocation.
+- Human auth tests cover platform-only, Brand-Cloud-only, dual-capability, and
+  multi-Brand users through `/v1/auth/*`; tenant auth routes return `404` and
+  legacy tenant JWT/refresh credentials are rejected.
 - Device CRUD tests cover create, list, get, update, status update, and soft-disable.
 - Fleet registry tests cover group CRUD, group assignment idempotency, device tags, owner/admin/member permission differences, cross-organization rejection, and disabled-device selection visibility.
 - Invalid device category and status values are rejected.
@@ -2580,24 +2505,26 @@ The Keycloak/OIDC authentication implementation is acceptable when:
 - Automated tests cover the OIDC behavior matrix and prove local login still
   works.
 
-The brand-cloud user namespace implementation is acceptable when:
+The unified human identity implementation is acceptable when:
 
-- Migration `026_brand_cloud_users.sql` creates tenant slugs, brand-cloud user
-  and membership tables, brand-cloud refresh token storage, and
-  `brand_cloud_user` ACL actor support.
-- Existing legacy brand-cloud memberships are backfilled into per-brand
-  accounts; the same email in N brand clouds becomes N brand-scoped user rows.
-- Platform-admin provisioning dual-writes to brand-cloud tables and legacy
-  `users`/`organization_members` compatibility rows.
-- Platform-admin user management lists pending activation state and provides
-  explicit approve, disable, enable, and soft-delete lifecycle actions. Disable
-  and soft-delete revoke brand-cloud refresh tokens; approve clears
-  `signup_pending_verification`, sets `email_verified=true`, and keeps the
-  action auditable.
-- `/v1/auth/*` remains platform-user-only while `/v1/brand-clouds/:tenantSlug/*`
-  handles brand-cloud sessions.
-- Automated tests and OpenAPI contract checks cover the new brand-cloud auth
-  and response fields.
+- A preflight report maps every legacy Brand Cloud user and rejects any Brand
+  Cloud that would have no enabled owner.
+- The migration deterministically merges normalized emails, preserves existing
+  global credentials, forces activation/reset on credential conflicts, remaps
+  memberships and ACL assignments, and writes an auditable id mapping.
+- Public signup atomically creates the pending global user, default Brand Cloud,
+  and `owner` membership.
+- Platform-admin provisioning returns global `{user, member}` resources;
+  production owners activate by email and immediate bulk provisioning is
+  staging-only for admin/member.
+- `/v1/auth/*` is the only human authentication surface, `/v1/me` exposes all
+  memberships/capabilities, and `/v1/brand-clouds/:tenantSlug/auth/*` returns
+  `404`.
+- Legacy tenant tokens and certificates are revoked, new human app certificates
+  use `app-user:<user_id>`, and the old identity tables are removed only after
+  cutover assertions pass.
+- Automated migration, API, authorization, OpenAPI, and staging email/load-test
+  checks cover the coordinated release and rollback preconditions.
 
 ## 12. Contract Follow-Up Scope
 
