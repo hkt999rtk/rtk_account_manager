@@ -27,6 +27,7 @@ type Store struct {
 type backingStore interface {
 	Register(context.Context, store.RegisterInput) (store.RegisterResult, error)
 	SignupDeveloper(context.Context, store.DeveloperSignupInput) (store.DeveloperSignupResult, error)
+	ProvisionBrandCloudAccount(context.Context, string, string, store.BrandCloudAccountInput) (store.BrandCloudAccountResult, error)
 	GetUserPassword(context.Context, string) (model.User, string, error)
 	GetUserPasswordByID(context.Context, string) (model.User, string, error)
 	VerifyEmailToken(context.Context, string, string) (model.User, error)
@@ -90,6 +91,20 @@ func (s *Store) SignupDeveloper(ctx context.Context, in store.DeveloperSignupInp
 		return store.DeveloperSignupResult{}, err
 	}
 	s.putPlatformAuth(ctx, result.User, in.PasswordHash)
+	return result, nil
+}
+
+func (s *Store) ProvisionBrandCloudAccount(ctx context.Context, actorUserID, orgID string, in store.BrandCloudAccountInput) (store.BrandCloudAccountResult, error) {
+	result, err := s.backing.ProvisionBrandCloudAccount(ctx, actorUserID, orgID, in)
+	if err != nil {
+		return store.BrandCloudAccountResult{}, err
+	}
+	if in.ActivationMode == "immediate" {
+		s.putPlatformAuth(ctx, result.User, in.PasswordHash)
+	} else {
+		s.deletePlatformUser(ctx, result.User.ID)
+		s.putPlatformUser(ctx, result.User)
+	}
 	return result, nil
 }
 
