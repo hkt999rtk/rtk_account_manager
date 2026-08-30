@@ -130,7 +130,7 @@ func (s *Server) actOnChipsetProvider(c *gin.Context) {
 }
 
 func (s *Server) listDeveloperChipsets(c *gin.Context) {
-	if currentSubjectType(c) != auth.SubjectTypePlatformUser {
+	if currentSubjectType(c) != auth.SubjectTypeUser {
 		writeError(c, http.StatusForbidden, "forbidden", "Developer session required")
 		return
 	}
@@ -143,7 +143,7 @@ func (s *Server) listDeveloperChipsets(c *gin.Context) {
 }
 
 func (s *Server) getDeveloperChipset(c *gin.Context) {
-	if currentSubjectType(c) != auth.SubjectTypePlatformUser {
+	if currentSubjectType(c) != auth.SubjectTypeUser {
 		writeError(c, http.StatusForbidden, "forbidden", "Developer session required")
 		return
 	}

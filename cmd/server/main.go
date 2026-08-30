@@ -79,6 +79,7 @@ func main() {
 	server.ConfigureEmailOutbox(accountStore)
 	server.SetLogger(logger)
 	server.ConfigureInternalAuthToken(cfg.InternalAuthToken)
+	server.ConfigureImmediateBrandAccountProvisioning(cfg.AllowImmediateBrandAccounts)
 	server.ConfigureProductionJWT(cfg.FactoryProductionJWTSecret, cfg.FactoryProductionJWTAudience)
 	server.ConfigureChipsetManifestFetcher(api.NewChipsetManifestFetcher(api.ChipsetManifestFetcherConfig{AllowedHosts: cfg.ChipsetProviderAllowedHosts}))
 	if cfg.ChipsetProviderRefreshInterval > 0 {

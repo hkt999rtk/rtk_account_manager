@@ -177,9 +177,6 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests`
 - `rtk_account_manager/internal/api`: `TestAuthTokenTTLConfiguration`
 - `rtk_account_manager/internal/api`: `TestBindStrictRejectsUnknownFields`
-- `rtk_account_manager/internal/api`: `TestBrandCloudContextHelpers`
-- `rtk_account_manager/internal/api`: `TestBrandCloudLogoutAndMeRejectMismatchedSubject`
-- `rtk_account_manager/internal/api`: `TestBrandCloudRefreshRejectsPlatformAndWrongTenantTokens`
 - `rtk_account_manager/internal/api`: `TestCanonicalServiceOptions/duplicate`
 - `rtk_account_manager/internal/api`: `TestCanonicalServiceOptions/empty`
 - `rtk_account_manager/internal/api`: `TestCanonicalServiceOptions/invalid`
@@ -350,11 +347,11 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationVideoCloudRuntimeScopeDoesNotGrantProductRole`
 - `rtk_account_manager/internal/api`: `TestIsDisposableSignupEmail`
 - `rtk_account_manager/internal/api`: `TestIsUniqueViolationClassifiesPostgresErrors`
-- `rtk_account_manager/internal/api`: `TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests/brand_user_not_found`
 - `rtk_account_manager/internal/api`: `TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests/disabled`
 - `rtk_account_manager/internal/api`: `TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests/end_user_lookup_unavailable`
 - `rtk_account_manager/internal/api`: `TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests/idempotency_required`
 - `rtk_account_manager/internal/api`: `TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests/invalid_JSON`
+- `rtk_account_manager/internal/api`: `TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests/invalid_global_user_CSR`
 - `rtk_account_manager/internal/api`: `TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests/invalid_target`
 - `rtk_account_manager/internal/api`: `TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests/member_lookup`
 - `rtk_account_manager/internal/api`: `TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests/member_role`
@@ -425,7 +422,6 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestUnknownRouteStillReturnsNotFound`
 - `rtk_account_manager/internal/api`: `TestValidProductCollaboratorRole`
 - `rtk_account_manager/internal/api`: `TestValidationHelpersWriteErrors`
-- `rtk_account_manager/internal/api`: `TestValueOrEmpty`
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability/invalid_token`
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability/quota_exceeded`
 - `rtk_account_manager/internal/api`: `TestWriteClaimResolveErrorIncludesRetryability/service_unavailable`
@@ -814,13 +810,11 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/usercache`: `TestRedisCacheValidationAndDecodeErrors`
 - `rtk_account_manager/internal/usercache`: `TestRedisCommandRoundTripAndValidationErrors`
 - `rtk_account_manager/internal/usercache`: `TestRedisRESPHelpers`
-- `rtk_account_manager/internal/usercache`: `TestStoreActivateBrandCloudLoginTokenRefreshesCache`
 - `rtk_account_manager/internal/usercache`: `TestStoreAdditionalPlatformMutationsRefreshCache`
 - `rtk_account_manager/internal/usercache`: `TestStoreAdditionalReadThroughPaths`
-- `rtk_account_manager/internal/usercache`: `TestStoreBrandAndEndUserMutationsRefreshCache`
 - `rtk_account_manager/internal/usercache`: `TestStoreConstructorAndHelpers`
 - `rtk_account_manager/internal/usercache`: `TestStoreDisableCurrentUserDeletesCachedUser`
-- `rtk_account_manager/internal/usercache`: `TestStoreGetBrandCloudUserPasswordReadThroughCachesLoginProjection`
+- `rtk_account_manager/internal/usercache`: `TestStoreEndUserMutationRefreshesCache`
 - `rtk_account_manager/internal/usercache`: `TestStoreGetEndUserPasswordReadThroughCachesLoginProjection`
 - `rtk_account_manager/internal/usercache`: `TestStoreGetUserFallsBackToPostgresWhenRedisUnavailable`
 - `rtk_account_manager/internal/usercache`: `TestStoreGetUserPasswordReadThroughCachesAuthProjection`

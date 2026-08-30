@@ -58,13 +58,6 @@ type authPersistence interface {
 	SaveRefreshToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
 	RotateRefreshToken(ctx context.Context, oldTokenHash, newTokenHash, userID string, newExpiresAt time.Time) error
 	RevokeRefreshToken(ctx context.Context, tokenHash string) error
-	GetBrandCloudUserPassword(ctx context.Context, tenantSlug, email string) (store.BrandCloudLoginResult, error)
-	ActivateBrandCloudLoginToken(ctx context.Context, tenantSlug, tokenHash string) (store.BrandCloudLoginResult, error)
-	GetBrandCloudUser(ctx context.Context, brandCloudUserID string) (model.BrandCloudUser, error)
-	GetBrandCloudMember(ctx context.Context, brandCloudID, brandCloudUserID string) (model.BrandCloudMember, error)
-	SaveBrandCloudRefreshToken(ctx context.Context, brandCloudUserID, brandCloudID, tokenHash string, expiresAt time.Time) error
-	RotateBrandCloudRefreshToken(ctx context.Context, oldTokenHash, newTokenHash, brandCloudUserID, brandCloudID string, newExpiresAt time.Time) error
-	RevokeBrandCloudRefreshToken(ctx context.Context, tokenHash string) error
 	CreateEndUser(ctx context.Context, in store.EndUserCreateInput) (model.EndUser, error)
 	GetEndUserPassword(ctx context.Context, email string) (store.EndUserLoginResult, error)
 	GetEndUser(ctx context.Context, endUserID string) (model.EndUser, error)
@@ -135,7 +128,6 @@ type appCertificatePersistence interface {
 	GetValidAppCertificateForUser(ctx context.Context, userID string, now time.Time) (model.AppCertificate, error)
 	GetValidAppCertificateForSubject(ctx context.Context, subjectType, subjectID string, now time.Time) (model.AppCertificate, error)
 	CreateAppCertificate(ctx context.Context, in store.AppCertificateCreateInput) (model.AppCertificate, error)
-	RevokeValidAppCertificatesForBrandCloudUser(ctx context.Context, brandCloudID, brandCloudUserID string) (int64, error)
 	AuthorizeActiveAppCertificateForSubject(ctx context.Context, subjectType, subjectID, fingerprintSHA256 string, now time.Time) error
 }
 
@@ -160,7 +152,6 @@ type deviceClaimPersistence interface {
 	TransferDeviceClaim(ctx context.Context, in store.DeviceClaimTransferInput) (store.DeviceClaimOverrideResult, error)
 	ReclaimDeviceClaimToken(ctx context.Context, in store.DeviceClaimReclaimInput) (store.DeviceClaimOverrideResult, error)
 	AuthorizeUserForVideoDevice(ctx context.Context, userID, videoCloudDevid string) error
-	AuthorizeBrandCloudUserForVideoDevice(ctx context.Context, brandCloudUserID, videoCloudDevid string) error
 	AuthorizeEndUserForVideoDevice(ctx context.Context, endUserID, videoCloudDevid string) error
 }
 
@@ -241,16 +232,11 @@ type brandCloudPersistence interface {
 	CancelBrandCloudOwnerTransfer(ctx context.Context, in store.BrandCloudOwnerTransferQuery, now time.Time) (model.BrandCloudOwnerTransfer, error)
 	ListBrandClouds(ctx context.Context, limit, offset int) (store.OrganizationPage, error)
 	GetBrandCloud(ctx context.Context, orgID string) (model.Organization, error)
-	GetBrandCloudByTenantSlug(ctx context.Context, tenantSlug string) (model.Organization, error)
 	UpdateBrandCloud(ctx context.Context, actorUserID, orgID string, in store.BrandCloudInput) (model.Organization, error)
-	AssignBrandCloudMember(ctx context.Context, actorUserID, orgID, brandCloudUserID string, role model.Role) (model.BrandCloudMember, error)
-	CreateBrandCloudUser(ctx context.Context, actorUserID, orgID string, in store.BrandCloudUserInput) (store.BrandCloudUserResult, error)
-	ActivateBrandCloudUser(ctx context.Context, tenantSlug, tokenHash, passwordHash string) (store.BrandCloudLoginResult, error)
-	ListBrandCloudUsers(ctx context.Context, in store.BrandCloudUserListFilter) (store.BrandCloudUserPage, error)
-	DisableBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) (model.BrandCloudUser, error)
-	EnableBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) (model.BrandCloudUser, error)
-	ApproveBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) (model.BrandCloudUser, error)
-	DeleteBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) error
+	ProvisionBrandCloudAccount(ctx context.Context, actorUserID, orgID string, in store.BrandCloudAccountInput) (store.BrandCloudAccountResult, error)
+	ListBrandCloudAccounts(ctx context.Context, in store.BrandCloudAccountListFilter) (store.MemberPage, error)
+	DisableDeveloperBrandCloudMember(ctx context.Context, brandCloudID, userID string) (model.Member, error)
+	EnableDeveloperBrandCloudMember(ctx context.Context, brandCloudID, userID string) (model.Member, error)
 	CreateDeviceItemProfile(ctx context.Context, in store.DeviceItemProfileCreateInput) (model.DeviceItemProfile, error)
 	ListDeviceItemProfiles(ctx context.Context, in store.DeviceItemProfileListFilter) (store.DeviceItemProfilePage, error)
 	GetDeviceItemProfile(ctx context.Context, brandCloudID, profileID string) (model.DeviceItemProfile, error)

@@ -34,30 +34,21 @@ func (s *Server) handleInternalAppTokenAuthorization(c *gin.Context) {
 	certificateFingerprint := strings.ToLower(strings.TrimSpace(req.CertificateFingerprintSHA256))
 	var err error
 	switch subjectType {
-	case "", auth.SubjectTypePlatformUser:
+	case "", auth.SubjectTypeUser:
 		userID := strings.TrimSpace(req.UserID)
 		if userID == "" {
 			writeError(c, http.StatusBadRequest, "missing_user_id", "user_id is required")
 			return
 		}
 		if certificateFingerprint != "" {
-			err = s.store.AuthorizeActiveAppCertificateForSubject(c.Request.Context(), "platform_user", userID, certificateFingerprint, time.Now())
+			err = s.store.AuthorizeActiveAppCertificateForSubject(c.Request.Context(), "user", userID, certificateFingerprint, time.Now())
 		}
 		if err == nil {
 			err = s.store.AuthorizeUserForVideoDevice(c.Request.Context(), userID, strings.TrimSpace(req.Devid))
 		}
 	case auth.SubjectTypeBrandCloudUser:
-		brandCloudUserID := strings.TrimSpace(req.BrandCloudUserID)
-		if brandCloudUserID == "" {
-			writeError(c, http.StatusBadRequest, "missing_brand_cloud_user_id", "brand_cloud_user_id is required")
-			return
-		}
-		if certificateFingerprint != "" {
-			err = s.store.AuthorizeActiveAppCertificateForSubject(c.Request.Context(), "brand_cloud_user", brandCloudUserID, certificateFingerprint, time.Now())
-		}
-		if err == nil {
-			err = s.store.AuthorizeBrandCloudUserForVideoDevice(c.Request.Context(), brandCloudUserID, strings.TrimSpace(req.Devid))
-		}
+		writeError(c, http.StatusBadRequest, "unsupported_subject_type", "Tenant-scoped human identities are no longer supported")
+		return
 	case auth.SubjectTypeEndUser:
 		endUserID := strings.TrimSpace(req.EndUserID)
 		if endUserID == "" {

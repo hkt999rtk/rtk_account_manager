@@ -94,6 +94,9 @@ type DeveloperSignupInput struct {
 	DisplayName               *string
 	OrganizationName          string
 	SignupPendingVerification bool
+	VerificationTokenHash     string
+	VerificationExpiresAt     time.Time
+	VerificationEmail         *EmailOutboxInput
 }
 
 type DeveloperSignupResult struct {
@@ -151,6 +154,34 @@ type BrandCloudUserResult struct {
 	Action           string                 `json:"action"`
 	BrandCloudUser   model.BrandCloudUser   `json:"brand_cloud_user"`
 	BrandCloudMember model.BrandCloudMember `json:"brand_cloud_member"`
+}
+
+// BrandCloudAccountInput provisions a global human identity and its Brand
+// Cloud membership as one operation.
+type BrandCloudAccountInput struct {
+	Email               string
+	PasswordHash        string
+	DisplayName         *string
+	Role                model.Role
+	RotatePassword      bool
+	ActivationMode      string
+	ActivationTokenHash string
+	ActivationExpiresAt time.Time
+	ActivationEmail     *EmailOutboxInput
+}
+
+type BrandCloudAccountResult struct {
+	Action string       `json:"action"`
+	User   model.User   `json:"user"`
+	Member model.Member `json:"member"`
+}
+
+type BrandCloudAccountListFilter struct {
+	BrandCloudID string
+	Status       string
+	Query        string
+	Limit        int
+	Offset       int
 }
 
 type BrandCloudUserListFilter struct {
@@ -628,7 +659,7 @@ func (s *Store) CreateLoginActivationToken(ctx context.Context, userID, tokenHas
 }
 
 func (s *Store) CreateAuthTokenAndEmail(ctx context.Context, userID, purpose, tokenHash string, expiresAt time.Time, email EmailOutboxInput) error {
-	return s.createAuthTokenForSubjectWithEmail(ctx, "platform_user", userID, userID, purpose, "", tokenHash, expiresAt, &email)
+	return s.createAuthTokenForSubjectWithEmail(ctx, "user", userID, userID, purpose, "", tokenHash, expiresAt, &email)
 }
 
 func (s *Store) createScopedLoginActivationToken(ctx context.Context, userID, scope, tokenHash string, expiresAt time.Time) error {
@@ -698,7 +729,7 @@ func (s *Store) CreateLoginActivationTokenForEmailAndEmail(ctx context.Context, 
 	if err != nil {
 		return false, err
 	}
-	return true, s.createAuthTokenForSubjectWithEmail(ctx, "platform_user", userID, userID, "login_activation", "", tokenHash, expiresAt, &outbox)
+	return true, s.createAuthTokenForSubjectWithEmail(ctx, "user", userID, userID, "login_activation", "", tokenHash, expiresAt, &outbox)
 }
 
 func (s *Store) CreatePasswordResetTokenForEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error) {
@@ -726,7 +757,7 @@ func (s *Store) CreatePasswordResetTokenForEmailAndEmail(ctx context.Context, em
 	if err != nil {
 		return false, err
 	}
-	return true, s.createAuthTokenForSubjectWithEmail(ctx, "platform_user", userID, userID, "password_reset", "", tokenHash, expiresAt, &outbox)
+	return true, s.createAuthTokenForSubjectWithEmail(ctx, "user", userID, userID, "password_reset", "", tokenHash, expiresAt, &outbox)
 }
 
 func (s *Store) CreateEmailVerificationTokenForEmail(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error) {
@@ -760,7 +791,7 @@ func (s *Store) CreateEmailVerificationTokenForEmailAndEmail(ctx context.Context
 	if err != nil {
 		return false, err
 	}
-	return true, s.createAuthTokenForSubjectWithEmail(ctx, "platform_user", userID, userID, "email_verification", "", tokenHash, expiresAt, &outbox)
+	return true, s.createAuthTokenForSubjectWithEmail(ctx, "user", userID, userID, "email_verification", "", tokenHash, expiresAt, &outbox)
 }
 
 func (s *Store) ActivateLoginToken(ctx context.Context, tokenHash string) (model.User, error) {
@@ -845,6 +876,13 @@ func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash, passwordHash st
 	if err != nil {
 		return model.User{}, err
 	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE organization_members
+		SET disabled_at = NULL, updated_at = now()
+		WHERE user_id = $1 AND disabled_at IS NOT NULL
+	`, userID); err != nil {
+		return model.User{}, err
+	}
 	if err := createAuditEventTx(ctx, tx, AuditEventInput{
 		EventType:   "email_verified",
 		ActorUserID: &userID,
@@ -923,7 +961,7 @@ func (s *Store) ResetPasswordWithToken(ctx context.Context, tokenHash, passwordH
 }
 
 func (s *Store) createAuthToken(ctx context.Context, userID, purpose, scope, tokenHash string, expiresAt time.Time) error {
-	return s.createAuthTokenForSubject(ctx, "platform_user", userID, userID, purpose, scope, tokenHash, expiresAt)
+	return s.createAuthTokenForSubject(ctx, "user", userID, userID, purpose, scope, tokenHash, expiresAt)
 }
 
 func (s *Store) createAuthTokenForSubject(ctx context.Context, subjectType, subjectID, userID, purpose, scope, tokenHash string, expiresAt time.Time) error {

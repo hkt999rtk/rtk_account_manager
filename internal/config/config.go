@@ -78,6 +78,7 @@ type Config struct {
 	AppCertIssuerCAFile            string
 	AppCertIssuerTimeout           time.Duration
 	InternalAuthToken              string
+	AllowImmediateBrandAccounts    bool
 	FactoryProductionJWTSecret     string
 	FactoryProductionJWTAudience   string
 	BootstrapPlatformAdminEmail    string
@@ -342,6 +343,7 @@ func load() (Config, error) {
 		AppCertIssuerCAFile:            os.Getenv("APP_CERT_ISSUER_CA_FILE"),
 		AppCertIssuerTimeout:           duration("APP_CERT_ISSUER_TIMEOUT", 10*time.Second),
 		InternalAuthToken:              os.Getenv("ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN"),
+		AllowImmediateBrandAccounts:    strings.EqualFold(strings.TrimSpace(os.Getenv("ACCOUNT_MANAGER_ENV")), "staging") && boolValue("ACCOUNT_MANAGER_ALLOW_IMMEDIATE_BRAND_ACCOUNTS", false),
 		FactoryProductionJWTSecret:     os.Getenv("FACTORY_PRODUCTION_JWT_SECRET"),
 		FactoryProductionJWTAudience:   getenv("FACTORY_PRODUCTION_JWT_AUDIENCE", "factory-enroll"),
 		BootstrapPlatformAdminEmail:    os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL"),

@@ -22,24 +22,25 @@ import (
 )
 
 type Server struct {
-	store                  Store
-	auth                   *auth.Service
-	authTokenQueuedHook    func(AuthTokenDelivery)
-	signupLimiter          *signupLimiter
-	signupPolicy           signupPolicy
-	oidcResolver           auth.ProviderResolver
-	oidcClient             auth.OIDCClient
-	oidcStateTTL           time.Duration
-	oidcEnvClientSecretRef string
-	appCertificateIssuer   AppCertificateIssuer
-	internalAuthToken      string
-	productionJWTSecret    string
-	productionJWTAudience  string
-	logger                 *zap.Logger
-	chipsetManifestFetcher ChipsetManifestFetcher
-	emailOutboxStore       emailOutboxPersistence
-	emailVerificationTTL   time.Duration
-	passwordResetTTL       time.Duration
+	store                       Store
+	auth                        *auth.Service
+	authTokenQueuedHook         func(AuthTokenDelivery)
+	signupLimiter               *signupLimiter
+	signupPolicy                signupPolicy
+	oidcResolver                auth.ProviderResolver
+	oidcClient                  auth.OIDCClient
+	oidcStateTTL                time.Duration
+	oidcEnvClientSecretRef      string
+	appCertificateIssuer        AppCertificateIssuer
+	internalAuthToken           string
+	productionJWTSecret         string
+	productionJWTAudience       string
+	logger                      *zap.Logger
+	chipsetManifestFetcher      ChipsetManifestFetcher
+	emailOutboxStore            emailOutboxPersistence
+	emailVerificationTTL        time.Duration
+	passwordResetTTL            time.Duration
+	allowImmediateBrandAccounts bool
 }
 
 type emailOutboxPersistence interface {
@@ -112,6 +113,10 @@ func (s *Server) ConfigureAppCertificateIssuer(issuer AppCertificateIssuer) {
 
 func (s *Server) ConfigureInternalAuthToken(token string) {
 	s.internalAuthToken = strings.TrimSpace(token)
+}
+
+func (s *Server) ConfigureImmediateBrandAccountProvisioning(allow bool) {
+	s.allowImmediateBrandAccounts = allow
 }
 
 func (s *Server) ConfigureProductionJWT(secret, audience string) {
@@ -237,11 +242,6 @@ func (s *Server) Router() *gin.Engine {
 	v1.GET("/auth/oidc/providers", s.listOIDCProviders)
 	v1.GET("/auth/oidc/:providerId/login", s.startOIDCLogin)
 	v1.GET("/auth/oidc/:providerId/callback", s.handleOIDCCallback)
-	v1.POST("/brand-clouds/:tenantSlug/auth/login", s.brandCloudLogin)
-	v1.POST("/brand-clouds/:tenantSlug/auth/sign-in", s.brandCloudSignIn)
-	v1.POST("/brand-clouds/:tenantSlug/auth/login/activate", s.brandCloudActivateLogin)
-	v1.POST("/brand-clouds/:tenantSlug/auth/activate", s.brandCloudActivateUser)
-	v1.POST("/brand-clouds/:tenantSlug/auth/refresh", s.brandCloudRefresh)
 	v1.POST("/app/end-users/auth/login", s.appEndUserLogin)
 	v1.POST("/app/end-users/auth/refresh", s.appEndUserRefresh)
 	v1.POST("/internal/app-token-authorizations", s.handleInternalAppTokenAuthorization)
@@ -250,8 +250,6 @@ func (s *Server) Router() *gin.Engine {
 	protected := v1.Group("")
 	protected.Use(s.requireAuth())
 	protected.POST("/auth/logout", s.logout)
-	protected.POST("/brand-clouds/:tenantSlug/auth/logout", s.brandCloudLogout)
-	protected.GET("/brand-clouds/:tenantSlug/me", s.brandCloudMe)
 	protected.POST("/app/end-users/auth/logout", s.appEndUserLogout)
 	protected.GET("/app/end-users/me", s.appEndUserMe)
 	protected.POST("/app/devices/claim/resolve", s.appEndUserResolveDeviceClaim)
@@ -356,14 +354,11 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/admin/brand-clouds/:brandCloudId/device-item-profiles/:profileId/production-runs", s.requirePlatformAdmin(), s.createProductionRun)
 	protected.GET("/orgs/:orgId/device-item-profiles/:profileId/production-runs", s.requirePermission("registry_device.read"), s.listOrganizationProductionRuns)
 	protected.POST("/orgs/:orgId/device-item-profiles/:profileId/production-runs", s.requirePermission("registry_device.manage"), s.createProductionRun)
-	protected.POST("/admin/brand-clouds/:brandCloudId/members", s.requirePlatformAdmin(), s.assignBrandCloudMember)
 	protected.POST("/admin/brand-clouds/:brandCloudId/users", s.requirePlatformAdmin(), s.createBrandCloudUser)
 	protected.GET("/admin/brand-clouds/:brandCloudId/users", s.requirePlatformAdmin(), s.listBrandCloudUsers)
-	protected.POST("/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/disable", s.requirePlatformAdmin(), s.disableBrandCloudUser)
-	protected.POST("/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/enable", s.requirePlatformAdmin(), s.enableBrandCloudUser)
-	protected.POST("/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/approve", s.requirePlatformAdmin(), s.approveBrandCloudUser)
-	protected.POST("/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId/app-certificate/revoke", s.requirePlatformAdmin(), s.revokeBrandCloudUserAppCertificate)
-	protected.DELETE("/admin/brand-clouds/:brandCloudId/users/:brandCloudUserId", s.requirePlatformAdmin(), s.deleteBrandCloudUser)
+	protected.POST("/admin/brand-clouds/:brandCloudId/users/:userId/disable", s.requirePlatformAdmin(), s.disableBrandCloudUser)
+	protected.POST("/admin/brand-clouds/:brandCloudId/users/:userId/enable", s.requirePlatformAdmin(), s.enableBrandCloudUser)
+	protected.DELETE("/admin/brand-clouds/:brandCloudId/users/:userId", s.requirePlatformAdmin(), s.deleteBrandCloudUser)
 	protected.POST("/admin/device-claim-tokens", s.requirePlatformAdmin(), s.createDeviceClaimToken)
 	protected.GET("/admin/device-claim-tokens", s.requirePlatformAdmin(), s.listDeviceClaimTokens)
 	protected.GET("/admin/device-claim-tokens/:tokenId", s.requirePlatformAdmin(), s.getDeviceClaimToken)
@@ -857,7 +852,7 @@ func (s *Server) refresh(c *gin.Context) {
 		writeError(c, http.StatusUnauthorized, "invalid_refresh_token", "Invalid refresh token")
 		return
 	}
-	if claims.SubjectType != auth.SubjectTypePlatformUser || claims.UserID == "" {
+	if claims.SubjectType != auth.SubjectTypeUser || claims.UserID == "" {
 		writeError(c, http.StatusUnauthorized, "invalid_refresh_token", "Invalid refresh token")
 		return
 	}
@@ -1159,7 +1154,20 @@ func (s *Server) me(c *gin.Context) {
 		writeStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"user": user, "organizations": orgPage.Organizations, "capabilities": capabilities})
+	brandCloudMemberships := make([]model.Organization, 0, len(orgPage.Organizations))
+	for _, organization := range orgPage.Organizations {
+		if organization.OrganizationKind == model.OrganizationKindBrandCloud {
+			brandCloudMemberships = append(brandCloudMemberships, organization)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"user":                    user,
+		"platform_capabilities":   capabilities,
+		"brand_cloud_memberships": brandCloudMemberships,
+		// Keep these aliases during the synchronized frontend rollout.
+		"organizations": orgPage.Organizations,
+		"capabilities":  capabilities,
+	})
 }
 
 func (s *Server) deleteCurrentUser(c *gin.Context) {
@@ -1705,18 +1713,19 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 		}
 		if s.store != nil {
 			switch claims.SubjectType {
-			case "", auth.SubjectTypePlatformUser:
+			case "", auth.SubjectTypeUser:
 				if _, err := s.store.GetUser(c.Request.Context(), claims.UserID); err != nil {
 					writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
 					c.Abort()
 					return
 				}
 			case auth.SubjectTypeBrandCloudUser:
-				if _, err := s.store.GetBrandCloudUser(c.Request.Context(), claims.BrandCloudUserID); err != nil {
-					writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
-					c.Abort()
-					return
-				}
+				// Tenant-scoped human identities were retired by the global-user
+				// cutover. Rejecting the subject here also invalidates every legacy
+				// tenant JWT even if its signature and expiry are otherwise valid.
+				writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
+				c.Abort()
+				return
 			case auth.SubjectTypeEndUser:
 				if _, err := s.store.GetEndUser(c.Request.Context(), claims.EndUserID); err != nil {
 					writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
@@ -1863,7 +1872,7 @@ func currentSubjectType(c *gin.Context) auth.SubjectType {
 	value, _ := c.Get("subjectType")
 	subjectType, _ := value.(auth.SubjectType)
 	if subjectType == "" {
-		return auth.SubjectTypePlatformUser
+		return auth.SubjectTypeUser
 	}
 	return subjectType
 }
@@ -1878,12 +1887,6 @@ func currentBrandCloudID(c *gin.Context) string {
 	value, _ := c.Get("brandCloudID")
 	id, _ := value.(string)
 	return id
-}
-
-func currentTenantSlug(c *gin.Context) string {
-	value, _ := c.Get("tenantSlug")
-	slug, _ := value.(string)
-	return slug
 }
 
 func currentEndUserID(c *gin.Context) string {

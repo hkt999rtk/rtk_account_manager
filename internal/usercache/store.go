@@ -33,14 +33,6 @@ type backingStore interface {
 	ActivateLoginToken(context.Context, string) (model.User, error)
 	ResetPasswordWithToken(context.Context, string, string) (string, error)
 	UpdateUserPassword(context.Context, string, string) error
-	GetBrandCloudUserPassword(context.Context, string, string) (store.BrandCloudLoginResult, error)
-	ActivateBrandCloudLoginToken(context.Context, string, string) (store.BrandCloudLoginResult, error)
-	GetBrandCloudUser(context.Context, string) (model.BrandCloudUser, error)
-	CreateBrandCloudUser(context.Context, string, string, store.BrandCloudUserInput) (store.BrandCloudUserResult, error)
-	DisableBrandCloudUser(context.Context, string, string, string) (model.BrandCloudUser, error)
-	EnableBrandCloudUser(context.Context, string, string, string) (model.BrandCloudUser, error)
-	ApproveBrandCloudUser(context.Context, string, string, string) (model.BrandCloudUser, error)
-	DeleteBrandCloudUser(context.Context, string, string, string) error
 	CreateEndUser(context.Context, store.EndUserCreateInput) (model.EndUser, error)
 	GetEndUserPassword(context.Context, string) (store.EndUserLoginResult, error)
 	GetEndUser(context.Context, string) (model.EndUser, error)
@@ -207,95 +199,6 @@ func (s *Store) DisableCurrentUser(ctx context.Context, userID string) error {
 	return nil
 }
 
-func (s *Store) GetBrandCloudUserPassword(ctx context.Context, tenantSlug, email string) (store.BrandCloudLoginResult, error) {
-	tenantSlug = normalizeTenantSlug(tenantSlug)
-	email = normalizeEmail(email)
-	if userID, ok := s.getBrandCloudUserIDByTenantEmail(ctx, tenantSlug, email); ok {
-		if result, ok := s.getBrandCloudLogin(ctx, userID); ok {
-			return result, nil
-		}
-	}
-	result, err := s.backing.GetBrandCloudUserPassword(ctx, tenantSlug, email)
-	if err != nil {
-		return store.BrandCloudLoginResult{}, err
-	}
-	s.putBrandCloudLogin(ctx, tenantSlug, result)
-	return result, nil
-}
-
-func (s *Store) ActivateBrandCloudLoginToken(ctx context.Context, tenantSlug, tokenHash string) (store.BrandCloudLoginResult, error) {
-	result, err := s.backing.ActivateBrandCloudLoginToken(ctx, tenantSlug, tokenHash)
-	if err != nil {
-		return store.BrandCloudLoginResult{}, err
-	}
-	s.putBrandCloudLogin(ctx, normalizeTenantSlug(tenantSlug), result)
-	return result, nil
-}
-
-func (s *Store) GetBrandCloudUser(ctx context.Context, brandCloudUserID string) (model.BrandCloudUser, error) {
-	user, ok, err := s.cache.GetBrandCloudUser(ctx, strings.TrimSpace(brandCloudUserID))
-	if err != nil {
-		s.warn("get brand cloud user cache failed", err)
-	} else if ok {
-		return user, nil
-	}
-	user, err = s.backing.GetBrandCloudUser(ctx, brandCloudUserID)
-	if err != nil {
-		return model.BrandCloudUser{}, err
-	}
-	s.putBrandCloudUser(ctx, user)
-	return user, nil
-}
-
-func (s *Store) CreateBrandCloudUser(ctx context.Context, actorUserID, orgID string, in store.BrandCloudUserInput) (store.BrandCloudUserResult, error) {
-	result, err := s.backing.CreateBrandCloudUser(ctx, actorUserID, orgID, in)
-	if err != nil {
-		return store.BrandCloudUserResult{}, err
-	}
-	// The upsert may rotate the password. Drop the cached login result before
-	// caching the returned profile so the next login reads the new hash.
-	s.deleteBrandCloudUser(ctx, result.BrandCloudUser.ID)
-	s.putBrandCloudUser(ctx, result.BrandCloudUser)
-	return result, nil
-}
-
-func (s *Store) DisableBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) (model.BrandCloudUser, error) {
-	user, err := s.backing.DisableBrandCloudUser(ctx, actorUserID, brandCloudID, brandCloudUserID)
-	if err != nil {
-		return model.BrandCloudUser{}, err
-	}
-	s.deleteBrandCloudUser(ctx, brandCloudUserID)
-	return user, nil
-}
-
-func (s *Store) EnableBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) (model.BrandCloudUser, error) {
-	user, err := s.backing.EnableBrandCloudUser(ctx, actorUserID, brandCloudID, brandCloudUserID)
-	if err != nil {
-		return model.BrandCloudUser{}, err
-	}
-	s.deleteBrandCloudUser(ctx, brandCloudUserID)
-	s.putBrandCloudUser(ctx, user)
-	return user, nil
-}
-
-func (s *Store) ApproveBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) (model.BrandCloudUser, error) {
-	user, err := s.backing.ApproveBrandCloudUser(ctx, actorUserID, brandCloudID, brandCloudUserID)
-	if err != nil {
-		return model.BrandCloudUser{}, err
-	}
-	s.deleteBrandCloudUser(ctx, brandCloudUserID)
-	s.putBrandCloudUser(ctx, user)
-	return user, nil
-}
-
-func (s *Store) DeleteBrandCloudUser(ctx context.Context, actorUserID, brandCloudID, brandCloudUserID string) error {
-	if err := s.backing.DeleteBrandCloudUser(ctx, actorUserID, brandCloudID, brandCloudUserID); err != nil {
-		return err
-	}
-	s.deleteBrandCloudUser(ctx, brandCloudUserID)
-	return nil
-}
-
 func (s *Store) CreateEndUser(ctx context.Context, in store.EndUserCreateInput) (model.EndUser, error) {
 	user, err := s.backing.CreateEndUser(ctx, in)
 	if err != nil {
@@ -381,42 +284,6 @@ func (s *Store) putPlatformAuth(ctx context.Context, user model.User, hash strin
 func (s *Store) deletePlatformUser(ctx context.Context, userID string) {
 	if err := s.cache.DeletePlatformUser(ctx, userID); err != nil {
 		s.warn("delete platform user cache failed", err)
-	}
-}
-
-func (s *Store) getBrandCloudUserIDByTenantEmail(ctx context.Context, tenantSlug, email string) (string, bool) {
-	userID, ok, err := s.cache.GetBrandCloudUserIDByTenantEmail(ctx, tenantSlug, email)
-	if err != nil {
-		s.warn("get brand cloud email cache failed", err)
-		return "", false
-	}
-	return userID, ok && strings.TrimSpace(userID) != ""
-}
-
-func (s *Store) getBrandCloudLogin(ctx context.Context, userID string) (store.BrandCloudLoginResult, bool) {
-	result, ok, err := s.cache.GetBrandCloudLogin(ctx, userID)
-	if err != nil {
-		s.warn("get brand cloud login cache failed", err)
-		return store.BrandCloudLoginResult{}, false
-	}
-	return result, ok
-}
-
-func (s *Store) putBrandCloudUser(ctx context.Context, user model.BrandCloudUser) {
-	if err := s.cache.PutBrandCloudUser(ctx, user); err != nil {
-		s.warn("put brand cloud user cache failed", err)
-	}
-}
-
-func (s *Store) putBrandCloudLogin(ctx context.Context, tenantSlug string, result store.BrandCloudLoginResult) {
-	if err := s.cache.PutBrandCloudLogin(ctx, tenantSlug, result); err != nil {
-		s.warn("put brand cloud login cache failed", err)
-	}
-}
-
-func (s *Store) deleteBrandCloudUser(ctx context.Context, brandCloudUserID string) {
-	if err := s.cache.DeleteBrandCloudUser(ctx, brandCloudUserID); err != nil {
-		s.warn("delete brand cloud user cache failed", err)
 	}
 }
 

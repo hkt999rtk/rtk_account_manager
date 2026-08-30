@@ -70,6 +70,7 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	t.Setenv("ACCOUNT_MANAGER_USER_CACHE_ADDR", "redis.platform.svc.cluster.local:6379")
 	t.Setenv("ACCOUNT_MANAGER_USER_CACHE_PREFIX", "account_manager:test_user")
 	t.Setenv("ACCOUNT_MANAGER_ENV", "staging")
+	t.Setenv("ACCOUNT_MANAGER_ALLOW_IMMEDIATE_BRAND_ACCOUNTS", "true")
 	t.Setenv("ACCOUNT_MANAGER_VERSION", "2026.06.01+test")
 	t.Setenv("ACCOUNT_MANAGER_LOG_LEVEL", "debug")
 	t.Setenv("ACCOUNT_MANAGER_LOG_DEVELOPMENT", "true")
@@ -143,6 +144,17 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	}
 	if cfg.LogEnv != "staging" || cfg.LogVersion != "2026.06.01+test" || cfg.LogLevel != "debug" || !cfg.LogDevelopment {
 		t.Fatalf("unexpected logging config: %+v", cfg)
+	}
+	if !cfg.AllowImmediateBrandAccounts {
+		t.Fatal("expected staging immediate Brand Cloud account provisioning to be enabled")
+	}
+	t.Setenv("ACCOUNT_MANAGER_ENV", "production")
+	productionCfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if productionCfg.AllowImmediateBrandAccounts {
+		t.Fatal("production must ignore immediate Brand Cloud account provisioning")
 	}
 }
 

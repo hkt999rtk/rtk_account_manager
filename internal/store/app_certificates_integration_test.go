@@ -43,7 +43,7 @@ func TestAppCertificateCreateRotatesActiveCertificate(t *testing.T) {
 	if active.ID != first.ID || active.FingerprintSHA256 != "fingerprint-1" {
 		t.Fatalf("unexpected first active certificate: %+v", active)
 	}
-	if err := env.store.AuthorizeActiveAppCertificateForSubject(ctx, "platform_user", registered.User.ID, "FINGERPRINT-1", now); err != nil {
+	if err := env.store.AuthorizeActiveAppCertificateForSubject(ctx, "user", registered.User.ID, "FINGERPRINT-1", now); err != nil {
 		t.Fatalf("authorize first active certificate: %v", err)
 	}
 
@@ -69,10 +69,10 @@ func TestAppCertificateCreateRotatesActiveCertificate(t *testing.T) {
 	if active.ID != second.ID || active.FingerprintSHA256 != "fingerprint-2" {
 		t.Fatalf("unexpected rotated active certificate: %+v", active)
 	}
-	if err := env.store.AuthorizeActiveAppCertificateForSubject(ctx, "platform_user", registered.User.ID, "fingerprint-1", now); !errors.Is(err, ErrNotFound) {
+	if err := env.store.AuthorizeActiveAppCertificateForSubject(ctx, "user", registered.User.ID, "fingerprint-1", now); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("authorize revoked certificate error = %v, want ErrNotFound", err)
 	}
-	if err := env.store.AuthorizeActiveAppCertificateForSubject(ctx, "platform_user", registered.User.ID, "fingerprint-2", now); err != nil {
+	if err := env.store.AuthorizeActiveAppCertificateForSubject(ctx, "user", registered.User.ID, "fingerprint-2", now); err != nil {
 		t.Fatalf("authorize rotated active certificate: %v", err)
 	}
 

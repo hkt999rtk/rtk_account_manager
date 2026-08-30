@@ -141,6 +141,9 @@ func (s *Server) signup(c *gin.Context) {
 	if !s.allowSignup(c, email) {
 		return
 	}
+	if !s.requireEmailOutbox(c) {
+		return
+	}
 	pendingSecret, err := auth.RandomToken()
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not initialize pending account")
@@ -151,21 +154,36 @@ func (s *Server) signup(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not initialize pending account")
 		return
 	}
+	token, expiresAt, err := s.newAuthToken("email_verification")
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue verification token")
+		return
+	}
+	outbox := authTokenEmailOutbox(email, "email_verification", token, expiresAt)
 	result, err := s.store.SignupDeveloper(c.Request.Context(), store.DeveloperSignupInput{
 		Email:                     email,
 		PasswordHash:              hash,
 		SignupPendingVerification: true,
+		VerificationTokenHash:     auth.HashToken(token),
+		VerificationExpiresAt:     expiresAt,
+		VerificationEmail:         &outbox,
 	})
+	resumed := false
 	if errors.Is(err, store.ErrConflict) {
+		resumed = true
 		result, err = s.store.ResumeExpiredDeveloperSignup(c.Request.Context(), email)
 	}
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	if _, _, err := s.issueAuthToken(c, result.User.ID, result.User.Email, "email_verification"); err != nil {
-		writeError(c, http.StatusInternalServerError, "email_enqueue_failed", "Could not queue verification email")
-		return
+	if resumed {
+		if _, _, err := s.issueAuthToken(c, result.User.ID, result.User.Email, "email_verification"); err != nil {
+			writeError(c, http.StatusInternalServerError, "email_enqueue_failed", "Could not queue verification email")
+			return
+		}
+	} else {
+		s.notifyAuthTokenQueued(AuthTokenDelivery{Purpose: "email_verification", Email: email, Token: token, ExpiresAt: expiresAt})
 	}
 	c.JSON(http.StatusAccepted, signupResponse{User: result.User, BrandCloud: result.BrandCloud, Organization: result.BrandCloud})
 }

@@ -46,7 +46,7 @@ type AppCertificateCreateInput struct {
 }
 
 func (s *Store) GetValidAppCertificateForUser(ctx context.Context, userID string, now time.Time) (model.AppCertificate, error) {
-	return s.GetValidAppCertificateForSubject(ctx, "platform_user", userID, now)
+	return s.GetValidAppCertificateForSubject(ctx, "user", userID, now)
 }
 
 func (s *Store) GetValidAppCertificateForSubject(ctx context.Context, subjectType, subjectID string, now time.Time) (model.AppCertificate, error) {
@@ -89,7 +89,7 @@ func (s *Store) CreateAppCertificate(ctx context.Context, in AppCertificateCreat
 	subjectType := in.SubjectType
 	subjectID := in.SubjectID
 	if subjectType == "" {
-		subjectType = "platform_user"
+		subjectType = "user"
 	}
 	if subjectID == "" {
 		subjectID = in.UserID
@@ -124,29 +124,6 @@ func (s *Store) CreateAppCertificate(ctx context.Context, in AppCertificateCreat
 		return model.AppCertificate{}, err
 	}
 	return cert, nil
-}
-
-func (s *Store) RevokeValidAppCertificatesForBrandCloudUser(ctx context.Context, brandCloudID, brandCloudUserID string) (int64, error) {
-	tag, err := s.db.Exec(ctx, `
-		UPDATE app_certificates ac
-		SET revoked_at = COALESCE(ac.revoked_at, now()),
-		    updated_at = now()
-		FROM brand_cloud_users bcu
-		LEFT JOIN users u ON u.email = bcu.email
-		WHERE bcu.id = $1
-		  AND bcu.brand_cloud_id = $2
-		  AND (
-		    (ac.subject_type = 'brand_cloud_user' AND ac.subject_id = bcu.id::text)
-		    OR (ac.subject_type = 'platform_user' AND u.id IS NOT NULL AND ac.subject_id = u.id::text)
-		  )
-		  AND ac.revoked_at IS NULL
-		  AND ac.not_before <= now()
-		  AND ac.not_after > now()
-	`, brandCloudUserID, brandCloudID)
-	if err != nil {
-		return 0, err
-	}
-	return tag.RowsAffected(), nil
 }
 
 type appCertificateRow interface {
