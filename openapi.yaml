@@ -7235,14 +7235,14 @@ components:
       uniqueItems: true
       items:
         type: string
-        enum: [mqtt, video_streaming, video_storage]
+        enum: [mqtt, iot_shadow, video_streaming, video_storage]
     NonEmptyServiceOptions:
       type: array
       minItems: 1
       uniqueItems: true
       items:
         type: string
-        enum: [mqtt, video_streaming, video_storage]
+        enum: [mqtt, iot_shadow, video_streaming, video_storage]
     DeviceStatus:
       type: string
       enum: [unknown, online, offline, disabled]

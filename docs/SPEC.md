@@ -1824,12 +1824,16 @@ Device categories, service options, and activation scope:
 
 Account-manager device categories (`ip_camera`, `mqtt_device`, and `generic`)
 are product registry categories. They are not device service ACLs and they must
-not be used to infer whether MQTT, WebRTC/video streaming, or video storage is
-available. Service access is controlled by canonical `service_options` such as
-`mqtt`, `video_streaming`, and `video_storage`. Those options are an explicit
-device item profile, factory policy, Claim Token, or provisioning setting; they
-are not derived from registry category, `device_type`, manufacturer, model, or
-metadata.
+not be used to infer whether MQTT, IoT Shadow, WebRTC/video streaming, or video
+storage is available. Service access is controlled by canonical
+`service_options`: `mqtt`, `iot_shadow`, `video_streaming`, and
+`video_storage`. Those options are an explicit device item profile, factory
+policy, Claim Token, or provisioning setting; they are not derived from
+registry category, `device_type`, manufacturer, model, or metadata.
+
+`iot_shadow` is independently configurable from `mqtt`. HTTP Shadow requires
+`iot_shadow`; general MQTT transport requires `mqtt`; MQTT Shadow requires both
+options. Neither option may be inferred from the other.
 
 Device activation is one lifecycle operation for the mapped device identity.
 There is no separate MQTT activation, WebRTC activation, or video-storage
