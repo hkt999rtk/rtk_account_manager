@@ -417,6 +417,11 @@ func (s *Store) ProvisionBrandCloudAccount(ctx context.Context, actorUserID, org
 	if err != nil {
 		return BrandCloudAccountResult{}, err
 	}
+	if in.ActivationMode == "immediate" {
+		if _, err := tx.Exec(ctx, `INSERT INTO role_assignments (role_id,actor_type,actor_id,scope_type,scope_id,organization_id,created_by) SELECT id,'user',$1,'organization',$2,$3,$4 FROM roles WHERE name=$5 AND disabled_at IS NULL ON CONFLICT DO NOTHING`, user.ID, orgID, orgID, actorUserID, in.Role); err != nil {
+			return BrandCloudAccountResult{}, err
+		}
+	}
 
 	if in.ActivationMode == "email" {
 		if in.ActivationTokenHash == "" || in.ActivationExpiresAt.IsZero() || in.ActivationEmail == nil {
