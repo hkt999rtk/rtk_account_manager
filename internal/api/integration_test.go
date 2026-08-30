@@ -2511,6 +2511,13 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 	if loginRes.Code != http.StatusOK {
 		t.Fatalf("global login status=%d body=%s", loginRes.Code, loginRes.Body.String())
 	}
+	canResolveClaim, err := store.New(env.db).HasPermission(ctx, created.User.ID, brand.BrandCloud.ID, "claim.resolve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !canResolveClaim {
+		t.Fatal("Brand Cloud member role did not create its organization-scoped ACL assignment")
+	}
 	tenantLogin := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/rtk-brand/auth/login", map[string]any{"email": created.User.Email, "password": "initial-password123"}, "")
 	if tenantLogin.Code != http.StatusNotFound {
 		t.Fatalf("retired tenant login status=%d", tenantLogin.Code)
