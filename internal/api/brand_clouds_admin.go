@@ -53,8 +53,8 @@ type deviceItemProfilesResponse struct {
 }
 
 type brandCloudUsersResponse struct {
-	Users      []model.Member `json:"users"`
-	Pagination store.Page     `json:"pagination"`
+	Users      []model.BrandCloudAccountListItem `json:"users"`
+	Pagination store.Page                        `json:"pagination"`
 }
 
 type brandCloudUserResponse struct {
@@ -401,7 +401,7 @@ func (s *Server) listBrandCloudUsers(c *gin.Context) {
 		writeStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, brandCloudUsersResponse{Users: page.Members, Pagination: page.Page})
+	c.JSON(http.StatusOK, brandCloudUsersResponse{Users: page.Accounts, Pagination: page.Page})
 }
 
 func (s *Server) disableBrandCloudUser(c *gin.Context) {

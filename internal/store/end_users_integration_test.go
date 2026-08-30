@@ -30,6 +30,24 @@ func TestEndUserPersistenceErrorPaths(t *testing.T) {
 	if _, err := env.store.GetEndUserPassword(ctx, "missing-consumer@example.com"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected missing end user password ErrNotFound, got %v", err)
 	}
+	if _, err := env.store.GetBrandCloudEndUser(ctx, "00000000-0000-0000-0000-000000000000", first.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing Brand Cloud end user ErrNotFound, got %v", err)
+	}
+	owner, err := env.store.Register(ctx, RegisterInput{Email: "brand-link-owner@example.com", PasswordHash: "hash", OrganizationName: "Brand Link Owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	brand, err := env.store.CreateBrandCloud(ctx, owner.User.ID, BrandCloudInput{Name: "End User Link Cloud"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `INSERT INTO brand_cloud_end_users (brand_cloud_id, end_user_id) VALUES ($1, $2)`, brand.ID, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	link, err := env.store.GetBrandCloudEndUser(ctx, brand.ID, first.ID)
+	if err != nil || link.BrandCloudID != brand.ID || link.EndUserID != first.ID {
+		t.Fatalf("Brand Cloud end user lookup = %+v, %v", link, err)
+	}
 
 	second, err := env.store.CreateEndUser(ctx, EndUserCreateInput{
 		Email:        "consumer-store-two@example.com",

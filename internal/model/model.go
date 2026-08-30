@@ -440,6 +440,12 @@ type Member struct {
 	DisabledAt     *time.Time `json:"disabled_at,omitempty"`
 }
 
+type BrandCloudAccountListItem struct {
+	Member
+	EmailVerified             bool `json:"email_verified"`
+	SignupPendingVerification bool `json:"signup_pending_verification"`
+}
+
 type BrandCloudUser struct {
 	ID                        string     `json:"id"`
 	BrandCloudID              string     `json:"brand_cloud_id"`
