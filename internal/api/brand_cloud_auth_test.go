@@ -16,7 +16,7 @@ func TestBrandCloudContextHelpers(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c := &gin.Context{}
 
-	if got := currentSubjectType(c); got != auth.SubjectTypePlatformUser {
+	if got := currentSubjectType(c); got != auth.SubjectTypeUser {
 		t.Fatalf("expected default platform subject, got %q", got)
 	}
 	if got := currentBrandCloudUserID(c); got != "" {

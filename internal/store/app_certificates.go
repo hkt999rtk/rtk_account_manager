@@ -46,7 +46,7 @@ type AppCertificateCreateInput struct {
 }
 
 func (s *Store) GetValidAppCertificateForUser(ctx context.Context, userID string, now time.Time) (model.AppCertificate, error) {
-	return s.GetValidAppCertificateForSubject(ctx, "platform_user", userID, now)
+	return s.GetValidAppCertificateForSubject(ctx, "user", userID, now)
 }
 
 func (s *Store) GetValidAppCertificateForSubject(ctx context.Context, subjectType, subjectID string, now time.Time) (model.AppCertificate, error) {
@@ -89,7 +89,7 @@ func (s *Store) CreateAppCertificate(ctx context.Context, in AppCertificateCreat
 	subjectType := in.SubjectType
 	subjectID := in.SubjectID
 	if subjectType == "" {
-		subjectType = "platform_user"
+		subjectType = "user"
 	}
 	if subjectID == "" {
 		subjectID = in.UserID

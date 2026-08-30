@@ -60,7 +60,7 @@ func TestPlatformTokenClaimsDefaultToPlatformSubject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claims.SubjectType != SubjectTypePlatformUser ||
+	if claims.SubjectType != SubjectTypeUser ||
 		claims.UserID != "platform-user-1" ||
 		claims.BrandCloudUserID != "" ||
 		claims.BrandCloudID != "" ||

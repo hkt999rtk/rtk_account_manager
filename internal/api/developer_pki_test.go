@@ -59,7 +59,7 @@ func TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests(t *testing.T)
 		{"member role", &developerPKIHandlerStore{member: model.Member{Role: model.RoleMember}}, `{}`, http.StatusForbidden},
 		{"invalid JSON", &developerPKIHandlerStore{member: model.Member{Role: model.RoleOwner}}, `{`, http.StatusBadRequest},
 		{"invalid target", &developerPKIHandlerStore{member: model.Member{Role: model.RoleOwner}}, `{"target_type":"other","target_id":"id","csr_pem":"csr"}`, http.StatusBadRequest},
-		{"brand user not found", &developerPKIHandlerStore{member: model.Member{Role: model.RoleAdmin}, userErr: store.ErrNotFound}, `{"target_type":"brand_cloud_user","target_id":"id","csr_pem":"csr"}`, http.StatusNotFound},
+		{"invalid global user CSR", &developerPKIHandlerStore{member: model.Member{Role: model.RoleAdmin}}, `{"target_type":"user","target_id":"id","csr_pem":"csr"}`, http.StatusBadRequest},
 		{"end user lookup unavailable", &developerPKIHandlerStore{member: model.Member{Role: model.RoleOwner}}, `{"target_type":"end_user","target_id":"id","csr_pem":"csr"}`, http.StatusServiceUnavailable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

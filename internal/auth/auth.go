@@ -26,7 +26,7 @@ const (
 type SubjectType string
 
 const (
-	SubjectTypePlatformUser   SubjectType = "platform_user"
+	SubjectTypeUser           SubjectType = "user"
 	SubjectTypeBrandCloudUser SubjectType = "brand_cloud_user"
 	SubjectTypeEndUser        SubjectType = "end_user"
 )
@@ -103,11 +103,11 @@ func RandomToken() (string, error) {
 }
 
 func (s *Service) IssueAccessToken(userID string) (string, time.Time, error) {
-	return s.issuePlatformUser(userID, TokenKindAccess, s.accessSecret, s.accessSigner, s.accessTTL)
+	return s.issueUser(userID, TokenKindAccess, s.accessSecret, s.accessSigner, s.accessTTL)
 }
 
 func (s *Service) IssueRefreshToken(userID string) (string, time.Time, error) {
-	return s.issuePlatformUser(userID, TokenKindRefresh, s.refreshSecret, s.refreshSigner, s.refreshTTL)
+	return s.issueUser(userID, TokenKindRefresh, s.refreshSecret, s.refreshSigner, s.refreshTTL)
 }
 
 func (s *Service) IssueBrandCloudAccessToken(userID, brandCloudUserID, brandCloudID, tenantSlug string) (string, time.Time, error) {
@@ -134,10 +134,10 @@ func (s *Service) ParseRefreshToken(tokenString string) (*Claims, error) {
 	return s.parse(tokenString, TokenKindRefresh, s.refreshSecret, s.refreshSigner)
 }
 
-func (s *Service) issuePlatformUser(userID string, kind TokenKind, secret []byte, signer TokenSigner, ttl time.Duration) (string, time.Time, error) {
+func (s *Service) issueUser(userID string, kind TokenKind, secret []byte, signer TokenSigner, ttl time.Duration) (string, time.Time, error) {
 	return s.issue(Claims{
 		UserID:      userID,
-		SubjectType: SubjectTypePlatformUser,
+		SubjectType: SubjectTypeUser,
 	}, userID, kind, secret, signer, ttl)
 }
 
@@ -165,7 +165,7 @@ func (s *Service) issue(claims Claims, subject string, kind TokenKind, secret []
 		return "", time.Time{}, err
 	}
 	if claims.SubjectType == "" {
-		claims.SubjectType = SubjectTypePlatformUser
+		claims.SubjectType = SubjectTypeUser
 	}
 	claims.Kind = kind
 	claims.RegisteredClaims = jwt.RegisteredClaims{
@@ -205,7 +205,7 @@ func (s *Service) parse(tokenString string, expectedKind TokenKind, secret []byt
 		return nil, fmt.Errorf("invalid token kind")
 	}
 	if claims.SubjectType == "" {
-		claims.SubjectType = SubjectTypePlatformUser
+		claims.SubjectType = SubjectTypeUser
 	}
 	return claims, nil
 }

@@ -57,6 +57,14 @@ func (s *Store) SignupDeveloper(ctx context.Context, in DeveloperSignupInput) (D
 	}); err != nil {
 		return DeveloperSignupResult{}, err
 	}
+	if in.VerificationEmail != nil {
+		if in.VerificationTokenHash == "" || in.VerificationExpiresAt.IsZero() {
+			return DeveloperSignupResult{}, errors.New("verification token and expiry are required")
+		}
+		if err := s.createAuthTokenForSubjectWithEmailTx(ctx, tx, "user", user.ID, user.ID, "email_verification", "", in.VerificationTokenHash, in.VerificationExpiresAt, in.VerificationEmail); err != nil {
+			return DeveloperSignupResult{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return DeveloperSignupResult{}, err
 	}

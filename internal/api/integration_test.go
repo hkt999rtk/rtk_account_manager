@@ -176,18 +176,18 @@ func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing
 	if createRes.Code != http.StatusCreated {
 		t.Fatalf("email owner create status = %d: %s", createRes.Code, createRes.Body.String())
 	}
-	created := decodeBody[brandCloudUserBody](t, createRes)
-	if created.BrandCloudUser.EmailVerified || !created.BrandCloudUser.SignupPendingVerification {
+	created := decodeBody[brandCloudAccountBody](t, createRes)
+	if created.User.EmailVerified || !created.User.SignupPendingVerification || created.Member.Role != "owner" || created.Member.DisabledAt == nil {
 		t.Fatalf("email owner did not start pending: %+v", created)
 	}
 	duplicateRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
 		"email": "imap-test01+load-run-b01@realtekconnect.com", "display_name": "Load Owner",
 		"role": "owner", "activation_mode": "email",
 	}, admin.Tokens.AccessToken)
-	if duplicateRes.Code != http.StatusConflict {
-		t.Fatalf("duplicate email activation status = %d, want 409", duplicateRes.Code)
+	if duplicateRes.Code != http.StatusOK {
+		t.Fatalf("existing global owner assignment status = %d, want 200", duplicateRes.Code)
 	}
-	beforeLogin := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/load-run-b01/auth/login", map[string]any{
+	beforeLogin := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
 		"email": "imap-test01+load-run-b01@realtekconnect.com", "password": "not-activated",
 	}, "")
 	if beforeLogin.Code != http.StatusUnauthorized {
@@ -197,25 +197,21 @@ func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing
 	if err := env.db.QueryRow(ctx, `
 		SELECT payload_nonce, payload_ciphertext
 		FROM email_outbox
-		WHERE message_type = 'brand_cloud_user_activation'
-	`).Scan(&nonce, &ciphertext); err != nil {
+			WHERE message_type = 'email_verification'
+			ORDER BY created_at DESC
+			LIMIT 1
+		`).Scan(&nonce, &ciphertext); err != nil {
 		t.Fatal(err)
 	}
 	payload, err := cipher.Decrypt(nonce, ciphertext)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if payload.TenantSlug != "load-run-b01" || payload.RecipientEmail != "imap-test01+load-run-b01@realtekconnect.com" || payload.Token == "" {
+	if payload.OrganizationID != brand.BrandCloud.ID || payload.OrganizationName != brand.BrandCloud.Name || payload.RecipientEmail != "imap-test01+load-run-b01@realtekconnect.com" || payload.Token == "" {
 		t.Fatalf("activation outbox payload = %+v", payload)
 	}
-	wrongTenant := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/wrong-tenant/auth/activate", map[string]any{
-		"token": payload.Token, "password": "activated-password123",
-	}, "")
-	if wrongTenant.Code != http.StatusBadRequest {
-		t.Fatalf("wrong tenant activation status = %d, want 400", wrongTenant.Code)
-	}
-	activateRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/load-run-b01/auth/activate", map[string]any{
-		"token": payload.Token, "password": "activated-password123",
+	activateRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": payload.Token, "new_password": "activated-password123",
 	}, "")
 	if activateRes.Code != http.StatusOK {
 		t.Fatalf("owner activation status = %d: %s", activateRes.Code, activateRes.Body.String())
@@ -224,17 +220,22 @@ func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing
 	if !activated.User.EmailVerified || activated.User.SignupPendingVerification || activated.Tokens.AccessToken == "" {
 		t.Fatalf("activated owner response = %+v", activated)
 	}
-	replay := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/load-run-b01/auth/activate", map[string]any{
-		"token": payload.Token, "password": "another-password123",
+	replay := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": payload.Token, "new_password": "another-password123",
 	}, "")
 	if replay.Code != http.StatusBadRequest || strings.Contains(replay.Body.String(), payload.Token) {
 		t.Fatalf("replay status/body = %d/%s", replay.Code, replay.Body.String())
 	}
-	passwordLogin := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/load-run-b01/auth/login", map[string]any{
+	passwordLogin := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
 		"email": "imap-test01+load-run-b01@realtekconnect.com", "password": "activated-password123",
 	}, "")
 	if passwordLogin.Code != http.StatusOK {
 		t.Fatalf("activated owner password login status = %d: %s", passwordLogin.Code, passwordLogin.Body.String())
+	}
+	login := decodeBody[tokenBody](t, passwordLogin)
+	meRes := performJSON(env.router, http.MethodGet, "/v1/me", nil, login.Tokens.AccessToken)
+	if meRes.Code != http.StatusOK || !strings.Contains(meRes.Body.String(), `"role":"owner"`) || !strings.Contains(meRes.Body.String(), brand.BrandCloud.ID) {
+		t.Fatalf("global owner /v1/me status/body = %d/%s", meRes.Code, meRes.Body.String())
 	}
 
 	expiredCreate := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
@@ -247,7 +248,7 @@ func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing
 	if err := env.db.QueryRow(ctx, `
 		SELECT payload_nonce, payload_ciphertext
 		FROM email_outbox
-		WHERE message_type = 'brand_cloud_user_activation'
+			WHERE message_type = 'email_verification'
 		ORDER BY created_at DESC
 		LIMIT 1
 	`).Scan(&nonce, &ciphertext); err != nil {
@@ -260,8 +261,8 @@ func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing
 	if _, err := env.db.Exec(ctx, `UPDATE auth_tokens SET expires_at = now() - interval '1 minute' WHERE token_hash = $1`, auth.HashToken(expiredPayload.Token)); err != nil {
 		t.Fatal(err)
 	}
-	expiredActivate := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/load-run-b01/auth/activate", map[string]any{
-		"token": expiredPayload.Token, "password": "expired-password123",
+	expiredActivate := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": expiredPayload.Token, "new_password": "expired-password123",
 	}, "")
 	if expiredActivate.Code != http.StatusBadRequest {
 		t.Fatalf("expired activation status = %d, want 400", expiredActivate.Code)
@@ -579,7 +580,7 @@ func TestIntegrationInternalAppTokenAuthorization(t *testing.T) {
 	now := time.Now().UTC()
 	for index, fingerprint := range []string{"app-authz-fingerprint-old", "app-authz-fingerprint-current"} {
 		if _, err := repository.CreateAppCertificate(ctx, store.AppCertificateCreateInput{
-			UserID: owner.User.ID, SubjectType: "platform_user", SubjectID: owner.User.ID,
+			UserID: owner.User.ID, SubjectType: "user", SubjectID: owner.User.ID,
 			Subject: "app-user:" + owner.User.ID, CSRSHA256: fmt.Sprintf("app-authz-csr-%d", index),
 			CertificatePEM: fmt.Sprintf("app-authz-cert-%d", index), CertificateChainPEM: "app-authz-chain",
 			FingerprintSHA256: fingerprint, SerialNumber: fmt.Sprintf("app-authz-serial-%d", index),
@@ -601,49 +602,13 @@ func TestIntegrationInternalAppTokenAuthorization(t *testing.T) {
 		t.Fatalf("expected revoked certificate authorization 403, got %d: %s", revokedFingerprintRes.Code, revokedFingerprintRes.Body.String())
 	}
 
-	brand := createBrandCloudForTest(t, env, admin.Tokens.AccessToken, "App Authz Brand", "app-authz-brand")
-	brandUserRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email":    "app-authz-brand@example.com",
-		"password": "brand-password123",
-		"role":     "admin",
-	}, admin.Tokens.AccessToken)
-	if brandUserRes.Code != http.StatusCreated {
-		t.Fatalf("expected brand cloud user create 201, got %d: %s", brandUserRes.Code, brandUserRes.Body.String())
-	}
-	brandUser := decodeBody[brandCloudUserBody](t, brandUserRes)
-	brandLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/app-authz-brand/auth/login", map[string]any{
-		"email":    "app-authz-brand@example.com",
-		"password": "brand-password123",
-	}, "")
-	if brandLoginRes.Code != http.StatusOK {
-		t.Fatalf("expected brand login 200, got %d: %s", brandLoginRes.Code, brandLoginRes.Body.String())
-	}
-	brandLogin := decodeBody[brandCloudLoginBody](t, brandLoginRes)
-	brandDeviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+brand.BrandCloud.ID+"/devices", map[string]any{
-		"name":     "app-authz-brand-camera",
-		"category": "ip_camera",
-		"metadata": map[string]any{
-			model.DeviceMetadataVideoCloudDevid: "video-app-authz-brand-1",
-		},
-	}, brandLogin.Tokens.AccessToken)
-	if brandDeviceRes.Code != http.StatusCreated {
-		t.Fatalf("expected brand device create 201, got %d: %s", brandDeviceRes.Code, brandDeviceRes.Body.String())
-	}
-	brandAllowedRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
+	legacyBrandSubjectRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
 		"subject_type":        "brand_cloud_user",
-		"brand_cloud_user_id": brandUser.BrandCloudUser.ID,
-		"devid":               "video-app-authz-brand-1",
+		"brand_cloud_user_id": "00000000-0000-0000-0000-000000000001",
+		"devid":               "video-app-authz-1",
 	}, "internal-authz-token")
-	if brandAllowedRes.Code != http.StatusOK {
-		t.Fatalf("expected brand-cloud user authorization 200, got %d: %s", brandAllowedRes.Code, brandAllowedRes.Body.String())
-	}
-	brandMissingRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
-		"subject_type":        "brand_cloud_user",
-		"brand_cloud_user_id": brandUser.BrandCloudUser.ID,
-		"devid":               "missing-brand-video-device",
-	}, "internal-authz-token")
-	if brandMissingRes.Code != http.StatusForbidden {
-		t.Fatalf("expected missing brand-cloud device authorization 403, got %d: %s", brandMissingRes.Code, brandMissingRes.Body.String())
+	if legacyBrandSubjectRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected retired tenant subject authorization 400, got %d: %s", legacyBrandSubjectRes.Code, legacyBrandSubjectRes.Body.String())
 	}
 
 	outsiderRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
@@ -1409,14 +1374,14 @@ func TestIntegrationEmailSignInValidationPaths(t *testing.T) {
 	}
 
 	malformedBrandSignInRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/missing/auth/sign-in", "not-json", "")
-	if malformedBrandSignInRes.Code != http.StatusBadRequest {
-		t.Fatalf("expected malformed brand sign-in 400, got %d: %s", malformedBrandSignInRes.Code, malformedBrandSignInRes.Body.String())
+	if malformedBrandSignInRes.Code != http.StatusNotFound {
+		t.Fatalf("expected retired brand sign-in 404, got %d: %s", malformedBrandSignInRes.Code, malformedBrandSignInRes.Body.String())
 	}
 	invalidBrandActivationTokenRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/missing/auth/login/activate", map[string]any{
 		"token": "not-a-valid-brand-token",
 	}, "")
-	if invalidBrandActivationTokenRes.Code != http.StatusBadRequest {
-		t.Fatalf("expected invalid brand activation token 400, got %d: %s", invalidBrandActivationTokenRes.Code, invalidBrandActivationTokenRes.Body.String())
+	if invalidBrandActivationTokenRes.Code != http.StatusNotFound {
+		t.Fatalf("expected retired brand activation 404, got %d: %s", invalidBrandActivationTokenRes.Code, invalidBrandActivationTokenRes.Body.String())
 	}
 
 	rateLimited := registerUser(t, env.router, "signin-rate-limit@example.com", "Sign In Rate Limit Org")
@@ -1677,8 +1642,8 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 	deliveryFailureRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
 		"email": "delivery-failure-developer@example.com",
 	}, "")
-	if deliveryFailureRes.Code != http.StatusInternalServerError {
-		t.Fatalf("expected token delivery failure 500, got %d: %s", deliveryFailureRes.Code, deliveryFailureRes.Body.String())
+	if deliveryFailureRes.Code != http.StatusAccepted {
+		t.Fatalf("expected transactional outbox signup 202, got %d: %s", deliveryFailureRes.Code, deliveryFailureRes.Body.String())
 	}
 	env.server.ConfigureEmailOutbox(env.store)
 
@@ -2022,7 +1987,7 @@ func TestIntegrationPlatformAdminMissingBrandResourcesReturnNotFound(t *testing.
 		"profile_key": "missing-profile", "display_name": "Missing Profile", "category": "ip_camera",
 		"ca_profile": "missing-ca", "issuer_profile": "missing-issuer", "service_options": []string{"video_streaming"},
 	}
-	userBody := map[string]any{"email": "missing-user@example.com", "password": "password123", "role": "member"}
+	userBody := map[string]any{"email": "missing-user@example.com", "role": "member", "activation_mode": "email"}
 	tests := []struct {
 		method string
 		path   string
@@ -2046,9 +2011,6 @@ func TestIntegrationPlatformAdminMissingBrandResourcesReturnNotFound(t *testing.
 	for _, tt := range tests {
 		res := performJSON(env.router, tt.method, tt.path, tt.body, admin.Tokens.AccessToken)
 		want := http.StatusNotFound
-		if strings.HasSuffix(tt.path, "/app-certificate/revoke") {
-			want = http.StatusOK
-		}
 		if res.Code != want {
 			t.Errorf("%s %s = %d, want %d: %s", tt.method, tt.path, res.Code, want, res.Body.String())
 		}
@@ -2148,13 +2110,13 @@ func TestIntegrationPlatformAdminBrandCloudLifecycle(t *testing.T) {
 
 	patchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/"+created.BrandCloud.ID, map[string]any{
 		"name":   "Realtek Connect Plus",
-		"status": "disabled",
+		"status": "active",
 	}, admin.Tokens.AccessToken)
 	if patchRes.Code != http.StatusOK {
 		t.Fatalf("expected brand cloud patch 200, got %d: %s", patchRes.Code, patchRes.Body.String())
 	}
 	patched := decodeBody[brandCloudBody](t, patchRes)
-	if patched.BrandCloud.Name != "Realtek Connect Plus" || patched.BrandCloud.Status != "disabled" {
+	if patched.BrandCloud.Name != "Realtek Connect Plus" || patched.BrandCloud.Status != "active" {
 		t.Fatalf("unexpected patched brand cloud: %+v", patched.BrandCloud)
 	}
 	missingPatchRes := performJSON(env.router, http.MethodPatch, "/v1/admin/brand-clouds/00000000-0000-0000-0000-000000000000", map[string]any{
@@ -2165,27 +2127,14 @@ func TestIntegrationPlatformAdminBrandCloudLifecycle(t *testing.T) {
 	}
 
 	brandUserRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+created.BrandCloud.ID+"/users", map[string]any{
-		"email":    owner.User.Email,
-		"password": "brand-owner-password123",
-		"role":     "owner",
+		"email": owner.User.Email, "role": "owner", "activation_mode": "email",
 	}, admin.Tokens.AccessToken)
-	if brandUserRes.Code != http.StatusCreated {
-		t.Fatalf("expected brand cloud user create 201, got %d: %s", brandUserRes.Code, brandUserRes.Body.String())
+	if brandUserRes.Code != http.StatusOK {
+		t.Fatalf("expected existing global user assignment 200, got %d: %s", brandUserRes.Code, brandUserRes.Body.String())
 	}
-	brandUser := decodeBody[brandCloudUserBody](t, brandUserRes)
-	memberRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+created.BrandCloud.ID+"/members", map[string]any{
-		"brand_cloud_user_id": brandUser.BrandCloudUser.ID,
-		"role":                "owner",
-	}, admin.Tokens.AccessToken)
-	if memberRes.Code != http.StatusCreated {
-		t.Fatalf("expected brand cloud member assignment 201, got %d: %s", memberRes.Code, memberRes.Body.String())
-	}
-	missingMemberRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/00000000-0000-0000-0000-000000000000/members", map[string]any{
-		"brand_cloud_user_id": brandUser.BrandCloudUser.ID,
-		"role":                "member",
-	}, admin.Tokens.AccessToken)
-	if missingMemberRes.Code != http.StatusNotFound {
-		t.Fatalf("expected missing brand cloud member assignment 404, got %d: %s", missingMemberRes.Code, missingMemberRes.Body.String())
+	account := decodeBody[brandCloudAccountBody](t, brandUserRes)
+	if account.User.ID != owner.User.ID || account.Member.Role != "owner" {
+		t.Fatalf("unexpected global owner assignment: %+v", account)
 	}
 
 	listRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds", nil, admin.Tokens.AccessToken)
@@ -2202,7 +2151,7 @@ func TestIntegrationPlatformAdminBrandCloudLifecycle(t *testing.T) {
 		t.Fatalf("expected audit list 200, got %d: %s", auditRes.Code, auditRes.Body.String())
 	}
 	audit := decodeBody[auditEventsBody](t, auditRes)
-	if len(audit.AuditEvents) < 3 {
+	if len(audit.AuditEvents) < 2 {
 		t.Fatalf("expected create/update/member audit events, got %+v", audit.AuditEvents)
 	}
 }
@@ -2532,456 +2481,55 @@ func TestIntegrationPlatformAdminCreatesProductionRunJWT(t *testing.T) {
 func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
-
 	admin := registerUser(t, env.router, "brand-user-root@example.com", "Root Org")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	brandRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
-		"name":        "RTK",
-		"tenant_slug": "rtk-brand",
-	}, admin.Tokens.AccessToken)
-	if brandRes.Code != http.StatusCreated {
-		t.Fatalf("expected brand cloud create 201, got %d: %s", brandRes.Code, brandRes.Body.String())
-	}
-	brand := decodeBody[brandCloudBody](t, brandRes)
-
-	nonAdmin := registerUser(t, env.router, "brand-user-non-admin@example.com", "Non Admin Org")
-	nonAdminRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email":        "rtk+001@users.example.com",
-		"password":     "initial-password123",
-		"display_name": "RTK User 001",
-		"role":         "member",
-	}, nonAdmin.Tokens.AccessToken)
-	if nonAdminRes.Code != http.StatusForbidden {
-		t.Fatalf("expected non-admin brand user create 403, got %d: %s", nonAdminRes.Code, nonAdminRes.Body.String())
-	}
-
+	env.server.ConfigureImmediateBrandAccountProvisioning(true)
+	brand := createBrandCloudForTest(t, env, admin.Tokens.AccessToken, "RTK", "rtk-brand")
 	createRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email":        "RTK+001@Users.Example.Com",
-		"password":     "initial-password123",
-		"display_name": "RTK User 001",
-		"role":         "member",
+		"email": "rtk+001@users.example.com", "password": "initial-password123", "display_name": "RTK User 001", "role": "member", "activation_mode": "immediate",
 	}, admin.Tokens.AccessToken)
 	if createRes.Code != http.StatusCreated {
-		t.Fatalf("expected brand user create 201, got %d: %s", createRes.Code, createRes.Body.String())
+		t.Fatalf("global user create status=%d body=%s", createRes.Code, createRes.Body.String())
 	}
-	created := decodeBody[brandCloudUserBody](t, createRes)
-	if created.Action != "created" || created.BrandCloudUser.Email != "rtk+001@users.example.com" || !created.BrandCloudUser.EmailVerified || created.BrandCloudUser.SignupPendingVerification || created.BrandCloudMember.Role != "member" {
-		t.Fatalf("unexpected created brand user response: %+v", created)
+	created := decodeBody[brandCloudAccountBody](t, createRes)
+	if !created.User.EmailVerified || created.User.SignupPendingVerification || created.Member.UserID != created.User.ID || created.Member.Role != "member" {
+		t.Fatalf("unexpected account result: %+v", created)
 	}
-
-	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
-		"email":    "rtk+001@users.example.com",
-		"password": "initial-password123",
-	}, "")
-	if loginRes.Code != http.StatusUnauthorized {
-		t.Fatalf("expected platform login to reject brand-cloud user, got %d: %s", loginRes.Code, loginRes.Body.String())
+	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{"email": created.User.Email, "password": "initial-password123"}, "")
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("global login status=%d body=%s", loginRes.Code, loginRes.Body.String())
 	}
-	brandLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/rtk-brand/auth/login", map[string]any{
-		"email":    "rtk+001@users.example.com",
-		"password": "initial-password123",
-	}, "")
-	if brandLoginRes.Code != http.StatusOK {
-		t.Fatalf("expected brand-cloud login 200, got %d: %s", brandLoginRes.Code, brandLoginRes.Body.String())
+	tenantLogin := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/rtk-brand/auth/login", map[string]any{"email": created.User.Email, "password": "initial-password123"}, "")
+	if tenantLogin.Code != http.StatusNotFound {
+		t.Fatalf("retired tenant login status=%d", tenantLogin.Code)
 	}
-	brandLogin := decodeBody[tokenBody](t, brandLoginRes)
-	if brandLogin.AppCertificate.Status != "csr_required" {
-		t.Fatalf("brand-cloud app certificate status = %q", brandLogin.AppCertificate.Status)
+	listRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", nil, admin.Tokens.AccessToken)
+	if listRes.Code != http.StatusOK || !strings.Contains(listRes.Body.String(), created.User.ID) {
+		t.Fatalf("membership list status/body=%d/%s", listRes.Code, listRes.Body.String())
 	}
-	brandAsEndUserRes := performJSON(env.router, http.MethodGet, "/v1/app/end-users/me", nil, brandLogin.Tokens.AccessToken)
-	if brandAsEndUserRes.Code != http.StatusNotFound {
-		t.Fatalf("expected brand-cloud token rejected by APP end-user route, got %d: %s", brandAsEndUserRes.Code, brandAsEndUserRes.Body.String())
-	}
-	issuer := &fakeAppCertificateIssuer{}
-	env.server.ConfigureAppCertificateIssuer(issuer)
-	brandCSRRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/rtk-brand/auth/login", map[string]any{
-		"email":       "rtk+001@users.example.com",
-		"password":    "initial-password123",
-		"app_csr_pem": generateTestCSR(t, "app-brand-cloud-user:"+created.BrandCloudUser.ID),
-	}, "")
-	if brandCSRRes.Code != http.StatusOK {
-		t.Fatalf("expected brand-cloud csr login 200, got %d: %s", brandCSRRes.Code, brandCSRRes.Body.String())
-	}
-	brandCSR := decodeBody[tokenBody](t, brandCSRRes)
-	if brandCSR.AppCertificate.Status != "issued" || brandCSR.AppCertificate.FingerprintSHA256 == "" {
-		t.Fatalf("brand-cloud app certificate response = %+v", brandCSR.AppCertificate)
-	}
-	revokeAppCertRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users/"+created.BrandCloudUser.ID+"/app-certificate/revoke", nil, admin.Tokens.AccessToken)
-	if revokeAppCertRes.Code != http.StatusOK {
-		t.Fatalf("expected app certificate revoke 200, got %d: %s", revokeAppCertRes.Code, revokeAppCertRes.Body.String())
-	}
-	brandLoginAfterRevokeRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/rtk-brand/auth/login", map[string]any{
-		"email":    "rtk+001@users.example.com",
-		"password": "initial-password123",
-	}, "")
-	if brandLoginAfterRevokeRes.Code != http.StatusOK {
-		t.Fatalf("expected brand-cloud login after app cert revoke 200, got %d: %s", brandLoginAfterRevokeRes.Code, brandLoginAfterRevokeRes.Body.String())
-	}
-	brandLoginAfterRevoke := decodeBody[tokenBody](t, brandLoginAfterRevokeRes)
-	if brandLoginAfterRevoke.AppCertificate.Status != "csr_required" {
-		t.Fatalf("expected csr_required after app cert revoke, got %+v", brandLoginAfterRevoke.AppCertificate)
-	}
-
-	if _, err := env.db.Exec(ctx, `UPDATE brand_cloud_users SET disabled_at = now() WHERE id = $1`, created.BrandCloudUser.ID); err != nil {
-		t.Fatal(err)
-	}
-	reassignRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email":        "rtk+001@users.example.com",
-		"password":     "ignored-password123",
-		"display_name": "RTK User 001 Reactivated",
-		"role":         "member",
-	}, admin.Tokens.AccessToken)
-	if reassignRes.Code != http.StatusOK {
-		t.Fatalf("expected existing brand user upsert 200, got %d: %s", reassignRes.Code, reassignRes.Body.String())
-	}
-	reassigned := decodeBody[brandCloudUserBody](t, reassignRes)
-	if reassigned.Action != "assigned" || reassigned.BrandCloudUser.DisabledAt != nil || reassigned.BrandCloudUser.DisplayName == nil || *reassigned.BrandCloudUser.DisplayName != "RTK User 001 Reactivated" {
-		t.Fatalf("unexpected reassigned brand user response: %+v", reassigned)
-	}
-	ignoredPasswordLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
-		"email":    "rtk+001@users.example.com",
-		"password": "ignored-password123",
-	}, "")
-	if ignoredPasswordLoginRes.Code != http.StatusUnauthorized {
-		t.Fatalf("expected ignored password login 401, got %d: %s", ignoredPasswordLoginRes.Code, ignoredPasswordLoginRes.Body.String())
-	}
-
-	rotateRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email":           "rtk+001@users.example.com",
-		"password":        "rotated-password123",
-		"role":            "member",
-		"rotate_password": true,
-	}, admin.Tokens.AccessToken)
-	if rotateRes.Code != http.StatusOK {
-		t.Fatalf("expected rotate existing brand user 200, got %d: %s", rotateRes.Code, rotateRes.Body.String())
-	}
-	rotatedLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/rtk-brand/auth/login", map[string]any{
-		"email":    "rtk+001@users.example.com",
-		"password": "rotated-password123",
-	}, "")
-	if rotatedLoginRes.Code != http.StatusOK {
-		t.Fatalf("expected rotated brand-cloud password login 200, got %d: %s", rotatedLoginRes.Code, rotatedLoginRes.Body.String())
-	}
-
-	listRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users?q=rtk%2B001", nil, admin.Tokens.AccessToken)
-	if listRes.Code != http.StatusOK {
-		t.Fatalf("expected brand user list 200, got %d: %s", listRes.Code, listRes.Body.String())
-	}
-	listed := decodeBody[brandCloudUsersBody](t, listRes)
-	if listed.Pagination.Total != 1 || len(listed.BrandCloudUsers) != 1 || listed.BrandCloudUsers[0].ID != created.BrandCloudUser.ID {
-		t.Fatalf("expected created brand user in list, got %+v", listed)
-	}
-
-	if _, err := env.db.Exec(ctx, `
-		UPDATE brand_cloud_users
-		SET email_verified = false, email_verified_at = NULL, signup_pending_verification = true, updated_at = now()
-		WHERE id = $1
-	`, created.BrandCloudUser.ID); err != nil {
-		t.Fatal(err)
-	}
-	pendingLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/rtk-brand/auth/login", map[string]any{
-		"email":    "rtk+001@users.example.com",
-		"password": "rotated-password123",
-	}, "")
-	if pendingLoginRes.Code != http.StatusUnauthorized {
-		t.Fatalf("expected pending brand-cloud user login 401, got %d: %s", pendingLoginRes.Code, pendingLoginRes.Body.String())
-	}
-	pendingListRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users?status=pending_verification", nil, admin.Tokens.AccessToken)
-	if pendingListRes.Code != http.StatusOK {
-		t.Fatalf("expected pending brand user list 200, got %d: %s", pendingListRes.Code, pendingListRes.Body.String())
-	}
-	pendingList := decodeBody[brandCloudUsersBody](t, pendingListRes)
-	if pendingList.Pagination.Total != 1 || len(pendingList.BrandCloudUsers) != 1 || !pendingList.BrandCloudUsers[0].SignupPendingVerification {
-		t.Fatalf("expected pending brand user in list, got %+v", pendingList)
-	}
-	approveRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users/"+created.BrandCloudUser.ID+"/approve", nil, admin.Tokens.AccessToken)
-	if approveRes.Code != http.StatusOK {
-		t.Fatalf("expected brand user approve 200, got %d: %s", approveRes.Code, approveRes.Body.String())
-	}
-	approved := decodeBody[brandCloudUserStateBody](t, approveRes)
-	if !approved.BrandCloudUser.EmailVerified || approved.BrandCloudUser.SignupPendingVerification || approved.BrandCloudUser.DisabledAt != nil {
-		t.Fatalf("expected approved brand user, got %+v", approved.BrandCloudUser)
-	}
-	approvedLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/rtk-brand/auth/login", map[string]any{
-		"email":    "rtk+001@users.example.com",
-		"password": "rotated-password123",
-	}, "")
-	if approvedLoginRes.Code != http.StatusOK {
-		t.Fatalf("expected approved brand-cloud user login 200, got %d: %s", approvedLoginRes.Code, approvedLoginRes.Body.String())
-	}
-
-	disableRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users/"+created.BrandCloudUser.ID+"/disable", nil, admin.Tokens.AccessToken)
+	disableRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users/"+created.User.ID+"/disable", nil, admin.Tokens.AccessToken)
 	if disableRes.Code != http.StatusOK {
-		t.Fatalf("expected brand user disable 200, got %d: %s", disableRes.Code, disableRes.Body.String())
-	}
-	disabled := decodeBody[brandCloudUserStateBody](t, disableRes)
-	if disabled.BrandCloudUser.DisabledAt == nil {
-		t.Fatalf("expected disabled brand user, got %+v", disabled.BrandCloudUser)
-	}
-	disabledLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/rtk-brand/auth/login", map[string]any{
-		"email":    "rtk+001@users.example.com",
-		"password": "rotated-password123",
-	}, "")
-	if disabledLoginRes.Code != http.StatusUnauthorized {
-		t.Fatalf("expected disabled brand-cloud user login 401, got %d: %s", disabledLoginRes.Code, disabledLoginRes.Body.String())
-	}
-	disabledListRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users?status=disabled", nil, admin.Tokens.AccessToken)
-	if disabledListRes.Code != http.StatusOK {
-		t.Fatalf("expected disabled brand user list 200, got %d: %s", disabledListRes.Code, disabledListRes.Body.String())
-	}
-	disabledList := decodeBody[brandCloudUsersBody](t, disabledListRes)
-	if disabledList.Pagination.Total != 1 || len(disabledList.BrandCloudUsers) != 1 || disabledList.BrandCloudUsers[0].DisabledAt == nil {
-		t.Fatalf("expected disabled brand user in disabled list, got %+v", disabledList)
-	}
-
-	enableRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users/"+created.BrandCloudUser.ID+"/enable", nil, admin.Tokens.AccessToken)
-	if enableRes.Code != http.StatusOK {
-		t.Fatalf("expected brand user enable 200, got %d: %s", enableRes.Code, enableRes.Body.String())
-	}
-	enabled := decodeBody[brandCloudUserStateBody](t, enableRes)
-	if enabled.BrandCloudUser.DisabledAt != nil {
-		t.Fatalf("expected enabled brand user, got %+v", enabled.BrandCloudUser)
-	}
-	enabledLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/rtk-brand/auth/login", map[string]any{
-		"email":    "rtk+001@users.example.com",
-		"password": "rotated-password123",
-	}, "")
-	if enabledLoginRes.Code != http.StatusOK {
-		t.Fatalf("expected enabled brand-cloud user login 200, got %d: %s", enabledLoginRes.Code, enabledLoginRes.Body.String())
-	}
-
-	deleteRes := performJSON(env.router, http.MethodDelete, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users/"+created.BrandCloudUser.ID, nil, admin.Tokens.AccessToken)
-	if deleteRes.Code != http.StatusNoContent {
-		t.Fatalf("expected brand user delete 204, got %d: %s", deleteRes.Code, deleteRes.Body.String())
-	}
-	deletedLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/rtk-brand/auth/login", map[string]any{
-		"email":    "rtk+001@users.example.com",
-		"password": "rotated-password123",
-	}, "")
-	if deletedLoginRes.Code != http.StatusUnauthorized {
-		t.Fatalf("expected soft-deleted brand-cloud user login 401, got %d: %s", deletedLoginRes.Code, deletedLoginRes.Body.String())
-	}
-
-	auditRes := performJSON(env.router, http.MethodGet, "/v1/admin/audit-events?subject_type=brand_cloud", nil, admin.Tokens.AccessToken)
-	if auditRes.Code != http.StatusOK {
-		t.Fatalf("expected audit event list 200, got %d: %s", auditRes.Code, auditRes.Body.String())
-	}
-	audit := decodeBody[auditEventsBody](t, auditRes)
-	if !hasAuditEventBody(audit.AuditEvents, "brand_cloud_user_created") || !hasAuditEventBody(audit.AuditEvents, "brand_cloud_user_assigned") {
-		t.Fatalf("expected brand cloud user audit events, got %+v", audit.AuditEvents)
-	}
-	userAuditRes := performJSON(env.router, http.MethodGet, "/v1/admin/audit-events?subject_type=brand_cloud_user", nil, admin.Tokens.AccessToken)
-	if userAuditRes.Code != http.StatusOK {
-		t.Fatalf("expected brand cloud user audit event list 200, got %d: %s", userAuditRes.Code, userAuditRes.Body.String())
-	}
-	userAudit := decodeBody[auditEventsBody](t, userAuditRes)
-	if !hasAuditEventBody(userAudit.AuditEvents, "brand_cloud_user_approved") || !hasAuditEventBody(userAudit.AuditEvents, "brand_cloud_user_disabled") || !hasAuditEventBody(userAudit.AuditEvents, "brand_cloud_user_enabled") || !hasAuditEventBody(userAudit.AuditEvents, "brand_cloud_user_deleted") {
-		t.Fatalf("expected brand cloud user lifecycle audit events, got %+v", userAudit.AuditEvents)
-	}
-	for _, event := range userAudit.AuditEvents {
-		if event.ActorUserID == nil || *event.ActorUserID != admin.User.ID ||
-			event.OrganizationID == nil || *event.OrganizationID != brand.BrandCloud.ID ||
-			event.SubjectType != "brand_cloud_user" || event.SubjectID != created.BrandCloudUser.ID {
-			t.Fatalf("brand-cloud user audit actor or subject is misattributed: %+v", event)
-		}
+		t.Fatalf("disable membership status=%d body=%s", disableRes.Code, disableRes.Body.String())
 	}
 }
 
 func TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug(t *testing.T) {
 	env := newIntegrationEnv(t)
-	ctx := context.Background()
-
-	admin := registerUser(t, env.router, "brand-scope-admin@example.com", "Brand Scope Admin")
-	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
-		t.Fatal(err)
-	}
-
-	acmeRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
-		"name":        "Acme Brand",
-		"tenant_slug": "acme",
-	}, admin.Tokens.AccessToken)
-	if acmeRes.Code != http.StatusCreated {
-		t.Fatalf("expected acme brand create 201, got %d: %s", acmeRes.Code, acmeRes.Body.String())
-	}
-	acme := decodeBody[brandCloudBody](t, acmeRes)
-	if acme.BrandCloud.TenantSlug != "acme" {
-		t.Fatalf("expected tenant slug acme, got %+v", acme.BrandCloud)
-	}
-
-	contosoRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
-		"name":        "Contoso Brand",
-		"tenant_slug": "contoso",
-	}, admin.Tokens.AccessToken)
-	if contosoRes.Code != http.StatusCreated {
-		t.Fatalf("expected contoso brand create 201, got %d: %s", contosoRes.Code, contosoRes.Body.String())
-	}
-	contoso := decodeBody[brandCloudBody](t, contosoRes)
-
-	for _, brand := range []brandCloudBody{acme, contoso} {
-		createRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-			"email":        "shared@users.example.com",
-			"password":     "brand-password123",
-			"display_name": "Shared User",
-			"role":         "member",
-		}, admin.Tokens.AccessToken)
-		if createRes.Code != http.StatusCreated {
-			t.Fatalf("expected brand user create 201 for %s, got %d: %s", brand.BrandCloud.TenantSlug, createRes.Code, createRes.Body.String())
-		}
-		created := decodeBody[brandCloudUserBody](t, createRes)
-		if created.BrandCloudUser.ID == "" || created.BrandCloudUser.BrandCloudID != brand.BrandCloud.ID || created.BrandCloudMember.Role != "member" {
-			t.Fatalf("unexpected brand-scoped user response for %s: %+v", brand.BrandCloud.TenantSlug, created)
+	for _, suffix := range []string{"login", "refresh", "logout", "activate", "sign-in", "login/activate"} {
+		res := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/acme/auth/"+suffix, map[string]any{}, "")
+		if res.Code != http.StatusNotFound {
+			t.Fatalf("retired tenant auth %s status=%d, want 404", suffix, res.Code)
 		}
 	}
-
-	platformLoginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
-		"email":    "shared@users.example.com",
-		"password": "brand-password123",
-	}, "")
-	if platformLoginRes.Code != http.StatusUnauthorized {
-		t.Fatalf("expected platform login to reject brand-cloud user, got %d: %s", platformLoginRes.Code, platformLoginRes.Body.String())
-	}
-
-	wrongSlugRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/acme/auth/login", map[string]any{
-		"email":    "shared@users.example.com",
-		"password": "wrong-password123",
-	}, "")
-	if wrongSlugRes.Code != http.StatusUnauthorized {
-		t.Fatalf("expected wrong password login 401, got %d: %s", wrongSlugRes.Code, wrongSlugRes.Body.String())
-	}
-
-	acmeLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/acme/auth/login", map[string]any{
-		"email":    "shared@users.example.com",
-		"password": "brand-password123",
-	}, "")
-	if acmeLoginRes.Code != http.StatusOK {
-		t.Fatalf("expected acme brand login 200, got %d: %s", acmeLoginRes.Code, acmeLoginRes.Body.String())
-	}
-	acmeLogin := decodeBody[brandCloudLoginBody](t, acmeLoginRes)
-	acmeClaims, err := env.server.auth.ParseAccessToken(acmeLogin.Tokens.AccessToken)
+	legacyToken, _, err := env.server.auth.IssueBrandCloudAccessToken("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002", "00000000-0000-0000-0000-000000000003", "acme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if acmeClaims.SubjectType != auth.SubjectTypeBrandCloudUser || acmeClaims.UserID != acmeLogin.User.ID || acmeClaims.BrandCloudID != acme.BrandCloud.ID || acmeClaims.TenantSlug != "acme" || acmeClaims.BrandCloudUserID == "" {
-		t.Fatalf("unexpected acme access token claims: %+v", acmeClaims)
-	}
-
-	acmeSignInRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/acme/auth/sign-in", map[string]any{
-		"email": "shared@users.example.com",
-	}, "")
-	if acmeSignInRes.Code != http.StatusAccepted {
-		t.Fatalf("expected acme sign-in 202, got %d: %s", acmeSignInRes.Code, acmeSignInRes.Body.String())
-	}
-	acmeLoginActivationToken := latestAuthToken(t, env.tokenObserver, "shared@users.example.com", "login_activation")
-	tenantMismatchRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/contoso/auth/login/activate", map[string]any{
-		"token": acmeLoginActivationToken,
-	}, "")
-	if tenantMismatchRes.Code != http.StatusBadRequest {
-		t.Fatalf("expected tenant-mismatched login activation 400, got %d: %s", tenantMismatchRes.Code, tenantMismatchRes.Body.String())
-	}
-	acmeActivateRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/acme/auth/login/activate", map[string]any{
-		"token": acmeLoginActivationToken,
-	}, "")
-	if acmeActivateRes.Code != http.StatusOK {
-		t.Fatalf("expected acme login activation 200 after mismatch attempt, got %d: %s", acmeActivateRes.Code, acmeActivateRes.Body.String())
-	}
-	acmeActivated := decodeBody[brandCloudLoginBody](t, acmeActivateRes)
-	acmeActivatedClaims, err := env.server.auth.ParseAccessToken(acmeActivated.Tokens.AccessToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if acmeActivatedClaims.SubjectType != auth.SubjectTypeBrandCloudUser || acmeActivatedClaims.TenantSlug != "acme" || acmeActivatedClaims.BrandCloudID != acme.BrandCloud.ID {
-		t.Fatalf("unexpected acme activation claims: %+v", acmeActivatedClaims)
-	}
-	replayBrandActivationRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/acme/auth/login/activate", map[string]any{
-		"token": acmeLoginActivationToken,
-	}, "")
-	if replayBrandActivationRes.Code != http.StatusBadRequest {
-		t.Fatalf("expected replayed brand activation token 400, got %d", replayBrandActivationRes.Code)
-	}
-
-	contosoLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/contoso/auth/login", map[string]any{
-		"email":    "shared@users.example.com",
-		"password": "brand-password123",
-	}, "")
-	if contosoLoginRes.Code != http.StatusOK {
-		t.Fatalf("expected contoso brand login 200, got %d: %s", contosoLoginRes.Code, contosoLoginRes.Body.String())
-	}
-	contosoLogin := decodeBody[brandCloudLoginBody](t, contosoLoginRes)
-	contosoClaims, err := env.server.auth.ParseAccessToken(contosoLogin.Tokens.AccessToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if contosoClaims.UserID != contosoLogin.User.ID || contosoClaims.BrandCloudUserID == acmeClaims.BrandCloudUserID || contosoClaims.BrandCloudID != contoso.BrandCloud.ID || contosoClaims.TenantSlug != "contoso" {
-		t.Fatalf("expected distinct contoso subject, acme=%+v contoso=%+v", acmeClaims, contosoClaims)
-	}
-
-	meRes := performJSON(env.router, http.MethodGet, "/v1/brand-clouds/acme/me", nil, acmeLogin.Tokens.AccessToken)
-	if meRes.Code != http.StatusOK {
-		t.Fatalf("expected brand me 200, got %d: %s", meRes.Code, meRes.Body.String())
-	}
-	wrongTenantMeRes := performJSON(env.router, http.MethodGet, "/v1/brand-clouds/contoso/me", nil, acmeLogin.Tokens.AccessToken)
-	if wrongTenantMeRes.Code != http.StatusNotFound {
-		t.Fatalf("expected cross-tenant brand me 404, got %d: %s", wrongTenantMeRes.Code, wrongTenantMeRes.Body.String())
-	}
-
-	listOwnDevicesRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+acme.BrandCloud.ID+"/devices", nil, acmeLogin.Tokens.AccessToken)
-	if listOwnDevicesRes.Code != http.StatusOK {
-		t.Fatalf("expected own brand org access 200, got %d: %s", listOwnDevicesRes.Code, listOwnDevicesRes.Body.String())
-	}
-	listOtherDevicesRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+contoso.BrandCloud.ID+"/devices", nil, acmeLogin.Tokens.AccessToken)
-	if listOtherDevicesRes.Code != http.StatusNotFound {
-		t.Fatalf("expected cross-brand org access 404, got %d: %s", listOtherDevicesRes.Code, listOtherDevicesRes.Body.String())
-	}
-
-	refreshRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/acme/auth/refresh", map[string]any{
-		"refresh_token": acmeLogin.Tokens.RefreshToken,
-	}, "")
-	if refreshRes.Code != http.StatusOK {
-		t.Fatalf("expected brand refresh 200, got %d: %s", refreshRes.Code, refreshRes.Body.String())
-	}
-	missingBrandRefreshRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/acme/auth/refresh", map[string]any{
-		"refresh_token": "",
-	}, "")
-	if missingBrandRefreshRes.Code != http.StatusBadRequest {
-		t.Fatalf("expected missing brand refresh token 400, got %d: %s", missingBrandRefreshRes.Code, missingBrandRefreshRes.Body.String())
-	}
-	tenantMismatchRefreshRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/contoso/auth/refresh", map[string]any{
-		"refresh_token": acmeLogin.Tokens.RefreshToken,
-	}, "")
-	if tenantMismatchRefreshRes.Code != http.StatusUnauthorized {
-		t.Fatalf("expected tenant-mismatched brand refresh 401, got %d: %s", tenantMismatchRefreshRes.Code, tenantMismatchRefreshRes.Body.String())
-	}
-	platformRefreshRes := performJSON(env.router, http.MethodPost, "/v1/auth/refresh", map[string]any{
-		"refresh_token": acmeLogin.Tokens.RefreshToken,
-	}, "")
-	if platformRefreshRes.Code != http.StatusUnauthorized {
-		t.Fatalf("expected platform refresh to reject brand token, got %d: %s", platformRefreshRes.Code, platformRefreshRes.Body.String())
-	}
-	refreshed := decodeBody[brandCloudLoginBody](t, refreshRes)
-	wrongTenantLogoutRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/contoso/auth/logout", map[string]any{
-		"refresh_token": refreshed.Tokens.RefreshToken,
-	}, refreshed.Tokens.AccessToken)
-	if wrongTenantLogoutRes.Code != http.StatusNotFound {
-		t.Fatalf("expected cross-tenant brand logout 404, got %d: %s", wrongTenantLogoutRes.Code, wrongTenantLogoutRes.Body.String())
-	}
-	missingBrandLogoutRefreshRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/acme/auth/logout", map[string]any{
-		"refresh_token": "",
-	}, refreshed.Tokens.AccessToken)
-	if missingBrandLogoutRefreshRes.Code != http.StatusBadRequest {
-		t.Fatalf("expected missing brand logout refresh token 400, got %d: %s", missingBrandLogoutRefreshRes.Code, missingBrandLogoutRefreshRes.Body.String())
-	}
-	logoutRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/acme/auth/logout", map[string]any{
-		"refresh_token": refreshed.Tokens.RefreshToken,
-	}, refreshed.Tokens.AccessToken)
-	if logoutRes.Code != http.StatusOK {
-		t.Fatalf("expected brand logout 200, got %d: %s", logoutRes.Code, logoutRes.Body.String())
-	}
-	revokedRefreshRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/acme/auth/refresh", map[string]any{
-		"refresh_token": refreshed.Tokens.RefreshToken,
-	}, "")
-	if revokedRefreshRes.Code != http.StatusUnauthorized {
-		t.Fatalf("expected revoked brand refresh 401, got %d: %s", revokedRefreshRes.Code, revokedRefreshRes.Body.String())
+	meRes := performJSON(env.router, http.MethodGet, "/v1/me", nil, legacyToken)
+	if meRes.Code != http.StatusUnauthorized {
+		t.Fatalf("legacy tenant JWT status=%d, want 401", meRes.Code)
 	}
 }
 
@@ -3249,8 +2797,8 @@ func TestIntegrationAppEndUserClaimCreatesMultiBrandBindings(t *testing.T) {
 		"email":    "brand-developer@example.com",
 		"password": "brand-password123",
 	}, "")
-	if brandLoginRes.Code != http.StatusUnauthorized {
-		t.Fatalf("brand developer should not exist yet; got %d: %s", brandLoginRes.Code, brandLoginRes.Body.String())
+	if brandLoginRes.Code != http.StatusNotFound {
+		t.Fatalf("retired tenant login should be 404; got %d: %s", brandLoginRes.Code, brandLoginRes.Body.String())
 	}
 }
 
@@ -3290,8 +2838,8 @@ func TestIntegrationACLAdminWorkflow(t *testing.T) {
 		}
 	}
 	accessRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+tenant.Organization.ID+"/access/check?permission=organization.update&scope_type=organization&scope_id="+tenant.Organization.ID, nil, tenant.Tokens.AccessToken)
-	if accessRes.Code != http.StatusNotFound {
-		t.Fatalf("platform subject customer access check = %d: %s", accessRes.Code, accessRes.Body.String())
+	if accessRes.Code != http.StatusOK || !bytes.Contains(accessRes.Body.Bytes(), []byte(`"allowed":true`)) {
+		t.Fatalf("global user customer access check = %d: %s", accessRes.Code, accessRes.Body.String())
 	}
 	for name, target := range map[string]string{
 		"missing scope":  "/v1/orgs/brand-cloud/access/check",
@@ -3312,10 +2860,7 @@ func TestIntegrationACLAdminWorkflow(t *testing.T) {
 			}
 			requestContext.Request = request
 			env.server.checkOrganizationAccess(requestContext)
-			want := http.StatusBadRequest
-			if name == "lookup failure" {
-				want = http.StatusNotFound
-			}
+			want := http.StatusNotFound
 			if recorder.Code != want {
 				t.Fatalf("status = %d, want %d: %s", recorder.Code, want, recorder.Body.String())
 			}
@@ -3448,49 +2993,38 @@ func TestIntegrationBrandCloudScopedRoleAssignmentWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	brand := createBrandCloudForTest(t, env, admin.Tokens.AccessToken, "Scoped ACL Brand", "scoped-acl-brand")
+	operator := registerUser(t, env.router, "scoped-acl-operator@example.com", "Scoped ACL Operator")
 	userRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email": "scoped-acl-operator@example.com", "password": "scoped-acl-password123", "role": "admin",
+		"email": operator.User.Email, "role": "owner", "activation_mode": "email",
 	}, admin.Tokens.AccessToken)
-	if userRes.Code != http.StatusCreated {
-		t.Fatalf("expected brand user create 201, got %d: %s", userRes.Code, userRes.Body.String())
+	if userRes.Code != http.StatusOK {
+		t.Fatalf("expected global user membership assignment 200, got %d: %s", userRes.Code, userRes.Body.String())
 	}
-	brandUser := decodeBody[brandCloudUserBody](t, userRes)
-	loginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/scoped-acl-brand/auth/login", map[string]any{
-		"email": "scoped-acl-operator@example.com", "password": "scoped-acl-password123",
-	}, "")
-	if loginRes.Code != http.StatusOK {
-		t.Fatalf("expected brand login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
-	}
-	login := decodeBody[brandCloudLoginBody](t, loginRes)
-	if res := performJSON(env.router, http.MethodGet, "/v1/developer/chipsets", nil, login.Tokens.AccessToken); res.Code != http.StatusForbidden {
-		t.Fatalf("expected brand session developer chipset list 403, got %d: %s", res.Code, res.Body.String())
-	}
-	if res := performJSON(env.router, http.MethodGet, "/v1/developer/chipsets/missing", nil, login.Tokens.AccessToken); res.Code != http.StatusForbidden {
-		t.Fatalf("expected brand session developer chipset detail 403, got %d: %s", res.Code, res.Body.String())
-	}
-	rolesRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/roles?limit=250", nil, login.Tokens.AccessToken)
+	account := decodeBody[brandCloudAccountBody](t, userRes)
+	accessToken := operator.Tokens.AccessToken
+	rolesRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/roles?limit=250", nil, accessToken)
 	if rolesRes.Code != http.StatusOK || !bytes.Contains(rolesRes.Body.Bytes(), []byte("firmware_operator")) {
 		t.Fatalf("expected customer ACL role catalog 200, got %d: %s", rolesRes.Code, rolesRes.Body.String())
 	}
-	permissionsRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/permissions", nil, login.Tokens.AccessToken)
+	permissionsRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/permissions", nil, accessToken)
 	if permissionsRes.Code != http.StatusOK || !bytes.Contains(permissionsRes.Body.Bytes(), []byte("registry_device.read")) {
 		t.Fatalf("expected customer ACL permission catalog 200, got %d: %s", permissionsRes.Code, permissionsRes.Body.String())
 	}
-	missingScopeRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/access/check", nil, login.Tokens.AccessToken)
+	missingScopeRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/access/check", nil, accessToken)
 	if missingScopeRes.Code != http.StatusBadRequest {
 		t.Fatalf("expected incomplete access check 400, got %d: %s", missingScopeRes.Code, missingScopeRes.Body.String())
 	}
-	accessRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/access/check?permission=registry_device.read&scope_type=organization&scope_id="+brand.BrandCloud.ID, nil, login.Tokens.AccessToken)
+	accessRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/access/check?permission=registry_device.read&scope_type=organization&scope_id="+brand.BrandCloud.ID, nil, accessToken)
 	if accessRes.Code != http.StatusOK || !bytes.Contains(accessRes.Body.Bytes(), []byte(`"allowed":true`)) {
 		t.Fatalf("expected organization access check 200, got %d: %s", accessRes.Code, accessRes.Body.String())
 	}
-	listRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/role-assignments", nil, login.Tokens.AccessToken)
+	listRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/role-assignments", nil, accessToken)
 	if listRes.Code != http.StatusOK {
 		t.Fatalf("expected scoped assignment list 200, got %d: %s", listRes.Code, listRes.Body.String())
 	}
 	assignmentRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+brand.BrandCloud.ID+"/role-assignments", map[string]any{
-		"role_name": "firmware_operator", "actor_id": brandUser.BrandCloudUser.ID, "scope_type": "product", "scope_id": "product-camera-pro",
-	}, login.Tokens.AccessToken)
+		"role_name": "firmware_operator", "actor_id": account.User.ID, "scope_type": "product", "scope_id": "product-camera-pro",
+	}, accessToken)
 	if assignmentRes.Code != http.StatusCreated {
 		t.Fatalf("expected scoped assignment create 201, got %d: %s", assignmentRes.Code, assignmentRes.Body.String())
 	}
@@ -3498,7 +3032,7 @@ func TestIntegrationBrandCloudScopedRoleAssignmentWorkflow(t *testing.T) {
 	if assignment.RoleAssignment.ScopeType != "product" || assignment.RoleAssignment.ScopeID == nil || *assignment.RoleAssignment.ScopeID != "product-camera-pro" {
 		t.Fatalf("unexpected scoped assignment: %+v", assignment.RoleAssignment)
 	}
-	deleteRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+brand.BrandCloud.ID+"/role-assignments/"+assignment.RoleAssignment.ID, nil, login.Tokens.AccessToken)
+	deleteRes := performJSON(env.router, http.MethodDelete, "/v1/orgs/"+brand.BrandCloud.ID+"/role-assignments/"+assignment.RoleAssignment.ID, nil, accessToken)
 	if deleteRes.Code != http.StatusNoContent {
 		t.Fatalf("expected scoped assignment delete 204, got %d: %s", deleteRes.Code, deleteRes.Body.String())
 	}
@@ -3512,21 +3046,15 @@ func TestIntegrationBrandCloudResourceScopeFiltersFleetQueries(t *testing.T) {
 		t.Fatal(err)
 	}
 	brand := createBrandCloudForTest(t, env, admin.Tokens.AccessToken, "Resource Scope Brand", "resource-scope-brand")
+	owner := registerUser(t, env.router, "resource-scope-owner@example.com", "Resource Scope Owner")
 	ownerRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email": "resource-scope-owner@example.com", "password": "resource-scope-owner123", "role": "admin",
+		"email": owner.User.Email, "role": "owner", "activation_mode": "email",
 	}, admin.Tokens.AccessToken)
-	if ownerRes.Code != http.StatusCreated {
-		t.Fatalf("expected owner create 201, got %d: %s", ownerRes.Code, ownerRes.Body.String())
+	if ownerRes.Code != http.StatusOK {
+		t.Fatalf("expected existing owner assignment 200, got %d: %s", ownerRes.Code, ownerRes.Body.String())
 	}
-	ownerLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/resource-scope-brand/auth/login", map[string]any{
-		"email": "resource-scope-owner@example.com", "password": "resource-scope-owner123",
-	}, "")
-	if ownerLoginRes.Code != http.StatusOK {
-		t.Fatalf("expected owner login 200, got %d: %s", ownerLoginRes.Code, ownerLoginRes.Body.String())
-	}
-	ownerLogin := decodeBody[brandCloudLoginBody](t, ownerLoginRes)
 	createDevice := func(name string) deviceBody {
-		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+brand.BrandCloud.ID+"/devices", map[string]any{"name": name, "category": "generic"}, ownerLogin.Tokens.AccessToken)
+		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+brand.BrandCloud.ID+"/devices", map[string]any{"name": name, "category": "generic"}, owner.Tokens.AccessToken)
 		if res.Code != http.StatusCreated {
 			t.Fatalf("expected device create 201, got %d: %s", res.Code, res.Body.String())
 		}
@@ -3534,40 +3062,34 @@ func TestIntegrationBrandCloudResourceScopeFiltersFleetQueries(t *testing.T) {
 	}
 	scopedDevice := createDevice("Scoped Device")
 	otherDevice := createDevice("Other Device")
+	memberUser := registerUser(t, env.router, "resource-scope-member@example.com", "Resource Scope Member")
 	memberRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email": "resource-scope-member@example.com", "password": "resource-scope-member123", "role": "member",
+		"email": memberUser.User.Email, "role": "member", "activation_mode": "email",
 	}, admin.Tokens.AccessToken)
-	if memberRes.Code != http.StatusCreated {
-		t.Fatalf("expected member create 201, got %d: %s", memberRes.Code, memberRes.Body.String())
+	if memberRes.Code != http.StatusOK {
+		t.Fatalf("expected existing member assignment 200, got %d: %s", memberRes.Code, memberRes.Body.String())
 	}
-	member := decodeBody[brandCloudUserBody](t, memberRes)
-	if _, err := env.db.Exec(ctx, `UPDATE role_assignments SET disabled_at = now() WHERE actor_type = 'brand_cloud_user' AND actor_id = $1 AND scope_type = 'organization'`, member.BrandCloudUser.ID); err != nil {
+	member := decodeBody[brandCloudAccountBody](t, memberRes)
+	if _, err := env.db.Exec(ctx, `UPDATE role_assignments SET disabled_at = now() WHERE actor_type = 'user' AND actor_id = $1 AND scope_type = 'organization'`, member.User.ID); err != nil {
 		t.Fatal(err)
 	}
 	scopeID := scopedDevice.Device.ID
-	if _, err := store.New(env.db).CreateRoleAssignment(ctx, store.RoleAssignmentCreateInput{RoleName: "read_only_observer", ActorType: store.ActorTypeBrandCloudUser, ActorID: member.BrandCloudUser.ID, ScopeType: store.ScopeTypeDevice, ScopeID: &scopeID, OrganizationID: &brand.BrandCloud.ID}); err != nil {
+	if _, err := store.New(env.db).CreateRoleAssignment(ctx, store.RoleAssignmentCreateInput{RoleName: "read_only_observer", ActorType: store.ActorTypeUser, ActorID: member.User.ID, ScopeType: store.ScopeTypeDevice, ScopeID: &scopeID, OrganizationID: &brand.BrandCloud.ID}); err != nil {
 		t.Fatal(err)
 	}
-	memberLoginRes := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/resource-scope-brand/auth/login", map[string]any{
-		"email": "resource-scope-member@example.com", "password": "resource-scope-member123",
-	}, "")
-	if memberLoginRes.Code != http.StatusOK {
-		t.Fatalf("expected member login 200, got %d: %s", memberLoginRes.Code, memberLoginRes.Body.String())
-	}
-	memberLogin := decodeBody[brandCloudLoginBody](t, memberLoginRes)
-	scopedDeviceRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/devices/"+scopedDevice.Device.ID, nil, memberLogin.Tokens.AccessToken)
+	scopedDeviceRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/devices/"+scopedDevice.Device.ID, nil, memberUser.Tokens.AccessToken)
 	if scopedDeviceRes.Code != http.StatusOK {
 		t.Fatalf("expected scoped device read 200, got %d: %s", scopedDeviceRes.Code, scopedDeviceRes.Body.String())
 	}
-	otherDeviceRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/devices/"+otherDevice.Device.ID, nil, memberLogin.Tokens.AccessToken)
+	otherDeviceRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/devices/"+otherDevice.Device.ID, nil, memberUser.Tokens.AccessToken)
 	if otherDeviceRes.Code != http.StatusNotFound {
 		t.Fatalf("expected non-disclosing out-of-scope device read 404, got %d: %s", otherDeviceRes.Code, otherDeviceRes.Body.String())
 	}
-	deviceTagsRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/devices/"+scopedDevice.Device.ID+"/tags", nil, memberLogin.Tokens.AccessToken)
+	deviceTagsRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/devices/"+scopedDevice.Device.ID+"/tags", nil, memberUser.Tokens.AccessToken)
 	if deviceTagsRes.Code != http.StatusOK {
 		t.Fatalf("expected scoped device tags read 200, got %d: %s", deviceTagsRes.Code, deviceTagsRes.Body.String())
 	}
-	fleetRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/fleet/devices?limit=100", nil, memberLogin.Tokens.AccessToken)
+	fleetRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/fleet/devices?limit=100", nil, memberUser.Tokens.AccessToken)
 	if fleetRes.Code != http.StatusOK {
 		t.Fatalf("expected scoped fleet query 200, got %d: %s", fleetRes.Code, fleetRes.Body.String())
 	}
@@ -3579,7 +3101,7 @@ func TestIntegrationBrandCloudResourceScopeFiltersFleetQueries(t *testing.T) {
 	if len(fleet.Devices) != 1 || fleet.Devices[0].ID != scopedDevice.Device.ID || fleet.Devices[0].ID == otherDevice.Device.ID {
 		t.Fatalf("resource scope leaked devices: %+v", fleet.Devices)
 	}
-	summaryRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/fleet/summary", nil, memberLogin.Tokens.AccessToken)
+	summaryRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/fleet/summary", nil, memberUser.Tokens.AccessToken)
 	if summaryRes.Code != http.StatusOK || !bytes.Contains(summaryRes.Body.Bytes(), []byte(`"total":1`)) {
 		t.Fatalf("expected scoped fleet summary 200 with one device, got %d: %s", summaryRes.Code, summaryRes.Body.String())
 	}

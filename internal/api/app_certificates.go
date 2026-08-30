@@ -78,7 +78,7 @@ func (s *Server) loginResponse(ctx context.Context, user model.User, tokens toke
 }
 
 func (s *Server) appCertificateForLogin(ctx context.Context, userID, csrPEM string) (appCertificateResponse, error) {
-	return s.appCertificateForSubject(ctx, "platform", "platform_user", userID, "app-user:"+userID, csrPEM)
+	return s.appCertificateForSubject(ctx, "platform", "user", userID, "app-user:"+userID, csrPEM)
 }
 
 func (s *Server) appCertificateForBrandCloudLogin(ctx context.Context, brandCloudID, brandCloudUserID, csrPEM string) (appCertificateResponse, error) {
@@ -158,7 +158,7 @@ func (s *Server) issueAppCertificateForSubject(ctx context.Context, tenantID, su
 }
 
 func userIDForAppCertificate(subjectType, subjectID string) string {
-	if subjectType == "platform_user" {
+	if subjectType == "user" {
 		return subjectID
 	}
 	return ""

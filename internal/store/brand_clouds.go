@@ -368,6 +368,110 @@ func (s *Store) CreateBrandCloudUser(ctx context.Context, actorUserID, orgID str
 	return BrandCloudUserResult{Action: action, BrandCloudUser: brandCloudUser, BrandCloudMember: brandCloudMember}, nil
 }
 
+func (s *Store) ProvisionBrandCloudAccount(ctx context.Context, actorUserID, orgID string, in BrandCloudAccountInput) (BrandCloudAccountResult, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return BrandCloudAccountResult{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var brandCloudName string
+	if err := tx.QueryRow(ctx, `SELECT name FROM organizations WHERE id = $1 AND organization_kind = 'brand_cloud' AND status = 'active' FOR UPDATE`, orgID).Scan(&brandCloudName); errors.Is(err, pgx.ErrNoRows) {
+		return BrandCloudAccountResult{}, ErrNotFound
+	} else if err != nil {
+		return BrandCloudAccountResult{}, err
+	}
+
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	var user model.User
+	var existingPasswordHash string
+	err = tx.QueryRow(ctx, `SELECT id::text,email,password_hash,display_name,email_verified,email_verified_at,signup_pending_verification,developer_cloud_limit,created_at,updated_at,disabled_at FROM users WHERE email=$1 FOR UPDATE`, email).
+		Scan(&user.ID, &user.Email, &existingPasswordHash, &user.DisplayName, &user.EmailVerified, &user.EmailVerifiedAt, &user.SignupPendingVerification, &user.DeveloperCloudLimit, &user.CreatedAt, &user.UpdatedAt, &user.DisabledAt)
+	newUser := errors.Is(err, pgx.ErrNoRows)
+	if err != nil && !newUser {
+		return BrandCloudAccountResult{}, err
+	}
+	if !newUser && user.DisabledAt != nil {
+		return BrandCloudAccountResult{}, ErrConflict
+	}
+	action := "assigned"
+	if newUser {
+		action = "created"
+		verified := in.ActivationMode == "immediate"
+		user, err = scanDeveloperUser(tx.QueryRow(ctx, `INSERT INTO users (email,password_hash,display_name,email_verified,email_verified_at,signup_pending_verification) VALUES ($1,$2,$3,$4,CASE WHEN $4 THEN now() ELSE NULL END,NOT $4) RETURNING id::text,email,display_name,email_verified,email_verified_at,signup_pending_verification,developer_cloud_limit,created_at,updated_at,disabled_at`, email, in.PasswordHash, in.DisplayName, verified))
+		if err != nil {
+			if isUniqueViolation(err) {
+				return BrandCloudAccountResult{}, ErrConflict
+			}
+			return BrandCloudAccountResult{}, err
+		}
+	} else if in.ActivationMode == "immediate" && in.RotatePassword {
+		user, err = scanDeveloperUser(tx.QueryRow(ctx, `UPDATE users SET password_hash=$2,display_name=COALESCE($3,display_name),email_verified=true,email_verified_at=COALESCE(email_verified_at,now()),signup_pending_verification=false,updated_at=now() WHERE id=$1 RETURNING id::text,email,display_name,email_verified,email_verified_at,signup_pending_verification,developer_cloud_limit,created_at,updated_at,disabled_at`, user.ID, in.PasswordHash, in.DisplayName))
+		if err != nil {
+			return BrandCloudAccountResult{}, err
+		}
+	}
+
+	memberDisabled := in.ActivationMode == "email" && !user.EmailVerified
+	member, err := scanDeveloperMember(tx.QueryRow(ctx, `INSERT INTO organization_members (organization_id,user_id,role,disabled_at) VALUES ($1,$2,$3,CASE WHEN $4 THEN now() ELSE NULL END) ON CONFLICT (organization_id,user_id) DO UPDATE SET role=EXCLUDED.role,disabled_at=CASE WHEN $4 THEN organization_members.disabled_at ELSE NULL END,updated_at=now() RETURNING organization_id::text,user_id::text,$5::text,$6::text,role,created_at,updated_at,disabled_at`, orgID, user.ID, in.Role, memberDisabled, user.Email, user.DisplayName))
+	if err != nil {
+		return BrandCloudAccountResult{}, err
+	}
+
+	if in.ActivationMode == "email" {
+		if in.ActivationTokenHash == "" || in.ActivationExpiresAt.IsZero() || in.ActivationEmail == nil {
+			return BrandCloudAccountResult{}, errors.New("email activation token and outbox are required")
+		}
+		purpose := "login_activation"
+		if !user.EmailVerified {
+			purpose = "email_verification"
+		}
+		outbox := *in.ActivationEmail
+		outbox.MessageType = purpose
+		outbox.Payload.OrganizationID = orgID
+		outbox.Payload.OrganizationName = brandCloudName
+		if err := s.createAuthTokenForSubjectWithEmailTx(ctx, tx, "user", user.ID, user.ID, purpose, "", in.ActivationTokenHash, in.ActivationExpiresAt, &outbox); err != nil {
+			return BrandCloudAccountResult{}, err
+		}
+	}
+
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{EventType: "brand_cloud_account_" + action, ActorUserID: &actorUserID, OrganizationID: &orgID, SubjectType: "user", SubjectID: user.ID, Payload: map[string]any{"user_id": user.ID, "email": user.Email, "role": member.Role, "activation_mode": in.ActivationMode}}); err != nil {
+		return BrandCloudAccountResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return BrandCloudAccountResult{}, err
+	}
+	return BrandCloudAccountResult{Action: action, User: user, Member: member}, nil
+}
+
+func (s *Store) ListBrandCloudAccounts(ctx context.Context, in BrandCloudAccountListFilter) (MemberPage, error) {
+	if exists, err := s.brandCloudExists(ctx, in.BrandCloudID); err != nil {
+		return MemberPage{}, err
+	} else if !exists {
+		return MemberPage{}, ErrNotFound
+	}
+	status, query := strings.TrimSpace(in.Status), strings.ToLower(strings.TrimSpace(in.Query))
+	filter := `m.organization_id=$1 AND ($2='' OR ($2='active' AND m.disabled_at IS NULL AND u.disabled_at IS NULL AND u.signup_pending_verification=false) OR ($2='pending_verification' AND m.disabled_at IS NOT NULL AND u.signup_pending_verification=true) OR ($2='disabled' AND (m.disabled_at IS NOT NULL OR u.disabled_at IS NOT NULL))) AND ($3='' OR lower(u.email) LIKE '%'||$3||'%' OR lower(coalesce(u.display_name,'')) LIKE '%'||$3||'%' OR u.id::text=$3)`
+	var total int
+	if err := s.db.QueryRow(ctx, `SELECT count(*) FROM organization_members m JOIN users u ON u.id=m.user_id WHERE `+filter, in.BrandCloudID, status, query).Scan(&total); err != nil {
+		return MemberPage{}, err
+	}
+	rows, err := s.db.Query(ctx, `SELECT m.organization_id::text,m.user_id::text,u.email,u.display_name,m.role,m.created_at,m.updated_at,COALESCE(m.disabled_at,u.disabled_at) FROM organization_members m JOIN users u ON u.id=m.user_id WHERE `+filter+` ORDER BY m.created_at LIMIT $4 OFFSET $5`, in.BrandCloudID, status, query, in.Limit, in.Offset)
+	if err != nil {
+		return MemberPage{}, err
+	}
+	defer rows.Close()
+	members := []model.Member{}
+	for rows.Next() {
+		member, scanErr := scanDeveloperMember(rows)
+		if scanErr != nil {
+			return MemberPage{}, scanErr
+		}
+		members = append(members, member)
+	}
+	return MemberPage{Members: members, Page: Page{Limit: in.Limit, Offset: in.Offset, Total: total}}, rows.Err()
+}
+
 func (s *Store) ActivateBrandCloudUser(ctx context.Context, tenantSlug, tokenHash, passwordHash string) (BrandCloudLoginResult, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {

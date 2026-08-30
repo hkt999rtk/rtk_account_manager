@@ -413,167 +413,6 @@ paths:
           $ref: "#/components/responses/Error"
         "503":
           $ref: "#/components/responses/Error"
-  /v1/brand-clouds/{tenantSlug}/auth/login:
-    post:
-      tags:
-        - Brand Cloud Auth
-      operationId: loginBrandCloudUser
-      x-rtk-feature-id: FEAT-AM-SIGNUP-001
-      x-rtk-requirement-ids:
-        - REQ-E2E-CA-SIGNUP-EMAIL-001
-      summary: Login to one brand cloud namespace with email and password.
-      parameters:
-        - $ref: "#/components/parameters/TenantSlug"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/LoginRequest"
-      responses:
-        "200":
-          description: Brand-cloud login succeeded.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/BrandCloudLoginResponse"
-        "400":
-          $ref: "#/components/responses/Error"
-        "401":
-          $ref: "#/components/responses/Error"
-  /v1/brand-clouds/{tenantSlug}/auth/sign-in:
-    post:
-      tags:
-        - Brand Cloud Auth
-      operationId: requestBrandCloudEmailSignIn
-      x-rtk-feature-id: FEAT-AM-SIGNUP-001
-      x-rtk-requirement-ids:
-        - REQ-E2E-CA-SIGNUP-EMAIL-001
-      summary: Request a tenant-scoped brand-cloud email sign-in activation token.
-      description: Returns the same `202 Accepted` status for unknown, disabled, pending, tenant-mismatched, and throttled users to avoid account enumeration. Raw tokens are transactionally written to the encrypted email outbox and delivered by the email worker through Send Mail HTTP.
-      parameters:
-        - $ref: "#/components/parameters/TenantSlug"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EmailRequest"
-      responses:
-        "202":
-          description: Brand-cloud sign-in request accepted when applicable.
-        "400":
-          $ref: "#/components/responses/Error"
-  /v1/brand-clouds/{tenantSlug}/auth/login/activate:
-    post:
-      tags:
-        - Brand Cloud Auth
-      operationId: activateBrandCloudEmailSignIn
-      x-rtk-feature-id: FEAT-AM-SIGNUP-001
-      x-rtk-requirement-ids:
-        - REQ-E2E-CA-SIGNUP-EMAIL-001
-      summary: Activate a tenant-scoped brand-cloud email sign-in token.
-      description: Consumes a one-time `login_activation` token only when the token's user is active in the requested brand-cloud tenant and issues brand-cloud scoped tokens.
-      parameters:
-        - $ref: "#/components/parameters/TenantSlug"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AuthTokenRequest"
-      responses:
-        "200":
-          description: Brand-cloud login activation succeeded.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/BrandCloudLoginResponse"
-        "400":
-          $ref: "#/components/responses/Error"
-        "401":
-          $ref: "#/components/responses/Error"
-  /v1/brand-clouds/{tenantSlug}/auth/activate:
-    post:
-      tags:
-        - Brand Cloud Auth
-      operationId: activateBrandCloudUser
-      x-rtk-feature-id: FEAT-AM-SIGNUP-001
-      x-rtk-requirement-ids:
-        - REQ-E2E-CA-SIGNUP-EMAIL-001
-      summary: Set a password and activate a pending brand-cloud user.
-      description: Consumes a tenant-scoped one-time `brand_cloud_user_activation` token, verifies the email, clears pending status, and issues a tenant-scoped session. Replay, expiry, and tenant mismatch are rejected.
-      parameters:
-        - $ref: "#/components/parameters/TenantSlug"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/BrandCloudUserActivationRequest"
-      responses:
-        "200":
-          description: Brand-cloud user activation succeeded.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/BrandCloudLoginResponse"
-        "400":
-          $ref: "#/components/responses/Error"
-  /v1/brand-clouds/{tenantSlug}/auth/refresh:
-    post:
-      tags:
-        - Brand Cloud Auth
-      operationId: refreshBrandCloudToken
-      x-rtk-feature-id: FEAT-AM-SIGNUP-001
-      x-rtk-requirement-ids:
-        - REQ-E2E-CA-SIGNUP-EMAIL-001
-      summary: Exchange a brand-cloud refresh token for new brand-cloud tokens.
-      parameters:
-        - $ref: "#/components/parameters/TenantSlug"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/RefreshRequest"
-      responses:
-        "200":
-          description: Brand-cloud token refreshed.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RefreshResponse"
-        "400":
-          $ref: "#/components/responses/Error"
-        "401":
-          $ref: "#/components/responses/Error"
-  /v1/brand-clouds/{tenantSlug}/auth/logout:
-    post:
-      tags:
-        - Brand Cloud Auth
-      operationId: logoutBrandCloudUser
-      x-rtk-feature-id: FEAT-AM-SIGNUP-001
-      x-rtk-requirement-ids:
-        - REQ-E2E-CA-SIGNUP-EMAIL-001
-      security:
-        - bearerAuth: []
-      summary: Revoke one brand-cloud refresh token.
-      parameters:
-        - $ref: "#/components/parameters/TenantSlug"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/RefreshRequest"
-      responses:
-        "200":
-          description: Brand-cloud refresh token revoked.
-        "400":
-          $ref: "#/components/responses/Error"
-        "409":
-          $ref: "#/components/responses/Error"
   /v1/developer/brand-clouds:
     get:
       tags:
@@ -1113,30 +952,6 @@ paths:
       responses:
         "200": { description: Owner transfer canceled. }
         "404": { $ref: "#/components/responses/Error" }
-  /v1/brand-clouds/{tenantSlug}/me:
-    get:
-      tags:
-        - Brand Cloud Auth
-      operationId: getBrandCloudMe
-      x-rtk-feature-id: FEAT-AM-SIGNUP-001
-      x-rtk-requirement-ids:
-        - REQ-E2E-CA-SIGNUP-EMAIL-001
-      security:
-        - bearerAuth: []
-      summary: Get the current brand-cloud account subject.
-      parameters:
-        - $ref: "#/components/parameters/TenantSlug"
-      responses:
-        "200":
-          description: Current brand-cloud account.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/BrandCloudMeResponse"
-        "401":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
   /v1/app/end-users/auth/login:
     post:
       tags:
@@ -2001,51 +1816,17 @@ paths:
           $ref: "#/components/responses/Error"
         "503":
           $ref: "#/components/responses/Error"
-  /v1/admin/brand-clouds/{brandCloudId}/members:
-    post:
-      tags:
-        - Brand Clouds
-      operationId: assignBrandCloudMember
-      x-rtk-feature-id: FEAT-CA-BRAND-001
-      x-rtk-requirement-ids:
-        - REQ-UI-CA-CLOUD-004
-      security:
-        - bearerAuth: []
-      summary: Assign an existing brand-scoped user to a brand cloud.
-      parameters:
-        - $ref: "#/components/parameters/BrandCloudId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/BrandCloudMemberRequest"
-      responses:
-        "201":
-          description: Brand cloud member assigned.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/BrandCloudMemberResponse"
-        "400":
-          $ref: "#/components/responses/Error"
-        "401":
-          $ref: "#/components/responses/Error"
-        "403":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
   /v1/admin/brand-clouds/{brandCloudId}/users:
     get:
       tags:
         - Brand Clouds
-      operationId: listBrandCloudUsers
+      operationId: listBrandCloudAccounts
       x-rtk-feature-id: FEAT-CA-BRAND-001
       x-rtk-requirement-ids:
         - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
-      summary: List brand-cloud users, including pending activation and disabled users.
+      summary: List global users and memberships for one Brand Cloud.
       parameters:
         - $ref: "#/components/parameters/BrandCloudId"
         - name: status
@@ -2063,11 +1844,11 @@ paths:
         - $ref: "#/components/parameters/Offset"
       responses:
         "200":
-          description: Brand cloud user list.
+          description: Global user membership list.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BrandCloudUsersResponse"
+                $ref: "#/components/schemas/BrandCloudAccountsResponse"
         "400":
           $ref: "#/components/responses/Error"
         "401":
@@ -2079,14 +1860,14 @@ paths:
     post:
       tags:
         - Brand Clouds
-      operationId: createBrandCloudUser
+      operationId: provisionBrandCloudAccountUser
       x-rtk-feature-id: FEAT-CA-BRAND-001
       x-rtk-requirement-ids:
         - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
-      summary: Create a user and assign them to a brand cloud.
-      description: "`activation_mode=immediate` preserves the compatible verified-password flow. `activation_mode=email` forbids an admin-supplied password, creates a pending user, and atomically queues a one-time activation email."
+      summary: Find or create a global user and assign a Brand Cloud membership.
+      description: "Owner provisioning always uses global email activation. `activation_mode=immediate` is restricted to audited staging creation of admin/member load-test accounts."
       parameters:
         - $ref: "#/components/parameters/BrandCloudId"
       requestBody:
@@ -2094,20 +1875,20 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/BrandCloudUserRequest"
+              $ref: "#/components/schemas/BrandCloudAccountProvisionRequest"
       responses:
         "200":
-          description: Existing brand cloud user activated or assigned.
+          description: Existing global user assigned.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BrandCloudUserResponse"
+                $ref: "#/components/schemas/BrandCloudAccountProvisionResponse"
         "201":
-          description: Brand cloud user created and assigned.
+          description: Global user created and assigned.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BrandCloudUserResponse"
+                $ref: "#/components/schemas/BrandCloudAccountProvisionResponse"
         "400":
           $ref: "#/components/responses/Error"
         "401":
@@ -2116,131 +1897,77 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
-  /v1/admin/brand-clouds/{brandCloudId}/users/{brandCloudUserId}/disable:
+  /v1/admin/brand-clouds/{brandCloudId}/users/{userId}/disable:
     post:
       tags:
         - Brand Clouds
-      operationId: disableBrandCloudUser
+      operationId: disableBrandCloudMembership
       x-rtk-feature-id: FEAT-CA-BRAND-001
       x-rtk-requirement-ids:
         - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
-      summary: Disable a brand-cloud user and revoke their brand-cloud refresh tokens.
+      summary: Disable the user's membership in this Brand Cloud.
       parameters:
         - $ref: "#/components/parameters/BrandCloudId"
-        - $ref: "#/components/parameters/BrandCloudUserId"
+        - $ref: "#/components/parameters/UserId"
       responses:
         "200":
-          description: Brand cloud user disabled.
+          description: Brand Cloud membership disabled.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BrandCloudUserStateResponse"
+                $ref: "#/components/schemas/BrandCloudMembershipResponse"
         "401":
           $ref: "#/components/responses/Error"
         "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
-  /v1/admin/brand-clouds/{brandCloudId}/users/{brandCloudUserId}/enable:
+  /v1/admin/brand-clouds/{brandCloudId}/users/{userId}/enable:
     post:
       tags:
         - Brand Clouds
-      operationId: enableBrandCloudUser
+      operationId: enableBrandCloudMembership
       x-rtk-feature-id: FEAT-CA-BRAND-001
       x-rtk-requirement-ids:
         - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
-      summary: Enable a disabled brand-cloud user.
+      summary: Enable a disabled Brand Cloud membership.
       parameters:
         - $ref: "#/components/parameters/BrandCloudId"
-        - $ref: "#/components/parameters/BrandCloudUserId"
+        - $ref: "#/components/parameters/UserId"
       responses:
         "200":
-          description: Brand cloud user enabled.
+          description: Brand Cloud membership enabled.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BrandCloudUserStateResponse"
+                $ref: "#/components/schemas/BrandCloudMembershipResponse"
         "401":
           $ref: "#/components/responses/Error"
         "403":
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
-  /v1/admin/brand-clouds/{brandCloudId}/users/{brandCloudUserId}/approve:
-    post:
-      tags:
-        - Brand Clouds
-      operationId: approveBrandCloudUser
-      x-rtk-feature-id: FEAT-CA-BRAND-001
-      x-rtk-requirement-ids:
-        - REQ-UI-CA-CLOUD-004
-      security:
-        - bearerAuth: []
-      summary: Approve a pending brand-cloud user activation.
-      parameters:
-        - $ref: "#/components/parameters/BrandCloudId"
-        - $ref: "#/components/parameters/BrandCloudUserId"
-      responses:
-        "200":
-          description: Brand cloud user approved.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/BrandCloudUserStateResponse"
-        "401":
-          $ref: "#/components/responses/Error"
-        "403":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
-  /v1/admin/brand-clouds/{brandCloudId}/users/{brandCloudUserId}/app-certificate/revoke:
-    post:
-      tags:
-        - Brand Clouds
-      operationId: revokeBrandCloudUserAppCertificate
-      x-rtk-feature-id: FEAT-CA-BRAND-001
-      x-rtk-requirement-ids:
-        - REQ-UI-CA-CLOUD-004
-      security:
-        - bearerAuth: []
-      summary: Revoke active app certificates for a brand-cloud user.
-      parameters:
-        - $ref: "#/components/parameters/BrandCloudId"
-        - $ref: "#/components/parameters/BrandCloudUserId"
-      responses:
-        "200":
-          description: Active app certificates revoked.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AppCertificateRevokeResponse"
-        "401":
-          $ref: "#/components/responses/Error"
-        "403":
-          $ref: "#/components/responses/Error"
-        "404":
-          $ref: "#/components/responses/Error"
-  /v1/admin/brand-clouds/{brandCloudId}/users/{brandCloudUserId}:
+  /v1/admin/brand-clouds/{brandCloudId}/users/{userId}:
     delete:
       tags:
         - Brand Clouds
-      operationId: deleteBrandCloudUser
+      operationId: removeBrandCloudMembership
       x-rtk-feature-id: FEAT-CA-BRAND-001
       x-rtk-requirement-ids:
         - REQ-UI-CA-CLOUD-004
       security:
         - bearerAuth: []
-      summary: Soft-delete a brand-cloud user by disabling brand-cloud access.
+      summary: Remove a global user's membership from this Brand Cloud.
       parameters:
         - $ref: "#/components/parameters/BrandCloudId"
-        - $ref: "#/components/parameters/BrandCloudUserId"
+        - $ref: "#/components/parameters/UserId"
       responses:
         "204":
-          description: Brand cloud user soft-deleted.
+          description: Brand Cloud membership removed.
         "401":
           $ref: "#/components/responses/Error"
         "403":
@@ -4575,7 +4302,7 @@ paths:
               additionalProperties: false
               required: [target_type, target_id, csr_pem]
               properties:
-                target_type: { type: string, enum: [brand_cloud_user, end_user] }
+                target_type: { type: string, enum: [user, end_user] }
                 target_id: { type: string }
                 csr_pem: { type: string }
       responses:
@@ -4621,13 +4348,6 @@ components:
         format: uuid
     InvitationId:
       name: invitationId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    BrandCloudUserId:
-      name: brandCloudUserId
       in: path
       required: true
       schema:
@@ -5069,7 +4789,7 @@ components:
           type: string
         actor_type:
           type: string
-          enum: [user, brand_cloud_user, service_account]
+          enum: [user, service_account]
         actor_id:
           type: string
         scope_type:
@@ -5391,19 +5111,10 @@ components:
         metadata:
           type: object
           additionalProperties: true
-    BrandCloudMemberRequest:
+    BrandCloudAccountProvisionRequest:
       type: object
-      required: [brand_cloud_user_id, role]
-      properties:
-        brand_cloud_user_id:
-          type: string
-          format: uuid
-          description: Brand-scoped user id. Platform user ids are not accepted for brand-cloud membership writes.
-        role:
-          $ref: "#/components/schemas/Role"
-    BrandCloudUserRequest:
-      type: object
-      required: [email, role]
+      additionalProperties: false
+      required: [email, role, activation_mode]
       properties:
         email:
           type: string
@@ -5411,7 +5122,7 @@ components:
         password:
           type: string
           minLength: 8
-          description: Required for immediate activation and forbidden for email activation.
+          description: Accepted only for guarded staging immediate provisioning of admin/member accounts.
         display_name:
           type: string
         role:
@@ -5421,20 +5132,8 @@ components:
           default: false
         activation_mode:
           type: string
-          enum: [immediate, email]
-          default: immediate
-    BrandCloudUserActivationRequest:
-      type: object
-      required: [token, password]
-      properties:
-        token:
-          type: string
-          minLength: 1
-        password:
-          type: string
-          minLength: 8
-        app_csr_pem:
-          type: string
+          enum: [email, immediate]
+          default: email
     BrandCloudOwnerTransferRequest:
       type: object
       required: [target_email]
@@ -5464,7 +5163,7 @@ components:
           type: string
         app_csr_pem:
           type: string
-          description: Optional app-generated CSR PEM. Platform users use `app-user:<user_id>`, brand-cloud users use `app-brand-cloud-user:<brand_cloud_user_id>`, and APP end users use `app-end-user:<end_user_id>`.
+          description: Optional app-generated CSR PEM. Global users use `app-user:<user_id>` and APP end users use `app-end-user:<end_user_id>`.
     DeviceItemProfileRequest:
       type: object
       additionalProperties: false
@@ -5845,7 +5544,7 @@ components:
           enum: [csr_required, issued]
         subject:
           type: string
-          description: APP certificate subject. Platform users use `app-user:<user_id>`, brand-cloud users use `app-brand-cloud-user:<brand_cloud_user_id>`, and APP end users use `app-end-user:<end_user_id>`.
+          description: APP certificate subject. Global users use `app-user:<user_id>` and APP end users use `app-end-user:<end_user_id>`.
           example: app-end-user:0f0475fb-4c8d-4f78-8b6f-3b9e76c5b34b
         certificate_pem:
           type: string
@@ -6055,23 +5754,23 @@ components:
       properties:
         brand_cloud:
           $ref: "#/components/schemas/Organization"
-    BrandCloudUserResponse:
+    BrandCloudAccountProvisionResponse:
       type: object
-      required: [action, brand_cloud_user, brand_cloud_member]
+      required: [action, user, member]
       properties:
         action:
           type: string
           enum: [created, assigned]
-        brand_cloud_user:
-          $ref: "#/components/schemas/BrandCloudUser"
-        brand_cloud_member:
-          $ref: "#/components/schemas/BrandCloudMember"
-    BrandCloudUserStateResponse:
+        user:
+          $ref: "#/components/schemas/User"
+        member:
+          $ref: "#/components/schemas/Member"
+    BrandCloudMembershipResponse:
       type: object
-      required: [brand_cloud_user]
+      required: [member]
       properties:
-        brand_cloud_user:
-          $ref: "#/components/schemas/BrandCloudUser"
+        member:
+          $ref: "#/components/schemas/Member"
     AppCertificateRevokeResponse:
       type: object
       required: [revoked]
@@ -6080,28 +5779,6 @@ components:
           type: integer
           format: int64
           minimum: 0
-    BrandCloudLoginResponse:
-      type: object
-      required: [brand_cloud, brand_cloud_user, brand_cloud_member, tokens]
-      properties:
-        brand_cloud:
-          $ref: "#/components/schemas/Organization"
-        brand_cloud_user:
-          $ref: "#/components/schemas/BrandCloudUser"
-        brand_cloud_member:
-          $ref: "#/components/schemas/BrandCloudMember"
-        tokens:
-          $ref: "#/components/schemas/Tokens"
-    BrandCloudMeResponse:
-      type: object
-      required: [brand_cloud, brand_cloud_user, brand_cloud_member]
-      properties:
-        brand_cloud:
-          $ref: "#/components/schemas/Organization"
-        brand_cloud_user:
-          $ref: "#/components/schemas/BrandCloudUser"
-        brand_cloud_member:
-          $ref: "#/components/schemas/BrandCloudMember"
     BrandCloudsResponse:
       type: object
       required: [brand_clouds, pagination]
@@ -6127,14 +5804,14 @@ components:
       properties:
         invitation:
           $ref: "#/components/schemas/BrandCloudMemberInvitation"
-    BrandCloudUsersResponse:
+    BrandCloudAccountsResponse:
       type: object
-      required: [brand_cloud_users, pagination]
+      required: [users, pagination]
       properties:
-        brand_cloud_users:
+        users:
           type: array
           items:
-            $ref: "#/components/schemas/BrandCloudUser"
+            $ref: "#/components/schemas/Member"
         pagination:
           $ref: "#/components/schemas/Pagination"
     DeviceItemProfileResponse:
@@ -6373,12 +6050,6 @@ components:
       properties:
         member:
           $ref: "#/components/schemas/Member"
-    BrandCloudMemberResponse:
-      type: object
-      required: [member]
-      properties:
-        member:
-          $ref: "#/components/schemas/BrandCloudMember"
     DevicesResponse:
       type: object
       required: [devices, pagination]
@@ -6666,60 +6337,6 @@ components:
           type: string
           format: date-time
         disabled_at:
-          type: string
-          format: date-time
-    BrandCloudUser:
-      type: object
-      required: [id, brand_cloud_id, email, email_verified, signup_pending_verification, created_at, updated_at]
-      properties:
-        id:
-          type: string
-          format: uuid
-        brand_cloud_id:
-          type: string
-          format: uuid
-        email:
-          type: string
-          format: email
-        display_name:
-          type: string
-        email_verified:
-          type: boolean
-        email_verified_at:
-          type: string
-          format: date-time
-        signup_pending_verification:
-          type: boolean
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        disabled_at:
-          type: string
-          format: date-time
-    BrandCloudMember:
-      type: object
-      required: [brand_cloud_id, brand_cloud_user_id, role, created_at, updated_at]
-      properties:
-        brand_cloud_id:
-          type: string
-          format: uuid
-        brand_cloud_user_id:
-          type: string
-          format: uuid
-        email:
-          type: string
-          format: email
-        display_name:
-          type: string
-        role:
-          $ref: "#/components/schemas/Role"
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
           type: string
           format: date-time
     Organization:

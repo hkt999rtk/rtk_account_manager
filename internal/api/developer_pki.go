@@ -67,13 +67,12 @@ func (s *Server) issueDeveloperPKITestAppCertificate(c *gin.Context) {
 	req.TargetID = strings.TrimSpace(req.TargetID)
 	var expectedSubject string
 	switch req.TargetType {
-	case "brand_cloud_user":
-		user, err := s.store.GetBrandCloudUser(c.Request.Context(), req.TargetID)
-		if err != nil || user.BrandCloudID != brandCloudID {
+	case "user":
+		if _, err := s.store.GetDeveloperBrandCloudMember(c.Request.Context(), brandCloudID, req.TargetID); err != nil {
 			writeStoreError(c, store.ErrNotFound)
 			return
 		}
-		expectedSubject = "app-brand-cloud-user:" + req.TargetID
+		expectedSubject = "app-user:" + req.TargetID
 	case "end_user":
 		lookup, ok := s.store.(brandCloudEndUserLookup)
 		if !ok {
@@ -86,7 +85,7 @@ func (s *Server) issueDeveloperPKITestAppCertificate(c *gin.Context) {
 		}
 		expectedSubject = "app-end-user:" + req.TargetID
 	default:
-		writeError(c, http.StatusBadRequest, "invalid_target_type", "target_type must be brand_cloud_user or end_user")
+		writeError(c, http.StatusBadRequest, "invalid_target_type", "target_type must be user or end_user")
 		return
 	}
 	csrDER, err := validateAppCSRSubject(req.CSRPEM, expectedSubject)

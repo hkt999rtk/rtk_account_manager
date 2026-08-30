@@ -58,12 +58,13 @@ type deviceItemProfilesResponse struct {
 }
 
 type brandCloudUsersResponse struct {
-	BrandCloudUsers []model.BrandCloudUser `json:"brand_cloud_users"`
-	Pagination      store.Page             `json:"pagination"`
+	Users      []model.Member `json:"users"`
+	Pagination store.Page     `json:"pagination"`
 }
 
 type brandCloudUserResponse struct {
-	BrandCloudUser model.BrandCloudUser `json:"brand_cloud_user"`
+	Member         model.Member         `json:"member,omitempty"`
+	BrandCloudUser model.BrandCloudUser `json:"brand_cloud_user,omitempty"`
 }
 
 func profileBrandCloudID(c *gin.Context) string {
@@ -348,7 +349,7 @@ func (s *Server) createBrandCloudUser(c *gin.Context) {
 	}
 	activationMode := strings.ToLower(strings.TrimSpace(req.ActivationMode))
 	if activationMode == "" {
-		activationMode = "immediate"
+		activationMode = "email"
 	}
 	if activationMode != "immediate" && activationMode != "email" {
 		writeError(c, http.StatusBadRequest, "invalid_activation_mode", "activation_mode must be immediate or email")
@@ -356,6 +357,10 @@ func (s *Server) createBrandCloudUser(c *gin.Context) {
 	}
 	if activationMode == "immediate" && len(req.Password) < 8 {
 		writeError(c, http.StatusBadRequest, "invalid_password", "password must be at least 8 characters")
+		return
+	}
+	if activationMode == "immediate" && (!s.allowImmediateBrandAccounts || role == model.RoleOwner) {
+		writeError(c, http.StatusForbidden, "immediate_provisioning_forbidden", "immediate provisioning is restricted to audited staging member/admin creation")
 		return
 	}
 	if activationMode == "email" && strings.TrimSpace(req.Password) != "" {
@@ -376,7 +381,7 @@ func (s *Server) createBrandCloudUser(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not hash password")
 		return
 	}
-	input := store.BrandCloudUserInput{
+	input := store.BrandCloudAccountInput{
 		Email:          strings.ToLower(strings.TrimSpace(req.Email)),
 		PasswordHash:   hash,
 		DisplayName:    trimStringPtr(req.DisplayName),
@@ -385,17 +390,17 @@ func (s *Server) createBrandCloudUser(c *gin.Context) {
 		ActivationMode: activationMode,
 	}
 	if activationMode == "email" {
-		token, expiresAt, tokenErr := s.newAuthToken("brand_cloud_user_activation")
+		token, expiresAt, tokenErr := s.newAuthToken("email_verification")
 		if tokenErr != nil {
 			writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue activation token")
 			return
 		}
 		input.ActivationTokenHash = auth.HashToken(token)
 		input.ActivationExpiresAt = expiresAt
-		outbox := authTokenEmailOutbox(input.Email, "brand_cloud_user_activation", token, expiresAt)
+		outbox := authTokenEmailOutbox(input.Email, "email_verification", token, expiresAt)
 		input.ActivationEmail = &outbox
 	}
-	result, err := s.store.CreateBrandCloudUser(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), input)
+	result, err := s.store.ProvisionBrandCloudAccount(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), input)
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -414,7 +419,7 @@ func (s *Server) listBrandCloudUsers(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "invalid_status", "status must be active, pending_verification, or disabled")
 		return
 	}
-	page, err := s.store.ListBrandCloudUsers(c.Request.Context(), store.BrandCloudUserListFilter{
+	page, err := s.store.ListBrandCloudAccounts(c.Request.Context(), store.BrandCloudAccountListFilter{
 		BrandCloudID: c.Param("brandCloudId"),
 		Status:       status,
 		Query:        c.Query("q"),
@@ -425,25 +430,25 @@ func (s *Server) listBrandCloudUsers(c *gin.Context) {
 		writeStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, brandCloudUsersResponse{BrandCloudUsers: page.Users, Pagination: page.Page})
+	c.JSON(http.StatusOK, brandCloudUsersResponse{Users: page.Members, Pagination: page.Page})
 }
 
 func (s *Server) disableBrandCloudUser(c *gin.Context) {
-	user, err := s.store.DisableBrandCloudUser(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), c.Param("brandCloudUserId"))
+	member, err := s.store.DisableDeveloperBrandCloudMember(c.Request.Context(), c.Param("brandCloudId"), c.Param("userId"))
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, brandCloudUserResponse{BrandCloudUser: user})
+	c.JSON(http.StatusOK, brandCloudUserResponse{Member: member})
 }
 
 func (s *Server) enableBrandCloudUser(c *gin.Context) {
-	user, err := s.store.EnableBrandCloudUser(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), c.Param("brandCloudUserId"))
+	member, err := s.store.EnableDeveloperBrandCloudMember(c.Request.Context(), c.Param("brandCloudId"), c.Param("userId"))
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, brandCloudUserResponse{BrandCloudUser: user})
+	c.JSON(http.StatusOK, brandCloudUserResponse{Member: member})
 }
 
 func (s *Server) approveBrandCloudUser(c *gin.Context) {
@@ -465,7 +470,7 @@ func (s *Server) revokeBrandCloudUserAppCertificate(c *gin.Context) {
 }
 
 func (s *Server) deleteBrandCloudUser(c *gin.Context) {
-	if err := s.store.DeleteBrandCloudUser(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), c.Param("brandCloudUserId")); err != nil {
+	if err := s.store.RemoveMember(c.Request.Context(), c.Param("brandCloudId"), c.Param("userId")); err != nil {
 		writeStoreError(c, err)
 		return
 	}

@@ -18,7 +18,11 @@ type customerRoleAssignmentRequest struct {
 }
 
 func (s *Server) checkOrganizationAccess(c *gin.Context) {
-	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser || c.Param("orgId") != currentBrandCloudID(c) {
+	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
+		writeError(c, http.StatusNotFound, "not_found", "Resource not found")
+		return
+	}
+	if _, err := s.store.GetRole(c.Request.Context(), c.Param("orgId"), currentUserID(c)); err != nil {
 		writeError(c, http.StatusNotFound, "not_found", "Resource not found")
 		return
 	}
@@ -29,7 +33,7 @@ func (s *Server) checkOrganizationAccess(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "invalid_scope", "permission, scope_type, and scope_id are required")
 		return
 	}
-	allowed, err := s.store.HasBrandCloudPermissionForResource(c.Request.Context(), currentBrandCloudUserID(c), c.Param("orgId"), permission, scopeType, scopeID)
+	allowed, err := s.store.HasUserPermissionForResource(c.Request.Context(), currentUserID(c), c.Param("orgId"), permission, scopeType, scopeID)
 	if err != nil {
 		writeError(c, http.StatusNotFound, "not_found", "Resource not found")
 		return
@@ -95,13 +99,12 @@ func (s *Server) createCustomerACLAssignment(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "invalid_scope", "Resource scope requires a scope id")
 		return
 	}
-	brandUser, err := s.store.GetBrandCloudUser(c.Request.Context(), actorID)
-	if err != nil || brandUser.BrandCloudID != orgID {
+	if _, err := s.store.GetRole(c.Request.Context(), orgID, actorID); err != nil {
 		writeError(c, http.StatusNotFound, "not_found", "Resource not found")
 		return
 	}
 	assignment, err := s.store.CreateRoleAssignment(c.Request.Context(), store.RoleAssignmentCreateInput{
-		RoleName: req.RoleName, ActorType: store.ActorTypeBrandCloudUser, ActorID: actorID,
+		RoleName: req.RoleName, ActorType: store.ActorTypeUser, ActorID: actorID,
 		ScopeType: scopeType, ScopeID: req.ScopeID, OrganizationID: stringPtr(orgID),
 	})
 	if err != nil {
@@ -114,7 +117,7 @@ func (s *Server) createCustomerACLAssignment(c *gin.Context) {
 func (s *Server) deleteCustomerACLAssignment(c *gin.Context) {
 	actor := currentUserID(c)
 	var actorID *string
-	if actor != "" && currentSubjectType(c) != auth.SubjectTypeBrandCloudUser {
+	if actor != "" {
 		actorID = &actor
 	}
 	if err := s.store.DisableRoleAssignmentForOrganization(c.Request.Context(), c.Param("orgId"), c.Param("assignmentId"), actorID); err != nil {
