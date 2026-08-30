@@ -64,7 +64,11 @@ func (s *Server) listDeveloperBrandClouds(c *gin.Context) {
 		return
 	}
 	for i := range page.Organizations {
-		page.Organizations[i].Capabilities = s.developerCapabilitiesForUser(c.Request.Context(), currentUserID(c), page.Organizations[i].ID, page.Organizations[i].Role)
+		page.Organizations[i].Capabilities, err = s.developerCapabilitiesForUser(c.Request.Context(), currentUserID(c), page.Organizations[i].ID, page.Organizations[i].Role)
+		if err != nil {
+			writeStoreError(c, err)
+			return
+		}
 	}
 	user, err := s.store.GetUser(c.Request.Context(), currentUserID(c))
 	if err != nil {
@@ -108,7 +112,11 @@ func (s *Server) getDeveloperBrandCloud(c *gin.Context) {
 		writeStoreError(c, err)
 		return
 	}
-	org.Capabilities = s.developerCapabilitiesForUser(c.Request.Context(), currentUserID(c), org.ID, member.Role)
+	org.Capabilities, err = s.developerCapabilitiesForUser(c.Request.Context(), currentUserID(c), org.ID, member.Role)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"brand_cloud": org, "membership": member})
 }
 
@@ -124,16 +132,44 @@ func developerCapabilitiesForRole(role model.Role) []string {
 	return capabilities
 }
 
-func (s *Server) developerCapabilitiesForUser(ctx context.Context, userID, brandCloudID string, role model.Role) []string {
+func (s *Server) developerCapabilitiesForUser(ctx context.Context, userID, brandCloudID string, role model.Role) ([]string, error) {
 	capabilities := developerCapabilitiesForRole(role)
-	if role != model.RoleMember {
-		return capabilities
+	permissions, err := s.store.ListUserOrganizationPermissions(ctx, userID, brandCloudID)
+	if err != nil {
+		return nil, err
 	}
-	allowed, err := s.store.HasUserPermissionAnyResource(ctx, userID, brandCloudID, "registry_device.manage")
-	if err == nil && allowed {
-		capabilities = append(capabilities, "fleet.device.manage", "fleet.batch.manage", "product.manage", "product.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "provisioning.create")
+	capabilities = appendUniqueCapabilities(capabilities, permissions...)
+	if role != model.RoleMember {
+		return capabilities, nil
+	}
+	if hasCapability(permissions, "registry_device.manage") {
+		capabilities = appendUniqueCapabilities(capabilities, "fleet.device.manage", "fleet.batch.manage", "product.manage", "product.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "provisioning.create")
+	}
+	return capabilities, nil
+}
+
+func appendUniqueCapabilities(capabilities []string, additions ...string) []string {
+	seen := make(map[string]struct{}, len(capabilities)+len(additions))
+	for _, capability := range capabilities {
+		seen[capability] = struct{}{}
+	}
+	for _, capability := range additions {
+		if _, ok := seen[capability]; ok {
+			continue
+		}
+		seen[capability] = struct{}{}
+		capabilities = append(capabilities, capability)
 	}
 	return capabilities
+}
+
+func hasCapability(capabilities []string, target string) bool {
+	for _, capability := range capabilities {
+		if capability == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) listDeveloperBrandCloudMembers(c *gin.Context) {

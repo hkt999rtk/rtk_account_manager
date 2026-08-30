@@ -155,6 +155,52 @@ func TestACLRoleAssignmentsAuthorizeInsideScopeOnly(t *testing.T) {
 	}
 }
 
+func TestListUserOrganizationPermissionsIncludesOwnerBillingOnlyInsideOrganization(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+
+	owner, err := env.store.Register(ctx, RegisterInput{
+		Email:            "billing-capabilities-owner@example.com",
+		PasswordHash:     mustHashACLPassword(t),
+		OrganizationName: "Billing Capabilities Org",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := env.store.Register(ctx, RegisterInput{
+		Email:            "billing-capabilities-other@example.com",
+		PasswordHash:     mustHashACLPassword(t),
+		OrganizationName: "Other Billing Capabilities Org",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	permissions, err := env.store.ListUserOrganizationPermissions(ctx, owner.User.ID, owner.Organization.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsPermission(permissions, "billing_account.read") {
+		t.Fatalf("owner organization permissions missing billing_account.read: %v", permissions)
+	}
+	permissions, err = env.store.ListUserOrganizationPermissions(ctx, owner.User.ID, other.Organization.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(permissions) != 0 {
+		t.Fatalf("permissions leaked into another organization: %v", permissions)
+	}
+}
+
+func containsPermission(permissions []string, target string) bool {
+	for _, permission := range permissions {
+		if permission == target {
+			return true
+		}
+	}
+	return false
+}
+
 func TestACLExternalGroupMappingCreatesScopedAssignment(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()

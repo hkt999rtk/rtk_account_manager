@@ -1147,7 +1147,11 @@ func (s *Server) me(c *gin.Context) {
 	}
 	for i := range orgPage.Organizations {
 		if orgPage.Organizations[i].OrganizationKind == model.OrganizationKindBrandCloud {
-			orgPage.Organizations[i].Capabilities = s.developerCapabilitiesForUser(c.Request.Context(), userID, orgPage.Organizations[i].ID, orgPage.Organizations[i].Role)
+			orgPage.Organizations[i].Capabilities, err = s.developerCapabilitiesForUser(c.Request.Context(), userID, orgPage.Organizations[i].ID, orgPage.Organizations[i].Role)
+			if err != nil {
+				writeStoreError(c, err)
+				return
+			}
 		}
 	}
 	capabilities, err := s.store.ListUserPlatformPermissions(c.Request.Context(), userID)
