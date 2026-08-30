@@ -178,7 +178,7 @@ WHERE subject_type = 'brand_cloud_user';
 
 ALTER TABLE auth_tokens
     ADD CONSTRAINT auth_tokens_subject_type_check
-    CHECK (subject_type = 'user');
+    CHECK (subject_type IN ('user', 'brand_cloud_user'));
 
 DO $$
 BEGIN
