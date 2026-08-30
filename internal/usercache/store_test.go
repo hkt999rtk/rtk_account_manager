@@ -145,49 +145,6 @@ func TestStoreDisableCurrentUserDeletesCachedUser(t *testing.T) {
 	}
 }
 
-func TestStoreGetBrandCloudUserPasswordReadThroughCachesLoginProjection(t *testing.T) {
-	ctx := context.Background()
-	user := model.BrandCloudUser{
-		ID:           "brand-user-1",
-		BrandCloudID: "brand-1",
-		Email:        "operator@example.com",
-		CreatedAt:    time.Now().UTC(),
-		UpdatedAt:    time.Now().UTC(),
-	}
-	backing := &fakeBacking{
-		brandPasswordByTenantEmail: map[string]store.BrandCloudLoginResult{
-			"acme:operator@example.com": {
-				BrandCloudUser: user,
-				PasswordHash:   "brand-hash",
-			},
-		},
-	}
-	cache := newFakeCache()
-	cached := &Store{backing: backing, cache: cache}
-
-	result, err := cached.GetBrandCloudUserPassword(ctx, "acme", " Operator@Example.com ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.BrandCloudUser.ID != "brand-user-1" || result.PasswordHash != "brand-hash" {
-		t.Fatalf("unexpected brand login result: %+v", result)
-	}
-	if backing.getBrandPasswordCalls != 1 {
-		t.Fatalf("expected one postgres read, got %d", backing.getBrandPasswordCalls)
-	}
-
-	result, err = cached.GetBrandCloudUserPassword(ctx, "acme", "operator@example.com")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.BrandCloudUser.ID != "brand-user-1" || result.PasswordHash != "brand-hash" {
-		t.Fatalf("unexpected cached brand login result: %+v", result)
-	}
-	if backing.getBrandPasswordCalls != 1 {
-		t.Fatalf("expected brand login cache hit, got %d postgres reads", backing.getBrandPasswordCalls)
-	}
-}
-
 func TestStoreGetEndUserPasswordReadThroughCachesLoginProjection(t *testing.T) {
 	ctx := context.Background()
 	user := model.EndUser{
@@ -281,7 +238,6 @@ func TestStoreAdditionalPlatformMutationsRefreshCache(t *testing.T) {
 func TestStoreAdditionalReadThroughPaths(t *testing.T) {
 	ctx := context.Background()
 	user := testUser("user-1", "owner@example.com")
-	brandUser := model.BrandCloudUser{ID: "brand-user-1", BrandCloudID: "brand-1", Email: "operator@example.com"}
 	endUser := model.EndUser{ID: "end-user-1", PrimaryEmail: "consumer@example.com", Status: "active"}
 	backing := &fakeBacking{
 		userByEmail: map[string]model.User{
@@ -289,9 +245,6 @@ func TestStoreAdditionalReadThroughPaths(t *testing.T) {
 		},
 		passwordByID: map[string]authRecord{
 			"user-1": {user: user, hash: "hash-1"},
-		},
-		brandUserByID: map[string]model.BrandCloudUser{
-			"brand-user-1": brandUser,
 		},
 		endUserByID: map[string]model.EndUser{
 			"end-user-1": endUser,
@@ -306,88 +259,25 @@ func TestStoreAdditionalReadThroughPaths(t *testing.T) {
 	if got, hash, err := cached.GetUserPasswordByID(ctx, "user-1"); err != nil || got.ID != "user-1" || hash != "hash-1" {
 		t.Fatalf("unexpected password by id: %+v %q %v", got, hash, err)
 	}
-	if got, err := cached.GetBrandCloudUser(ctx, "brand-user-1"); err != nil || got.ID != "brand-user-1" {
-		t.Fatalf("unexpected brand user: %+v %v", got, err)
-	}
 	if got, err := cached.GetEndUser(ctx, "end-user-1"); err != nil || got.ID != "end-user-1" {
 		t.Fatalf("unexpected end user: %+v %v", got, err)
 	}
 }
 
-func TestStoreBrandAndEndUserMutationsRefreshCache(t *testing.T) {
+func TestStoreEndUserMutationRefreshesCache(t *testing.T) {
 	ctx := context.Background()
-	brandUser := model.BrandCloudUser{ID: "brand-user-1", BrandCloudID: "brand-1", Email: "operator@example.com"}
 	endUser := model.EndUser{ID: "end-user-1", PrimaryEmail: "consumer@example.com", Status: "active"}
 	backing := &fakeBacking{
-		brandUserResult: store.BrandCloudUserResult{BrandCloudUser: brandUser},
-		brandUserByID: map[string]model.BrandCloudUser{
-			"brand-user-1": brandUser,
-		},
 		createEndUser: endUser,
 	}
 	cache := newFakeCache()
-	cache.brandEmailID["acme:operator@example.com"] = "brand-user-1"
-	cache.brandLogin["brand-user-1"] = store.BrandCloudLoginResult{
-		BrandCloudUser: brandUser,
-		PasswordHash:   "stale-hash",
-	}
 	cached := &Store{backing: backing, cache: cache}
-
-	if _, err := cached.CreateBrandCloudUser(ctx, "actor", "brand-1", store.BrandCloudUserInput{}); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := cache.brandUsers["brand-user-1"]; !ok {
-		t.Fatal("expected created brand user cache")
-	}
-	if _, ok := cache.brandLogin["brand-user-1"]; ok {
-		t.Fatal("expected create or password rotation to invalidate cached brand login")
-	}
-	if _, ok := cache.brandEmailID["acme:operator@example.com"]; ok {
-		t.Fatal("expected create or password rotation to invalidate cached brand email index")
-	}
-	if _, err := cached.EnableBrandCloudUser(ctx, "actor", "brand-1", "brand-user-1"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := cached.ApproveBrandCloudUser(ctx, "actor", "brand-1", "brand-user-1"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := cached.DisableBrandCloudUser(ctx, "actor", "brand-1", "brand-user-1"); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := cache.brandUsers["brand-user-1"]; ok {
-		t.Fatal("expected disabled brand user cache deletion")
-	}
-	if err := cached.DeleteBrandCloudUser(ctx, "actor", "brand-1", "brand-user-1"); err != nil {
-		t.Fatal(err)
-	}
 
 	if _, err := cached.CreateEndUser(ctx, store.EndUserCreateInput{PasswordHash: "end-hash"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := cache.endLogin["end-user-1"].PasswordHash; got != "end-hash" {
 		t.Fatalf("expected end user login cache, got %q", got)
-	}
-}
-
-func TestStoreActivateBrandCloudLoginTokenRefreshesCache(t *testing.T) {
-	ctx := context.Background()
-	result := store.BrandCloudLoginResult{
-		BrandCloudUser: model.BrandCloudUser{ID: "brand-user-1", BrandCloudID: "brand-1", Email: "operator@example.com"},
-		PasswordHash:   "brand-hash",
-	}
-	backing := &fakeBacking{activateBrandResult: result}
-	cache := newFakeCache()
-	cached := &Store{backing: backing, cache: cache}
-
-	got, err := cached.ActivateBrandCloudLoginToken(ctx, "acme", "token")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.BrandCloudUser.ID != "brand-user-1" {
-		t.Fatalf("unexpected result: %+v", got)
-	}
-	if cached := cache.brandLogin["brand-user-1"]; cached.PasswordHash != "brand-hash" {
-		t.Fatalf("expected brand login cache refresh, got %+v", cached)
 	}
 }
 
@@ -423,12 +313,6 @@ func TestStoreIgnoresCacheReadAndWriteErrors(t *testing.T) {
 		passwordByEmail: map[string]authRecord{
 			"owner@example.com": {user: user, hash: "hash-1"},
 		},
-		brandPasswordByTenantEmail: map[string]store.BrandCloudLoginResult{
-			"acme:operator@example.com": {
-				BrandCloudUser: model.BrandCloudUser{ID: "brand-user-1", BrandCloudID: "brand-1", Email: "operator@example.com"},
-				PasswordHash:   "brand-hash",
-			},
-		},
 		endPasswordByEmail: map[string]store.EndUserLoginResult{
 			"consumer@example.com": {
 				EndUser:      model.EndUser{ID: "end-user-1", PrimaryEmail: "consumer@example.com", Status: "active"},
@@ -445,9 +329,6 @@ func TestStoreIgnoresCacheReadAndWriteErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, _, err := cached.GetUserPassword(ctx, "owner@example.com"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := cached.GetBrandCloudUserPassword(ctx, "acme", "operator@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := cached.GetEndUserPassword(ctx, "consumer@example.com"); err != nil {

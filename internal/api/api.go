@@ -1889,12 +1889,6 @@ func currentBrandCloudID(c *gin.Context) string {
 	return id
 }
 
-func currentTenantSlug(c *gin.Context) string {
-	value, _ := c.Get("tenantSlug")
-	slug, _ := value.(string)
-	return slug
-}
-
 func currentEndUserID(c *gin.Context) string {
 	value, _ := c.Get("endUserID")
 	id, _ := value.(string)

@@ -18,11 +18,6 @@ type brandCloudRequest struct {
 	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
-type brandCloudMemberRequest struct {
-	BrandCloudUserID string `json:"brand_cloud_user_id,omitempty"`
-	Role             string `json:"role" binding:"required"`
-}
-
 type brandCloudUserRequest struct {
 	Email          string  `json:"email" binding:"required,email"`
 	Password       string  `json:"password"`
@@ -63,8 +58,7 @@ type brandCloudUsersResponse struct {
 }
 
 type brandCloudUserResponse struct {
-	Member         model.Member         `json:"member,omitempty"`
-	BrandCloudUser model.BrandCloudUser `json:"brand_cloud_user,omitempty"`
+	Member model.Member `json:"member,omitempty"`
 }
 
 func profileBrandCloudID(c *gin.Context) string {
@@ -314,29 +308,6 @@ func (s *Server) disableDeviceItemProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, deviceItemProfileResponse{DeviceItemProfile: profile})
 }
 
-func (s *Server) assignBrandCloudMember(c *gin.Context) {
-	var req brandCloudMemberRequest
-	if !bind(c, &req) {
-		return
-	}
-	role := model.Role(strings.TrimSpace(req.Role))
-	if role != model.RoleOwner && role != model.RoleAdmin && role != model.RoleMember {
-		writeError(c, http.StatusBadRequest, "invalid_role", "Invalid role")
-		return
-	}
-	brandCloudUserID := strings.TrimSpace(req.BrandCloudUserID)
-	if brandCloudUserID == "" {
-		writeError(c, http.StatusBadRequest, "missing_brand_cloud_user", "brand_cloud_user_id is required")
-		return
-	}
-	member, err := s.store.AssignBrandCloudMember(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), brandCloudUserID, role)
-	if err != nil {
-		writeStoreError(c, err)
-		return
-	}
-	c.JSON(http.StatusCreated, gin.H{"member": member})
-}
-
 func (s *Server) createBrandCloudUser(c *gin.Context) {
 	var req brandCloudUserRequest
 	if !bind(c, &req) {
@@ -449,24 +420,6 @@ func (s *Server) enableBrandCloudUser(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, brandCloudUserResponse{Member: member})
-}
-
-func (s *Server) approveBrandCloudUser(c *gin.Context) {
-	user, err := s.store.ApproveBrandCloudUser(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), c.Param("brandCloudUserId"))
-	if err != nil {
-		writeStoreError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, brandCloudUserResponse{BrandCloudUser: user})
-}
-
-func (s *Server) revokeBrandCloudUserAppCertificate(c *gin.Context) {
-	revoked, err := s.store.RevokeValidAppCertificatesForBrandCloudUser(c.Request.Context(), c.Param("brandCloudId"), c.Param("brandCloudUserId"))
-	if err != nil {
-		writeStoreError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"revoked": revoked})
 }
 
 func (s *Server) deleteBrandCloudUser(c *gin.Context) {
