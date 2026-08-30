@@ -124,6 +124,39 @@ func TestStoreRegisterRefreshesUserAuthCacheAfterCommit(t *testing.T) {
 	}
 }
 
+func TestStoreProvisionBrandCloudAccountRefreshesRotatedAuthCache(t *testing.T) {
+	ctx := context.Background()
+	user := testUser("user-1", "owner@example.com")
+	backing := &fakeBacking{
+		brandAccountResult: store.BrandCloudAccountResult{Action: "assigned", User: user},
+	}
+	cache := newFakeCache()
+	if err := cache.PutPlatformAuth(ctx, user, "old-hash"); err != nil {
+		t.Fatal(err)
+	}
+	cached := &Store{backing: backing, cache: cache}
+
+	result, err := cached.ProvisionBrandCloudAccount(ctx, "actor-1", "org-1", store.BrandCloudAccountInput{
+		Email:          user.Email,
+		PasswordHash:   "new-hash",
+		RotatePassword: true,
+		ActivationMode: "immediate",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.User.ID != user.ID || backing.provisionBrandAccountCalls != 1 {
+		t.Fatalf("result=%+v calls=%d", result, backing.provisionBrandAccountCalls)
+	}
+	_, hash, ok, err := cache.GetPlatformAuth(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || hash != "new-hash" {
+		t.Fatalf("cached auth ok=%v hash=%q", ok, hash)
+	}
+}
+
 func TestStoreDisableCurrentUserDeletesCachedUser(t *testing.T) {
 	ctx := context.Background()
 	backing := &fakeBacking{}
@@ -359,6 +392,7 @@ type fakeBacking struct {
 	passwordByID               map[string]authRecord
 	registerResult             store.RegisterResult
 	developerResult            store.DeveloperSignupResult
+	brandAccountResult         store.BrandCloudAccountResult
 	verifyUser                 model.User
 	activateUser               model.User
 	brandPasswordByTenantEmail map[string]store.BrandCloudLoginResult
@@ -369,10 +403,11 @@ type fakeBacking struct {
 	endUserByID                map[string]model.EndUser
 	createEndUser              model.EndUser
 
-	getUserCalls          int
-	getPasswordCalls      int
-	getBrandPasswordCalls int
-	getEndPasswordCalls   int
+	getUserCalls               int
+	getPasswordCalls           int
+	getBrandPasswordCalls      int
+	getEndPasswordCalls        int
+	provisionBrandAccountCalls int
 }
 
 func (f *fakeBacking) Register(context.Context, store.RegisterInput) (store.RegisterResult, error) {
@@ -381,6 +416,11 @@ func (f *fakeBacking) Register(context.Context, store.RegisterInput) (store.Regi
 
 func (f *fakeBacking) SignupDeveloper(context.Context, store.DeveloperSignupInput) (store.DeveloperSignupResult, error) {
 	return f.developerResult, nil
+}
+
+func (f *fakeBacking) ProvisionBrandCloudAccount(context.Context, string, string, store.BrandCloudAccountInput) (store.BrandCloudAccountResult, error) {
+	f.provisionBrandAccountCalls++
+	return f.brandAccountResult, nil
 }
 
 func (f *fakeBacking) GetUserPassword(_ context.Context, email string) (model.User, string, error) {
