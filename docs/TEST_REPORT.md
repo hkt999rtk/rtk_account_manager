@@ -745,6 +745,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestListAuditEventsReturnsRecordedLifecycleEvents`
 - `rtk_account_manager/internal/store`: `TestListInboxMessagesByStatusAndShowDetail`
 - `rtk_account_manager/internal/store`: `TestListOutboxMessagesByStatusFiltersLifecycleRows`
+- `rtk_account_manager/internal/store`: `TestListUserOrganizationPermissionsIncludesOwnerBillingOnlyInsideOrganization`
 - `rtk_account_manager/internal/store`: `TestLoginActivationTokenLifecycleAndScope`
 - `rtk_account_manager/internal/store`: `TestMergeDeviceMetadataPreservesUnrelatedFields`
 - `rtk_account_manager/internal/store`: `TestMetadataChangedProjectionFiltersNonVideoCloudKeys`
