@@ -277,6 +277,10 @@ def wait_for_verification(uid_start: int, timeout_seconds: int) -> dict[str, obj
                 raise IMAPTestError("IMAP UID search failed")
             uids = (data[0] if data else b"").split()
             for uid in uids:
+                # IMAP sequence ranges are inclusive in either direction:
+                # UIDNEXT:* can return the previous highest UID until mail arrives.
+                if int(uid) < uid_start:
+                    continue
                 status, fetched = client.uid("fetch", uid, "(BODY.PEEK[])")
                 if status != "OK":
                     continue

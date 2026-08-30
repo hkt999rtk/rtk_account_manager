@@ -140,5 +140,48 @@ class MessageInspectionTest(unittest.TestCase):
         self.assertIs(result, wrapped)
 
 
+class VerificationPollingTest(unittest.TestCase):
+    def test_ignores_older_uid_until_new_verification_arrives(self):
+        client = mock.Mock()
+        client.uid.side_effect = [
+            ("OK", [b"56"]),
+            ("OK", [b"56 57"]),
+            ("OK", [(b"57 (BODY[])", message_bytes())]),
+        ]
+        with mock.patch.dict("os.environ", {
+            "EMAIL_E2E_SIGNUP_EMAIL": "test@example.com",
+            "AUTH_TOKEN_BASE_URL": "http://127.0.0.1:18082",
+        }), mock.patch.object(imap_helper, "_connect", return_value=client), \
+                mock.patch.object(imap_helper, "_select"), \
+                mock.patch.object(imap_helper.time, "monotonic", side_effect=[0, 1, 2]), \
+                mock.patch.object(imap_helper.time, "sleep") as sleep:
+            result = imap_helper.wait_for_verification(57, 30)
+
+        self.assertEqual(result["uid"], 57)
+        self.assertEqual(client.uid.call_args_list, [
+            mock.call("search", None, "UID 57:*"),
+            mock.call("search", None, "UID 57:*"),
+            mock.call("fetch", b"57", "(BODY.PEEK[])"),
+        ])
+        sleep.assert_called_once_with(5)
+        client.logout.assert_called_once()
+
+    def test_old_mail_alone_times_out_without_fetching_it(self):
+        client = mock.Mock()
+        client.uid.return_value = ("OK", [b"56"])
+        with mock.patch.dict("os.environ", {
+            "EMAIL_E2E_SIGNUP_EMAIL": "test@example.com",
+            "AUTH_TOKEN_BASE_URL": "http://127.0.0.1:18082",
+        }), mock.patch.object(imap_helper, "_connect", return_value=client), \
+                mock.patch.object(imap_helper, "_select"), \
+                mock.patch.object(imap_helper.time, "monotonic", side_effect=[0, 1, 31]), \
+                mock.patch.object(imap_helper.time, "sleep"):
+            with self.assertRaisesRegex(imap_helper.IMAPTestError, "did not arrive"):
+                imap_helper.wait_for_verification(57, 30)
+
+        client.uid.assert_called_once_with("search", None, "UID 57:*")
+        client.logout.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
