@@ -1750,67 +1750,6 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 
 func (s *Server) requirePermission(permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
-			orgID := c.Param("orgId")
-			if orgID == "" || orgID != currentBrandCloudID(c) {
-				writeError(c, http.StatusNotFound, "not_found", "Resource not found")
-				c.Abort()
-				return
-			}
-			allowed, err := s.store.HasBrandCloudPermission(c.Request.Context(), currentBrandCloudUserID(c), orgID, permission)
-			if err != nil {
-				writeError(c, http.StatusNotFound, "not_found", "Resource not found")
-				c.Abort()
-				return
-			}
-			if !allowed && (permission == "registry_device.read" || permission == "device_group.read" || permission == "device_tag.read") && c.Param("deviceId") == "" && c.Param("profileId") == "" {
-				allowed, err = s.store.HasBrandCloudPermissionAnyResource(c.Request.Context(), currentBrandCloudUserID(c), orgID, permission)
-			}
-			if !allowed && c.Param("deviceId") == "" && c.Param("profileId") == "" {
-				writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
-				c.Abort()
-				return
-			}
-			if deviceID := c.Param("deviceId"); deviceID != "" {
-				allowed, err = s.store.HasBrandCloudDevicePermission(c.Request.Context(), currentBrandCloudUserID(c), orgID, permission, deviceID)
-				if err != nil {
-					writeError(c, http.StatusNotFound, "not_found", "Resource not found")
-					c.Abort()
-					return
-				}
-				if !allowed {
-					canRead, _ := s.store.HasBrandCloudDevicePermission(c.Request.Context(), currentBrandCloudUserID(c), orgID, "registry_device.read", deviceID)
-					if canRead {
-						writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
-					} else {
-						writeError(c, http.StatusNotFound, "not_found", "Resource not found")
-					}
-					c.Abort()
-					return
-				}
-			}
-			if profileID := c.Param("profileId"); profileID != "" {
-				allowed, err = s.store.HasBrandCloudPermissionForResource(c.Request.Context(), currentBrandCloudUserID(c), orgID, permission, store.ScopeTypeProduct, profileID)
-				if err != nil {
-					writeError(c, http.StatusNotFound, "not_found", "Resource not found")
-					c.Abort()
-					return
-				}
-				if !allowed {
-					canRead, _ := s.store.HasBrandCloudPermissionForResource(c.Request.Context(), currentBrandCloudUserID(c), orgID, "registry_device.read", store.ScopeTypeProduct, profileID)
-					if canRead {
-						writeError(c, http.StatusForbidden, "forbidden", "Insufficient permissions")
-					} else {
-						writeError(c, http.StatusNotFound, "not_found", "Resource not found")
-					}
-					c.Abort()
-					return
-				}
-			}
-			c.Set("permission", permission)
-			c.Next()
-			return
-		}
 		if orgID := c.Param("orgId"); orgID != "" {
 			if _, err := s.store.GetRole(c.Request.Context(), orgID, currentUserID(c)); err != nil {
 				writeError(c, http.StatusNotFound, "not_found", "Resource not found")

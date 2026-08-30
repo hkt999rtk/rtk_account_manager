@@ -180,6 +180,16 @@ func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing
 	if created.User.EmailVerified || !created.User.SignupPendingVerification || created.Member.Role != "owner" || created.Member.DisabledAt == nil {
 		t.Fatalf("email owner did not start pending: %+v", created)
 	}
+	pendingListRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users?status=pending_verification", nil, admin.Tokens.AccessToken)
+	if pendingListRes.Code != http.StatusOK {
+		t.Fatalf("pending account list status = %d: %s", pendingListRes.Code, pendingListRes.Body.String())
+	}
+	pendingList := decodeBody[struct {
+		Users []model.BrandCloudAccountListItem `json:"users"`
+	}](t, pendingListRes)
+	if len(pendingList.Users) != 1 || pendingList.Users[0].UserID != created.User.ID || pendingList.Users[0].EmailVerified || !pendingList.Users[0].SignupPendingVerification {
+		t.Fatalf("pending account list omitted global activation state: %+v", pendingList.Users)
+	}
 	duplicateRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
 		"email": "imap-test01+load-run-b01@realtekconnect.com", "display_name": "Load Owner",
 		"role": "owner", "activation_mode": "email",
@@ -2508,6 +2518,9 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 	listRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", nil, admin.Tokens.AccessToken)
 	if listRes.Code != http.StatusOK || !strings.Contains(listRes.Body.String(), created.User.ID) {
 		t.Fatalf("membership list status/body=%d/%s", listRes.Code, listRes.Body.String())
+	}
+	if !strings.Contains(listRes.Body.String(), `"email_verified":true`) || !strings.Contains(listRes.Body.String(), `"signup_pending_verification":false`) {
+		t.Fatalf("membership list omitted global activation state: %s", listRes.Body.String())
 	}
 	disableRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users/"+created.User.ID+"/disable", nil, admin.Tokens.AccessToken)
 	if disableRes.Code != http.StatusOK {

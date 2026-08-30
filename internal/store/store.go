@@ -184,19 +184,6 @@ type BrandCloudAccountListFilter struct {
 	Offset       int
 }
 
-type BrandCloudUserListFilter struct {
-	BrandCloudID string
-	Status       string
-	Query        string
-	Limit        int
-	Offset       int
-}
-
-type BrandCloudUserPage struct {
-	Users []model.BrandCloudUser
-	Page  Page
-}
-
 type BrandCloudLoginResult struct {
 	BrandCloud     model.Organization     `json:"brand_cloud"`
 	User           model.User             `json:"user"`
@@ -208,6 +195,11 @@ type BrandCloudLoginResult struct {
 type MemberPage struct {
 	Members []model.Member
 	Page    Page
+}
+
+type BrandCloudAccountPage struct {
+	Accounts []model.BrandCloudAccountListItem
+	Page     Page
 }
 
 type DevicePage struct {

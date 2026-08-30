@@ -43,6 +43,10 @@ func TestAppCertificateCreateRotatesActiveCertificate(t *testing.T) {
 	if active.ID != first.ID || active.FingerprintSHA256 != "fingerprint-1" {
 		t.Fatalf("unexpected first active certificate: %+v", active)
 	}
+	issued, err := env.store.GetAppCertificateByIssuerRequestID(ctx, "issuer-1")
+	if err != nil || issued.ID != first.ID {
+		t.Fatalf("certificate issuer lookup = %+v, %v", issued, err)
+	}
 	if err := env.store.AuthorizeActiveAppCertificateForSubject(ctx, "user", registered.User.ID, "FINGERPRINT-1", now); err != nil {
 		t.Fatalf("authorize first active certificate: %v", err)
 	}
