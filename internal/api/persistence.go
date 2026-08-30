@@ -186,6 +186,7 @@ type aclPersistence interface {
 	HasUserPermissionAnyResource(ctx context.Context, userID, orgID, permission string) (bool, error)
 	HasUserDevicePermission(ctx context.Context, userID, orgID, permission, deviceID string) (bool, error)
 	ListUserPlatformPermissions(ctx context.Context, userID string) ([]string, error)
+	ListUserOrganizationPermissions(ctx context.Context, userID, orgID string) ([]string, error)
 	HasBrandCloudPermission(ctx context.Context, brandCloudUserID, orgID, permission string) (bool, error)
 	HasBrandCloudPermissionForResource(ctx context.Context, brandCloudUserID, orgID, permission, scopeType, scopeID string) (bool, error)
 	HasBrandCloudPermissionAnyResource(ctx context.Context, brandCloudUserID, orgID, permission string) (bool, error)

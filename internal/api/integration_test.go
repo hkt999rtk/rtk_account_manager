@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1696,6 +1697,14 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 		t.Fatalf("expected login 200, got %d: %s", loginRes.Code, loginRes.Body.String())
 	}
 	login := decodeBody[tokenBody](t, loginRes)
+	meRes := performJSON(env.router, http.MethodGet, "/v1/me", nil, login.Tokens.AccessToken)
+	if meRes.Code != http.StatusOK {
+		t.Fatalf("expected developer owner me 200, got %d: %s", meRes.Code, meRes.Body.String())
+	}
+	me := decodeBody[meBody](t, meRes)
+	if len(me.Organizations) != 1 || !slices.Contains(me.Organizations[0].Capabilities, "billing_account.read") {
+		t.Fatalf("expected developer owner billing capability, got %+v", me.Organizations)
+	}
 
 	listRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds", nil, login.Tokens.AccessToken)
 	if listRes.Code != http.StatusOK {
@@ -1823,6 +1832,21 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 	memberDetailRes = performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID, nil, member.AccessToken)
 	if memberDetailRes.Code != http.StatusOK || !bytes.Contains(memberDetailRes.Body.Bytes(), []byte(`"role":"member"`)) {
 		t.Fatalf("expected member developer cloud detail 200, got %d: %s", memberDetailRes.Code, memberDetailRes.Body.String())
+	}
+	memberMeRes := performJSON(env.router, http.MethodGet, "/v1/me", nil, member.AccessToken)
+	if memberMeRes.Code != http.StatusOK {
+		t.Fatalf("expected developer member me 200, got %d: %s", memberMeRes.Code, memberMeRes.Body.String())
+	}
+	memberMe := decodeBody[meBody](t, memberMeRes)
+	memberCapabilities := []string(nil)
+	for _, organization := range memberMe.Organizations {
+		if organization.ID == signup.BrandCloud.ID {
+			memberCapabilities = organization.Capabilities
+			break
+		}
+	}
+	if memberCapabilities == nil || slices.Contains(memberCapabilities, "billing_account.read") {
+		t.Fatalf("expected invited member without billing capability, got %+v", memberMe.Organizations)
 	}
 	memberManageRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/invitations", map[string]any{
 		"email": "forbidden-invite@example.com", "role": "member",
@@ -6473,7 +6497,8 @@ type meBody struct {
 		EmailVerified bool   `json:"email_verified"`
 	} `json:"user"`
 	Organizations []struct {
-		ID string `json:"id"`
+		ID           string   `json:"id"`
+		Capabilities []string `json:"capabilities"`
 	} `json:"organizations"`
 }
 
