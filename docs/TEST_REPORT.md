@@ -821,6 +821,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/usercache`: `TestStoreGetUserPasswordReadThroughCachesAuthProjection`
 - `rtk_account_manager/internal/usercache`: `TestStoreGetUserReadThroughCachesPostgresMiss`
 - `rtk_account_manager/internal/usercache`: `TestStoreIgnoresCacheReadAndWriteErrors`
+- `rtk_account_manager/internal/usercache`: `TestStoreProvisionBrandCloudAccountRefreshesRotatedAuthCache`
 - `rtk_account_manager/internal/usercache`: `TestStoreRegisterRefreshesUserAuthCacheAfterCommit`
 - `rtk_account_manager/internal/worker/emailoutbox`: `TestServiceExpiresWithoutSending`
 - `rtk_account_manager/internal/worker/emailoutbox`: `TestServiceRetriesTransientAndDeadLettersPermanent/permanent`
