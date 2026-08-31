@@ -61,6 +61,17 @@ awaiting_acceptance, preparing, awaiting_balance_confirmation, committing,
 finalizing, succeeded, blocked and canceled. A blocked operation also stores its
 resumption phase. Only one nonterminal lifecycle operation holds a cloud fence.
 
+Require Billing to confirm that the source owner has settled all outstanding
+charges and that available cloud credit is strictly positive (`balance_minor > 0`).
+Check financial eligibility at request and acceptance; revalidate fenced settlement
+and the confirmed positive snapshot/version before sole-owner commit. Zero or
+negative balance yields `balance_not_positive`; positive credit never overrides
+unsettled usage, debt, pending payments/refunds/disputes or missing evidence.
+If final settlement makes credit nonpositive, keep the original owner and block
+commit. Complete precommit cancellation/remote hold release before allowing the
+original owner to settle/top up normally and start a new transfer. No ownership
+or target quota consumption commits while any financial condition is unsatisfied.
+
 After authenticated target acceptance, durable outbox/inbox messages prepare
 Billing and cost-producing resource services. Messages bind operation/cloud ID,
 ownership version, cutoff and reconciliation evidence. Drain/fence producers;
@@ -92,3 +103,6 @@ register/signup parity, viewer and future-Product scopes, revocation/rejoin,
 old-owner Product removal, stale/replayed messages, crashes at every handoff
 phase, unavailable Billing/resource evidence and deletion races. Cross-service
 and browser evidence precede coordinated staging deployment and legacy cleanup.
+Transfer tests explicitly reject settled -1/0 balances, allow +1 only without
+other blockers, and reject positive-to-nonpositive settlement races. Deletion
+continues to require zero balance; do not reuse the transfer predicate for deletion.
