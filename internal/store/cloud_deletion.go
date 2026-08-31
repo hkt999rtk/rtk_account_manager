@@ -326,8 +326,14 @@ func (s *Store) recordDeletionHold(ctx context.Context, op CloudDeletionOperatio
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO cloud_deletion_resource_receipts(operation_id,participant,receipt_sha256) SELECT id,$2,$3 FROM cloud_deletion_operations WHERE id=$1 AND phase='preparing'`, op.ID, in.Participant, in.ReceiptSHA256); err != nil {
+	inserted, err := tx.Exec(ctx, `INSERT INTO cloud_deletion_resource_receipts(operation_id,participant,receipt_sha256) SELECT id,$2,$3 FROM cloud_deletion_operations WHERE id=$1 AND phase='preparing'`, op.ID, in.Participant, in.ReceiptSHA256)
+	if err != nil {
 		return err
+	}
+	// Cancellation can win while a producer response is in flight. Do not
+	// acknowledge or audit a new hold when no receipt was actually accepted.
+	if inserted.RowsAffected() != 1 {
+		return ErrConflict
 	}
 	if err = deletionAudit(ctx, tx, op, "producer_held", in.ReceiptSHA256); err != nil {
 		return err

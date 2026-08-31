@@ -823,3 +823,14 @@ rolls back both schema and migration state, followed by a safe synthetic retry.
 The full database race suite now measures 88.7%; store and the fresh governed
 gate remain open. No published migration, threshold or requirement was changed.
 See `test_report.md` for the exact local commands/artifacts and limitations.
+
+## Deletion cancellation/evidence regression — 2026-09-01
+
+New failure-path tests exposed a late producer response being acknowledged and
+audited despite no receipt being inserted after cancellation. Conditional receipt
+insertion now checks its affected-row count and returns conflict without false
+audit evidence. Tests also cover atomic audit failure/retry, malformed retirement
+proofs, conflicting release replays and canceled requests preserving owner and
+worker lease state. Two race-enabled runs and store vet pass; the full governed
+gate and production producer/Billing integration remain required. Financial
+policy is unchanged: deletion requires zero balance; transfer permits >= 0.

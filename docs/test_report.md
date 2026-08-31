@@ -1,5 +1,28 @@
 # Test Report
 
+## 2026-09-01 deletion evidence and cancellation regression
+
+- A new delayed-response test first reproduced a false successful hold
+  acknowledgment after cancellation. The conditional receipt insert wrote zero
+  rows but emitted a producer-held audit. The store now requires one inserted
+  receipt before acknowledging/auditing; canceled operations return conflict.
+- Added six audit-rejection/retry cases covering request, producer hold, close
+  command, command retirement, cancellation intent and hold release. Each proves
+  no partial decision survives and an explicit retry persists exactly one row.
+- Malformed/mixed retirement proofs, conflicting receipt replays, unknown release
+  participants and release-before-cancellation are rejected. Retirement alone
+  cannot tombstone the cloud or release its fence.
+- Canceled handoff/deletion calls preserve durable owner, operation, outbox,
+  evidence, audit and worker lease state; a valid later worker can still recover.
+- All deletion tests plus the new canceled-call cases passed twice with the race
+  detector (18.535s), followed by `go vet ./internal/store`.
+  Log: `/tmp/rtk-deletion-failure-fixed-race.log`.
+
+Only synthetic Billing/producer adapters and owned loopback PostgreSQL databases
+were used. Full governed coverage must be rerun; this does not close production
+adapter, service CI or staging acceptance gates. Deletion still requires zero
+balance; ownership transfer remains eligible at settled balance >= 0.
+
 ## 2026-09-01 migration failure recovery and governed coverage checkpoint
 
 - The real workspace PR-profile Account Manager coverage run at `da50842`
