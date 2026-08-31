@@ -14,6 +14,10 @@ Isolated PostgreSQL cases against the published migration demonstrate:
 - Two legacy identities mapping to one global user and one target Brand Cloud
   can produce multiple rows for one `organization_members` conflict target.
   PostgreSQL refuses that statement before role precedence can be applied.
+- Global email activation currently clears every disabled membership for the
+  user, including an administrative disable. PostgreSQL cases reproduce this
+  for both newly migrated and pre-existing global users. Activation succeeds,
+  but restores permissions that were not suspended for email verification.
 
 The same fixture suite verifies that identical trusted hashes merge, different
 hashes require reset, existing global credentials/verification are preserved,
@@ -40,9 +44,10 @@ The corrected 049 source keeps the approved identity model and transaction:
    `(organization_id, global_user_id)`. Merge roles by `owner > admin > member`,
    preserve the earliest creation timestamp, and retain the existing disabled
    state rule: any eligible enabled source keeps the merged member enabled;
-   otherwise retain the disabled state. Reset-required identities remain
-   disabled by the cutover policy. Apply the same precedence against an
-   existing global membership.
+   otherwise retain the disabled state. Eligible reset-required memberships
+   are temporarily suspended with explicit activation provenance (below).
+   Administratively disabled sources do not receive that provenance. Apply
+   the same precedence against an existing global membership.
 5. Preserve ACL mapping, original mapping outcomes on replay, historical audit
    actors, token/certificate revocation, and the final enabled/verified owner
    assertion. An owner conflict aborts all writes in the transaction.
@@ -66,7 +71,8 @@ are true:
 
 For those exact candidates, atomically set the reset-required account state,
 replace the unusable hash with a non-authenticating marker, disable affected
-memberships, revoke their global refresh grants, and update all corresponding
+memberships, revoke their global refresh grants and active app-user
+certificates, and update all corresponding
 mapping conflict statuses while preserving original mapping outcomes. Record
 the correction reason and affected global/legacy IDs in a new audit event;
 do not rewrite historical events or include raw hashes, tokens or passwords.
@@ -77,9 +83,64 @@ valid owner, stop and resolve ownership/activation through the approved global
 flows before retrying. Do not bypass verification in the database. Do not
 enable disabled users or change unrelated global users/memberships.
 
+Revoking refresh grants alone does not stop an already-issued access JWT.
+The service change accompanying the forward migration must enforce the current
+global user and membership state on every human authorization path:
+
+- Global bearer authentication and refresh reject a disabled or
+  `signup_pending_verification` user even when the JWT signature/expiry or
+  refresh grant is otherwise valid. Activation endpoints remain available
+  through their one-time email tokens, not the pending user's access JWT.
+- `GetRole`, organization authorization and organization-scoped ACL permission
+  evaluation require an enabled membership and an enabled, non-pending global
+  user. A still-active global `role_assignment` cannot bypass a suspended or
+  administratively disabled membership. Platform-only ACL capabilities remain
+  independent of membership but still require an eligible global user.
+- Certificate enrollment and services consuming delegated authorization must
+  honor the same current-state denial. Validate existing JWT, refresh and
+  certificate paths, not just the login form. Activation restores only the
+  eligible memberships below; it never resurrects revoked grants/certificates.
+
+The maintenance sequence must deploy these guards with the correction before
+account traffic resumes. Do not run the forward SQL against an older service
+that continues accepting pending users or ignores disabled memberships.
+
 Legacy tables and the migration mapping remain available until correction and
 the full identity acceptance checks pass. Replaying the forward correction
 does not emit another correction event or reset an already-corrected user.
+
+## Activation suspension is not administrative revocation
+
+Email verification proves control of the account; it does not authorize
+rejoining a Brand Cloud from which an administrator removed access.
+
+- Introduce an internal `organization_member_activation_holds` table keyed by
+  `(organization_id, user_id)`, referencing the membership. Store the exact
+  `disabled_at` and `updated_at` values written by the activation suspension,
+  its source (`signup`, `provisioning`, or `identity_migration`), and creation
+  time. Do not infer an activation hold from `disabled_at IS NOT NULL` alone.
+- Fresh 049 and the forward migration create this table idempotently. The
+  migration, public signup and global-user provisioning write the hold in the
+  same transaction as a membership they suspend solely for verification.
+  Existing administrative disables never become activation holds. Suspending
+  an otherwise enabled membership is distinct from preserving an old disable.
+- `VerifyEmailToken` only restores memberships with an explicit hold whose
+  stored suspension timestamps still match the current membership. Delete
+  consumed/stale holds in the activation transaction. An intervening role or
+  disable change invalidates the hold; administrative membership mutations
+  explicitly remove it. Never use an unconditional user-wide re-enable.
+- Forward correction records holds only for memberships it newly suspends.
+  Already-applied 049 suspensions need pre-cutover provenance: a `created_user`
+  mapping, originally enabled legacy membership, and matching migration and
+  current membership timestamps can establish an unchanged migration hold.
+  Existing-global or ambiguous cases require comparison with the pre-cutover
+  backup. The preflight report lists unresolved cases; it must not guess or
+  silently restore rights. Retain the disabled state until an authorized
+  membership action resolves ambiguity, and do not remove legacy evidence
+  while these cases remain unresolved.
+- Password reset remains separate from email verification. A pending account
+  must complete global email activation before its activation holds can be
+  released; resetting its password alone must not grant membership access.
 
 ## Verification and rollback
 
@@ -94,6 +155,12 @@ Required isolated PostgreSQL evidence includes:
   historical audit actor/subject/payload, and retained migration mappings.
 - Sole-owner conflict: no partial user, membership, mapping, token revocation,
   or applied-migration marker survives the refused transaction.
+- Activation of eligible migrated/signup/provisioned memberships, preservation
+  of administrative disables (including a disable after the hold was created),
+  existing-global users, role changes, stale holds and activation-token replay.
+- An otherwise valid pre-correction global JWT, refresh grant and certificate
+  cannot bypass the pending state; direct role/ACL checks cannot bypass a
+  disabled membership; platform-only and App end-user boundaries remain valid.
 - Forward repair of an unchanged bad migrated credential; preservation of an
   existing global user and a migrated user whose password has since changed;
   correction audit, refresh revocation, owner refusal and idempotent replay.
