@@ -354,6 +354,9 @@ func (s *Store) CreateBrandCloudUser(ctx context.Context, actorUserID, orgID str
 }
 
 func (s *Store) ProvisionBrandCloudAccount(ctx context.Context, actorUserID, orgID string, in BrandCloudAccountInput) (BrandCloudAccountResult, error) {
+	if in.Role != model.RoleAdmin && in.Role != model.RoleMember {
+		return BrandCloudAccountResult{}, ErrConflict
+	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return BrandCloudAccountResult{}, err
@@ -378,6 +381,15 @@ func (s *Store) ProvisionBrandCloudAccount(ctx context.Context, actorUserID, org
 	}
 	if !newUser && user.DisabledAt != nil {
 		return BrandCloudAccountResult{}, ErrConflict
+	}
+	if !newUser {
+		var isOwner bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM organization_members WHERE organization_id=$1 AND user_id=$2 AND role='owner')`, orgID, user.ID).Scan(&isOwner); err != nil {
+			return BrandCloudAccountResult{}, err
+		}
+		if isOwner {
+			return BrandCloudAccountResult{}, ErrLastOwner
+		}
 	}
 	action := "assigned"
 	if newUser {
@@ -441,7 +453,7 @@ func (s *Store) ListBrandCloudAccounts(ctx context.Context, in BrandCloudAccount
 		return BrandCloudAccountPage{}, ErrNotFound
 	}
 	status, query := strings.TrimSpace(in.Status), strings.ToLower(strings.TrimSpace(in.Query))
-	filter := `m.organization_id=$1 AND ($2='' OR ($2='active' AND m.disabled_at IS NULL AND u.disabled_at IS NULL AND u.signup_pending_verification=false) OR ($2='pending_verification' AND m.disabled_at IS NOT NULL AND u.signup_pending_verification=true) OR ($2='disabled' AND (m.disabled_at IS NOT NULL OR u.disabled_at IS NOT NULL))) AND ($3='' OR lower(u.email) LIKE '%'||$3||'%' OR lower(coalesce(u.display_name,'')) LIKE '%'||$3||'%' OR u.id::text=$3)`
+	filter := `m.organization_id=$1 AND ($2='' OR ($2='active' AND m.disabled_at IS NULL AND u.disabled_at IS NULL AND u.email_verified=true AND u.signup_pending_verification=false) OR ($2='pending_verification' AND (u.signup_pending_verification=true OR u.email_verified=false)) OR ($2='disabled' AND (m.disabled_at IS NOT NULL OR u.disabled_at IS NOT NULL))) AND ($3='' OR lower(u.email) LIKE '%'||$3||'%' OR lower(coalesce(u.display_name,'')) LIKE '%'||$3||'%' OR u.id::text=$3)`
 	var total int
 	if err := s.db.QueryRow(ctx, `SELECT count(*) FROM organization_members m JOIN users u ON u.id=m.user_id WHERE `+filter, in.BrandCloudID, status, query).Scan(&total); err != nil {
 		return BrandCloudAccountPage{}, err

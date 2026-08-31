@@ -5151,7 +5151,9 @@ components:
         display_name:
           type: string
         role:
-          $ref: "#/components/schemas/Role"
+          type: string
+          enum: [admin, member]
+          description: Ownership cannot be assigned by account provisioning.
         rotate_password:
           type: boolean
           default: false

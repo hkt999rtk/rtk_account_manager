@@ -325,8 +325,8 @@ func (s *Server) createBrandCloudUser(c *gin.Context) {
 		return
 	}
 	role := model.Role(strings.TrimSpace(req.Role))
-	if role != model.RoleOwner && role != model.RoleAdmin && role != model.RoleMember {
-		writeError(c, http.StatusBadRequest, "invalid_role", "Invalid role")
+	if role != model.RoleAdmin && role != model.RoleMember {
+		writeError(c, http.StatusBadRequest, "invalid_role", "Only admin/member may be provisioned; ownership requires atomic creation or transfer")
 		return
 	}
 	activationMode := strings.ToLower(strings.TrimSpace(req.ActivationMode))

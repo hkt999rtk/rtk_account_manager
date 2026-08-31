@@ -124,7 +124,7 @@ func TestCreateProductionRunBindsBrandCloudAndProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	brand, err := env.store.CreateBrandCloud(ctx, admin.User.ID, BrandCloudInput{Name: "Production Brand"})
+	brand, err := createVerifiedOwnedCloudForTest(t, env, admin.User.ID, BrandCloudInput{Name: "Production Brand"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,11 +181,11 @@ func TestCreateProductionRunRejectsDisabledOrCrossBrandProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	brand, err := env.store.CreateBrandCloud(ctx, admin.User.ID, BrandCloudInput{Name: "Production Reject Brand"})
+	brand, err := createVerifiedOwnedCloudForTest(t, env, admin.User.ID, BrandCloudInput{Name: "Production Reject Brand"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherBrand, err := env.store.CreateBrandCloud(ctx, admin.User.ID, BrandCloudInput{Name: "Production Reject Other Brand"})
+	otherBrand, err := createVerifiedOwnedCloudForTest(t, env, admin.User.ID, BrandCloudInput{Name: "Production Reject Other Brand"})
 	if err != nil {
 		t.Fatal(err)
 	}

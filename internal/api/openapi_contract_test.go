@@ -219,9 +219,11 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	contract.validate(t, http.MethodPatch, "/v1/admin/identity-providers/contract-keycloak", adminIDPPatchRes)
 	adminIDPDeleteRes := performJSON(env.router, http.MethodDelete, "/v1/admin/identity-providers/contract-keycloak", nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodDelete, "/v1/admin/identity-providers/contract-keycloak", adminIDPDeleteRes)
+	activateGlobalFixtureForTest(t, env, registered.User.Email)
 	brandCloudCreateRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
-		"name":     "Contract Brand Cloud",
-		"metadata": map[string]any{"contract": true},
+		"name":          "Contract Brand Cloud",
+		"owner_user_id": registered.User.ID,
+		"metadata":      map[string]any{"contract": true},
 	}, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds", brandCloudCreateRes)
 	brandCloudResp := decodeBody[brandCloudBody](t, brandCloudCreateRes)

@@ -99,7 +99,7 @@ func TestDeviceItemProfileCRUDAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	brand, err := env.store.CreateBrandCloud(ctx, admin.User.ID, BrandCloudInput{Name: "Profile Brand"})
+	brand, err := createVerifiedOwnedCloudForTest(t, env, admin.User.ID, BrandCloudInput{Name: "Profile Brand"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestDeviceItemProfileBacksClaimTokenSnapshotAndResolve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	brand, err := env.store.CreateBrandCloud(ctx, admin.User.ID, BrandCloudInput{Name: "Claim Profile Brand"})
+	brand, err := createVerifiedOwnedCloudForTest(t, env, admin.User.ID, BrandCloudInput{Name: "Claim Profile Brand"})
 	if err != nil {
 		t.Fatal(err)
 	}

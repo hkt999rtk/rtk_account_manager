@@ -34,6 +34,14 @@ func TestPlatformCloudCreationRequiresDesignatedOwner(t *testing.T) {
 	r := gin.New()
 	r.POST("/clouds", func(c *gin.Context) { c.Set("userID", "operator"); server.createBrandCloud(c) })
 	r.PATCH("/clouds", server.updateBrandCloud)
+	r.POST("/clouds/users", server.createBrandCloudUser)
+	ownerProvision := httptest.NewRecorder()
+	ownerRequest := httptest.NewRequest(http.MethodPost, "/clouds/users", strings.NewReader(`{"email":"owner@example.com","role":"owner","activation_mode":"email"}`))
+	ownerRequest.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(ownerProvision, ownerRequest)
+	if ownerProvision.Code != http.StatusBadRequest {
+		t.Fatalf("generic owner provisioning was accepted: %d", ownerProvision.Code)
+	}
 	run := func(method, body string) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(method, "/clouds", strings.NewReader(body))

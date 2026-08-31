@@ -162,22 +162,15 @@ func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing
 	}
 	repository.ConfigureEmailOutboxCipher(cipher)
 	env.server.ConfigureEmailOutbox(repository)
-	brandRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
-		"name": "RTK-LOAD-CANARY-run-b01", "tenant_slug": "load-run-b01",
-	}, admin.Tokens.AccessToken)
-	if brandRes.Code != http.StatusCreated {
-		t.Fatalf("brand create status = %d: %s", brandRes.Code, brandRes.Body.String())
-	}
-	brand := decodeBody[brandCloudBody](t, brandRes)
-	createRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email": "imap-test01+load-run-b01@realtekconnect.com", "display_name": "Load Owner",
-		"role": "owner", "activation_mode": "email",
-	}, admin.Tokens.AccessToken)
-	if createRes.Code != http.StatusCreated {
+	createRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
+		"email": "imap-test01+load-run-b01@realtekconnect.com",
+	}, "")
+	if createRes.Code != http.StatusAccepted {
 		t.Fatalf("email owner create status = %d: %s", createRes.Code, createRes.Body.String())
 	}
-	created := decodeBody[brandCloudAccountBody](t, createRes)
-	if created.User.EmailVerified || !created.User.SignupPendingVerification || created.Member.Role != "owner" || created.Member.DisabledAt == nil {
+	brand := decodeBody[brandCloudBody](t, createRes)
+	created := decodeBody[developerSignupBody](t, createRes)
+	if created.User.EmailVerified || !created.User.SignupPendingVerification || created.BrandCloud.Role != "owner" {
 		t.Fatalf("email owner did not start pending: %+v", created)
 	}
 	pendingListRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users?status=pending_verification", nil, admin.Tokens.AccessToken)
@@ -194,8 +187,8 @@ func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing
 		"email": "imap-test01+load-run-b01@realtekconnect.com", "display_name": "Load Owner",
 		"role": "owner", "activation_mode": "email",
 	}, admin.Tokens.AccessToken)
-	if duplicateRes.Code != http.StatusOK {
-		t.Fatalf("existing global owner assignment status = %d, want 200", duplicateRes.Code)
+	if duplicateRes.Code != http.StatusBadRequest {
+		t.Fatalf("generic owner assignment status = %d, want 400", duplicateRes.Code)
 	}
 	beforeLogin := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
 		"email": "imap-test01+load-run-b01@realtekconnect.com", "password": "not-activated",
@@ -217,7 +210,7 @@ func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if payload.OrganizationID != brand.BrandCloud.ID || payload.OrganizationName != brand.BrandCloud.Name || payload.RecipientEmail != "imap-test01+load-run-b01@realtekconnect.com" || payload.Token == "" {
+	if payload.OrganizationID != "" || payload.RecipientEmail != "imap-test01+load-run-b01@realtekconnect.com" || payload.Token == "" {
 		t.Fatalf("activation outbox payload = %+v", payload)
 	}
 	activateRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
@@ -248,11 +241,16 @@ func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing
 		t.Fatalf("global owner /v1/me status/body = %d/%s", meRes.Code, meRes.Body.String())
 	}
 
-	expiredCreate := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email": "imap-test01+load-run-b02@realtekconnect.com", "display_name": "Expired Load Owner",
-		"role": "owner", "activation_mode": "email",
+	additional := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
+		"name": "RTK Load Additional Cloud", "owner_user_id": created.User.ID,
 	}, admin.Tokens.AccessToken)
-	if expiredCreate.Code != http.StatusCreated {
+	if additional.Code != http.StatusCreated {
+		t.Fatalf("activated designated owner creation failed: %d %s", additional.Code, additional.Body.String())
+	}
+	expiredCreate := performJSON(env.router, http.MethodPost, "/v1/auth/register", map[string]any{
+		"email": "imap-test01+load-run-b02@realtekconnect.com",
+	}, "")
+	if expiredCreate.Code != http.StatusAccepted {
 		t.Fatalf("expired owner create status = %d: %s", expiredCreate.Code, expiredCreate.Body.String())
 	}
 	if err := env.db.QueryRow(ctx, `
@@ -2095,6 +2093,7 @@ func TestIntegrationPlatformAdminBrandCloudLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner := legacyCustomerForTest(t, env, "brand-owner@example.com", "Owner Org")
+	activateGlobalFixtureForTest(t, env, owner.User.Email)
 	nonAdmin := legacyCustomerForTest(t, env, "brand-user@example.com", "User Org")
 
 	nonAdminCreateRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
@@ -2105,8 +2104,9 @@ func TestIntegrationPlatformAdminBrandCloudLifecycle(t *testing.T) {
 	}
 
 	createRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
-		"name":     "Realtek Connect+",
-		"metadata": map[string]any{"public_name": "Realtek Connect+"},
+		"name":          "Realtek Connect+",
+		"owner_user_id": owner.User.ID,
+		"metadata":      map[string]any{"public_name": "Realtek Connect+"},
 	}, admin.Tokens.AccessToken)
 	if createRes.Code != http.StatusCreated {
 		t.Fatalf("expected brand cloud create 201, got %d: %s", createRes.Code, createRes.Body.String())
@@ -2154,12 +2154,8 @@ func TestIntegrationPlatformAdminBrandCloudLifecycle(t *testing.T) {
 	brandUserRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+created.BrandCloud.ID+"/users", map[string]any{
 		"email": owner.User.Email, "role": "owner", "activation_mode": "email",
 	}, admin.Tokens.AccessToken)
-	if brandUserRes.Code != http.StatusOK {
-		t.Fatalf("expected existing global user assignment 200, got %d: %s", brandUserRes.Code, brandUserRes.Body.String())
-	}
-	account := decodeBody[brandCloudAccountBody](t, brandUserRes)
-	if account.User.ID != owner.User.ID || account.Member.Role != "owner" {
-		t.Fatalf("unexpected global owner assignment: %+v", account)
+	if brandUserRes.Code != http.StatusBadRequest {
+		t.Fatalf("generic endpoint must reject owner assignment, got %d: %s", brandUserRes.Code, brandUserRes.Body.String())
 	}
 
 	listRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds", nil, admin.Tokens.AccessToken)
@@ -2191,9 +2187,11 @@ func TestIntegrationPlatformAdminDeviceItemProfileLifecycle(t *testing.T) {
 	}
 	nonAdmin := legacyCustomerForTest(t, env, "profile-api-user@example.com", "Profile API User")
 	owner := legacyCustomerForTest(t, env, "profile-api-owner@example.com", "Profile API Owner")
+	activateGlobalFixtureForTest(t, env, owner.User.Email)
 
 	brandRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
-		"name": "Profile API Brand",
+		"name":          "Profile API Brand",
+		"owner_user_id": owner.User.ID,
 	}, admin.Tokens.AccessToken)
 	if brandRes.Code != http.StatusCreated {
 		t.Fatalf("expected brand cloud create 201, got %d: %s", brandRes.Code, brandRes.Body.String())
@@ -2374,13 +2372,15 @@ func TestIntegrationPlatformAdminCreatesProductionRunJWT(t *testing.T) {
 	ctx := context.Background()
 
 	admin := legacyCustomerForTest(t, env, "production-run-api-root@example.com", "Production Run API Root")
+	activateGlobalFixtureForTest(t, env, admin.User.Email)
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
 	nonAdmin := legacyCustomerForTest(t, env, "production-run-api-user@example.com", "Production Run API User")
 
 	brandRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
-		"name": "Production Run API Brand",
+		"name":          "Production Run API Brand",
+		"owner_user_id": admin.User.ID,
 	}, admin.Tokens.AccessToken)
 	if brandRes.Code != http.StatusCreated {
 		t.Fatalf("expected brand cloud create 201, got %d: %s", brandRes.Code, brandRes.Body.String())
@@ -2493,9 +2493,8 @@ func TestIntegrationPlatformAdminCreatesProductionRunJWT(t *testing.T) {
 	if strings.Contains(auditPayload, body.FactoryJWT) || strings.Contains(auditPayload, "factory-production-secret") {
 		t.Fatal("factory production audit payload leaked bearer or signing secret material")
 	}
-	if _, err := store.New(env.db).AddMember(ctx, brand.BrandCloud.ID, admin.User.Email, model.RoleOwner); err != nil {
-		t.Fatalf("add production-run reader membership: %v", err)
-	}
+	// The explicitly designated account already received sole ownership in the
+	// creation transaction; a second owner assignment is neither needed nor valid.
 	listPath := "/v1/orgs/" + brand.BrandCloud.ID + "/device-item-profiles/" + profile.DeviceItemProfile.ID + "/production-runs"
 	listRes := performJSON(env.router, http.MethodGet, listPath, nil, admin.Tokens.AccessToken)
 	if listRes.Code != http.StatusOK || !bytes.Contains(listRes.Body.Bytes(), []byte(body.ProductionRun.ID)) {
@@ -6547,14 +6546,27 @@ func brandCloudListHasRole(body brandCloudsBody, brandCloudID, role string) bool
 
 func createBrandCloudForTest(t *testing.T, env integrationEnv, accessToken, name, tenantSlug string) brandCloudBody {
 	t.Helper()
+	owner := legacyCustomerForTest(t, env, tenantSlug+"-designated@example.com", name+" Owner")
+	activateGlobalFixtureForTest(t, env, owner.User.Email)
 	res := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
-		"name":        name,
-		"tenant_slug": tenantSlug,
+		"name":          name,
+		"tenant_slug":   tenantSlug,
+		"owner_user_id": owner.User.ID,
 	}, accessToken)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected brand cloud create 201, got %d: %s", res.Code, res.Body.String())
 	}
 	return decodeBody[brandCloudBody](t, res)
+}
+
+func activateGlobalFixtureForTest(t *testing.T, env integrationEnv, email string) {
+	t.Helper()
+	res := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": latestAuthToken(t, env.tokenObserver, email, "email_verification"), "new_password": "password123",
+	}, "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("fixture activation failed: %d %s", res.Code, res.Body.String())
+	}
 }
 
 func TestIntegrationProductCollaboratorLifecycleAndVisibility(t *testing.T) {

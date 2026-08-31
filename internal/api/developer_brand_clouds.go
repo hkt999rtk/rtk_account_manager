@@ -184,8 +184,7 @@ func hasCapability(capabilities []string, target string) bool {
 }
 
 func (s *Server) listDeveloperBrandCloudMembers(c *gin.Context) {
-	if _, err := s.store.GetDeveloperBrandCloudMember(c.Request.Context(), c.Param("brandCloudId"), currentUserID(c)); err != nil {
-		writeStoreError(c, err)
+	if _, ok := developerBrandCloudManager(c, s); !ok {
 		return
 	}
 	limit, offset := pagination(c)
