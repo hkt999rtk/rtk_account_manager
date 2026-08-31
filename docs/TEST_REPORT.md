@@ -734,6 +734,17 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestEvaluationQuotaUsageUtilizationHandlesZeroAndNonZeroQuotas`
 - `rtk_account_manager/internal/store`: `TestGeneratedTenantSlugUsesNameAndEightCharSuffix`
 - `rtk_account_manager/internal/store`: `TestGetOutboxMessageDetailIncludesOperation`
+- `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace/admin`
+- `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace/disabled-owner`
+- `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace/dual-role`
+- `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace/member`
+- `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace/multiple-brands`
+- `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace/no-membership`
+- `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace/owner`
+- `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace/pending-owner`
+- `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace/platform-only`
+- `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace/unknown`
+- `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace`
 - `rtk_account_manager/internal/store`: `TestIdentityProviderRejectsRawClientSecretRef`
 - `rtk_account_manager/internal/store`: `TestIdentityProviderStoreCRUDAndEnabledInvariant`
 - `rtk_account_manager/internal/store`: `TestIntegrationDatabaseSchemaInvariants`

@@ -666,23 +666,6 @@ func (s *Store) CreateLoginActivationTokenForEmail(ctx context.Context, email, t
 		WHERE email = $1
 		  AND disabled_at IS NULL
 		  AND signup_pending_verification = false
-		  AND (
-		      platform_admin = true
-		      OR EXISTS (
-		          SELECT 1
-		          FROM organization_members m
-		          JOIN organizations o ON o.id = m.organization_id
-		          WHERE m.user_id = users.id
-		            AND o.organization_kind = 'customer_org'
-		      )
-		      OR NOT EXISTS (
-		          SELECT 1
-		          FROM organization_members m
-		          JOIN organizations o ON o.id = m.organization_id
-		          WHERE m.user_id = users.id
-		            AND o.organization_kind = 'brand_cloud'
-		      )
-		  )
 	`, strings.ToLower(strings.TrimSpace(email))).Scan(&userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -701,19 +684,6 @@ func (s *Store) CreateLoginActivationTokenForEmailAndEmail(ctx context.Context, 
 		WHERE email = $1
 		  AND disabled_at IS NULL
 		  AND signup_pending_verification = false
-		  AND (
-		      platform_admin = true
-		      OR EXISTS (
-		          SELECT 1 FROM organization_members m
-		          JOIN organizations o ON o.id = m.organization_id
-		          WHERE m.user_id = users.id AND o.organization_kind = 'customer_org'
-		      )
-		      OR NOT EXISTS (
-		          SELECT 1 FROM organization_members m
-		          JOIN organizations o ON o.id = m.organization_id
-		          WHERE m.user_id = users.id AND o.organization_kind = 'brand_cloud'
-		      )
-		  )
 	`, strings.ToLower(strings.TrimSpace(email))).Scan(&userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
