@@ -295,7 +295,8 @@ func resolveLockedDeviceClaimTokenTx(ctx context.Context, tx pgx.Tx, in DeviceCl
 	}
 	if token.DeviceItemProfileID != nil {
 		var sameCloud bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM device_item_profiles WHERE id::text=$1 AND brand_cloud_id::text=$2)`, *token.DeviceItemProfileID, in.OrganizationID).Scan(&sameCloud); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM organizations o WHERE o.id::text=$2 AND
+			(o.organization_kind<>'brand_cloud' OR EXISTS(SELECT 1 FROM device_item_profiles p WHERE p.id::text=$1 AND p.brand_cloud_id=o.id)))`, *token.DeviceItemProfileID, in.OrganizationID).Scan(&sameCloud); err != nil {
 			return DeviceClaimResolveResult{}, err
 		}
 		if !sameCloud {

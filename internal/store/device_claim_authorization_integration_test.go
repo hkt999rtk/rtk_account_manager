@@ -258,4 +258,22 @@ func TestEndUserClaimKeepsIdentitySeparateAndRollsBackBindingFailure(t *testing.
 	if err != nil || result.DeviceBinding.EndUserID != consumer.ID {
 		t.Fatalf("app retry: %+v %v", result, err)
 	}
+	other := handoffDeveloper(t, env, "app-other-product-owner")
+	product, err := env.store.CreateDeviceItemProfile(ctx, DeviceItemProfileCreateInput{
+		ActorUserID: &other.User.ID, BrandCloudID: other.BrandCloud.ID, ProfileKey: "other-app-product", DisplayName: "Other Product",
+		Category: model.DeviceCategoryIPCamera, CAProfile: "ca", IssuerProfile: "issuer", ServiceOptions: []string{"mqtt"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Historical/trusted token material can be inconsistent. A Brand Cloud must
+	// not claim a device under another cloud's Product, even on the App path.
+	mixed := claimAuthorizationToken(t, env, owner.BrandCloud.ID, "app-mixed-product", &product.ID)
+	input.TokenHash = "app-mixed-product"
+	if _, err := env.store.ResolveEndUserDeviceClaimToken(ctx, input); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-cloud Product claimed by App: %v", err)
+	}
+	if got, err := env.store.GetDeviceClaimToken(ctx, mixed.ID); err != nil || got.ClaimedAt != nil {
+		t.Fatalf("invalid Product consumed token: %+v %v", got, err)
+	}
 }

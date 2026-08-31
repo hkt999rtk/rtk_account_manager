@@ -907,3 +907,12 @@ authority after admission and proves unprovision is denied. Log:
 `/tmp/rtk-claim-admission-final-race.log`. Full suite/governed evidence follows
 separately. Privileged claim transfer/reclaim, other producers, queued-work drain,
 production collector/participant wiring, CI and staging remain release gates.
+
+The first full PR-profile run at `a5e9c29` exposed a legacy customer fixture
+whose device intentionally references its manufacturer's Brand Cloud profile.
+The shared token check now applies Product/cloud equality to Brand Clouds only;
+legacy customer behavior is preserved. A new negative App test proves another
+Brand Cloud's Product still cannot be claimed or consume the token. These scope
+tests and the existing profile snapshot regression pass with race detection
+(4.928s; `/tmp/rtk-claim-legacy-boundary-race.log`). The initial full run remains
+recorded as failed; fresh complete qualification is required after this fix.
