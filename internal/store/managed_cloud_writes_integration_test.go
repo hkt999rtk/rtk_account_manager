@@ -83,15 +83,11 @@ func TestManagedCloudWriteConcurrentReplayAndQuota(t *testing.T) {
 	if err != nil || independent.ID == first.ID {
 		t.Fatalf("cross-actor key collision: %+v %v", independent, err)
 	}
-	if _, err := env.db.Exec(ctx, `UPDATE organizations SET deleted_at=now() WHERE id=$1`, first.ID); err != nil {
-		t.Fatal(err)
-	}
+	deleteEmptyCloudFixture(t, env, user.User.ID, first.ID)
 	if _, err := env.store.CreateManagedBrandCloud(ctx, user.User.ID, "same-key", in); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("tombstone replay resurrected cloud: %v", err)
 	}
-	if _, err := env.db.Exec(ctx, `UPDATE organizations SET deleted_at=now() WHERE id=$1;`, user.BrandCloud.ID); err != nil {
-		t.Fatal(err)
-	}
+	deleteEmptyCloudFixture(t, env, user.User.ID, user.BrandCloud.ID)
 	empty, err := env.store.ListManagedBrandClouds(ctx, user.User.ID, "all", 25, 0)
 	if err != nil || empty.Total != 0 || empty.OwnedCount != 0 {
 		t.Fatalf("empty list: %+v %v", empty, err)

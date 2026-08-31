@@ -482,6 +482,70 @@ untouched. No staging deployment or shared database migration has been performed
   correctness results, not scale/latency benchmarks. No runtime PR or deployment
   was performed; full workspace inventory/CI and staging remain release gates.
 
+## Durable cloud deletion checkpoint (061)
+
+- Added owner-only DELETE and operation-status API under the existing developer
+  namespace. DELETE requires exactly one valid Idempotency-Key and no body.
+  Admission rechecks advisory evidence and local inventory, serializes user/cloud
+  writes, persists the operation and producer inventory, and returns 202 plus
+  Location. Identical retries return that operation, including after tombstoning;
+  a different key cannot create another operation. Status never grants cloud
+  resource access and remains limited to the original enabled/verified global user.
+- Forward migration 061 installs a durable lifecycle fence, immutable producer
+  hold/drain receipts, close-command outbox and completion evidence, plus leased
+  recovery jobs. The existing eligibility predicate denies access during deletion.
+  Local Product/device/job/factory/claim/invitation/ownership admission serializes
+  with the cloud; historical jobs cannot be reactivated through status changes.
+  The migration does not backfill or mutate historical ownership or applied markers.
+- Trusted producer adapters must prove both a persistent hold and empty inventory,
+  bound to the exact operation/cloud/owner/cutoff/authorization version. Their
+  configured names must match the reviewed preflight observer inventory. Missing
+  adapters or proof cannot be replaced with health/empty-page/no-op success.
+- The AM Billing client validates exact scope, nested operation/readiness/receipt,
+  no-store and bounded responses over the existing dedicated HTTPS transport.
+  After complete producer holds and live zero-balance Billing readiness, AM
+  persists the exact close command before delivery. Lost replies/restarts resend
+  that command rather than choosing a new receipt or inferring success.
+- Only a matching Billing closed acknowledgment permits the atomic AM tombstone,
+  membership/ACL/invitation/claim revocation, completion record and audit. History
+  is retained. SQL rejects direct unsupported tombstones/restoration; old fixtures
+  now exercise the durable protocol instead of writing deleted_at directly. A
+  post-Billing-commit owner disablement does not force rollback: the trusted
+  recovery path completes the already-authorized tombstone, without restoring
+  normal account access. Global sessions/certificates for other clouds are not
+  indiscriminately revoked.
+- Jobs use database-time leases, SKIP LOCKED claims and compare-and-swap release.
+  Lost/expired worker leases can be reclaimed; stale workers cannot release a
+  newer lease. Protocol commands remain idempotent if remote delivery overlaps.
+  No retry limit or timeout removes the lifecycle fence.
+- A cross-repository fixture exercises actual AM global-session DELETE/status,
+  both independent databases and the real Billing HTTP/store. It deliberately
+  drops the first successful Billing close reply. A new AM store instance claims
+  the persisted job, obtains the original closure acknowledgment, tombstones and
+  denies subsequent cloud detail reads. Producer inventory/holds and independent
+  collector checkpoints are explicitly synthetic, not staging acceptance.
+- Release gates still include production observer/hold/drain/provider/collector
+  adapters, polling-worker bootstrap/configuration, complete queued/background
+  mutation coverage, and recovery when Billing definitively rejects a persisted
+  close command because financial evidence changed. The current fixed-command
+  retry handles ambiguous delivery but does not yet supersede a definitively
+  rejected settlement or implement pre-close cancellation/hold release. Those
+  cases remain fenced, not silently cleared. Do not enable deletion in staging
+  until these recovery paths, BFF/UI and cross-service acceptance are complete.
+- Verification: full uncached AM suite passed on fresh isolated
+  `multicloud_am_deletion_v3_test` through 061 (API 130.823s, store 187.510s,
+  database 18.498s). Targeted deletion/preflight/CRUD/client race checks passed
+  three runs (store 78.259s, API 26.929s, client 1.361s). OpenAPI validation,
+  response-contract tests, vet and whitespace checks passed. A final targeted
+  deletion run additionally checks the time-zone-independent cutoff comparison.
+  Logs: `/tmp/rtk-am-cloud-deletion-v3-suite-20260831.log` and
+  `/tmp/rtk-am-cloud-deletion-v3-race-20260831.log`. The real AM/Billing
+  lost-reply test passed three Billing race-instrumented runs using the separate
+  fresh `multicloud_am_deletion_http_test` database; log:
+  `/tmp/rtk-am-billing-deletion-cross-race-20260831.log`. These are correctness
+  tests, not scale benchmarks or production/provider acceptance. No runtime PR
+  or shared-database/staging change was made.
+
 ## Required next work
 
 1. Complete cross-service authorization, downloads/background work and cache
@@ -491,7 +555,9 @@ untouched. No staging deployment or shared database migration has been performed
    identity fallbacks, retaining only the required migration evidence.
 2. Complete cloud deletion/closure and production handoff integration.
    Advisory owner-only deletion preflight now exists; wire real reviewed resource
-   observers and Billing collectors, then implement fenced DELETE/operation state.
+   observers and Billing collectors. Fenced DELETE/operation state and leased
+   recovery primitives now exist through 061; finish the remaining lifecycle
+   recovery and production-worker gates described above before enablement.
    Idempotent managed-cloud creation/PATCH and shared detail/list projection are
    implemented through 060; finish BFF/CLI compatibility before release.
    The automatic lease/retry coordinator is implemented through 059; wire

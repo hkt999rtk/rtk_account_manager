@@ -105,7 +105,6 @@ func TestMultiCloudEligibilityFencesStaleACLIntegration(t *testing.T) {
 		{"member disabled", `UPDATE organization_members SET disabled_at=now() WHERE user_id=$1`, `UPDATE organization_members SET disabled_at=NULL WHERE user_id=$1`, member.User.ID},
 		{"owner membership disabled", `UPDATE organization_members SET disabled_at=now() WHERE user_id=$1`, `UPDATE organization_members SET disabled_at=NULL WHERE user_id=$1`, owner.User.ID},
 		{"cloud disabled", `UPDATE organizations SET status='disabled' WHERE id=$1`, `UPDATE organizations SET status='active' WHERE id=$1`, cloud},
-		{"cloud deleted", `UPDATE organizations SET deleted_at=now() WHERE id=$1`, `UPDATE organizations SET deleted_at=NULL WHERE id=$1`, cloud},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := env.db.Exec(ctx, test.disable, test.id); err != nil {

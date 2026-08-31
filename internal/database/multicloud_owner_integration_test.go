@@ -174,14 +174,11 @@ func TestMultiCloudSoleOwnerIntegration(t *testing.T) {
 	// Moving the only owner must validate both the old and new cloud.
 	_, err = db.Exec(ctx, `UPDATE organization_members SET organization_id=$1 WHERE organization_id=$2 AND user_id=$3`, other, cloud, next)
 	requirePGState(t, err, "23514")
-	// Tombstones are excluded from owner cardinality, without cascading history.
-	if _, err := db.Exec(ctx, `UPDATE organizations SET deleted_at=now() WHERE id=$1`, cloud); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(ctx, `DELETE FROM organization_members WHERE organization_id=$1`, cloud); err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(ctx, `UPDATE organizations SET deleted_at=NULL WHERE id=$1`, cloud)
+	// Tombstoning now additionally requires the 061 closure protocol. A direct
+	// flag update cannot evade sole-owner preservation or Billing clearance.
+	_, err = db.Exec(ctx, `UPDATE organizations SET deleted_at=now() WHERE id=$1`, cloud)
+	requirePGState(t, err, "23514")
+	_, err = db.Exec(ctx, `DELETE FROM organization_members WHERE organization_id=$1`, cloud)
 	requirePGState(t, err, "23514")
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("migration marker replay: %v", err)

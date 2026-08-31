@@ -264,6 +264,8 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/developer/brand-clouds", s.createDeveloperBrandCloud)
 	protected.PATCH("/developer/brand-clouds/:brandCloudId", s.updateDeveloperBrandCloud)
 	protected.GET("/developer/brand-clouds/:brandCloudId/deletion-preflight", s.preflightDeveloperBrandCloudDeletion)
+	protected.DELETE("/developer/brand-clouds/:brandCloudId", s.deleteDeveloperBrandCloud)
+	protected.GET("/developer/brand-clouds/:brandCloudId/operations/:operationId", s.getDeveloperCloudOperation)
 	protected.GET("/developer/brand-clouds/:brandCloudId/members", s.listDeveloperBrandCloudMembers)
 	protected.GET("/developer/brand-clouds/:brandCloudId/members/invitations", s.listDeveloperBrandCloudMemberInvitations)
 	protected.POST("/developer/brand-clouds/:brandCloudId/members/invitations", s.inviteDeveloperBrandCloudMember)

@@ -53,7 +53,13 @@ func TestMultiCloudListScopeAndQuotaIntegration(t *testing.T) {
 	if err != nil || empty.Total != 3 || len(empty.BrandClouds) != 0 || empty.OwnedCount != 2 {
 		t.Fatalf("empty page=%+v err=%v", empty, err)
 	}
-	if _, err := env.db.Exec(ctx, `UPDATE organizations SET deleted_at=now() WHERE id=$1`, second.ID); err != nil {
+	// A pending account cannot delete. Activate the fixture, exercise the actual
+	// durable deletion protocol, then restore the pending-account list scenario.
+	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified=true,signup_pending_verification=false WHERE id=$1`, owner.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	deleteEmptyCloudFixture(t, env, owner.User.ID, second.ID)
+	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified=false,signup_pending_verification=true WHERE id=$1`, owner.User.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := env.db.Exec(ctx, `UPDATE organization_members SET disabled_at=now() WHERE organization_id=$1 AND user_id=$2`, other.BrandCloud.ID, owner.User.ID); err != nil {

@@ -54,6 +54,7 @@ type Store struct {
 	handoffBilling           HandoffBilling
 	handoffParticipants      map[string]HandoffParticipant
 	deletionPreflight        *CloudDeletionPreflightOptions
+	deletion                 *CloudDeletionOptions
 }
 
 func (s *Store) ConfigureEmailOutboxCipher(cipher *emaildelivery.Cipher) {

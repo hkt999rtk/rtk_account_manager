@@ -473,6 +473,32 @@ paths:
         "409":
           $ref: "#/components/responses/Error"
   /v1/developer/brand-clouds/{brandCloudId}:
+    delete:
+      tags: [Developer Brand Clouds]
+      operationId: deleteDeveloperBrandCloud
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-LIFECYCLE-001]
+      summary: Owner requests durable fenced empty-cloud soft deletion, preserving history.
+      description: No request body. Requires verified producer/Billing configuration. Exact actor/cloud/key retries return the same operation even after deletion. Admission is not completion; poll the operation resource. Billing closes before tombstoning. Missing evidence never releases the fence.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/BrandCloudId'
+        - $ref: '#/components/parameters/ManagedCloudIdempotencyKey'
+      responses:
+        '202':
+          description: Durable deletion operation accepted or replayed.
+          headers:
+            Location: { schema: { type: string } }
+            Cache-Control: { schema: { type: string, enum: [no-store] } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudOperationResponse' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
     get:
       tags: [Developer Brand Clouds]
       operationId: getDeveloperBrandCloud
@@ -526,6 +552,29 @@ paths:
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+  /v1/developer/brand-clouds/{brandCloudId}/operations/{operationId}:
+    get:
+      tags: [Developer Brand Clouds]
+      operationId: getDeveloperCloudOperation
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-LIFECYCLE-001]
+      summary: Original authenticated owner reads safe deletion progress, including after tombstoning.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/BrandCloudId'
+        - in: path
+          name: operationId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Persisted operation state, never a resource permission grant.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudOperationResponse' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
   /v1/developer/brand-clouds/{brandCloudId}/deletion-preflight:
     get:
       tags: [Developer Brand Clouds]
@@ -4703,6 +4752,29 @@ components:
                   code: oidc_provider_misconfigured
                   message: OIDC provider is misconfigured
   schemas:
+    CloudOperationResponse:
+      type: object
+      required: [operation]
+      properties:
+        operation:
+          type: object
+          required: [id, brand_cloud_id, type, state, phase, blockers, created_at, updated_at]
+          properties:
+            id: { type: string, format: uuid }
+            brand_cloud_id: { type: string, format: uuid }
+            type: { type: string, enum: [delete, owner_transfer] }
+            state: { type: string, enum: [pending, running, blocked, succeeded, failed, canceled] }
+            phase: { type: string }
+            blockers:
+              type: array
+              items:
+                type: object
+                required: [code, retryable]
+                properties:
+                  code: { type: string }
+                  retryable: { type: boolean }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
     HealthResponse:
       type: object
       required: [status]
