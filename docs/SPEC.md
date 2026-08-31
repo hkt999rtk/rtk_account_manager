@@ -864,6 +864,12 @@ activation tokens plus legacy `app-brand-cloud-user` certificates. Rollback is
 the pre-cutover PostgreSQL backup plus the previous service release; mixed old
 and new identity writes are not supported.
 
+Brand Cloud membership is mirrored into organization-scoped `actor_type=user`
+assignments. Product access remains explicit. A global user token authorizes a
+Brand Cloud request only when its user has the required active organization
+membership/assignment; cross-brand `orgId` access returns not found/forbidden
+without exposing the other Brand Cloud.
+
 ### `end_users`
 
 `end_users` is the platform-level consumer identity table for APP end users.
@@ -1122,6 +1128,9 @@ Stores one-time email verification, login activation, and password reset tokens.
 Auth tokens must be stored hashed, not in raw form, and are throttled by
 `subject_type`, `subject_id`, and `purpose`. Cutover invalidates all legacy
 tenant-scoped activation tokens rather than translating them.
+
+Verification is authoritative at consumption time. A token that expires after
+a prior `valid` status response must still be rejected atomically.
 
 ### Keycloak/OIDC Tables
 
@@ -1406,8 +1415,8 @@ Lifecycle invariants:
   pending account.
 - A verification token is consumed only by successful verification. Expired,
   invalid, and failed verification attempts do not change account state.
-- Verification is authoritative at consumption time. A token that expires after
-  a prior `valid` status response must still be rejected atomically.
+- Verification follows the consumption-time expiry rule in
+  [REQ-AM-ONE-TIME-TOKEN-001].
 - Issuing a replacement token invalidates prior unconsumed verification tokens;
   only the newest active token can complete verification.
 
@@ -1501,11 +1510,8 @@ Rules:
 - `organization_members.role` is not the new authorization source of truth; it
   is mirrored into role assignments for compatibility until membership role
   updates are fully deprecated.
-- Brand Cloud membership is mirrored into organization-scoped
-  `actor_type=user` assignments. Product access remains explicit. A global user
-  token authorizes a Brand Cloud request only when its user has the required
-  active organization membership/assignment; cross-brand `orgId` access returns
-  not found/forbidden without exposing the other Brand Cloud.
+- Global-user Brand Cloud access follows the membership and assignment boundary
+  in [REQ-AM-BRAND-USER-BOUNDARY-001].
 - Platform admin is global/platform scope. Brand-cloud owner/admin/member are
   brand-cloud scope and do not imply `platform_admin`.
 - Only `owner` may invite/add members, remove members, or change member roles.
