@@ -34,8 +34,13 @@ The corrected 049 source keeps the approved identity model and transaction:
 2. A new global user inherits a hash only when every merged source is verified,
    no source is pending activation, all hashes are identical, and the common
    hash has a supported bcrypt representation: `$2a$`, `$2b$` or `$2y$`, a
-   two-digit bcrypt cost in 04–31, and the 53-character bcrypt salt/hash body.
-   Format validation does not claim knowledge of the original plaintext.
+   two-digit bcrypt cost in **10–12**, and the 53-character bcrypt salt/hash
+   body. The service generates cost 10 (`bcrypt.DefaultCost`); this migration
+   policy rejects weaker legacy work factors and bounds inherited verification
+   work to at most four times cost 10. Costs below 10 or above 12 require reset
+   without attempting an expensive password comparison. Format/work-factor
+   validation does not claim knowledge of the original plaintext and does not
+   change an existing global user's credential policy.
 3. Empty, malformed, conflicting or unverified source credentials produce a
    non-authenticating reset marker, `email_verified=false`, and
    `signup_pending_verification=true`. Mapping records say
@@ -63,7 +68,8 @@ The preflight report classifies a correction candidate only when all of these
 are true:
 
 - Its persisted mapping outcome is `created_user`, not `existing_user`.
-- The legacy source group has one identical, malformed bcrypt hash, with the
+- The legacy source group has one identical bcrypt hash outside the supported
+  representation/work-factor policy (including empty or malformed hashes), with the
   verified/non-pending source state that allowed the old 049 to copy it.
 - The current global hash still equals that legacy hash and the current user
   is still verified/non-pending. A user who has since activated, reset a
@@ -121,7 +127,9 @@ rejoining a Brand Cloud from which an administrator removed access.
   time. Do not infer an activation hold from `disabled_at IS NOT NULL` alone.
 - Fresh 049 and the forward migration create this table idempotently. The
   migration, public signup and global-user provisioning write the hold in the
-  same transaction as a membership they suspend solely for verification.
+  same transaction as any membership they suspend solely for verification.
+  Current developer signup creates an enabled owner membership; it needs no
+  hold while the global pending-user authorization guard blocks access.
   Existing administrative disables never become activation holds. Suspending
   an otherwise enabled membership is distinct from preserving an old disable.
 - `VerifyEmailToken` only restores memberships with an explicit hold whose
@@ -138,6 +146,21 @@ rejoining a Brand Cloud from which an administrator removed access.
   silently restore rights. Retain the disabled state until an authorized
   membership action resolves ambiguity, and do not remove legacy evidence
   while these cases remain unresolved.
+- Preflight also inventories in-flight global email provisioning, not only
+  legacy migration rows. For a pending user, an unchanged newly provisioned
+  membership is eligible for a `provisioning` hold only when its `created_at`,
+  `disabled_at` and `updated_at` all match a recorded
+  `brand_cloud_account_created`/`brand_cloud_account_assigned` audit event for
+  the same user and organization with `activation_mode=email`, and the global
+  email-verification token issuance corroborates that transaction. The token
+  may have expired (resend is allowed), but it must not have been consumed.
+  An older administrative disable, later membership edit, missing provenance
+  or inconsistent record is not backfilled automatically. Resolve those cases
+  from backup/audit evidence or an authorized membership action before the
+  verification behavior switches. Pause verification during this preflight;
+  do not consume a pending token while its expected membership recovery is
+  unresolved. Backfill is idempotent and never creates a hold for an already
+  enabled membership or a non-pending account.
 - Password reset remains separate from email verification. A pending account
   must complete global email activation before its activation holds can be
   released; resetting its password alone must not grant membership access.
@@ -147,7 +170,8 @@ rejoining a Brand Cloud from which an administrator removed access.
 Required isolated PostgreSQL evidence includes:
 
 - Single tenant, same-email/same-hash, different-hash and unverified sources.
-- Empty/malformed hashes and valid bcrypt representations.
+- Empty/malformed hashes, supported bcrypt representations at costs 10 and 12,
+  and rejection of costs 04/09/13/31 without expensive password comparison.
 - Existing verified and unverified global users with unchanged credentials.
 - Duplicate target memberships, collisions with existing global memberships,
   and all three role-precedence levels.
@@ -158,6 +182,9 @@ Required isolated PostgreSQL evidence includes:
 - Activation of eligible migrated/signup/provisioned memberships, preservation
   of administrative disables (including a disable after the hold was created),
   existing-global users, role changes, stale holds and activation-token replay.
+- In-flight pre-upgrade provisioning: corroborated unchanged suspension is
+  backfilled and activates; administrative/edited/ambiguous membership does
+  not gain access; expired-token resend and idempotent backfill are covered.
 - An otherwise valid pre-correction global JWT, refresh grant and certificate
   cannot bypass the pending state; direct role/ACL checks cannot bypass a
   disabled membership; platform-only and App end-user boundaries remain valid.
