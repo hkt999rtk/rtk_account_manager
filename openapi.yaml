@@ -639,9 +639,8 @@ paths:
     patch:
       tags: [Developer Brand Clouds]
       operationId: updateDeveloperBrandCloudMember
-      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
       x-rtk-requirement-ids:
-        - REQ-UI-CA-CLOUD-005
         - REQ-MULTICLOUD-SHARING-001
       summary: Owner replaces a member role or the complete viewer scope.
       security:
@@ -738,7 +737,6 @@ paths:
       x-rtk-feature-id: FEAT-CA-BRAND-001
       x-rtk-requirement-ids:
         - REQ-CA-BRAND-MEMBER-INVITE-001
-        - REQ-MULTICLOUD-SHARING-001
       summary: Create a pending invitation for an existing verified Developer.
       security:
         - bearerAuth: []
