@@ -19,6 +19,13 @@ reviewed participant inventory and Billing cutoff collector; no factory-only
 inventory, guessed unknown-signature outcome or zero-count financial receipt is
 installed. Full CI, restore rehearsal, UI and staging acceptance remain required.
 
+Complete AM PR-profile run `local-am-factory-handoff` at `43f88ba` subsequently
+passes in 243.404s (82.16% overall; store 80.65%; adapter 94.32%), including the
+real-service case in 2.55s without skipping. VC's matching full run at runtime
+`98511bf` passes in 28.828s (75.06% overall; PostgreSQL 81.81%). The 255-case
+catalog and spec inventory pass with zero blocking findings. Exact artifact
+hashes and unproven default pre-PR/differential/CI gates are in `test_report.md`.
+
 ## Durable factory cancellation recovery checkpoint — 2026-09-01
 
 AM runtime `1fde494` adds migration 065 and the dedicated service-only cancellation

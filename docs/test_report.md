@@ -1,5 +1,41 @@
 # Test Report
 
+## 2026-09-01 durable factory participant transport qualification
+
+Runtime `43f88ba` passes complete AM PR-profile run `local-am-factory-handoff`
+in **243.404s**, including PostgreSQL integration, package ratchets and artifact
+redaction. Overall **82.16% >= 80%**; store **5135/6367 = 80.65% >= 80%**;
+the new factory handoff adapter covers **83/88 = 94.32%**. No base ref was supplied,
+so differential coverage, default pre-PR and GitHub CI remain unproven.
+
+The adapter implements the durable coordinator's participant interface, validates
+the exact authenticated scope, microsecond cutoff, immutable hold/drain counts
+and receipt hashes, and binds terminal decisions before returning an ack. Missing
+or malformed evidence, redirects, 404 and transport failure cannot release a
+fence. It is not automatically installed as a factory-only production inventory.
+
+The independently compiled VC fixture `58bc318` contains runtime `98511bf`.
+The real-service case executes in the complete run in **2.55s**, not skipped.
+Besides issued/canceled response-loss recovery, the AM adapter calls actual
+factory prepare, which drains the earlier quota-rejected consumer intent through
+real AM HTTP/store and the mTLS issuer. Another lost AM result retains the hold;
+retry produces the same checkpoint, abort persists/replays a tombstone, and late
+prepare is rejected. No additional signature or issued count is produced. These
+are trusted protocol fixture decisions, not an actual Billing/ownership commit.
+
+Report: `.artifacts/test-runs/local-am-factory-handoff/coverage/test_report.md`
+in the unpublished qualification checkout rooted at workspace `d128eab`.
+Coverage SHA-256: `dafc27c562f12bbdf877d5f8322a3333fe520fc419b84bdaf29e83bb221ddf81`.
+VC full run `local-vc-factory-handoff` passes at `98511bf` in 28.828s (75.06%
+overall; PostgreSQL 81.81%). The 255-case catalog, 393-requirement/663-operation/
+67-workflow inventory, four existing OpenAPI documents, new factory participant
+OpenAPI and canonical consistency pass with zero blocking inventory findings.
+
+Production participant composition, other producers/Billing usage cutoff,
+unknown-signature recovery, full UI/CI, migration/restore and staging acceptance
+remain required. No live/shared DB, email, payment or staging was operated. The
+settled balance >= 0 rule and all other reviewed Billing blockers are unchanged.
+
 ## 2026-09-01 factory cancellation intent and recovery qualification
 
 Runtime `1fde494` passes the complete AM PR-profile run
