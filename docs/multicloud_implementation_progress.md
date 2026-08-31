@@ -2,6 +2,44 @@
 
 This is implementation progress, not release acceptance or a replacement contract.
 
+## Durable factory cancellation recovery checkpoint — 2026-09-01
+
+AM runtime `1fde494` adds migration 065 and the dedicated service-only cancellation
+intent endpoint. Cloud/run locking fences delayed Reserve requests even when a
+prior admission response was lost. An existing reservation remains admitted and
+holds quota; a never-admitted cancellation key has immutable `admitted=false`,
+consumes no capacity and cannot become an issued result. Both kinds retain the
+handoff hold until actual evidence completes them. The cache wrapper forwards
+the new operation directly, and intent/result changes are audited transactionally.
+
+Video Cloud runtime `5143638` queues an explicit controller decision durably and
+runs recovery with the same per-enrollment lock as public enrollment. It obtains
+the AM fence before issuer cancellation, persists immutable non-issuance evidence,
+completes AM, then closes the consumer journal. Lost replies or process recreation
+do not allocate another reservation, sign a certificate or duplicate counters.
+The worker does not infer a cancellation decision from timeout or absence.
+
+The real AM/factory/mTLS-issuer cross-service test now exercises both issued and
+not-issued completion response loss. A revoked owner's prepared intent completes
+through the trusted worker with zero new signatures and exactly two cancellation
+audit entries. Focused `-race` checks pass on an owned fresh AM database, including
+intent/late-admission races, quota provenance, persistence rollback and the
+independent handoff hold. Factory's actual background loop also resumes persisted
+work after application recreation using local PostgreSQL/mTLS with an AM fixture.
+
+Actual lifecycle decision dispatch, already-started/unknown-signature recovery,
+real producer/Billing cutoff adapters, Product CA selection, full UI/CI, migration
+restore and staging acceptance remain required. This checkpoint does not enable
+production handoff or alter the settled balance >= 0 financial rule.
+
+Full AM run `local-am-factory-recovery` passes at `1fde494` in 216.501s (82.09%
+overall; store 5135/6367 = 80.65%). The actual real-service case executes in
+1.290s, not skipped. VC `5143638` passes `local-vc-factory-recovery` in 40.496s
+(74.87% overall; PostgreSQL 81.19%). OpenAPI, canonical consistency and the
+253-case catalog/spec inventory pass with zero blocking findings. Artifact
+identities and explicit unproven differential/default pre-PR/CI/staging gates
+are recorded in `test_report.md`.
+
 ## Real factory application wire checkpoint — 2026-09-01
 
 `TestIntegrationFactoryApplicationAcrossRealServices` runs the real AM HTTP

@@ -1,5 +1,47 @@
 # Test Report
 
+## 2026-09-01 factory cancellation intent and recovery qualification
+
+Runtime `1fde494` passes the complete AM PR-profile run
+`local-am-factory-recovery` in **216.501s**. All executed tests, package ratchets
+and artifact redaction pass. Overall coverage is **82.09% >= 80%**; store is
+**5135/6367 = 80.65% >= 80%**. No base ref was supplied; differential coverage,
+default pre-PR and GitHub CI remain unproven.
+
+Migration 065 preserves published markers and adds immutable admission provenance
+and cancellation intent. Dedicated service authorization, cache forwarding,
+absent/late admission, admitted quota retention, non-admitted no-quota/no-issuance,
+audit rollback, terminal replay and independent handoff holds are tested. Local
+verification uses a new owned database `multicloud_factory_recovery_20260901`;
+earlier fixture databases were not reset or deleted. No live/shared DB was used.
+
+The independently compiled Video Cloud application includes runtime `5143638`.
+`TestIntegrationFactoryApplicationAcrossRealServices` executes in this full AM
+run (**1.290s**, not skipped) with real AM HTTP/JWT/store and real factory
+application/PostgreSQL journal/mTLS issuer. In addition to issued-result response
+loss, the test queues a revoked owner's prepared intent, loses AM's committed
+`not_issued` reply, recreates the factory application and resumes the persisted
+queue. It preserves the original cancellation evidence and UUID, creates no new
+certificate, changes no issued count and records exactly two cancellation audit
+entries. Public retries remain blocked. This is application recreation inside
+the child, not an entire process/cluster restart or a live HSM experiment.
+
+Report: `.artifacts/test-runs/local-am-factory-recovery/coverage/test_report.md`
+in the unpublished qualification checkout rooted at workspace `d128eab`.
+Coverage SHA-256: `d50247f91319158ec7aa2799fb080b67bec9e022f54df5808229eb348350eadb`.
+VC's full `local-vc-factory-recovery` run also passes (40.496s, 74.87% overall,
+81.19% PostgreSQL). Four OpenAPI checks, canonical checkout consistency and the
+253-case spec/catalog inventory pass (392 requirements, 660 operations, zero
+blocking findings). No configured gate was lowered.
+
+Remaining requirements include real lifecycle decision dispatch, already-started
+signer reconciliation, producer/Billing cutoff adapters, Product CA resolution,
+complete UI/CI/leaf PRs, migration restoration and staging activation/MQTT
+evidence. The worker does not infer cancellation from timeout or silently release
+holds. This is not ownership-handoff readiness; settled balance >= 0 and the
+other financial checks remain unchanged. No live email/payment/staging operation
+was performed.
+
 ## 2026-09-01 real factory application interoperability qualification
 
 Candidate `b117c95` passes the complete AM PR-profile run
