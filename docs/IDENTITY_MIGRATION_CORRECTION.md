@@ -4,6 +4,9 @@ This service design refines the existing unified-human-identity requirements in
 `SPEC.md` and the canonical `AUTH.md` / `AUTHORIZATION.md`. It does not add a
 tenant login, change public signup, or authorize a staging migration by itself.
 Implementation and deployment follow review of this design.
+The multi-cloud target in [MULTICLOUD_IMPLEMENTATION.md](MULTICLOUD_IMPLEMENTATION.md)
+supersedes this document's former active-owner cutover gate. Historical findings
+below describe the published migration, not the new designated-owner invariant.
 
 ## Verified gaps in migration 049
 
@@ -54,8 +57,11 @@ The corrected 049 source keeps the approved identity model and transaction:
    Administratively disabled sources do not receive that provenance. Apply
    the same precedence against an existing global membership.
 5. Preserve ACL mapping, original mapping outcomes on replay, historical audit
-   actors, token/certificate revocation, and the final enabled/verified owner
-   assertion. An owner conflict aborts all writes in the transaction.
+   actors and token/certificate revocation. Validate exactly one designated owner
+   for every non-deleted Brand Cloud; zero/multiple-owner conflicts abort all
+   writes. Pending/disabled sole owners survive but their clouds remain fenced
+   from operational access until owner eligibility is restored through approved
+   flows. Legacy customer-organization invariants are unchanged.
 
 The published migration number is not deleted from an existing database to
 force execution. Corrected 049 is for fresh databases and pre-cutover restores;
@@ -95,13 +101,16 @@ mapping conflict statuses while preserving original mapping outcomes. Record
 the correction reason and affected global/legacy IDs in a new audit event;
 do not rewrite historical events or include raw hashes, tokens or passwords.
 
-Preflight and postflight both check active Brand Clouds for an enabled
-membership whose global owner has `disabled_at IS NULL`, `email_verified=true`
-and `signup_pending_verification=false`. A verified-but-pending owner is not
-usable and cannot satisfy either check. If correction would remove the final
-valid owner, stop and resolve ownership/activation through the approved global
-flows before retrying. Do not bypass verification in the database. Do not
-enable disabled users or change unrelated global users/memberships.
+Preflight and postflight validate exactly one designated owner membership for
+every non-deleted Brand Cloud, regardless of owner activation/disable state.
+Zero/multiple-owner conflicts block cutover. Separately record operational
+eligibility: owner membership and global user are enabled, email is verified,
+and signup is not pending. A pending/disabled sole owner passes cardinality but
+its cloud cannot resume operations for any tenant actor. Credential correction
+can suspend that owner without replacing/removing ownership. Deploy the cloud
+eligibility guard before traffic resumes; reject cutover if this denial cannot
+be proven. Do not bypass verification, automatically activate or reassign owners,
+or change unrelated users/memberships. Legacy customer_org retains its gate.
 
 Revoking refresh grants alone does not stop an already-issued access JWT.
 The service change accompanying the forward migration must enforce the current
@@ -198,7 +207,7 @@ Required isolated PostgreSQL evidence includes:
   and all three role-precedence levels.
 - Equivalent global ACL assignments, disabled legacy assignments, unchanged
   historical audit actor/subject/payload, and retained migration mappings.
-- Sole-owner conflict: no partial user, membership, mapping, token revocation,
+- Zero/multiple designated-owner conflict: no partial user, membership, mapping, token revocation,
   or applied-migration marker survives the refused transaction.
 - Activation of eligible migrated/signup/provisioned memberships, preservation
   of administrative disables (including a disable after the hold was created),
@@ -213,12 +222,13 @@ Required isolated PostgreSQL evidence includes:
   disabled membership; platform-only and App end-user boundaries remain valid.
 - Forward repair of an unchanged bad migrated credential; preservation of an
   existing global user and a migrated user whose password has since changed;
-  correction audit, refresh revocation, owner refusal and idempotent replay.
+  correction audit, refresh revocation, designated-owner preservation and idempotent replay.
 - OIDC adoption with unchanged password/verification fields is excluded from
   automatic account-state repair and blocks cutover while its unsafe local
   credential remains active. After approved local-credential remediation,
   cutover preserves SSO state/memberships. Verified-but-pending sole owners
-  fail both owner checks.
+  satisfy cardinality but fail operational eligibility; all tenant actors are
+  denied until approved activation. Zero/multiple-owner cases still abort.
 
 Before shared staging execution, freeze account writes and make a fresh
 recoverable database backup. Run preflight on a restored copy, compare counts
