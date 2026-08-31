@@ -1,5 +1,34 @@
 # Test Report
 
+## 2026-09-01 platform claim-token administration qualification
+
+Runtime `6504594` passes the complete Account Manager PR-profile run
+`local-am-token-admin-v2` in 167.955s. All executed functional tests pass.
+Overall coverage is **81.77%** and store coverage is **4948/6170 = 80.19%**
+(required 80%); all configured package ratchets and artifact redaction pass.
+No base ref was supplied: despite the report's generic success assessment,
+this is **not** differential coverage, the default pre-PR gate or full CI.
+
+Report: `.artifacts/test-runs/local-am-token-admin-v2/coverage/test_report.md`
+in the unpublished qualification checkout rooted at workspace `d128eab`.
+Coverage SHA-256: `07a241c5f97141c2fc64b9c34abf8ed60d803f12096e1af92f0889d6d72469c8`.
+Log: `/tmp/rtk-am-token-admin-governed-v2.log`. The initial attempted run
+`local-am-token-admin` was rejected before execution because the new catalog ID
+had too many segments; the catalog was corrected and checked before this rerun.
+
+Focused store/API race tests pass (16.598s/11.352s), as do all-package vet/build,
+the four OpenAPI validations, and the 242-case catalog/spec inventory (391
+requirements, 656 operations, zero blocking findings). Local database receipts
+remain synthetic protocol fixtures. Only owned loopback infrastructure was used.
+
+Remaining release requirements include Product create/update/disable transaction
+authorization and consistent actor/cloud/Product lock order, other producer
+write/drain paths, trusted Billing collector/participant wiring, complete BFF/UI
+qualification, differential/default pre-PR and CI, migration/restore rehearsal,
+and staging activation/device/certificate/MQTT acceptance. No deployment or
+runtime service PR merge is claimed. Transfer still requires nonnegative balance
+plus independently proven settlement conditions; deletion requires zero.
+
 ## 2026-09-01 privileged claim override qualification
 
 Latest verification at `ecfce32`: the subsequent complete run

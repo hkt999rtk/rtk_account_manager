@@ -986,3 +986,13 @@ Log: `/tmp/rtk-token-admin-final-race.log`. Vet/build/diff checks pass. Fresh fu
 coverage follows separately. Other resource-family admission, queued-work drain,
 real producer/collector integration, CI and staging remain unproven; no shared
 database, real email/payment, migration marker or deployment was changed.
+
+Fresh complete PR-profile verification at `6504594` now passes the functional
+suite and all configured package ratchets (167.955s, overall 81.77%, store
+80.19% = 4948/6170, redaction PASS). The 242-case catalog/inventory and four
+OpenAPI checks pass. The first attempted run was rejected before testing by a
+catalog ID format error; the corrected fresh run is `local-am-token-admin-v2`.
+No base ref was supplied, so differential/default pre-PR and CI are still gates.
+Product create/update/disable still need transaction-local authority and a
+consistent actor/cloud/Product lock order; this checkpoint does not certify
+those writers, production participants/collectors or staging acceptance.
