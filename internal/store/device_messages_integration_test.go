@@ -33,6 +33,7 @@ func transactionBackendPID(t *testing.T, ctx context.Context, tx pgx.Tx) uint32 
 }
 
 type blockedConnectionObserver interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
@@ -41,6 +42,11 @@ func awaitBlockedConnections(t *testing.T, ctx context.Context, observer blocked
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
+		// PostgreSQL caches statistics snapshots inside a transaction. The observer
+		// is also the blocker transaction, so force a live pg_stat_activity view.
+		if _, err := observer.Exec(ctx, `SELECT pg_stat_clear_snapshot()`); err != nil {
+			t.Fatal(err)
+		}
 		var waiting int
 		// A competing operation can wait behind another waiter rather than directly
 		// behind blockerPID. Count the whole database's lock waiters; integration
