@@ -1,5 +1,44 @@
 # Test Report
 
+## 2026-09-01 real factory application interoperability qualification
+
+Candidate `b117c95` passes the complete AM PR-profile run
+`local-am-factory-real-services` in 256.957s. All executed tests, configured
+package ratchets and artifact redaction pass. Overall coverage is **82.08%**;
+store is **5106/6330 = 80.66%** against 80%. No base ref was supplied, so this
+does not prove differential coverage, default pre-PR or GitHub CI.
+
+`TestIntegrationFactoryApplicationAcrossRealServices` actually executes
+(1.930s, not skipped), using an independently compiled Video Cloud `043ddd4`
+factory application test binary. AM HTTP/JWT/authorization/quota and both
+PostgreSQL stores are real, as are VC factory composition, journal/projections
+and the mTLS issuer. A transport fault drops AM's response only after its issued
+result has committed. Recreating the factory application and retrying preserves
+one certificate, matching DER evidence, one reservation/issued count and the
+original device projection timestamp. Quota excess, cloud override and disabled
+owner are rejected. The focused AM race run passes in 5.759s.
+
+The child receives fixture secrets on stdin, reports only status/digests/durable
+witnesses, exits cleanly and removes only its own unique local schema. It does
+not simulate a full process/cluster restart, real Product CA hierarchy or live
+HSM. The real-service test's binary/DSN opt-in is explicit; missing dependencies
+skip and are not interoperability evidence. Build/vet pass.
+
+Report: `.artifacts/test-runs/local-am-factory-real-services/coverage/test_report.md`
+in the unpublished qualification checkout rooted at workspace `d128eab`.
+Coverage SHA-256: `4ecb7cde4910f38436ae83e2048b4853a9244be08a42c1829f46710fe1111d21`.
+Full execution events are in `logs/account-manager.log`. The complete VC run
+`local-vc-factory-real-services` also passes at `043ddd4` (38.400s, 74.71% overall,
+PostgreSQL 81.16%). Four OpenAPI files, the 250-case catalog/spec inventory and
+canonical checkout consistency pass (392 requirements, 659 operations, zero
+blocking findings). No gates were weakened.
+
+Autonomous expiry/revocation reconciliation, trusted cancellation of prepared or
+reserved work, real producer/Billing cutoffs, full UI/CI, migration/restore and
+staging acceptance are still required. Transfer eligibility remains settled
+balance **>= 0** plus the independent financial checks. This is not handoff or
+release acceptance. No live email, payment, factory/HSM or staging action ran.
+
 ## 2026-09-01 factory coordination HTTP and cache qualification
 
 Runtime `be2dbc6` passes the complete Account Manager PR-profile run

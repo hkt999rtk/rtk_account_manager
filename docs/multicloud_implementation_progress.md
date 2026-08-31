@@ -23,6 +23,13 @@ This covers real service composition, not a full process/cluster restart,
 Product CA resolution, autonomous cancellation/recovery, producer/Billing cutoff
 or staging acceptance. The full original delivery gates remain in force.
 
+Full AM PR-profile verification at `b117c95` subsequently passes in 256.957s
+(82.08% overall, store 80.66%); VC `043ddd4` passes in 38.400s (74.71% overall,
+PostgreSQL 81.16%). The real-service case executes within the AM run (1.930s).
+OpenAPI, the 250-case catalog/spec inventory and canonical checkout checks pass.
+Artifact identities are in `test_report.md`; no differential/default pre-PR or
+CI/staging completion is inferred from these local module runs.
+
 ## Factory coordination transport checkpoint — 2026-09-01
 
 Account Manager now exposes dedicated service-only reserve/lookup/result routes.
