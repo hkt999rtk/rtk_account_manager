@@ -41,7 +41,8 @@ tracks rollout history and verification status.
 - Refresh-token support for longer sessions.
 - Organization-based account model.
 - Platform-admin brand cloud management with
-  `organizations.organization_kind=brand_cloud` and brand-scoped user
+  `organizations.organization_kind=brand_cloud` and global users linked through
+  `organization_members`; Brand Clouds are authorization scopes, not identity
   namespaces.
 - Multiple users per organization.
 - Role-based access control with `owner`, `admin`, and `member`.
@@ -405,9 +406,9 @@ nor metadata may be treated as service ACL input.
 -->
 
 Each device item profile is also a developer collaboration project. Developer
-membership establishes tenant identity only; except for the Brand Cloud owner's
-governance override, it does not make every Product visible. Tenant-local Brand Cloud
-operator accounts retain their existing operational roles. Product creation is limited
+membership establishes Brand Cloud scope only; except for the Brand Cloud owner's
+governance override, it does not make every Product visible. Global users retain
+their Brand Cloud operational roles through memberships. Product creation is limited
 to the Brand Cloud owner and atomically creates one `product_owner` assignment.
 
 An owner may invite a registered developer as `product_editor` or `product_viewer`.
@@ -993,8 +994,10 @@ pass.
 Constraints:
 
 - `(organization_id, user_id)` is unique.
-- Every `customer_org` and active `brand_cloud` must have at least one enabled
-  `owner` before cutover completes.
+- Every active `brand_cloud` must have at least one enabled, verified,
+  non-pending global `owner` before cutover completes. Older `customer_org`
+  records are audited separately; this cutover does not authorize unrelated
+  customer-organization data repairs.
 - Public signup creates its Brand Cloud and owner membership in the same
   transaction.
 - Platform provisioning may create a Brand Cloud with a pending emailed owner,
@@ -1307,7 +1310,8 @@ Constraints:
 - Logout revokes the active refresh token.
 - `POST /v1/auth/verify-email` consumes a one-time email verification token and
   a new password, stores the password hash, marks `user.email_verified=true`,
-  and clears `signup_pending_verification` in one transaction.
+  and clears `signup_pending_verification` in one transaction. Only eligible
+  activation holds are released; administrative membership disables remain.
 - `POST /v1/auth/verify-email/status` performs a non-consuming token check and
   returns `valid`, `expired`, or `invalid`. It must not consume the token or
   expose token contents in the response.
