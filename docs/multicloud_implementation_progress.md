@@ -17,8 +17,14 @@ The independently compiled Video Cloud client passes real HTTP tests against AM
 and owned PostgreSQL: reserve/replay, denial after source disable, retained lookup
 and exactly-once completion. Client tests reject insecure origins, redirects and
 malformed/mismatched evidence. This is transport compatibility evidence, not yet
-factory handler/journal wiring or actual producer handoff. Full package verification
-follows separately; all original release gates remain in force.
+factory handler/journal wiring or actual producer handoff. Runtime `be2dbc6`
+subsequently passes the complete PR-profile run `local-am-factory-transport-v2`
+(237.696s, 82.05% overall, store 80.60%). The API store interface now preserves
+factory persistence through the production user-cache wrapper, with a route-level
+regression. Missing OpenAPI tags found in the first full run are fixed. See
+`test_report.md` for artifact hashes and the still-unverified release gates.
+Video Cloud's journal now persists ordered, immutable scope/evidence and pending
+work, but handler/recovery integration remains separate from these primitives.
 
 ## Factory admission ledger checkpoint — 2026-09-01
 

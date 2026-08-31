@@ -1,5 +1,39 @@
 # Test Report
 
+## 2026-09-01 factory coordination HTTP and cache qualification
+
+Runtime `be2dbc6` passes the complete Account Manager PR-profile run
+`local-am-factory-transport-v2` in 237.696s. All executed tests, configured package
+ratchets and artifact redaction pass. Overall coverage is **82.05%**; store is
+**5102/6330 = 80.60%** against 80%. No base ref was supplied: this does not prove
+differential coverage, default pre-PR or GitHub CI.
+
+The independently built Video Cloud client (`821a3b5`) executes against real AM
+HTTP and owned PostgreSQL, not a local client double (1.230s, not skipped).
+The production `api.Store -> usercache.NewStore -> api.New` composition also has
+a regression proving all three factory routes reach persistence without user
+caching. Factory persistence is now required by the API store interface, so
+enabling user cache cannot drop these methods through an optional assertion.
+Focused API tests pass (3.558s), cache race tests pass (1.671s), and build passes.
+
+The previous run `local-am-factory-transport` failed because the three new
+OpenAPI operations omitted tags. Their declared Factory Enrollment tag fixes
+that failure; the original failed report is retained, not relabeled as passing.
+
+Report: `.artifacts/test-runs/local-am-factory-transport-v2/coverage/test_report.md`
+in the unpublished qualification checkout rooted at workspace `d128eab`.
+Coverage SHA-256: `e0658630060050d9023e39d94af893316c9f0319187752510b2213bfee0c0056`.
+Full events are in `logs/account-manager.log`. The 248-case catalog and spec
+inventory pass (392 requirements, 659 operations, zero blocking findings), as
+does canonical contract checkout consistency. Local infrastructure only; no
+deployment, shared DB, live email, payment or factory issuance was performed.
+
+Video Cloud now also has a durable consumer journal, but the actual factory
+handler, recovery/cancellation and participant cutoffs are still unwired. These
+tests do not qualify complete handoff, Billing settlement, full UI/CI, migration
+restore or staging acceptance. Transfer eligibility remains settled balance
+**>= 0** plus the independent financial safety checks, not a positive-only rule.
+
 ## 2026-09-01 factory reservation ledger qualification
 
 Runtime `2a9973d` passes the complete Account Manager PR-profile run
