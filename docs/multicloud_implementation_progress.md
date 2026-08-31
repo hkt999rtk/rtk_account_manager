@@ -2,6 +2,27 @@
 
 This is implementation progress, not release acceptance or a replacement contract.
 
+## Real factory application wire checkpoint — 2026-09-01
+
+`TestIntegrationFactoryApplicationAcrossRealServices` runs the real AM HTTP
+router, production JWT verifier, authorization/quota ledger and PostgreSQL store
+against an independently compiled Video Cloud factory application and its real
+mTLS certificate issuer, journal and projections. AM commits `issued` before a
+test transport drops the completion reply; recreating the factory application
+and retrying preserves one certificate, one reservation, one issued count and
+the original device projection timestamp. Quota excess, cross-cloud overrides
+and owner disable are rejected. The focused AM race run passes in 5.759s.
+
+Reproduce by building Video Cloud's `internal/factoryenrollapp` with `go test -c`,
+then set `TEST_FACTORY_APPLICATION_BINARY` to that absolute binary path,
+`TEST_FACTORY_APPLICATION_DSN` to isolated VC PostgreSQL and `TEST_DATABASE_URL`
+to isolated AM PostgreSQL. The child uses an owned schema and ephemeral mTLS CA;
+credentials are stdin-only and witnesses contain no token, CSR or certificate
+body. Absent dependencies skip the test and do not establish compatibility.
+This covers real service composition, not a full process/cluster restart,
+Product CA resolution, autonomous cancellation/recovery, producer/Billing cutoff
+or staging acceptance. The full original delivery gates remain in force.
+
 ## Factory coordination transport checkpoint — 2026-09-01
 
 Account Manager now exposes dedicated service-only reserve/lookup/result routes.
