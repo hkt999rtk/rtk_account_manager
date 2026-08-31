@@ -90,6 +90,21 @@ untouched. No staging deployment or shared database migration has been performed
 - Service OpenAPI describes the asynchronous acceptance and participant-only
   status, nonnegative/unknown financial errors and reserved quota. Its cancellation
   route now matches the actual `/owner-transfer/{transferId}/cancel` path.
+- Forward migration 056 persists immutable participant preparation acknowledgments.
+  Each trusted-adapter call binds the operation, cloud, source/target, ownership
+  version and exact cutoff, and requires both a hold receipt and a drained-work
+  checkpoint. A successful HTTP delivery is not accepted as preparation evidence.
+  Readiness uses the inventory captured at acceptance, survives process restart,
+  and requires every participant. This is a preparation gate only, not a financial
+  confirmation, commit grant or owner change; there is no public receipt-write route.
+- Late prepare receipts during cancellation do not release holds or restore
+  readiness. Exact replay is stable, changed receipts conflict, and a terminal
+  cancellation cannot record a new preparation. Receipt and audit writes share
+  one transaction. The database now also rejects skipping initial preparation or
+  completing cancellation with missing/empty producer inventory or missing release
+  acknowledgments. This does not authenticate remote evidence on its own.
+- Acceptance now rechecks the invitation's actual expiry after the external
+  eligibility call and user/cloud locks, rather than using only request-start time.
 
 ## Verification at this checkpoint
 
@@ -162,6 +177,31 @@ untouched. No staging deployment or shared database migration has been performed
 
 ## Required next work
 
+### AM preparation receipt verification — 2026-08-31
+
+- Created a separate isolated PostgreSQL database `multicloud_am_prepare_test`
+  on loopback 63229 and applied all migrations through 056. No already-applied
+  migration was rewritten and no shared/staging database was changed.
+- Full uncached `go test ./... -count=1` passed (API 58.893s, store 68.070s),
+  including OpenAPI and existing authentication/resource integration tests.
+  Log: `/tmp/rtk-am-prepare-suite-20260831.log`.
+- The added direct-SQL transition test passed independently after that full run
+  started (2.116s). Final preparation/expiry/cancellation/database race tests passed
+  three repeated runs (store 6.247s, database 5.775s). Log:
+  `/tmp/rtk-am-prepare-race-20260831.log`. `go vet ./...` and `git diff --check` passed.
+- Coverage includes exact operation/cloud/party/version/cutoff binding, missing
+  hold/drain proof, wrong producer, changed/identical replay, persisted inventory
+  across restart/configuration change, outsider/disabled participant reads,
+  concurrent receipts, audit rollback, late prepare during cancellation,
+  immutable evidence and refusal to release with partial/empty inventory.
+  Slow-eligibility expiry creates no operation or quota reservation.
+- Receipt digests are **synthetic test fixtures**. These results validate AM's
+  local evidence storage and transition guards, not actual remote hold/drain,
+  Billing amount confirmation, committed ownership or end-to-end handoff. The
+  public preview/confirm and production participant adapters remain outstanding.
+
+### Remaining delivery gates
+
 1. Complete cross-service authorization, downloads/background work and cache
    invalidation around the implemented Product admission/viewer scope. Reconcile
    generic provisioning/role APIs, activation holds and all resource-mutation fences.
@@ -169,12 +209,14 @@ untouched. No staging deployment or shared database migration has been performed
    identity fallbacks, retaining only the required migration evidence.
 2. Complete cloud idempotent CRUD/deletion and the AM handoff coordinator beyond
    acceptance/cancel preparation. Add production Billing eligibility/command adapters,
-   dedicated credentials, outbox delivery/retries, producer prepare acknowledgments,
-   durable settlement snapshots and both participant confirmations. Then commit
+   dedicated credentials, outbox delivery/retries and actual producer hold/drain
+   adapters for the persisted preparation acknowledgments. Implement the AM-side
+   versioned settlement preview and both participant confirmations against Billing's
+   authoritative snapshots. Then commit
    the sole-owner swap, consume the reservation, transfer Product-owner duties and
    remove every old-owner membership/delegated grant atomically with the committed
    outbox event. Keep access fenced until Billing finalize acknowledgment; after a
-   known commit only forward retry is legal. Current 055 deliberately has no
+   known commit only forward retry is legal. Current 055/056 deliberately have no
    successful owner-commit path; acceptance is not transfer completion.
 3. Integrate Billing's implemented store protocol/privacy with real AM decisions,
    evidence collectors, provider adapters and audited operations. A configured test

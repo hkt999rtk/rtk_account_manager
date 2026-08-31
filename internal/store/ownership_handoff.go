@@ -178,6 +178,11 @@ func (s *Store) acceptOwnerHandoff(ctx context.Context, target, token string, no
 	if !user.EmailVerified || user.SignupPendingVerification {
 		return model.BrandCloudOwnerTransfer{}, ErrNotFound
 	}
+	// The remote eligibility check and user/cloud locks may outlive the invite.
+	// A request-start timestamp must not authorize an already expired acceptance.
+	if current := time.Now().UTC(); current.After(now) {
+		now = current
+	}
 	transfer, err = scanBrandCloudOwnerTransfer(tx.QueryRow(ctx, `SELECT `+transferColumns+` FROM brand_cloud_owner_transfers WHERE id=$1 AND token_hash=$2 AND expires_at>$3 FOR UPDATE`, transfer.ID, token, now))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.BrandCloudOwnerTransfer{}, ErrNotFound
