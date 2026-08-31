@@ -1,6 +1,6 @@
 # Identity correction 051: operator runbook
 
-Implements the reviewed [correction design](IDENTITY_MIGRATION_CORRECTION.md).
+Implements the reviewed [correction design](identity_migration_correction.md).
 This runbook does not authorize a shared-environment deployment. Complete the
 release review and maintenance-window approval first. Do not delete an applied
 049 marker, rerun corrected 049 on a deployed database, or drop legacy evidence.

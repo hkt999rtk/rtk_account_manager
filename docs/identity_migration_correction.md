@@ -69,7 +69,7 @@ Published 049 and its applied marker remain unchanged. The implemented forward
 or a reset-required sole owner needs a separately reviewed cutover path satisfying
 the rules above. It remains a release blocker, not a reason to rewrite legacy
 evidence or bypass the old assertion. Empty new databases apply the normal chain.
-See [the operator runbook](IDENTITY_CORRECTION_RUNBOOK.md).
+See [the operator runbook](identity_correction_runbook.md).
 
 ## Already-applied databases: forward correction before cleanup
 

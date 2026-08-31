@@ -608,7 +608,7 @@ untouched. No staging deployment or shared database migration has been performed
   and retirement/release proof wake the job; stale completion cannot overwrite a
   newer wake with retry backoff. Blocker updates alone do not cause hot retries.
 - Added worker build/release output and configuration examples, without enabling
-  a service. See `CLOUD_DELETION_RECOVERY_WORKER.md` for exact runtime boundaries.
+  a service. See `cloud_deletion_recovery_worker.md` for exact runtime boundaries.
   Remaining producer/collector adapters and deployment acceptance are still gates.
 - Verification: targeted store tests passed on fresh isolated
   `multicloud_am_deletion_worker_test` through 063; worker/config race tests passed
@@ -657,7 +657,7 @@ untouched. No staging deployment or shared database migration has been performed
   rollback preserves legacy evidence. Forward 051 cannot repair an earlier
   aborted transaction. A reviewed pre-cutover path is still required; do not
   bypass the failure, rewrite evidence or present this checkpoint as full cutover
-  completion. See `IDENTITY_CORRECTION_RUNBOOK.md`.
+  completion. See `identity_correction_runbook.md`.
 - Targeted isolated PostgreSQL identity/membership/API tests passed through 063,
   including correction/replay, provenance conflict resolution, owner eligibility,
   OIDC adoption, stale JWT/refresh/certificate rejection, and full activation.
@@ -734,7 +734,7 @@ name/model updates, explicit model clearing, exact cloud/Product denial, unchang
 hardware/metadata, audit counts, stale admin ACL under viewer membership and
 activation-hold denial. No migration, shared database or staging state changed.
 Logs: `/tmp/rtk-device-display-am.log`; full-suite/race outcomes are recorded in
-`TEST_REPORT.md` after execution. Current AM and Admin OpenAPI validation passes.
+`test_report.md` after execution. Current AM and Admin OpenAPI validation passes.
 
 A new read-only inventory overlay includes **all three current implementation
 worktrees**, not only Admin. It exposes 21 blocking AM/Billing operation mappings
@@ -743,3 +743,28 @@ plus stale workspace traceability. Diagnostic:
 `/tmp/rtk-device-scope-inventory.4o3gdW/local-inventory/spec-inventory.json`.
 These must be reconciled with the actual normative requirements before CI/release;
 the earlier Admin-only zero-blocker inventory was not cross-service acceptance.
+
+## Refreshed integration inventory — 2026-08-31
+
+The three implementation branches now include the merged documentation-governance
+mainline; canonical contracts are at `d261dd0`. Supporting notes and links follow
+the new lowercase filenames. The preceding 21-blocker report is superseded by
+the combined read-only candidate at
+`/tmp/rtk-multicloud-refreshed-inventory.ypQM3C/local-inventory/`:
+40 features, 391 requirements, 655 operations, 65 workflows, zero blocking
+findings (91 existing nonblocking normative candidates remain).
+
+Workspace inventory now parses YAML structure, including flow lists and quoted
+colon paths, and resolves registered local Path Item references. It rejects remote
+or unregistered reads, invalid pointers, cycles and ambiguous overrides. The
+requirement denominator is unchanged; referenced consumer operations are added,
+not removed to pass the check. Member update maps to the canonical multi-cloud
+sharing feature; invitation retains its canonical invitation feature, with
+multi-cloud sharing explicitly connected through `WF-MULTICLOUD-SHARING-001`.
+Account Manager OpenAPI tests pass after those two mapping corrections.
+
+The workspace's committed dependency snapshot is separate: 621 operations and
+zero blocking findings against merged service mainlines. The 655-operation
+candidate includes unmerged implementations and must not be presented as an
+accepted deployment. Service PRs must merge before parent gitlinks change.
+Runtime, migration, full CI and staging acceptance gates above remain open.

@@ -119,7 +119,7 @@ keep unavailable financial evidence fail-closed. Configuring this adapter does
 **not** enable complete transfers: trusted initial eligibility, producer hold/drain
 workers and automatic delivery of the implemented owner commit/finalization
 protocol are still required. See
-`docs/MULTICLOUD_IMPLEMENTATION_PROGRESS.md` before enabling any runtime rollout.
+`docs/multicloud_implementation_progress.md` before enabling any runtime rollout.
 
 `go run ./cmd/handoff-worker` runs the durable handoff recovery loop against an
 explicitly configured database (forward migration 059 required). It uses the
