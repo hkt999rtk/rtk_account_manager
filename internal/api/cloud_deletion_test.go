@@ -15,6 +15,7 @@ import (
 
 	"rtk_account_manager/internal/billinghandoff"
 	"rtk_account_manager/internal/store"
+	"rtk_account_manager/internal/worker/clouddeletion"
 )
 
 func TestLiveCloudDeletionPublicAPIWithBilling(t *testing.T) {
@@ -86,16 +87,29 @@ func TestLiveCloudDeletionPublicAPIWithBilling(t *testing.T) {
 		}
 	}
 	restarted := store.New(env.db)
-	configure(restarted)
-	jobs, err := restarted.ClaimCloudDeletionJobs(context.Background(), 1, time.Minute)
-	if err != nil || len(jobs) != 1 {
-		t.Fatalf("durable job %+v %v", jobs, err)
+	if err := restarted.ConfigureCloudDeletionRecovery(store.CloudDeletionOptions{Billing: client, Producers: map[string]store.CloudDeletionProducer{"test_resources": f}}); err != nil {
+		t.Fatal(err)
 	}
-	for attempt := 0; attempt < 5; attempt++ {
-		op, err = restarted.ProcessCloudDeletionJob(context.Background(), jobs[0])
-		if err == nil && op.State == wantState {
+	worker, err := clouddeletion.NewService(restarted, clouddeletion.Options{PollInterval: time.Millisecond, RetryBase: time.Millisecond, RetryMax: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 0; attempt < 20; attempt++ {
+		stats, stepErr := worker.RunOnce(context.Background())
+		if stepErr != nil {
+			t.Fatal(stepErr)
+		}
+		op, err = restarted.GetDeveloperCloudDeletion(context.Background(), owner.UserID, owner.BrandCloudID, op.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if op.State == wantState {
+			if stats.Completed != 1 {
+				t.Fatalf("worker did not acknowledge completion %+v", stats)
+			}
 			break
 		}
+		time.Sleep(time.Millisecond)
 	}
 	if err != nil || op.State != wantState {
 		t.Fatalf("real Billing forward retry %+v %v", op, err)

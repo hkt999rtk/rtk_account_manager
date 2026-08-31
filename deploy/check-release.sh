@@ -20,6 +20,7 @@ required_executables=(
   bin/rtk-account-manager-email-worker
   bin/rtk-account-manager-email-outbox-admin
   bin/rtk-account-manager-cleanup-tokens
+  bin/rtk-account-manager-cloud-deletion-worker
   deploy/install.sh
   deploy/verify.sh
 )

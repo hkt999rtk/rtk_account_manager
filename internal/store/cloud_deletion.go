@@ -69,8 +69,9 @@ type CloudDeletionProducer interface {
 	PrepareCloudDeletion(context.Context, billinghandoff.ClosureBinding, int64) (CloudDeletionHold, error)
 }
 type CloudDeletionOptions struct {
-	Billing   CloudDeletionBillingCoordinator
-	Producers map[string]CloudDeletionProducer
+	Billing      CloudDeletionBillingCoordinator
+	Producers    map[string]CloudDeletionProducer
+	recoveryOnly bool
 }
 
 func (s *Store) ConfigureCloudDeletion(in CloudDeletionOptions) error {
@@ -80,6 +81,30 @@ func (s *Store) ConfigureCloudDeletion(in CloudDeletionOptions) error {
 	copy := CloudDeletionOptions{Billing: in.Billing, Producers: map[string]CloudDeletionProducer{}}
 	for name, p := range in.Producers {
 		if p == nil || s.deletionPreflight.Resources[name] == nil {
+			return ErrConflict
+		}
+		copy.Producers[name] = p
+	}
+	s.deletion = &copy
+	return nil
+}
+
+// Recovery does not install preflight observers or enable new deletion admission.
+// The captured participant inventory is authoritative; missing adapters keep
+// preparation/cancellation fenced. Already-persisted close commands can retry.
+func (s *Store) ConfigureCloudDeletionRecovery(in CloudDeletionOptions) error {
+	if s.deletion != nil || s.deletionPreflight != nil || in.Billing == nil {
+		return ErrConflict
+	}
+	if _, ok := in.Billing.(CloudDeletionRecoveryBilling); !ok {
+		return ErrConflict
+	}
+	copy := CloudDeletionOptions{Billing: in.Billing, Producers: map[string]CloudDeletionProducer{}, recoveryOnly: true}
+	for name, p := range in.Producers {
+		if name == "billing" || !handoffParticipantName.MatchString(name) || p == nil {
+			return ErrConflict
+		}
+		if _, ok := p.(CloudDeletionCancelProducer); !ok {
 			return ErrConflict
 		}
 		copy.Producers[name] = p
@@ -200,7 +225,7 @@ func (s *Store) RequestDeveloperCloudDeletion(ctx context.Context, user, cloud, 
 	if err = tx.Commit(ctx); err != nil {
 		return CloudDeletionOperation{}, err
 	}
-	if s.deletion == nil {
+	if s.deletion == nil || s.deletion.recoveryOnly {
 		return CloudDeletionOperation{}, ErrHandoffUnavailable
 	}
 	preflight, err := s.PreflightDeveloperBrandCloudDeletion(ctx, user, cloud)

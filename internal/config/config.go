@@ -86,6 +86,10 @@ type Config struct {
 	HandoffLeaseDuration           time.Duration
 	HandoffStepTimeout             time.Duration
 	HandoffBatchSize               int
+	CloudDeletionPollInterval      time.Duration
+	CloudDeletionLeaseDuration     time.Duration
+	CloudDeletionStepTimeout       time.Duration
+	CloudDeletionBatchSize         int
 	AllowImmediateBrandAccounts    bool
 	FactoryProductionJWTSecret     string
 	FactoryProductionJWTAudience   string
@@ -189,6 +193,49 @@ func LoadWorker() (Config, error) {
 		if cfg.VideoCloudLifecycleTimeout <= 0 {
 			return Config{}, fmt.Errorf("VIDEO_CLOUD_LIFECYCLE_TIMEOUT must be positive")
 		}
+	}
+	return cfg, nil
+}
+
+// Recovery-only process: it has no public routes or resource-observer setup.
+func LoadCloudDeletionWorker() (Config, error) {
+	cfg, err := load()
+	if err != nil {
+		return Config{}, err
+	}
+	if strings.TrimSpace(os.Getenv("DATABASE_URL")) == "" {
+		return Config{}, fmt.Errorf("cloud deletion worker requires explicit DATABASE_URL")
+	}
+	if cfg.BillingHandoffBaseURL == "" || cfg.BillingHandoffToken == "" {
+		return Config{}, fmt.Errorf("cloud deletion worker requires dedicated Billing transport configuration")
+	}
+	if err := validateHandoffBillingConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	// The generic loaders use defaults for malformed values. Recovery startup must
+	// reject typos rather than silently running with a different resource budget.
+	for key, target := range map[string]*time.Duration{
+		"CLOUD_DELETION_WORKER_POLL_INTERVAL":  &cfg.CloudDeletionPollInterval,
+		"CLOUD_DELETION_WORKER_LEASE_DURATION": &cfg.CloudDeletionLeaseDuration,
+		"CLOUD_DELETION_WORKER_STEP_TIMEOUT":   &cfg.CloudDeletionStepTimeout,
+	} {
+		if raw := strings.TrimSpace(os.Getenv(key)); raw != "" {
+			value, err := time.ParseDuration(raw)
+			if err != nil {
+				return Config{}, fmt.Errorf("invalid %s", key)
+			}
+			*target = value
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("CLOUD_DELETION_WORKER_BATCH_SIZE")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid CLOUD_DELETION_WORKER_BATCH_SIZE")
+		}
+		cfg.CloudDeletionBatchSize = value
+	}
+	if cfg.CloudDeletionPollInterval <= 0 || cfg.CloudDeletionPollInterval > time.Minute || cfg.CloudDeletionLeaseDuration < 30*time.Second || cfg.CloudDeletionLeaseDuration > 5*time.Minute || cfg.CloudDeletionStepTimeout <= 0 || cfg.CloudDeletionStepTimeout >= cfg.CloudDeletionLeaseDuration-5*time.Second || cfg.CloudDeletionBatchSize < 1 || cfg.CloudDeletionBatchSize > 128 {
+		return Config{}, fmt.Errorf("invalid cloud deletion worker timing or batch size")
 	}
 	return cfg, nil
 }
@@ -392,6 +439,10 @@ func load() (Config, error) {
 		HandoffLeaseDuration:           duration("HANDOFF_WORKER_LEASE_DURATION", 2*time.Minute),
 		HandoffStepTimeout:             duration("HANDOFF_WORKER_STEP_TIMEOUT", 45*time.Second),
 		HandoffBatchSize:               intValue("HANDOFF_WORKER_BATCH_SIZE", 10),
+		CloudDeletionPollInterval:      duration("CLOUD_DELETION_WORKER_POLL_INTERVAL", 5*time.Second),
+		CloudDeletionLeaseDuration:     duration("CLOUD_DELETION_WORKER_LEASE_DURATION", 2*time.Minute),
+		CloudDeletionStepTimeout:       duration("CLOUD_DELETION_WORKER_STEP_TIMEOUT", 45*time.Second),
+		CloudDeletionBatchSize:         intValue("CLOUD_DELETION_WORKER_BATCH_SIZE", 10),
 		AllowImmediateBrandAccounts:    strings.EqualFold(strings.TrimSpace(os.Getenv("ACCOUNT_MANAGER_ENV")), "staging") && boolValue("ACCOUNT_MANAGER_ALLOW_IMMEDIATE_BRAND_ACCOUNTS", false),
 		FactoryProductionJWTSecret:     os.Getenv("FACTORY_PRODUCTION_JWT_SECRET"),
 		FactoryProductionJWTAudience:   getenv("FACTORY_PRODUCTION_JWT_AUDIENCE", "factory-enroll"),

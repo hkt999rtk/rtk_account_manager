@@ -525,7 +525,7 @@ untouched. No staging deployment or shared database migration has been performed
   denies subsequent cloud detail reads. Producer inventory/holds and independent
   collector checkpoints are explicitly synthetic, not staging acceptance.
 - Release gates still include production observer/hold/drain/provider/collector
-  adapters, polling-worker bootstrap/configuration, complete queued/background
+  adapters, production worker enablement, complete queued/background
   mutation coverage, BFF/UI and cross-service acceptance. The fixed-command
   recovery gaps recorded at 061 are addressed by the local 062 checkpoint below;
   this does not remove the production release gates. Do not enable deletion in
@@ -593,6 +593,40 @@ untouched. No staging deployment or shared database migration has been performed
   Vet and whitespace checks passed. No runtime PR, deployment or shared-data
   change occurred.
 
+## Deletion recovery worker checkpoint (063)
+
+- Added a real recovery-only executable and bounded polling service. It uses the
+  dedicated Billing client, database-time leases, bounded batch concurrency,
+  per-step/finish deadlines, capped persistent retry and signal-aware shutdown.
+  It refuses implicit database selection, malformed timing, reused credentials
+  or a database missing migration 063. It does not run migrations or expose HTTP.
+- Separate store recovery configuration cannot admit new deletions, even after
+  later preflight setup. Missing participants retain their recorded inventory and
+  keep preparation/cancellation fenced. Persisted close commands can recover
+  with existing proof; no producer/collector acknowledgment is fabricated.
+- Forward migration 063 adds a scheduling generation. Cancellation, phase changes
+  and retirement/release proof wake the job; stale completion cannot overwrite a
+  newer wake with retry backoff. Blocker updates alone do not cause hot retries.
+- Added worker build/release output and configuration examples, without enabling
+  a service. See `CLOUD_DELETION_RECOVERY_WORKER.md` for exact runtime boundaries.
+  Remaining producer/collector adapters and deployment acceptance are still gates.
+- Verification: targeted store tests passed on fresh isolated
+  `multicloud_am_deletion_worker_test` through 063; worker/config race tests passed
+  three runs. The actual subprocess starts/stops cleanly on SIGTERM in three
+  race-instrumented runs using `multicloud_am_deletion_worker_process_test` and
+  makes no Billing calls for an empty queue. All four AM/Billing recovery modes now
+  use the polling service and passed three Billing race-instrumented runs (36.596s),
+  log `/tmp/rtk-am-billing-deletion-worker-cross-race-20260831.log`.
+  Resource/provider/collector evidence remains synthetic, not production acceptance.
+  Full uncached AM suite passed (store 122.596s) on
+  `multicloud_am_deletion_worker_test`; log:
+  `/tmp/rtk-am-deletion-worker-suite-20260831.log`. Three database race runs passed
+  on fresh `multicloud_am_deletion_worker_race_test` (store 60.905s, API 21.871s);
+  log: `/tmp/rtk-am-deletion-worker-race-20260831.log`. Final configuration parsing
+  regression tests separately verify zero/negative batches, explicit whitespace
+  values, missing database selection and duration overflow rejection. Build, vet
+  and whitespace checks passed. No runtime PR or deployment occurred.
+
 ## Required next work
 
 1. Complete cross-service authorization, downloads/background work and cache
@@ -603,8 +637,8 @@ untouched. No staging deployment or shared database migration has been performed
 2. Complete cloud deletion/closure and production handoff integration.
    Advisory owner-only deletion preflight now exists; wire real reviewed resource
    observers and Billing collectors. Fenced DELETE/operation state and leased
-   recovery primitives now exist through 062, including exact-command retirement
-   and pre-close cancellation; finish the production-worker/adapter gates and
+   recovery primitives and worker now exist through 063, including exact-command
+   retirement and pre-close cancellation; finish the production-adapter gates and
    reviewed cancellation tooling/public-surface integration before enablement.
    Idempotent managed-cloud creation/PATCH and shared detail/list projection are
    implemented through 060; finish BFF/CLI compatibility before release.
