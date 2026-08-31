@@ -53,6 +53,7 @@ type Store struct {
 	ownershipHandoff         *OwnershipHandoffOptions
 	handoffBilling           HandoffBilling
 	handoffParticipants      map[string]HandoffParticipant
+	deletionPreflight        *CloudDeletionPreflightOptions
 }
 
 func (s *Store) ConfigureEmailOutboxCipher(cipher *emaildelivery.Cipher) {

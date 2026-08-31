@@ -53,6 +53,11 @@ func main() {
 		if err := accountStore.ConfigureHandoffBilling(client); err != nil {
 			fatal(logger, "configure Billing handoff observations failed", err)
 		}
+		// Resource observers are installed separately once their reviewed service
+		// inventory is implemented. Until then, deletion preflight fails closed.
+		if err := accountStore.ConfigureCloudDeletionPreflight(store.CloudDeletionPreflightOptions{Billing: client}); err != nil {
+			fatal(logger, "configure Billing deletion preflight failed", err)
+		}
 	}
 	accountStore.ConfigureAuthTokenRateLimit(cfg.AuthTokenRateLimitMax, cfg.AuthTokenRateLimitWindow)
 	cipher, err := emaildelivery.NewCipher(cfg.EmailOutboxEncryptionKey)

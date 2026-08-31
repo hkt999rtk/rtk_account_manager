@@ -502,8 +502,10 @@ type CloudBalanceSnapshot struct {
 	Currency               string `json:"currency"`
 }
 type CloudBlocker struct {
-	Code      string `json:"code"`
-	Retryable bool   `json:"retryable"`
+	Code         string `json:"code"`
+	Retryable    bool   `json:"retryable"`
+	Count        *int64 `json:"count,omitempty"`
+	BalanceMinor *int64 `json:"balance_minor,omitempty"`
 }
 type CloudOperation struct {
 	ID           string         `json:"id"`

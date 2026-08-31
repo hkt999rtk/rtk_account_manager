@@ -223,6 +223,7 @@ type brandCloudPersistence interface {
 	ListDeveloperBrandClouds(ctx context.Context, userID string, limit, offset int) (store.OrganizationPage, error)
 	ListManagedBrandClouds(ctx context.Context, userID, view string, limit, offset int) (store.ManagedBrandCloudPage, error)
 	GetManagedBrandCloud(ctx context.Context, userID, cloudID string) (store.ManagedBrandCloud, error)
+	PreflightDeveloperBrandCloudDeletion(ctx context.Context, userID, cloudID string) (store.CloudDeletionPreflight, error)
 	CreateManagedBrandCloud(ctx context.Context, userID, key string, in store.ManagedCloudWrite) (store.ManagedBrandCloud, error)
 	UpdateManagedBrandCloud(ctx context.Context, userID, cloudID, key string, in store.ManagedCloudWrite) (store.ManagedBrandCloud, error)
 	CreateBrandCloudMemberInvitation(ctx context.Context, in store.BrandCloudMemberInvitationInput, now time.Time) (model.BrandCloudMemberInvitation, bool, error)

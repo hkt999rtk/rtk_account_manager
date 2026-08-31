@@ -526,6 +526,39 @@ paths:
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+  /v1/developer/brand-clouds/{brandCloudId}/deletion-preflight:
+    get:
+      tags: [Developer Brand Clouds]
+      operationId: preflightDeveloperBrandCloudDeletion
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-LIFECYCLE-001]
+      summary: Owner reads advisory deletion blockers; no reservation or mutation.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/BrandCloudId'
+      responses:
+        '200':
+          description: Missing dependency/checkpoint evidence blocks readiness. Disabled resources are not tombstones.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [eligible, blockers]
+                properties:
+                  eligible: { type: boolean }
+                  blockers:
+                    type: array
+                    items:
+                      type: object
+                      required: [code, retryable]
+                      properties:
+                        code: { type: string, enum: [products_present, devices_present, jobs_running, balance_nonzero, usage_unsettled, debt_outstanding, payment_pending, refund_pending, dispute_pending, lifecycle_conflict, evidence_unavailable] }
+                        retryable: { type: boolean }
+                        count: { type: integer, format: int64, minimum: 0 }
+                        balance_minor: { type: integer, format: int64 }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
   /v1/developer/brand-clouds/{brandCloudId}/members:
     get:
       tags: [Developer Brand Clouds]

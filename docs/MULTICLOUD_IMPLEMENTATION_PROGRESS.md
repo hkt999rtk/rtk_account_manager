@@ -439,6 +439,49 @@ untouched. No staging deployment or shared database migration has been performed
   with BFF/CLI callers before deployment. No shared database or runtime deployment
   has been changed.
 
+## Cloud deletion advisory preflight checkpoint
+
+- Added owner-only `GET /v1/developer/brand-clouds/{id}/deletion-preflight` with
+  structured blockers, local counts and an exact nonzero Billing balance when
+  available. It is a read-only observation, not a reservation or DELETE operation.
+  A disabled Product/device is still an uncleaned resource. Completed device
+  operation history does not count as running work; unresolved/dead-letter work
+  remains a blocker. Counts are omitted when remote inventories overlap rather
+  than adding potentially duplicate resource counts.
+- Local reads use a repeatable, read-only snapshot. AM closes that transaction
+  before bounded dependency I/O and rechecks owner eligibility, ownership and
+  authorization versions plus local resources afterward. Lost ownership returns
+  not-found; changed authorization invalidates dependency evidence. Accepted
+  handoffs block deletion, and new resources appearing during I/O are included.
+- The dedicated Billing client calls Billing's read-only deletion preflight using
+  the cloud UUID, current global owner and ownership version. It validates exact
+  binding, response fields, integer balance, known blocker codes, no-store and
+  freshness. Zero balance does not suppress debt, pending payment/refund/dispute
+  or missing usage/invoice/provider evidence. Transfer's >=0 rule is unchanged.
+- Server startup wires the existing dedicated Billing transport if configured.
+  Production resource observers are **not implemented/installed**. Missing or
+  incomplete reviewed observer inventory blocks readiness, even if Billing says
+  clear. Adapter interfaces and positive readiness are currently exercised only
+  with explicit synthetic resource checkpoints. No no-op adapter is installed.
+- Tests cover disabled resources, unresolved jobs, no preflight side effects,
+  nonowner access, missing/expired/misbound evidence, dependency errors, new
+  resources during I/O, owner disable and handoff acceptance during observation.
+  Billing's cross-repository fixture exercises the actual AM HTTP client against
+  Billing's real router/store. Collector checkpoints remain synthetic; this is
+  not staging/production resource-drain or closure evidence.
+- Durable DELETE operations, producer write fences/closure acknowledgments,
+  Billing closure and operation status are still pending. Preflight eligibility
+  must never be reused as authority for those steps. No schema change was needed
+  in AM for this read-only surface; Billing added forward evidence migration 054.
+- Full uncached AM Go suite passed on isolated `multicloud_am_crud_test` (API
+  111.389s, store 148.576s). Targeted API/store/client race tests passed three runs
+  (22.696s / 38.342s / 1.985s), including dependency-I/O state changes. Logs:
+  `/tmp/rtk-am-deletion-preflight-suite-20260831.log` and
+  `/tmp/rtk-am-deletion-preflight-race-20260831.log`. Vet and whitespace checks
+  passed. These timings include parallel package/advisory-lock contention and are
+  correctness results, not scale/latency benchmarks. No runtime PR or deployment
+  was performed; full workspace inventory/CI and staging remain release gates.
+
 ## Required next work
 
 1. Complete cross-service authorization, downloads/background work and cache
@@ -446,7 +489,9 @@ untouched. No staging deployment or shared database migration has been performed
    generic provisioning/role APIs, activation holds and all resource-mutation fences.
    Retire legacy human
    identity fallbacks, retaining only the required migration evidence.
-2. Complete cloud deletion/preflight/closure and production handoff integration.
+2. Complete cloud deletion/closure and production handoff integration.
+   Advisory owner-only deletion preflight now exists; wire real reviewed resource
+   observers and Billing collectors, then implement fenced DELETE/operation state.
    Idempotent managed-cloud creation/PATCH and shared detail/list projection are
    implemented through 060; finish BFF/CLI compatibility before release.
    The automatic lease/retry coordinator is implemented through 059; wire
