@@ -1,5 +1,26 @@
 # Test Report
 
+## 2026-09-01 migration failure recovery and governed coverage checkpoint
+
+- The real workspace PR-profile Account Manager coverage run at `da50842`
+  completed all tests and redaction checks, but failed package ratchets:
+  overall 80.54%, database 80.65% (required 84%), store 78.00% (required 80%).
+  Report: `local-am-da50842/coverage/test_report.md` in the task-owned
+  qualification checkout. This is not a passing release gate.
+- Added real PostgreSQL tests for missing preflight inputs, canceled connections,
+  unavailable marker/token tables, rejected migration markers and deferred
+  commit failures. Failed migrations leave neither DDL nor markers; repaired
+  synthetic migrations can safely retry. Published SQL and markers are unchanged.
+- Focused tests passed (8.730s); the complete database suite passed with race
+  detection (50.208s, 88.7% package coverage), followed by `go vet`.
+  Logs: `/tmp/rtk-migration-failure-tests.log` and
+  `/tmp/rtk-migration-failure-full.log`; profile:
+  `/tmp/rtk-migration-failure-full-coverage.out`.
+
+Only disposable task-owned loopback databases were used. Store coverage and a
+fresh governed run remain outstanding; these tests do not certify staging or
+the coordinated production migration/restore rehearsal.
+
 ## 2026-09-01 human device-write authorization boundary
 
 - Full uncached Go tests with coverage and `go vet ./...` passed against the

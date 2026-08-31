@@ -813,3 +813,13 @@ mutations, claim/provision/deactivation orchestration, generic unbound-device
 creation retirement and other resource-family write fences still require review
 and integration. This does not certify all in-flight resource operations or
 authorize deployment/legacy-table cleanup.
+
+## Migration failure recovery coverage — 2026-09-01
+
+The first real combined-checkout PR-profile run passed functional tests but
+failed database/store package coverage ratchets (80.65%/78.00%). New migration
+failure tests verify unavailable inputs fail closed and marker/commit rejection
+rolls back both schema and migration state, followed by a safe synthetic retry.
+The full database race suite now measures 88.7%; store and the fresh governed
+gate remain open. No published migration, threshold or requirement was changed.
+See `test_report.md` for the exact local commands/artifacts and limitations.
