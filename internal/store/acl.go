@@ -123,8 +123,12 @@ func (s *Store) HasPermission(ctx context.Context, userID, orgID, permission str
 		}
 	}
 
+	return hasOrganizationPermission(ctx, s.db, userID, orgID, permission)
+}
+
+func hasOrganizationPermission(ctx context.Context, q rowQuerier, userID, orgID, permission string) (bool, error) {
 	var allowed bool
-	err := s.db.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1
 			FROM role_assignments ra

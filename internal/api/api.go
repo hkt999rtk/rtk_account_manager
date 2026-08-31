@@ -1368,7 +1368,7 @@ func (s *Server) createDevice(c *gin.Context) {
 	if !requireNonBlank(c, "name", req.Name) {
 		return
 	}
-	device, err := s.store.CreateDevice(c.Request.Context(), c.Param("orgId"), req.input())
+	device, err := s.store.CreateDeviceAsUser(c.Request.Context(), currentUserID(c), c.Param("orgId"), req.input())
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -1475,7 +1475,7 @@ func (s *Server) updateDevice(c *gin.Context) {
 	if !requireNonBlank(c, "name", req.Name) {
 		return
 	}
-	device, err := s.store.UpdateDevice(c.Request.Context(), c.Param("orgId"), c.Param("deviceId"), req.input())
+	device, err := s.store.UpdateDeviceAsUser(c.Request.Context(), currentUserID(c), c.Param("orgId"), c.Param("deviceId"), req.input())
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -1484,7 +1484,7 @@ func (s *Server) updateDevice(c *gin.Context) {
 }
 
 func (s *Server) deleteDevice(c *gin.Context) {
-	if err := s.store.DeleteDevice(c.Request.Context(), c.Param("orgId"), c.Param("deviceId")); err != nil {
+	if err := s.store.DeleteDeviceAsUser(c.Request.Context(), currentUserID(c), c.Param("orgId"), c.Param("deviceId")); err != nil {
 		writeStoreError(c, err)
 		return
 	}
@@ -1501,7 +1501,7 @@ func (s *Server) updateDeviceStatus(c *gin.Context) {
 	if !bind(c, &req) || !validStatus(c, req.Status) {
 		return
 	}
-	device, err := s.store.UpdateDeviceStatus(c.Request.Context(), c.Param("orgId"), c.Param("deviceId"), req.Status, req.LastSeenAt)
+	device, err := s.store.UpdateDeviceStatusAsUser(c.Request.Context(), currentUserID(c), c.Param("orgId"), c.Param("deviceId"), req.Status, req.LastSeenAt)
 	if err != nil {
 		writeStoreError(c, err)
 		return

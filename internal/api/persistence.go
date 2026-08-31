@@ -94,16 +94,16 @@ type memberPersistence interface {
 }
 
 type devicePersistence interface {
-	CreateDevice(ctx context.Context, orgID string, in store.DeviceInput) (model.Device, error)
+	CreateDeviceAsUser(ctx context.Context, actor, orgID string, in store.DeviceInput) (model.Device, error)
 	ListDevices(ctx context.Context, orgID string, limit, offset int) (store.DevicePage, error)
 	ListDevicesFiltered(ctx context.Context, in store.DeviceListFilter) (store.DevicePage, error)
 	FleetSummary(ctx context.Context, orgID string) (store.FleetSummary, error)
 	FleetSummaryForUser(ctx context.Context, orgID, userID string) (store.FleetSummary, error)
 	GetDevice(ctx context.Context, orgID, deviceID string) (model.Device, error)
-	UpdateDevice(ctx context.Context, orgID, deviceID string, in store.DeviceInput) (model.Device, error)
+	UpdateDeviceAsUser(ctx context.Context, actor, orgID, deviceID string, in store.DeviceInput) (model.Device, error)
 	PatchProductDeviceDisplay(ctx context.Context, actor, cloud, product, device string, in store.DeviceDisplayPatch) (model.Device, error)
-	DeleteDevice(ctx context.Context, orgID, deviceID string) error
-	UpdateDeviceStatus(ctx context.Context, orgID, deviceID string, status model.DeviceStatus, lastSeenAt *time.Time) (model.Device, error)
+	DeleteDeviceAsUser(ctx context.Context, actor, orgID, deviceID string) error
+	UpdateDeviceStatusAsUser(ctx context.Context, actor, orgID, deviceID string, status model.DeviceStatus, lastSeenAt *time.Time) (model.Device, error)
 }
 
 type deviceGroupPersistence interface {

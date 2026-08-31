@@ -1,5 +1,30 @@
 # Test Report
 
+## 2026-09-01 human device-write authorization boundary
+
+- Full uncached Go tests with coverage and `go vet ./...` passed against the
+  task-owned database `multicloud_device_writes_20260901`, loopback port 63229.
+  API: 85.290s (82.9%), database: 35.949s (80.6%), store: 148.368s (70.7%).
+  This is package-level measurement, not governed PR coverage acceptance.
+- Four store regression cases ran twice with the race detector (4.817s): current
+  viewer/activation/handoff denial, real lock waiting across a synthetic owner
+  switch, audit rollback, and legacy platform/error behavior. The old ACL remains
+  present in the ownership race to prove that membership removal is authoritative.
+- A subsequent HTTP test ran twice with the race detector (12.630s), pausing
+  body binding after middleware admission. After a synthetic sole-owner switch,
+  create/update/status requests all returned 404 with unchanged device data/count.
+  This added test is separate from the preceding full-suite coverage profile.
+  It used the already task-owned `multicloud_identity_auth_20260901` database.
+- Logs: `/tmp/rtk-device-user-writes-focused.log`,
+  `/tmp/rtk-device-user-writes-race.log`,
+  `/tmp/rtk-device-user-writes-http-race.log`, and
+  `/tmp/rtk-device-user-writes-full.log`.
+  Coverage: `/tmp/rtk-device-user-writes-coverage.out`.
+
+No shared database, real user, provider, staging service or migration was changed.
+These tests do not prove production producer drain, Billing settlement or full
+resource lifecycle correctness; those remain release gates.
+
 ## 2026-09-01 shared global-auth boundary
 
 - Full uncached `go test ./... -count=1 -coverprofile=...` and `go vet ./...`

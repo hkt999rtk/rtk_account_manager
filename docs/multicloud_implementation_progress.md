@@ -787,3 +787,29 @@ Focused race tests also passed. See `test_report.md` for measured results.
 No shared database, staging service, migration marker or certificate was changed.
 Production participant wiring, full CI, migration rehearsal and staging gates
 remain required; this checkpoint is not deployment acceptance.
+
+## Human device-write serialization — 2026-09-01
+
+The existing device create/update/status/delete HTTP handlers now call explicit
+human-authorized store methods. Each transaction locks the actor, organization
+and (where present) device, then repeats the current organization/device permission
+query. Ownership changes and membership removals cannot leave a previously
+admitted HTTP request authorized to write after their commit. Brand Cloud viewer,
+activation, lifecycle and Product ceilings are retained; platform capability is
+not cloud admission. Legacy customer-organization platform behavior is preserved.
+Successful writes record their actor in an atomic audit event; failed audits roll
+back the mutation. Public response schemas and legacy full-record semantics are
+unchanged; the Product display editor still uses its separate narrow PATCH.
+
+Database lock-wait tests preserve a stale ACL while switching the sole membership
+owner, then prove all four pending writes are denied. HTTP tests pause body reads
+after middleware admission, switch ownership, and verify create/update/status
+requests return 404 without changing data. These switches are synthetic fixtures,
+not substitutes for Billing prepare/commit/finalize acceptance.
+
+Full uncached tests and vet pass; repeated store and HTTP race tests pass (details
+in `test_report.md`). Only task-owned loopback databases were used. Producer
+mutations, claim/provision/deactivation orchestration, generic unbound-device
+creation retirement and other resource-family write fences still require review
+and integration. This does not certify all in-flight resource operations or
+authorize deployment/legacy-table cleanup.

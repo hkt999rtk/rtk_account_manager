@@ -1620,10 +1620,17 @@ func (s *Store) CreateDevice(ctx context.Context, orgID string, in DeviceInput) 
 		return model.Device{}, err
 	}
 	defer tx.Rollback(ctx)
+	device, err := createDeviceTx(ctx, tx, orgID, in)
+	if err != nil {
+		return model.Device{}, err
+	}
+	return device, tx.Commit(ctx)
+}
 
+func createDeviceTx(ctx context.Context, tx pgx.Tx, orgID string, in DeviceInput) (model.Device, error) {
 	var tier model.OrganizationTier
 	var quota int
-	err = tx.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 		SELECT tier, evaluation_device_quota
 		FROM organizations
 		WHERE id = $1
@@ -1652,15 +1659,12 @@ func (s *Store) CreateDevice(ctx context.Context, orgID string, in DeviceInput) 
 	if err != nil {
 		return model.Device{}, err
 	}
-	device, err := s.scanDevice(tx.QueryRow(ctx, `
+	device, err := scanDevice(tx.QueryRow(ctx, `
 		INSERT INTO devices (organization_id, name, category, serial_number, mac_address, manufacturer, model, metadata)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
 	`, orgID, in.Name, in.Category, in.SerialNumber, in.MACAddress, in.Manufacturer, in.Model, metadata))
 	if err != nil {
-		return model.Device{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
 		return model.Device{}, err
 	}
 	return device, nil
@@ -1881,18 +1885,23 @@ func (s *Store) GetDevice(ctx context.Context, orgID, deviceID string) (model.De
 }
 
 func (s *Store) UpdateDevice(ctx context.Context, orgID, deviceID string, in DeviceInput) (model.Device, error) {
+	return updateDevice(ctx, s.db, orgID, deviceID, in)
+}
+
+func updateDevice(ctx context.Context, q rowQuerier, orgID, deviceID string, in DeviceInput) (model.Device, error) {
 	metadata, err := json.Marshal(defaultMetadata(in.Metadata))
 	if err != nil {
 		return model.Device{}, err
 	}
-	device, err := s.scanDevice(s.db.QueryRow(ctx, `
+	device, err := scanDevice(q.QueryRow(ctx, `
 		UPDATE devices
 		SET name = $3, category = $4, serial_number = $5, mac_address = $6, manufacturer = $7, model = $8, metadata = $9, updated_at = now()
 		WHERE organization_id = $1 AND id = $2 AND disabled_at IS NULL
 		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
 	`, orgID, deviceID, in.Name, in.Category, in.SerialNumber, in.MACAddress, in.Manufacturer, in.Model, metadata))
 	if errors.Is(err, pgx.ErrNoRows) {
-		if existing, getErr := s.GetDevice(ctx, orgID, deviceID); getErr == nil && existing.DisabledAt != nil {
+		var disabled bool
+		if q.QueryRow(ctx, `SELECT disabled_at IS NOT NULL FROM devices WHERE organization_id=$1 AND id=$2`, orgID, deviceID).Scan(&disabled) == nil && disabled {
 			return model.Device{}, ErrDisabled
 		}
 		return model.Device{}, ErrNotFound
@@ -1916,14 +1925,19 @@ func (s *Store) DeleteDevice(ctx context.Context, orgID, deviceID string) error 
 }
 
 func (s *Store) UpdateDeviceStatus(ctx context.Context, orgID, deviceID string, status model.DeviceStatus, lastSeenAt *time.Time) (model.Device, error) {
-	device, err := s.scanDevice(s.db.QueryRow(ctx, `
+	return updateDeviceStatus(ctx, s.db, orgID, deviceID, status, lastSeenAt)
+}
+
+func updateDeviceStatus(ctx context.Context, q rowQuerier, orgID, deviceID string, status model.DeviceStatus, lastSeenAt *time.Time) (model.Device, error) {
+	device, err := scanDevice(q.QueryRow(ctx, `
 		UPDATE devices
 		SET status = $3, last_seen_at = COALESCE($4, last_seen_at), disabled_at = CASE WHEN $3 = 'disabled' THEN now() ELSE disabled_at END, updated_at = now()
 		WHERE organization_id = $1 AND id = $2 AND (disabled_at IS NULL OR status <> 'disabled')
 		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
 	`, orgID, deviceID, status, lastSeenAt))
 	if errors.Is(err, pgx.ErrNoRows) {
-		if existing, getErr := s.GetDevice(ctx, orgID, deviceID); getErr == nil && existing.DisabledAt != nil {
+		var disabled bool
+		if q.QueryRow(ctx, `SELECT disabled_at IS NOT NULL FROM devices WHERE organization_id=$1 AND id=$2`, orgID, deviceID).Scan(&disabled) == nil && disabled {
 			return model.Device{}, ErrDisabled
 		}
 		return model.Device{}, ErrNotFound
