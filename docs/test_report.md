@@ -1,5 +1,52 @@
 # Test Report
 
+## 2026-09-01 new-cloud Billing bootstrap qualification
+
+AM runtime `8dec808` passes complete PR-profile run
+`local-am-cloud-bootstrap-v2` in **269.433s**: overall **82.28%**, store
+**5160/6392 = 80.73%**, bootstrap transport/worker **66/69 = 95.65%**.
+All executed functional tests, configured package ratchets and artifact
+redaction pass. No base ref was supplied, so this is not differential coverage,
+the default pre-PR gate or GitHub CI qualification.
+
+Migration 066 enqueues an immutable event inside the new cloud/owner transaction.
+Focused owned-database tests prove complete rollback on deferred event failure,
+no missing-receipt acknowledgment, disjoint leases and stale-worker rejection.
+The first full run correctly failed on a changed SQLSTATE for an ownerless cloud;
+the corrected trigger preserves 23514. Fresh-database tests also prove no backfill
+of existing cloud responsibility and no event minted by a later owner change or
+migration replay. No applied/published migration marker was deleted or rewritten.
+
+The real AM/Billing fixture runs in the full suite in **5.71s**, not skipped,
+using independent Billing runtime `2d5b7c6`. Billing commits the zero-balance
+account, original responsibility period, receipt and audit before its response
+is lost; AM retries through a recreated worker and acknowledges the same receipt
+without duplicate effects. The real AM/Factory regression also passes in **1.89s**.
+The final Billing runtime `3fce593` additionally preserves invalid-currency/amount
+responses while removing implicit account creation in debit/invoice/read paths.
+Its full run `local-billing-cloud-bootstrap-v3` passes in **78.330s**, governed
+**74.01%**, paymentstore **1859/2382 = 78.04%**, all configured ratchets/redaction
+PASS. Billing's tracked 80% overall target is not claimed to be reached.
+The independent AM/Billing race fixture was then rebuilt/repeated against final
+Billing runtime `3fce593`: **PASS 2.07s** (package 3.941s), with AM `8dec808`.
+
+Reports in the unpublished qualification checkout rooted at workspace `d128eab`:
+
+- `.artifacts/test-runs/local-am-cloud-bootstrap-v2/coverage/test_report.md`
+  — coverage SHA-256 `239cc52a6c2d89b0f93ff10342efd01ef0457ae475449e413663797c6884bb1b`.
+- `.artifacts/test-runs/local-billing-cloud-bootstrap-v3/coverage/test_report.md`
+  — coverage SHA-256 `25f628767a2c5d77b40941b6708ffc90fb1293a4b2b9ef29123ceae99a70f52c`.
+
+The 259-case catalog, 393-requirement/664-operation/67-workflow inventory, five
+OpenAPI documents and canonical checkout consistency pass. Inventory retains
+91 nonblocking unspecified normative candidates and has zero blocking findings.
+Vet/build, Billing's extractor test and diff checks pass. This proves new-cloud
+bootstrap, not trusted legacy history or usage/invoice/provider completeness.
+Producer/collector integration, remaining UI, default pre-PR/differential/CI,
+restore/migration and staging email/device/certificate/MQTT evidence remain open.
+No shared database, real email/payment, deployment, runtime PR or parent gitlink
+was published. The approved settled balance >= 0 transfer rule is unchanged.
+
 ## 2026-09-01 durable factory participant transport qualification
 
 Runtime `43f88ba` passes complete AM PR-profile run `local-am-factory-handoff`

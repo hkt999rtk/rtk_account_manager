@@ -2,6 +2,41 @@
 
 This is implementation progress, not release acceptance or a replacement contract.
 
+## New-cloud Billing bootstrap checkpoint — 2026-09-01
+
+Runtime `fdcd57e` / `8dec808` adds unpublished forward migration 066 and a
+dedicated authenticated Billing delivery worker. New cloud + unique initial
+owner + immutable creation event commit together. Events use bounded, disjoint
+leases; only a matching Billing receipt under the live lease marks delivery.
+Timeouts, process loss and stale workers cannot lose or rebind initial ownership.
+Existing clouds and legacy customer organizations are not backfilled; pending
+activation retains its designated owner without enabling operational access.
+
+Focused race tests prove deferred event failure rolls back the entire signup,
+receipt-null rejection, migration replay/no historical inference, constraint
+error compatibility, concurrency and lease recovery. The first complete run
+found the new trigger returning PL/pgSQL P0002 before the old owner validator;
+066 now preserves SQLSTATE 23514. Both SQL refinements were tested in new owned
+databases, not by deleting or changing an applied migration marker.
+
+Independent AM/Billing fixtures additionally commit Billing provisioning then
+lose its reply: recreating the worker retrieves the same account/initial-owner
+period/receipt/audit with no duplicated effects. Billing runtime removes the
+old implicit creation in debit, tenant account read and period-close paths so
+they cannot race ahead of owner provisioning. Missing accounts remain retryable;
+invalid debit currencies/amounts retain their existing validation errors.
+
+Full qualification and exact report identities are recorded in `test_report.md`.
+AM `8dec808` passes the complete PR-profile gate in 269.433s (82.28% overall,
+80.73% store); Billing `3fce593` passes in 78.330s (74.01% overall). Both meet
+all configured package ratchets. The final independently compiled cross-service
+race fixture passes in 2.07s; neither it nor the full-suite fixture was skipped.
+This initializes only new-cloud responsibility, not usage/invoice/provider
+completeness, legacy responsibility history or a transfer clearance. Production
+collector/participant composition, remaining UI, default pre-PR/differential/CI,
+migration/restore and staging acceptance remain required. No shared DB, live
+email/payment, staging deployment, runtime PR or parent gitlink was published.
+
 ## Factory participant transport checkpoint — 2026-09-01
 
 The new `factoryhandoff` adapter validates bounded authenticated producer
