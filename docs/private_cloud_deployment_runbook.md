@@ -678,6 +678,16 @@ Do not delete migration rows to force binary rollback.
 
 ## Backup
 
+The workspace [Core Backup and Restore](../../../docs/backup-restore.md) is the
+source for coordinated LKE/environment operations. V1 freezes all business
+writes, exports matched PostgreSQL databases plus globals, and captures
+OpenBao, SQLite, durable Redis and runtime secret/checkpoint state in one
+encrypted core archive. Include `AZURE_EVENTHUB_CHECKPOINT_FILE` when enabled;
+independent audit and media/firmware payload retention are separate.
+
+The commands below describe the service-local adapter only, not a replacement
+for a matched cross-service backup or a zero-downtime guarantee.
+
 Minimum backup set:
 
 | Data | Backup guidance |
@@ -702,10 +712,11 @@ Store dumps in operator-owned encrypted backup storage, not in this repository.
 2. Restore the selected dump:
 
    ```sh
-   pg_restore --dbname "$RESTORE_DATABASE_URL" --clean --if-exists account-manager.dump
+   pg_restore --dbname "$RESTORE_DATABASE_URL" --clean --if-exists --exit-on-error account-manager.dump
    ```
 
-3. Point a staging account-manager deployment at the restored database.
+3. Point an isolated same-logical-environment account-manager deployment at
+   the restored database; do not implicitly clone production identity to staging.
 4. Run migrations only if the target artifact expects newer schema.
 5. Run health and smoke checks.
 6. Verify platform-admin metrics and representative org/device reads.
