@@ -1,5 +1,18 @@
 # Test Report
 
+## 2026-09-01 governed recheck at 2187425
+
+The PR-profile service run `local-am-deletion-recovery` completed all functional
+tests and artifact redaction (183.335s). Overall coverage is 81.03%; database is
+88.71% and passes its 84% ratchet. Store increased to 78.89% (4740/6008) but still
+fails its 80% ratchet, so the authoritative result remains FAIL. No threshold
+was lowered. `go vet ./...` and `go build ./...` separately passed.
+
+Report: task-owned qualification checkout
+`.artifacts/test-runs/local-am-deletion-recovery/coverage/test_report.md`;
+log: `/tmp/rtk-am-deletion-recovery-governed.log`. This checkout combines unmerged
+service commits and is not a published workspace or staging qualification.
+
 ## 2026-09-01 deletion evidence and cancellation regression
 
 - A new delayed-response test first reproduced a false successful hold
