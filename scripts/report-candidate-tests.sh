@@ -179,7 +179,7 @@ assert_contains "$readiness_output" "- \`JWT_ACCESS_SECRET=<redacted>\`"
 
 import_root="$tmp_dir/imported/artifact/docs"
 mkdir -p "$import_root"
-cp "$release_output" "$import_root/RELEASE_test_report.md"
+cp "$release_output" "$import_root/release_test_report.md"
 (
 	cd "$tmp_dir"
 	assert_rejects "invalid import target" "$repo_root/scripts/import-report-candidate.sh" docs/NOT_ALLOWED.md
