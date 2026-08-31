@@ -1,7 +1,7 @@
 # Multi-cloud Account Manager implementation design
 
 Status: design-first target, not deployed acceptance. Canonical behavior is
-[MULTICLOUD_OWNERSHIP.md](rtk_cloud_contracts_doc/MULTICLOUD_OWNERSHIP.md) in
+[MULTICLOUD_OWNERSHIP.md](https://github.com/hkt999rtk/rtk_cloud_contracts_doc/blob/codex/multicloud-owner-design/MULTICLOUD_OWNERSHIP.md) in
 [contracts PR #131](https://github.com/hkt999rtk/rtk_cloud_contracts_doc/pull/131).
 Runtime work follows reviewed/merged docs-only PRs.
 
@@ -106,8 +106,9 @@ granted: ownership does not expose predecessor invoices, ledger details, payment
 intents/attempts, payment-method metadata, activity, statements or downloads.
 New owner sees confirmed opening balance and own-period records only; mixed or
 unknown periods are withheld unless safely projected. Retained full history is
-for separately audited platform access. This follows the canonical financial
-history proposal, which remains subject to product approval before merging.
+for separately audited platform access. The user approved this financial-history
+partition together with the design review on 2026-08-31; implementation remains
+gated on the complete docs merge.
 
 Before commit, cancellation requires confirmed release of remote holds. After
 commit, retry finalization instead of reverting ownership. Timeout never releases

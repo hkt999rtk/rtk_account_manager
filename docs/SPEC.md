@@ -270,9 +270,12 @@ Acceptance: Load-test Brand owners complete formal email activation.
 `POST /v1/admin/brand-clouds/:brandCloudId/users` always targets global `users`
 plus `organization_members`:
 
-- `activation_mode=email` is required for an owner. It creates or reuses the
-  global user, sends a one-time global activation/assignment email, and exposes
-  no password or token in the response.
+- This existing-cloud endpoint accepts only `admin` or `member`, never owner
+  assignment or mutation of the existing owner. Initial owner assignment belongs
+  to atomic cloud creation/bootstrap; pending owners require global email
+  activation, with no password or token exposed in provisioning responses.
+- `activation_mode=email` creates/reuses an eligible non-owner global user and
+  sends its global activation/assignment email without exposing credentials.
 - `activation_mode=immediate` is accepted only when a staging/load-test feature
   flag is enabled, only for `admin` or `member`, and only from an authenticated
   platform admin. It requires an initial password for a new user and records the
