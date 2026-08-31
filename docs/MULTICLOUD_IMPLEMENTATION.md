@@ -30,6 +30,15 @@ Add viewer to membership/invitation constraints and permission catalog. Persist
 owner-approved all-products/selected-Product scope separately from operational
 Product roles. Migrate existing admin/member scope only from explicit Product
 grants, never from membership alone; report ambiguous access for approval.
+Accepted viewer scope itself grants reads and requires no Product assignment.
+It is authoritative for viewer read projection, not a second ownership source.
+PATCH /v1/developer/brand-clouds/{cloudId}/members/{userId} with access_scope
+atomically replaces the current viewer's whole scope under the cloud lock.
+Selected IDs are nonempty, unique and belong to the cloud. All-to-selected or
+removing an ID invalidates excluded-resource grants/invitations, queued access
+and caches via the authorization version; it never revives stale Product roles.
+Scope-only PATCH on another role is rejected; changing away from viewer removes
+the viewer grant without granting admin/member new Product permissions.
 Product invites cannot create/re-enable cloud membership or expand that scope.
 Removal invalidates grants, pending invitations and authorization version in one
 transaction; rejoining does not revive them. Role/disable mutations invalidate
@@ -62,12 +71,12 @@ finalizing, succeeded, blocked and canceled. A blocked operation also stores its
 resumption phase. Only one nonterminal lifecycle operation holds a cloud fence.
 
 Require Billing to confirm that the source owner has settled all outstanding
-charges and that available cloud credit is strictly positive (`balance_minor > 0`).
+charges and that available cloud credit is nonnegative (`balance_minor >= 0`).
 Check financial eligibility at request and acceptance; revalidate fenced settlement
-and the confirmed positive snapshot/version before sole-owner commit. Zero or
-negative balance yields `balance_not_positive`; positive credit never overrides
+and the confirmed nonnegative snapshot/version before sole-owner commit. Zero is
+eligible; negative balance yields `balance_negative`. Nonnegative credit never overrides
 unsettled usage, debt, pending payments/refunds/disputes or missing evidence.
-If final settlement makes credit nonpositive, keep the original owner and block
+If final settlement makes credit negative, keep the original owner and block
 commit. Complete precommit cancellation/remote hold release before allowing the
 original owner to settle/top up normally and start a new transfer. No ownership
 or target quota consumption commits while any financial condition is unsatisfied.
@@ -83,6 +92,13 @@ increments ownership version, removes old-owner membership/Product grants and
 pending invitations, transfers their Product-owner assignments to the new owner,
 and emits the committed event. Other collaborators retain existing permissions.
 Operational access remains fenced until Billing finalization acknowledgment.
+Billing still applies responsibility-period visibility after an owner role is
+granted: ownership does not expose predecessor invoices, ledger details, payment
+intents/attempts, payment-method metadata, activity, statements or downloads.
+New owner sees confirmed opening balance and own-period records only; mixed or
+unknown periods are withheld unless safely projected. Retained full history is
+for separately audited platform access. This follows the canonical financial
+history proposal, which remains subject to product approval before merging.
 
 Before commit, cancellation requires confirmed release of remote holds. After
 commit, retry finalization instead of reverting ownership. Timeout never releases
@@ -103,6 +119,7 @@ register/signup parity, viewer and future-Product scopes, revocation/rejoin,
 old-owner Product removal, stale/replayed messages, crashes at every handoff
 phase, unavailable Billing/resource evidence and deletion races. Cross-service
 and browser evidence precede coordinated staging deployment and legacy cleanup.
-Transfer tests explicitly reject settled -1/0 balances, allow +1 only without
-other blockers, and reject positive-to-nonpositive settlement races. Deletion
-continues to require zero balance; do not reuse the transfer predicate for deletion.
+Transfer tests reject settled -1, allow 0/+1 only without other blockers, and
+reject nonnegative-to-negative settlement races. A positive-to-zero change
+requires fresh confirmation, not permanent rejection. Deletion continues to
+require zero balance; do not reuse the transfer predicate for deletion.

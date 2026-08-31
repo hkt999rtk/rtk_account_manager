@@ -1486,6 +1486,19 @@ Developer dashboard membership contract:
   current membership, never authority; one tab cannot override another's cloud.
 - Role names are display labels. Authorization is based on capabilities and
   resource scope.
+- Viewer acceptance persists an owner-approved read grant: selected Products or
+  all Products including future ones, without requiring another Product assignment.
+  Owner-only `PATCH /v1/developer/brand-clouds/{cloudId}/members/{userId}` atomically
+  replaces viewer `access_scope`; selected IDs are unique/nonempty/same-cloud.
+  Narrowing revokes excluded access and pending invitations immediately. Scope-only
+  edits require an existing viewer; role changes away from viewer remove its scope
+  and do not create operational Product assignments. Empty scope requires removal
+  or suspension instead. See canonical OpenAPI for request/response conditionals.
+- Sole-owner Billing permission is necessary but insufficient to see history:
+  Billing filters ledger, invoices/documents, payment intents/attempts/methods,
+  activity and statements by responsibility period. Incoming owner sees the
+  opening balance and own-period records, not predecessor payer records. Historical
+  retention is not tenant visibility; full history requires audited platform access.
 
 ### Self-Service Evaluation Tier
 
@@ -1565,8 +1578,9 @@ Rules:
   `registry_device.read`, `device_group.read`, `device_tag.read`, and
   `lifecycle_operation.inspect`. Organization/membership reads expose only
   authorized cloud metadata; resource reads are intersected with approved scope.
-  A selected-Product viewer receives only Product-scoped read bindings; whole-cloud
-  viewer scope is evaluated for current and future Products without write grants.
+  Viewer read permission bindings are evaluated through the accepted scope itself,
+  not independent Product assignments; whole-cloud viewer scope covers current
+  and future Products without write grants.
 - Viewer UI read capabilities (`fleet.read`, `product.read`,
   `firmware.release.read`, `ota.plan.read`, `reports.read`, `team.read`,
   `provisioning.read`) are filtered by the same server-side scope and safe data
