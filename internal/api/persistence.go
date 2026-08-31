@@ -31,7 +31,6 @@ type Store interface {
 
 type productCollaborationPersistence interface {
 	CanManageProductCollaborators(ctx context.Context, actorUserID, brandCloudID, productID string) (bool, error)
-	GetProductCollaboratorRole(ctx context.Context, brandCloudUserID, brandCloudID, productID string) (string, error)
 	GetUserProductCollaboratorRole(ctx context.Context, userID, brandCloudID, productID string) (string, error)
 	ListProductCollaborators(ctx context.Context, brandCloudID, productID string) ([]model.ProductCollaborator, error)
 	CreateProductCollaboratorInvitation(ctx context.Context, in store.ProductCollaboratorInvitationInput, now time.Time) (model.ProductCollaboratorInvitation, bool, error)
@@ -100,7 +99,6 @@ type devicePersistence interface {
 	ListDevicesFiltered(ctx context.Context, in store.DeviceListFilter) (store.DevicePage, error)
 	FleetSummary(ctx context.Context, orgID string) (store.FleetSummary, error)
 	FleetSummaryForUser(ctx context.Context, orgID, userID string) (store.FleetSummary, error)
-	FleetSummaryForBrandCloudUser(ctx context.Context, orgID, brandCloudUserID string) (store.FleetSummary, error)
 	GetDevice(ctx context.Context, orgID, deviceID string) (model.Device, error)
 	UpdateDevice(ctx context.Context, orgID, deviceID string, in store.DeviceInput) (model.Device, error)
 	PatchProductDeviceDisplay(ctx context.Context, actor, cloud, product, device string, in store.DeviceDisplayPatch) (model.Device, error)

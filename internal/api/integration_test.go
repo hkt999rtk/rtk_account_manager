@@ -2575,7 +2575,7 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 	}
 }
 
-func TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug(t *testing.T) {
+func TestIntegrationRetiredTenantAuthenticationAndTokensRejected(t *testing.T) {
 	env := newIntegrationEnv(t)
 	for _, suffix := range []string{"login", "refresh", "logout", "activate", "sign-in", "login/activate"} {
 		res := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/acme/auth/"+suffix, map[string]any{}, "")
@@ -2583,7 +2583,12 @@ func TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug(t *testing.T) 
 			t.Fatalf("retired tenant auth %s status=%d, want 404", suffix, res.Code)
 		}
 	}
-	legacyToken, _, err := env.server.auth.IssueBrandCloudAccessToken("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002", "00000000-0000-0000-0000-000000000003", "acme")
+	// Mint an old-format fixture independently; production has no tenant issuer.
+	legacyToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{
+		UserID: "00000000-0000-0000-0000-000000000001", SubjectType: auth.SubjectTypeBrandCloudUser,
+		BrandCloudUserID: "00000000-0000-0000-0000-000000000002", BrandCloudID: "00000000-0000-0000-0000-000000000003", TenantSlug: "acme", Kind: auth.TokenKindAccess,
+		RegisteredClaims: jwt.RegisteredClaims{Subject: "brand_cloud_user:00000000-0000-0000-0000-000000000002", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))},
+	}).SignedString([]byte("test-access-secret"))
 	if err != nil {
 		t.Fatal(err)
 	}

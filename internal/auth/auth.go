@@ -110,14 +110,6 @@ func (s *Service) IssueRefreshToken(userID string) (string, time.Time, error) {
 	return s.issueUser(userID, TokenKindRefresh, s.refreshSecret, s.refreshSigner, s.refreshTTL)
 }
 
-func (s *Service) IssueBrandCloudAccessToken(userID, brandCloudUserID, brandCloudID, tenantSlug string) (string, time.Time, error) {
-	return s.issueBrandCloudUser(userID, brandCloudUserID, brandCloudID, tenantSlug, TokenKindAccess, s.accessSecret, s.accessSigner, s.accessTTL)
-}
-
-func (s *Service) IssueBrandCloudRefreshToken(userID, brandCloudUserID, brandCloudID, tenantSlug string) (string, time.Time, error) {
-	return s.issueBrandCloudUser(userID, brandCloudUserID, brandCloudID, tenantSlug, TokenKindRefresh, s.refreshSecret, s.refreshSigner, s.refreshTTL)
-}
-
 func (s *Service) IssueEndUserAccessToken(endUserID string) (string, time.Time, error) {
 	return s.issueEndUser(endUserID, TokenKindAccess, s.accessSecret, s.accessSigner, s.accessTTL)
 }
@@ -139,16 +131,6 @@ func (s *Service) issueUser(userID string, kind TokenKind, secret []byte, signer
 		UserID:      userID,
 		SubjectType: SubjectTypeUser,
 	}, userID, kind, secret, signer, ttl)
-}
-
-func (s *Service) issueBrandCloudUser(userID, brandCloudUserID, brandCloudID, tenantSlug string, kind TokenKind, secret []byte, signer TokenSigner, ttl time.Duration) (string, time.Time, error) {
-	return s.issue(Claims{
-		UserID:           userID,
-		SubjectType:      SubjectTypeBrandCloudUser,
-		BrandCloudUserID: brandCloudUserID,
-		BrandCloudID:     brandCloudID,
-		TenantSlug:       tenantSlug,
-	}, "brand_cloud_user:"+brandCloudUserID, kind, secret, signer, ttl)
 }
 
 func (s *Service) issueEndUser(endUserID string, kind TokenKind, secret []byte, signer TokenSigner, ttl time.Duration) (string, time.Time, error) {
@@ -204,8 +186,17 @@ func (s *Service) parse(tokenString string, expectedKind TokenKind, secret []byt
 	if claims.Kind != expectedKind {
 		return nil, fmt.Errorf("invalid token kind")
 	}
+	// Tenant authentication is retired at the shared boundary, including callers
+	// without an API persistence layer. Keep legacy fields only to recognize and
+	// reject old or mixed credentials, never to select a human identity/scope.
+	if claims.SubjectType == SubjectTypeBrandCloudUser || claims.BrandCloudUserID != "" || claims.BrandCloudID != "" || claims.TenantSlug != "" || strings.HasPrefix(claims.Subject, "brand_cloud_user:") {
+		return nil, fmt.Errorf("retired tenant identity")
+	}
 	if claims.SubjectType == "" {
 		claims.SubjectType = SubjectTypeUser
+	}
+	if claims.SubjectType != SubjectTypeUser && claims.SubjectType != SubjectTypeEndUser {
+		return nil, fmt.Errorf("unsupported token subject")
 	}
 	return claims, nil
 }

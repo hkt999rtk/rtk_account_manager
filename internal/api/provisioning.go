@@ -238,7 +238,6 @@ func (s *Server) resolveDeviceClaim(c *gin.Context) {
 		s.logger.Error("device claim resolve failed",
 			zap.String("org_id", c.Param("orgId")),
 			zap.String("actor_user_id", currentUserID(c)),
-			zap.String("brand_cloud_user_id", currentBrandCloudUserID(c)),
 			zap.String("subject_type", string(currentSubjectType(c))),
 			zap.Error(err),
 		)

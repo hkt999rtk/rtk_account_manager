@@ -1,5 +1,27 @@
 # Test Report
 
+## 2026-09-01 shared global-auth boundary
+
+- Full uncached `go test ./... -count=1 -coverprofile=...` and `go vet ./...`
+  passed with the isolated PostgreSQL database `multicloud_identity_auth_20260901`
+  on loopback port 63229. API: 107.633s (82.9%), auth: 2.721s (82.0%),
+  database: 50.417s (80.6%), store: 166.557s (70.2%). These package measurements
+  are not a claim that the governed PR coverage gate has passed.
+- Focused race tests passed (API 8.477s; auth 8.177s), covering shared-parser
+  rejection, persistence-free middleware rejection and explicit Product scope.
+- Focused database-backed retired-route, end-user, Product and fleet tests passed
+  (API 6.882s; auth 0.437s).
+- Fixtures independently sign obsolete credentials; no production tenant-token
+  issuer remains. RSA/HMAC and access/refresh variants reject legacy and mixed
+  claims while valid global and App end-user credentials still parse.
+- Logs: `/tmp/rtk-global-auth-boundary-full.log` and
+  `/tmp/rtk-global-auth-boundary-focused.log`; coverage profile:
+  `/tmp/rtk-global-auth-boundary-coverage.out`.
+
+Local synthetic evidence only; no staging, email, MQTT, provider or shared
+database changes. Migration rehearsal, governed CI and staging acceptance remain
+open release gates.
+
 ## 2026-08-31 local forward-identity integration checkpoint
 
 This section records the implementation worktree, not a deployment or a new

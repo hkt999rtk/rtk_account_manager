@@ -768,3 +768,22 @@ zero blocking findings against merged service mainlines. The 655-operation
 candidate includes unmerged implementations and must not be presented as an
 accepted deployment. Service PRs must merge before parent gitlinks change.
 Runtime, migration, full CI and staging acceptance gates above remain open.
+
+## Shared global-auth boundary — 2026-09-01
+
+The shared JWT parser now rejects retired tenant identities for both access and
+refresh tokens, including mixed claims and callers without API persistence.
+Production tenant-token issuers were removed. Legacy claim fields remain only
+for decoding and rejection; this does not remove historical records or tables.
+Global human accounts and independent App end-users retain their existing issuers.
+Product scope comes from the explicit cloud/organization URL, never tenant claims.
+Device/fleet and Product handlers no longer select a tenant-human authorization path.
+
+Full uncached Go tests and vet passed on the disposable loopback PostgreSQL
+database `multicloud_identity_auth_20260901`. RSA/HMAC access/refresh tests cover
+legacy, mixed and unsupported subjects alongside valid global/end-user controls;
+HTTP tests confirm retired tenant routes remain 404 and old tokens receive 401.
+Focused race tests also passed. See `test_report.md` for measured results.
+No shared database, staging service, migration marker or certificate was changed.
+Production participant wiring, full CI, migration rehearsal and staging gates
+remain required; this checkpoint is not deployment acceptance.

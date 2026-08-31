@@ -1379,14 +1379,8 @@ func (s *Server) createDevice(c *gin.Context) {
 func (s *Server) listDevices(c *gin.Context) {
 	limit, offset := pagination(c)
 	filter := store.DeviceListFilter{OrganizationID: c.Param("orgId"), Limit: limit, Offset: offset}
-	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
-		filter.BrandCloudUserID = currentBrandCloudUserID(c)
-		filter.ScopePermission = "registry_device.read"
-	}
-	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser {
-		filter.UserID = currentUserID(c)
-		filter.ScopePermission = "registry_device.read"
-	}
+	filter.UserID = currentUserID(c)
+	filter.ScopePermission = "registry_device.read"
 	devicePage, err := s.store.ListDevicesFiltered(c.Request.Context(), filter)
 	if err != nil {
 		writeStoreError(c, err)
@@ -1423,14 +1417,8 @@ func (s *Server) listFleetDevices(c *gin.Context) {
 		Limit:          limit,
 		Offset:         queryInt(c, "offset", 0),
 	}
-	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
-		filter.BrandCloudUserID = currentBrandCloudUserID(c)
-		filter.ScopePermission = "registry_device.read"
-	}
-	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser {
-		filter.UserID = currentUserID(c)
-		filter.ScopePermission = "registry_device.read"
-	}
+	filter.UserID = currentUserID(c)
+	filter.ScopePermission = "registry_device.read"
 	page, err := s.store.ListDevicesFiltered(c.Request.Context(), filter)
 	if err != nil {
 		writeStoreError(c, err)
@@ -1454,13 +1442,7 @@ func splitCSVQuery(value string) []string {
 }
 
 func (s *Server) fleetSummary(c *gin.Context) {
-	var summary store.FleetSummary
-	var err error
-	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
-		summary, err = s.store.FleetSummaryForBrandCloudUser(c.Request.Context(), c.Param("orgId"), currentBrandCloudUserID(c))
-	} else {
-		summary, err = s.store.FleetSummaryForUser(c.Request.Context(), c.Param("orgId"), currentUserID(c))
-	}
+	summary, err := s.store.FleetSummaryForUser(c.Request.Context(), c.Param("orgId"), currentUserID(c))
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -1469,7 +1451,7 @@ func (s *Server) fleetSummary(c *gin.Context) {
 }
 
 func (s *Server) currentUserIsPlatformAdmin(c *gin.Context) bool {
-	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
+	if currentSubjectType(c) != auth.SubjectTypeUser {
 		return false
 	}
 	allowed, err := s.store.IsPlatformAdmin(c.Request.Context(), currentUserID(c))
@@ -1696,13 +1678,6 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 					c.Abort()
 					return
 				}
-			case auth.SubjectTypeBrandCloudUser:
-				// Tenant-scoped human identities were retired by the global-user
-				// cutover. Rejecting the subject here also invalidates every legacy
-				// tenant JWT even if its signature and expiry are otherwise valid.
-				writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
-				c.Abort()
-				return
 			case auth.SubjectTypeEndUser:
 				if _, err := s.store.GetEndUser(c.Request.Context(), claims.EndUserID); err != nil {
 					writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
@@ -1717,9 +1692,6 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 		}
 		c.Set("subjectType", claims.SubjectType)
 		c.Set("userID", claims.UserID)
-		c.Set("brandCloudUserID", claims.BrandCloudUserID)
-		c.Set("brandCloudID", claims.BrandCloudID)
-		c.Set("tenantSlug", claims.TenantSlug)
 		c.Set("endUserID", claims.EndUserID)
 		c.Next()
 	}
@@ -1795,18 +1767,6 @@ func currentSubjectType(c *gin.Context) auth.SubjectType {
 		return auth.SubjectTypeUser
 	}
 	return subjectType
-}
-
-func currentBrandCloudUserID(c *gin.Context) string {
-	value, _ := c.Get("brandCloudUserID")
-	id, _ := value.(string)
-	return id
-}
-
-func currentBrandCloudID(c *gin.Context) string {
-	value, _ := c.Get("brandCloudID")
-	id, _ := value.(string)
-	return id
 }
 
 func currentEndUserID(c *gin.Context) string {
