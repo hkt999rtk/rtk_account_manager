@@ -15,18 +15,30 @@ func (s *Store) mutateDeviceItemProfileAsUser(ctx context.Context, actor, cloud,
 		return model.DeviceItemProfile{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := authorizeProductUserMutationTx(ctx, tx, actor, cloud, product, platform); err != nil {
+		return model.DeviceItemProfile{}, err
+	}
+	profile, err := mutate(tx)
+	if err != nil {
+		return model.DeviceItemProfile{}, err
+	}
+	return profile, tx.Commit(ctx)
+}
+
+func authorizeProductUserMutationTx(ctx context.Context, tx pgx.Tx, actor, cloud, product string, platform bool) error {
 	if platform {
 		if err := lockPlatformActorTx(ctx, tx, actor); err != nil {
-			return model.DeviceItemProfile{}, err
+			return err
 		}
 		if err := lockOperationalCloudTx(ctx, tx, cloud); err != nil {
-			return model.DeviceItemProfile{}, err
+			return err
 		}
 	} else {
 		if err := lockBrandCloudCollaborationTx(ctx, tx, cloud, actor); err != nil {
-			return model.DeviceItemProfile{}, err
+			return err
 		}
 		var allowed bool
+		var err error
 		if product == "" {
 			allowed, err = hasOrganizationPermission(ctx, tx, actor, cloud, "registry_device.manage")
 			if err == nil && allowed {
@@ -36,17 +48,13 @@ func (s *Store) mutateDeviceItemProfileAsUser(ctx context.Context, actor, cloud,
 			allowed, err = hasUserPermissionForResource(ctx, tx, actor, cloud, "registry_device.manage", ScopeTypeProduct, product)
 		}
 		if err != nil {
-			return model.DeviceItemProfile{}, err
+			return err
 		}
 		if !allowed {
-			return model.DeviceItemProfile{}, ErrNotFound
+			return ErrNotFound
 		}
 	}
-	profile, err := mutate(tx)
-	if err != nil {
-		return model.DeviceItemProfile{}, err
-	}
-	return profile, tx.Commit(ctx)
+	return nil
 }
 
 func (s *Store) CreateDeviceItemProfileAsUser(ctx context.Context, in DeviceItemProfileCreateInput) (model.DeviceItemProfile, error) {

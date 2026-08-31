@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -68,8 +69,9 @@ func (s *Server) createProductionRun(c *gin.Context) {
 	if actor := currentUserID(c); actor != "" {
 		actorUserID = &actor
 	}
-	run, err := s.store.CreateProductionRun(c.Request.Context(), store.ProductionRunCreateInput{
+	run, token, err := s.store.IssueProductionRunAsUser(c.Request.Context(), store.ProductionRunCreateInput{
 		ActorUserID:         actorUserID,
+		PlatformOverride:    strings.HasPrefix(c.FullPath(), "/v1/admin/"),
 		BrandCloudID:        brandCloudID,
 		DeviceItemProfileID: profileID,
 		FactoryID:           req.FactoryID,
@@ -77,19 +79,13 @@ func (s *Server) createProductionRun(c *gin.Context) {
 		AllowedQuantity:     req.AllowedQuantity,
 		ValidFrom:           req.ValidFrom,
 		ValidUntil:          req.ValidUntil,
-	})
+	}, s.signProductionJWT)
 	if err != nil {
-		writeStoreError(c, err)
-		return
-	}
-	profile, err := s.store.GetDeviceItemProfile(c.Request.Context(), brandCloudID, profileID)
-	if err != nil {
-		writeStoreError(c, err)
-		return
-	}
-	token, err := s.signProductionJWT(run, profile)
-	if err != nil {
-		writeError(c, http.StatusInternalServerError, "production_jwt_sign_failed", "failed to sign production JWT")
+		if errors.Is(err, store.ErrProductionRunSigning) {
+			writeError(c, http.StatusInternalServerError, "production_jwt_sign_failed", "failed to sign production JWT")
+		} else {
+			writeStoreError(c, err)
+		}
 		return
 	}
 	c.JSON(http.StatusCreated, productionRunResponse{

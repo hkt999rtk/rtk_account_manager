@@ -164,6 +164,16 @@ operational state; an ordinary cloud route cannot select that override. Product
 PATCH reads its current state under lock so concurrent disjoint patches do not
 overwrite one another. Product mutation, creator assignment and audit are atomic.
 
+Factory production-run issuance uses that same Product write authority, cloud
+fence and lock order. Validate the scoped active Product inside the transaction,
+insert the run and audit, and sign against the locked Product snapshot before
+commit. The issuer is a trusted in-process signing callback, never a network
+call or browser-supplied implementation. Missing/failed/empty signing rolls back
+the run; commit failure must not return the locally generated JWT. Only a
+successful commit can publish the token response. This issuance fence is not
+proof of factory consumption authorization: consumers must still enforce current
+run/cloud/ownership authority and handoff cutoffs for previously issued tokens.
+
 After authenticated target acceptance, durable outbox/inbox messages prepare
 Billing and cost-producing resource services. Messages bind operation/cloud ID,
 ownership version, cutoff and reconciliation evidence. Drain/fence producers;

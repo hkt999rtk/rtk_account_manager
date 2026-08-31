@@ -1029,3 +1029,31 @@ the 243-case catalog/spec inventory pass. Report/log identities are recorded in
 `test_report.md`. Differential/default pre-PR and CI were not executed by this
 package-only command. Production-run and other resource admission/consumption,
 producer/collector wiring and migration/staging acceptance remain unfinished.
+
+## Transactional factory production-run issuance — 2026-09-01
+
+The human HTTP interface now issues production runs through the same locked
+Product authority boundary. Global actor, cloud scope, active Product and run
+input are checked inside one transaction, which creates the run and audit and
+invokes the configured in-process JWT signer against that Product snapshot.
+Only a successful commit returns the token. Missing/empty/failed signing rolls
+back the run; a later commit failure never returns a token. Signer diagnostics
+are sanitized to a stable error rather than exposed to the client. The signer
+callback cannot perform network or DB work; the production implementation is
+the existing bounded local HMAC signer. Its public JWT contract is unchanged.
+
+Store race tests pass (5.440s) for Product admission, viewer ceilings, explicit
+platform access, pending owners and handoff/cancellation fences, plus ten
+failure cases (including signer, audit, write and deferred commit). HTTP race
+tests pass (21.719s), covering owner/platform revocation and Product disable
+after admission, and signing failure without run/audit/token leakage. Existing
+run, Product and real-JWT regressions pass (store 11.268s/API 15.616s). Vet/build
+and diff checks pass. Logs: `/tmp/rtk-production-issue-race.log`,
+`/tmp/rtk-production-issue-http-race.log`, `/tmp/rtk-production-issue-regression.log`.
+
+This is issuance evidence only. Inspection of Video Cloud's current
+`factoryenroll/production_jwt.go` shows local signature/time/claim validation,
+without current Account Manager run/cloud authority lookup. Consumption-side
+quota/current-state authorization, fencing in-flight enrollments and all
+producer drain/cutoff receipts remain required before ownership handoff can be
+enabled. No shared DB, live factory issuance, real payment or deployment changed.

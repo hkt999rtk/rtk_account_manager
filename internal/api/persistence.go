@@ -251,7 +251,7 @@ type brandCloudPersistence interface {
 	GetDeviceItemProfile(ctx context.Context, brandCloudID, profileID string) (model.DeviceItemProfile, error)
 	UpdateDeviceItemProfileAsUser(ctx context.Context, in store.DeviceItemProfileUpdateInput) (model.DeviceItemProfile, error)
 	DisableDeviceItemProfileAsUser(ctx context.Context, brandCloudID, profileID, actor string, platform bool) (model.DeviceItemProfile, error)
-	CreateProductionRun(ctx context.Context, in store.ProductionRunCreateInput) (model.ProductionRun, error)
+	IssueProductionRunAsUser(ctx context.Context, in store.ProductionRunCreateInput, issue store.ProductionRunIssuer) (model.ProductionRun, string, error)
 	ListProductionRuns(ctx context.Context, brandCloudID, profileID string, limit, offset int) (store.ProductionRunPage, error)
 }
 
