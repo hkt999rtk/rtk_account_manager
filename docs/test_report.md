@@ -1,5 +1,33 @@
 # Test Report
 
+## 2026-09-01 Billing eligibility and lifecycle admission
+
+At runtime commit `d7f5c21`, full uncached `go test ./...` passed against the
+owned loopback PostgreSQL database `multicloud_device_writes_20260901` (API
+85.672s, store 223.015s). Focused lifecycle/CRUD store and HTTP race tests passed
+(9.926s/7.044s); all-package vet/build passed. The HTTP test now pauses five
+requests after middleware admission and proves the former owner cannot create,
+update, change status, provision or deactivate after an ownership switch.
+Audit-failure tests prove lifecycle work, outbox and pending projection roll back.
+These switches and Billing receipts are isolated fixtures, not staging evidence.
+
+The subsequent PR-profile package run `local-am-lifecycle-admission` completed
+all functional tests and artifact redaction (224.395s), with overall 81.28% and
+store **79.30% (4777/6024), below the 80% ratchet**. The gate therefore remains
+FAIL. No base ref was supplied, so this is not a differential-coverage or default
+pre-PR pass. Other configured package gates passed. No threshold was changed.
+Report: `.artifacts/test-runs/local-am-lifecycle-admission/coverage/test_report.md`
+in the unpublished qualification checkout rooted at workspace `d128eab`.
+Logs: `/tmp/rtk-am-lifecycle-admission-full.log`,
+`/tmp/rtk-am-lifecycle-admission-race.log`,
+`/tmp/rtk-am-lifecycle-admission-governed.log`.
+
+Billing eligibility's actual separately compiled HTTP client/router tests cover
+-1/0/+1 at request and acceptance. The four OpenAPI files validate and the
+candidate inventory now has 239 cases, 391 requirements, 656 operations and zero
+blocking findings. Those checks do not prove collector completeness, producer
+draining, claim/unprovision admission, full CI or staging acceptance.
+
 ## 2026-09-01 handoff worker dependency failures
 
 New table-driven worker tests verify preparing/canceling/finalizing remain fenced

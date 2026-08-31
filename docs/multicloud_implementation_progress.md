@@ -873,3 +873,9 @@ regressions, `go vet ./...` and `go build ./...` pass. Log:
 `/tmp/rtk-am-lifecycle-admission-race.log`. Full uncached and governed runs are
 tracked separately; this does not certify claim/unprovision, privileged producer
 paths, draining already queued work, production handoff adapters or staging.
+
+The full uncached suite subsequently passed at `d7f5c21`. The fresh workspace
+PR-profile package gate remains FAIL solely on store coverage (79.30% versus
+80%; overall 81.28%, artifact redaction PASS). See `test_report.md` for exact
+source/run identities and limitations. No default pre-PR pass, runtime service
+PR merge or deployment is claimed by this checkpoint.
