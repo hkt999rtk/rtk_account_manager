@@ -1,5 +1,22 @@
 # Test Report
 
+## 2026-09-01 privileged claim override qualification
+
+At runtime `91fd1ef`, all executed functional tests passed in the fresh complete
+PR-profile run `local-am-claim-override-91fd1ef` (173.187s). The gate still failed
+on store coverage: **4860/6095 = 79.74%, required 80%**; overall 81.54%, other
+configured package gates and artifact redaction passed. This run has no base ref
+and is not differential coverage or a default pre-PR pass. Report:
+`.artifacts/test-runs/local-am-claim-override-91fd1ef/coverage/test_report.md`
+in the unpublished qualification checkout rooted at workspace `d128eab`.
+
+Focused store/API race tests pass (13.646s/10.395s), as do vet/build, four OpenAPI
+validations and the 241-case catalog/spec inventory (391 requirements, 656
+operations, zero blocking findings). Privileged transfer/reclaim admission is
+now fenced; token administration, other producer write/drain integration,
+trusted Billing collectors, full CI, migration rehearsal and staging remain.
+No shared infrastructure or real email/payment operation was used.
+
 ## 2026-09-01 claim/unprovision and independent App claim recheck
 
 Runtime commit `f6c29c8` completes transactional human claim/unprovision admission

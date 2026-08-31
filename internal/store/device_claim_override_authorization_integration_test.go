@@ -240,3 +240,70 @@ func TestClaimOverridesLockOppositeCloudMovesInTheSameOrder(t *testing.T) {
 		t.Fatalf("opposite moves: %s/%s %v", targetA, targetB, err)
 	}
 }
+
+func TestClaimOverrideRejectsInconsistentStateWithoutMutation(t *testing.T) {
+	for _, stage := range []string{"missing_claim", "missing_target", "wrong_device_cloud", "unclaimed_token", "revoked_token", "wrong_token_cloud", "invalid_evidence", "canceled"} {
+		t.Run(stage, func(t *testing.T) {
+			env := newStoreIntegrationEnv(t)
+			ctx := context.Background()
+			owner := handoffDeveloper(t, env, "override-inconsistent")
+			target, err := env.store.CreateOrganization(ctx, owner.User.ID, "Recovery")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin=true WHERE id=$1`, owner.User.ID); err != nil {
+				t.Fatal(err)
+			}
+			claimAuthorizationToken(t, env, owner.BrandCloud.ID, "inconsistent-claim", nil)
+			claim, err := env.store.ResolveDeviceClaimToken(ctx, DeviceClaimResolveInput{RequestedBy: owner.User.ID, OrganizationID: owner.BrandCloud.ID, TokenHash: "inconsistent-claim"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			in := DeviceClaimTransferInput{ClaimID: claim.Claim.ID, TargetOrganizationID: target.ID, ActorUserID: owner.User.ID, Reason: "verified", Evidence: map[string]any{"ticket": "test"}}
+			expected := ErrNotFound
+			var setup string
+			switch stage {
+			case "missing_claim":
+				in.ClaimID = owner.User.ID
+			case "missing_target":
+				in.TargetOrganizationID = owner.User.ID
+			case "wrong_device_cloud":
+				setup = `UPDATE devices SET organization_id='` + target.ID + `' WHERE id='` + claim.Device.ID + `'`
+			case "unclaimed_token":
+				setup = `UPDATE device_claim_tokens SET claimed_at=NULL`
+				expected = ErrClaimInvalidState
+			case "revoked_token":
+				setup = `UPDATE device_claim_tokens SET revoked_at=now()`
+				expected = ErrClaimRevoked
+			case "wrong_token_cloud":
+				setup = `UPDATE device_claim_tokens SET organization_id='` + target.ID + `'`
+				expected = ErrConflict
+			case "invalid_evidence":
+				in.Evidence = map[string]any{"unsupported": make(chan int)}
+			case "canceled":
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+				expected = context.Canceled
+			}
+			if setup != "" {
+				if _, err := env.db.Exec(ctx, setup); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err = env.store.TransferDeviceClaim(ctx, in)
+			if stage == "invalid_evidence" {
+				if err == nil || !strings.Contains(err.Error(), "unsupported type") {
+					t.Fatalf("invalid evidence: %v", err)
+				}
+			} else if !errors.Is(err, expected) {
+				t.Fatalf("state bypass: %v, want %v", err, expected)
+			}
+			var cloud, status string
+			var audits int
+			if err := env.db.QueryRow(context.Background(), `SELECT organization_id::text,status,(SELECT count(*) FROM audit_events WHERE event_type='device_claim_transferred') FROM device_claims WHERE id=$1`, claim.Claim.ID).Scan(&cloud, &status, &audits); err != nil || cloud != owner.BrandCloud.ID || status != "resolved" || audits != 0 {
+				t.Fatalf("partial mutation: %s/%s/%d %v", cloud, status, audits, err)
+			}
+		})
+	}
+}

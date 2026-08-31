@@ -945,3 +945,14 @@ changing validation. Final log: `/tmp/rtk-claim-override-final-race-v2.log`.
 coverage follows separately; this is not producer draining, complete runtime
 handoff wiring, CI or staging evidence. Transfer balance remains >= 0 with the
 independent settlement checks unchanged.
+
+The first fresh complete run at `91fd1ef` passes all functional tests but still
+fails the store ratchet (79.74% versus 80%; overall 81.54%, 173.187s). Follow-up
+tests target 19 previously uncovered inconsistent-claim and unprovision failure
+cases, including canceled contexts, missing scopes, revoked/unclaimed tokens,
+malformed evidence, outbox/operation rejection and deferred commit rollback.
+They assert no partial mutation and successful retry after write faults clear.
+Race tests pass in 7.965s (`/tmp/rtk-claim-unprovision-failures-race-v2.log`);
+the initial test expected the wrong missing-claim error and was corrected to the
+existing `ErrNotProvisioned` contract, without production changes. Fresh full
+coverage must be rerun; no threshold or runtime authorization was weakened.
