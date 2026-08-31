@@ -15,7 +15,7 @@ func (s *Store) ClaimCloudDeletionJobs(ctx context.Context, limit int, lease tim
 	}
 	rows, err := s.db.Query(ctx, `WITH candidates AS (
         SELECT j.operation_id FROM cloud_deletion_jobs j JOIN cloud_deletion_operations d ON d.id=j.operation_id
-        WHERE d.phase<>'succeeded' AND j.available_at<=clock_timestamp() AND (j.lease_until IS NULL OR j.lease_until<=clock_timestamp())
+        WHERE d.phase NOT IN ('succeeded','canceled') AND j.available_at<=clock_timestamp() AND (j.lease_until IS NULL OR j.lease_until<=clock_timestamp())
         ORDER BY j.available_at,j.operation_id LIMIT $1 FOR UPDATE OF j SKIP LOCKED
     ), claimed AS (
         UPDATE cloud_deletion_jobs j SET lease_id=gen_random_uuid(),lease_until=clock_timestamp()+$2*interval '1 millisecond',attempts=attempts+1

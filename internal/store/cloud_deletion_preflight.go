@@ -72,7 +72,7 @@ func (s *Store) deletionLocalSnapshot(ctx context.Context, userID, cloudID strin
 	snap := deletionLocalSnapshot{scope: CloudDeletionResourceScope{CloudDeletionScope: billinghandoff.CloudDeletionScope{CloudID: cloudID, OwnerUserID: userID}}}
 	err = tx.QueryRow(ctx, `SELECT o.ownership_version,o.authorization_version,
         (EXISTS(SELECT 1 FROM cloud_ownership_handoffs h WHERE h.brand_cloud_id=o.id AND h.phase NOT IN ('canceled','succeeded'))
-         OR EXISTS(SELECT 1 FROM cloud_deletion_operations d WHERE d.brand_cloud_id=o.id))
+         OR EXISTS(SELECT 1 FROM cloud_deletion_operations d WHERE d.brand_cloud_id=o.id AND d.phase<>'canceled'))
         FROM organizations o JOIN organization_members m ON m.organization_id=o.id AND m.role='owner'
         WHERE o.id::text=$1 AND m.user_id::text=$2 AND o.organization_kind='brand_cloud' AND o.deleted_at IS NULL
           AND user_can_access_brand_cloud_without_handoff($2,$1)`, cloudID, userID).Scan(&snap.scope.OwnershipVersion, &snap.scope.AuthorizationVersion, &snap.lifecycleConflict)

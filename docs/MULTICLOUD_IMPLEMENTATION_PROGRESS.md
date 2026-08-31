@@ -526,12 +526,10 @@ untouched. No staging deployment or shared database migration has been performed
   collector checkpoints are explicitly synthetic, not staging acceptance.
 - Release gates still include production observer/hold/drain/provider/collector
   adapters, polling-worker bootstrap/configuration, complete queued/background
-  mutation coverage, and recovery when Billing definitively rejects a persisted
-  close command because financial evidence changed. The current fixed-command
-  retry handles ambiguous delivery but does not yet supersede a definitively
-  rejected settlement or implement pre-close cancellation/hold release. Those
-  cases remain fenced, not silently cleared. Do not enable deletion in staging
-  until these recovery paths, BFF/UI and cross-service acceptance are complete.
+  mutation coverage, BFF/UI and cross-service acceptance. The fixed-command
+  recovery gaps recorded at 061 are addressed by the local 062 checkpoint below;
+  this does not remove the production release gates. Do not enable deletion in
+  staging until the actual adapters and acceptance evidence are complete.
 - Verification: full uncached AM suite passed on fresh isolated
   `multicloud_am_deletion_v3_test` through 061 (API 130.823s, store 187.510s,
   database 18.498s). Targeted deletion/preflight/CRUD/client race checks passed
@@ -546,6 +544,55 @@ untouched. No staging deployment or shared database migration has been performed
   tests, not scale benchmarks or production/provider acceptance. No runtime PR
   or shared-database/staging change was made.
 
+## Deletion command recovery and cancellation checkpoint (062)
+
+- A Billing `409 NOT_READY` is not permanent command rejection: a delayed retry
+  could otherwise close the account after AM replaces or cancels that command.
+  AM now requires Billing's exact operation/settlement/readiness-bound retirement
+  receipt before recording retirement and issuing a replacement with fresh
+  settlement evidence. Lost retirement replies retry the same command; unknown
+  HTTP failures never authorize replacement. If Billing reports that closure won,
+  recovery finishes the original AM tombstone, never reopens Billing.
+- Forward migration 062 retains the immutable 061 command and copies it into
+  append-only attempt history. Replacement is serialized on the cloud and requires
+  retirement of every prior attempt. Cancellation prevents any new attempt. Cloud
+  row writes invalidate stale REPEATABLE READ writers at these transitions; a
+  row lock alone is not treated as snapshot invalidation.
+- `RequestCloudDeletionCancellation` records authenticated current-owner intent.
+  It is a store command, not a new public HTTP/BFF endpoint. The coordinator first
+  resolves every issued close, persists cancellation, and waits for Billing and
+  every recorded resource producer to acknowledge release. Even a producer that
+  never observed prepare must install a durable cancellation tombstone so delayed
+  prepare cannot reacquire its hold. Missing adapters/evidence keep access fenced.
+- Billing cancellation does not restore revoked payment methods or consents.
+  The AM lifecycle fence clears only after all release receipts and the final
+  audit commit. SQL rejects premature completion, contradictory recovery evidence
+  and replacement before retirement. Audit failure rolls back the relevant local
+  transition. Once closure wins, cancellation instead converges on deletion.
+- Canceled operations remain immutable history and are excluded from job claims
+  and the active deletion fence. A new key may start another deletion; the original
+  key replays its original canceled result. Keys are scoped to the requesting owner,
+  so a subsequent owner can reuse a key without colliding with predecessor history.
+- Verification uses fresh isolated PostgreSQL through 062, never the shared DB.
+  Full uncached AM suite passed on `multicloud_am_deletion_recovery_v3_test`
+  (store 171.541s); the subsequent actor-key regression also passed. Tests cover
+  stale settlement, lost retirement reply, replacement admission, partial release,
+  audit rollback, close winning cancellation and stale-snapshot rejection.
+  The cross-repository fixture now tests four modes: lost close reply, stale evidence
+  plus lost retirement reply, staged cancellation releases, and close winning
+  cancellation. It invokes real AM/Billing stores and HTTP; resource/provider/
+  collector receipts remain explicitly synthetic. Targeted AM deletion/preflight/
+  CRUD/client race tests passed three runs (store 58.460s, API 22.417s, client
+  2.852s), including the final actor-key regression. All four cross-service modes
+  passed three Billing race-instrumented runs on the fresh AM
+  `multicloud_am_deletion_recovery_http_test` database through current 062
+  (34.467s); the AM child is separately compiled, with its race coverage in the
+  AM run above. Logs: `/tmp/rtk-am-deletion-recovery-v3-suite-20260831.log`,
+  `/tmp/rtk-am-deletion-recovery-v3-race-20260831.log` and
+  `/tmp/rtk-am-billing-deletion-recovery-cross-race-20260831.log`.
+  Vet and whitespace checks passed. No runtime PR, deployment or shared-data
+  change occurred.
+
 ## Required next work
 
 1. Complete cross-service authorization, downloads/background work and cache
@@ -556,8 +603,9 @@ untouched. No staging deployment or shared database migration has been performed
 2. Complete cloud deletion/closure and production handoff integration.
    Advisory owner-only deletion preflight now exists; wire real reviewed resource
    observers and Billing collectors. Fenced DELETE/operation state and leased
-   recovery primitives now exist through 061; finish the remaining lifecycle
-   recovery and production-worker gates described above before enablement.
+   recovery primitives now exist through 062, including exact-command retirement
+   and pre-close cancellation; finish the production-worker/adapter gates and
+   reviewed cancellation tooling/public-surface integration before enablement.
    Idempotent managed-cloud creation/PATCH and shared detail/list projection are
    implemented through 060; finish BFF/CLI compatibility before release.
    The automatic lease/retry coordinator is implemented through 059; wire

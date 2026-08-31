@@ -128,6 +128,8 @@ func scanDeletion(row scanner) (CloudDeletionOperation, error) {
 	op.State = "running"
 	if op.Phase == "succeeded" {
 		op.State = "succeeded"
+	} else if op.Phase == "canceled" {
+		op.State = "canceled"
 	} else if len(op.Blockers) > 0 {
 		op.State = "blocked"
 	}
@@ -185,7 +187,7 @@ func (s *Store) RequestDeveloperCloudDeletion(ctx context.Context, user, cloud, 
 	if err != nil {
 		return CloudDeletionOperation{}, err
 	}
-	prior, err := scanDeletion(tx.QueryRow(ctx, `SELECT `+deletionColumns+` FROM cloud_deletion_operations WHERE brand_cloud_id::text=$1`, cloud))
+	prior, err := scanDeletion(tx.QueryRow(ctx, `SELECT `+deletionColumns+` FROM cloud_deletion_operations WHERE brand_cloud_id::text=$1 AND ((owner_user_id::text=$3 AND idempotency_key=$2) OR phase<>'canceled') ORDER BY (owner_user_id::text=$3 AND idempotency_key=$2) DESC LIMIT 1`, cloud, key, user))
 	if err == nil {
 		if prior.OwnerUserID != user || prior.Key != key {
 			return CloudDeletionOperation{}, ErrConflict
@@ -208,7 +210,7 @@ func (s *Store) RequestDeveloperCloudDeletion(ctx context.Context, user, cloud, 
 	if !preflight.Eligible {
 		// Another identical request may have installed the fence while this
 		// request was observing dependencies. Return its durable result.
-		prior, replayErr := scanDeletion(s.db.QueryRow(ctx, `SELECT `+deletionColumns+` FROM cloud_deletion_operations WHERE brand_cloud_id::text=$1`, cloud))
+		prior, replayErr := scanDeletion(s.db.QueryRow(ctx, `SELECT `+deletionColumns+` FROM cloud_deletion_operations WHERE brand_cloud_id::text=$1 AND idempotency_key=$2 AND owner_user_id::text=$3`, cloud, key, user))
 		if replayErr == nil && prior.OwnerUserID == user && prior.Key == key {
 			return s.GetDeveloperCloudDeletion(ctx, user, cloud, prior.ID)
 		}
@@ -223,7 +225,7 @@ func (s *Store) RequestDeveloperCloudDeletion(ctx context.Context, user, cloud, 
 	if err != nil {
 		return CloudDeletionOperation{}, err
 	}
-	prior, err = scanDeletion(tx.QueryRow(ctx, `SELECT `+deletionColumns+` FROM cloud_deletion_operations WHERE brand_cloud_id::text=$1`, cloud))
+	prior, err = scanDeletion(tx.QueryRow(ctx, `SELECT `+deletionColumns+` FROM cloud_deletion_operations WHERE brand_cloud_id::text=$1 AND ((owner_user_id::text=$3 AND idempotency_key=$2) OR phase<>'canceled') ORDER BY (owner_user_id::text=$3 AND idempotency_key=$2) DESC LIMIT 1`, cloud, key, user))
 	if err == nil {
 		if prior.OwnerUserID != user || prior.Key != key {
 			return CloudDeletionOperation{}, ErrConflict
@@ -320,6 +322,18 @@ func (s *Store) prepareDeletionClose(ctx context.Context, op CloudDeletionOperat
 	if ownership != op.OwnershipVersion {
 		return "", ErrConflict
 	}
+	current, err := scanDeletion(tx.QueryRow(ctx, `SELECT `+deletionColumns+` FROM cloud_deletion_operations WHERE id=$1`, op.ID))
+	if err != nil {
+		return "", err
+	}
+	if current.Phase != "preparing" && current.Phase != "closing" {
+		return "", ErrConflict
+	}
+	if command, err := activeDeletionClose(ctx, tx, op.ID); err == nil {
+		return command.SHA, nil
+	} else if !errors.Is(err, ErrNotFound) {
+		return "", err
+	}
 	var operational bool
 	if err = tx.QueryRow(ctx, `SELECT user_can_access_brand_cloud_without_handoff($1,$2)`, op.OwnerUserID, op.CloudID).Scan(&operational); err != nil {
 		return "", err
@@ -339,7 +353,11 @@ func (s *Store) prepareDeletionClose(ctx context.Context, op CloudDeletionOperat
 		Receipt  string
 		Manifest json.RawMessage
 	}{op.binding(), receipt, manifest})
-	if _, err = tx.Exec(ctx, `INSERT INTO cloud_deletion_close_commands(operation_id,settlement_id,readiness_sha256) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, op.ID, receipt, sha); err != nil {
+	query := `INSERT INTO cloud_deletion_close_commands(operation_id,settlement_id,readiness_sha256) VALUES($1,$2,$3)`
+	if current.Phase == "closing" {
+		query = `INSERT INTO cloud_deletion_close_attempts(operation_id,settlement_id,readiness_sha256) VALUES($1,$2,$3)`
+	}
+	if _, err = tx.Exec(ctx, query, op.ID, receipt, sha); err != nil {
 		return "", err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE cloud_deletion_operations SET phase='closing',blockers='[]',updated_at=now() WHERE id=$1 AND phase='preparing'`, op.ID); err != nil {
@@ -375,7 +393,7 @@ func (s *Store) completeDeletion(ctx context.Context, op CloudDeletionOperation,
 	if current.Phase == "succeeded" {
 		return nil
 	}
-	if current.Phase != "closing" {
+	if current.Phase != "closing" && current.Phase != "canceling" {
 		return ErrConflict
 	}
 	if err = cloudDeletionEmptyTx(ctx, tx, op.CloudID); err != nil {
@@ -439,7 +457,7 @@ func (s *Store) AdvanceCloudDeletion(ctx context.Context, cloud, operation strin
 		if _, writeErr = tx.Exec(ctx, `SELECT id FROM organizations WHERE id=$1 FOR UPDATE`, op.CloudID); writeErr != nil {
 			return op, writeErr
 		}
-		_, writeErr = tx.Exec(ctx, `UPDATE cloud_deletion_operations SET blockers=$3,updated_at=now() WHERE id::text=$1 AND brand_cloud_id::text=$2 AND phase<>'succeeded'`, operation, cloud, blockers)
+		_, writeErr = tx.Exec(ctx, `UPDATE cloud_deletion_operations SET blockers=$3,updated_at=now() WHERE id::text=$1 AND brand_cloud_id::text=$2 AND phase NOT IN ('succeeded','canceled')`, operation, cloud, blockers)
 		if writeErr != nil {
 			return op, writeErr
 		}
@@ -454,11 +472,14 @@ func (s *Store) AdvanceCloudDeletion(ctx context.Context, cloud, operation strin
 }
 func (s *Store) advanceCloudDeletion(ctx context.Context, cloud, operation string) (CloudDeletionOperation, error) {
 	op, err := s.loadDeletion(ctx, cloud, operation)
-	if err != nil || op.Phase == "succeeded" {
+	if err != nil || op.Phase == "succeeded" || op.Phase == "canceled" {
 		return op, err
 	}
 	if s.deletion == nil {
 		return op, ErrHandoffUnavailable
+	}
+	if op.Phase == "canceling" {
+		return s.advanceDeletionCancellation(ctx, op)
 	}
 	if op.Phase == "preparing" {
 		prepared, err := s.deletion.Billing.PrepareCloudClosure(ctx, op.binding(), op.RequestSHA256)
@@ -513,12 +534,36 @@ func (s *Store) advanceCloudDeletion(ctx context.Context, cloud, operation strin
 			return op, err
 		}
 	}
-	var receipt, sha string
-	if err = s.db.QueryRow(ctx, `SELECT settlement_id::text,readiness_sha256 FROM cloud_deletion_close_commands WHERE operation_id=$1`, op.ID).Scan(&receipt, &sha); err != nil {
+	command, err := activeDeletionClose(ctx, s.db, op.ID)
+	if errors.Is(err, ErrNotFound) {
+		status, statusErr := s.deletion.Billing.CloudClosureStatus(ctx, op.binding())
+		if statusErr != nil {
+			return op, statusErr
+		}
+		if !status.Ready || status.ReceiptID == "" {
+			return op, &cloudDeletionBlockers{blockers: closureFinancialBlockers(status.Blockers)}
+		}
+		if _, err = s.prepareDeletionClose(ctx, op, status.ReceiptID); err != nil {
+			return op, err
+		}
+		command, err = activeDeletionClose(ctx, s.db, op.ID)
+	}
+	if err != nil {
 		return op, err
 	}
-	ack, err := s.deletion.Billing.CloseCloud(ctx, op.binding(), receipt, sha)
+	ack, err := s.deletion.Billing.CloseCloud(ctx, op.binding(), command.Receipt, command.SHA)
 	if err != nil {
+		var httpErr *billinghandoff.HTTPError
+		if errors.As(err, &httpErr) && httpErr.Status == 409 && (httpErr.Code == "BILLING_CLOSURE_NOT_READY" || httpErr.Code == "BILLING_CLOSURE_COMMAND_RETIRED") {
+			closed, resolveErr := s.resolveDeletionClose(ctx, op, command)
+			if resolveErr != nil {
+				return op, resolveErr
+			}
+			if closed {
+				return s.loadDeletion(ctx, cloud, operation)
+			}
+			return op, ErrHandoffSnapshotNotReady
+		}
 		return op, err
 	}
 	if err = s.completeDeletion(ctx, op, ack); err != nil {

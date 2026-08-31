@@ -62,3 +62,62 @@ func TestCloudClosureTransportScopeAndEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestCloudCloseRetirementTransportRejectsAmbiguousProof(t *testing.T) {
+	b := fixtureBinding()
+	in := ClosureBinding{CloudDeletionScope: CloudDeletionScope{CloudID: b.CloudID, OwnerUserID: b.SourceUserID, OwnershipVersion: 1}, OperationID: b.OperationID, Cutoff: b.Cutoff}
+	sha := strings.Repeat("a", 64)
+	for _, mode := range []string{"retired", "closed", "wrong_settlement", "wrong_owner", "missing_time", "missing_proof", "both_outcomes", "closed_wrong_operation", "null"} {
+		t.Run(mode, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "POST" || !strings.HasSuffix(r.URL.Path, "/retire-command") || r.Header.Get("Authorization") != "Bearer "+fixtureToken {
+					t.Error("retirement boundary lost")
+				}
+				var request map[string]string
+				if json.NewDecoder(r.Body).Decode(&request) != nil || request["settlement_id"] != b.OperationID || request["am_readiness_sha256"] != sha {
+					t.Error("retirement command changed")
+				}
+				proof := map[string]any{"operation_id": in.OperationID, "settlement_id": b.OperationID, "am_readiness_sha256": sha, "outcome": "retired", "receipt_sha256": sha, "retired_at": time.Now()}
+				ack := map[string]any{"operation_id": in.OperationID, "phase": "closed", "closed_at": time.Now(), "receipt_sha256": sha}
+				body := map[string]any{"cloud_id": in.CloudID, "owner_user_id": in.OwnerUserID, "ownership_version": 1, "operation_id": in.OperationID, "resolution": proof}
+				switch mode {
+				case "closed", "closed_wrong_operation":
+					proof["outcome"] = "closed"
+					delete(proof, "receipt_sha256")
+					delete(proof, "retired_at")
+					proof["acknowledgment"] = ack
+					if mode == "closed_wrong_operation" {
+						ack["operation_id"] = b.CloudID
+					}
+				case "wrong_settlement":
+					proof["settlement_id"] = b.CloudID
+				case "wrong_owner":
+					body["owner_user_id"] = b.TargetUserID
+				case "missing_time":
+					delete(proof, "retired_at")
+				case "missing_proof":
+					delete(proof, "receipt_sha256")
+				case "both_outcomes":
+					proof["acknowledgment"] = ack
+				case "null":
+					body["resolution"] = nil
+				}
+				w.Header().Set("Cache-Control", "no-store")
+				_ = json.NewEncoder(w).Encode(body)
+			}))
+			defer server.Close()
+			client, err := New(Config{BaseURL: server.URL, Token: fixtureToken})
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := client.RetireCloudClose(context.Background(), in, b.OperationID, sha)
+			if mode == "retired" || mode == "closed" {
+				if err != nil || out.Outcome != mode {
+					t.Fatalf("valid resolution %+v %v", out, err)
+				}
+			} else if !errors.Is(err, ErrUnavailable) {
+				t.Fatalf("invalid proof accepted %+v %v", out, err)
+			}
+		})
+	}
+}

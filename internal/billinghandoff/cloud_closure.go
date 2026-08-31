@@ -37,6 +37,56 @@ type ClosureAcknowledgment struct {
 	ClosedAt      time.Time `json:"closed_at"`
 	ReceiptSHA256 string    `json:"receipt_sha256"`
 }
+type CloseCommandResolution struct {
+	OperationID       string                 `json:"operation_id"`
+	SettlementID      string                 `json:"settlement_id"`
+	AMReadinessSHA256 string                 `json:"am_readiness_sha256"`
+	Outcome           string                 `json:"outcome"`
+	ReceiptSHA256     string                 `json:"receipt_sha256,omitempty"`
+	RetiredAt         *time.Time             `json:"retired_at,omitempty"`
+	Acknowledgment    *ClosureAcknowledgment `json:"acknowledgment,omitempty"`
+}
+
+func (c *Client) RetireCloudClose(ctx context.Context, in ClosureBinding, receipt, sha string) (CloseCommandResolution, error) {
+	if !validUUID(receipt) || !digest(sha) {
+		return CloseCommandResolution{}, ErrInvalid
+	}
+	raw, err := c.callClosure(ctx, in, "POST", "retire-command", map[string]string{"settlement_id": receipt, "am_readiness_sha256": sha}, "resolution")
+	var out CloseCommandResolution
+	if err != nil {
+		return out, err
+	}
+	if json.Unmarshal(raw, &out) != nil || out.OperationID != in.OperationID || out.SettlementID != receipt || out.AMReadinessSHA256 != sha {
+		return CloseCommandResolution{}, ErrUnavailable
+	}
+	switch out.Outcome {
+	case "retired":
+		if out.RetiredAt == nil || out.RetiredAt.IsZero() || !digest(out.ReceiptSHA256) || out.Acknowledgment != nil {
+			return CloseCommandResolution{}, ErrUnavailable
+		}
+	case "closed":
+		if out.RetiredAt != nil || out.ReceiptSHA256 != "" || out.Acknowledgment == nil || out.Acknowledgment.OperationID != in.OperationID || out.Acknowledgment.Phase != "closed" || out.Acknowledgment.ClosedAt.IsZero() || !digest(out.Acknowledgment.ReceiptSHA256) {
+			return CloseCommandResolution{}, ErrUnavailable
+		}
+	default:
+		return CloseCommandResolution{}, ErrUnavailable
+	}
+	return out, nil
+}
+func (c *Client) CancelCloudClosure(ctx context.Context, in ClosureBinding, cancellationID, sha string) (ClosureOperation, error) {
+	if !validUUID(cancellationID) || !digest(sha) {
+		return ClosureOperation{}, ErrInvalid
+	}
+	raw, err := c.callClosure(ctx, in, "POST", "cancel", map[string]string{"cancellation_id": cancellationID, "am_cancellation_sha256": sha}, "operation")
+	var out ClosureOperation
+	if err != nil {
+		return out, err
+	}
+	if json.Unmarshal(raw, &out) != nil || !validClosureOperation(in, out) || (out.Phase != "canceling" && out.Phase != "canceled") {
+		return ClosureOperation{}, ErrUnavailable
+	}
+	return out, nil
+}
 
 func (in ClosureBinding) valid() bool {
 	return validUUID(in.CloudID) && validUUID(in.OwnerUserID) && validUUID(in.OperationID) && in.OwnershipVersion > 0 && !in.Cutoff.IsZero()
@@ -138,7 +188,7 @@ func (c *Client) callClosure(ctx context.Context, in ClosureBinding, method, act
 		_ = json.Unmarshal(raw, &envelope)
 		code := envelope.Error.Code
 		switch code {
-		case "BILLING_CLOSURE_NOT_FOUND", "BILLING_CLOSURE_NOT_READY", "BILLING_CLOSURE_CONFLICT", "BILLING_CLOSURE_UNAVAILABLE":
+		case "BILLING_CLOSURE_NOT_FOUND", "BILLING_CLOSURE_NOT_READY", "BILLING_CLOSURE_CONFLICT", "BILLING_CLOSURE_UNAVAILABLE", "BILLING_CLOSURE_COMMAND_RETIRED":
 		default:
 			code = "BILLING_CLOSURE_HTTP_ERROR"
 		}

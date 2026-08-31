@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 )
 
 func TestLiveCloudDeletionPublicAPIWithBilling(t *testing.T) {
+	mode := os.Getenv("TEST_CLOUD_DELETION_RECOVERY_MODE")
 	base := os.Getenv("TEST_BILLING_HANDOFF_URL")
 	if base == "" {
 		t.Skip("requires isolated Billing closure fixture")
@@ -44,7 +46,7 @@ func TestLiveCloudDeletionPublicAPIWithBilling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := apiDeletionFixture{}
+	f := &apiDeletionRecoveryProducer{canceled: map[string]bool{}}
 	configure := func(s *store.Store) {
 		if err := s.ConfigureCloudDeletionPreflight(store.CloudDeletionPreflightOptions{Billing: client, Resources: map[string]store.CloudDeletionResourceObserver{"test_resources": f}}); err != nil {
 			t.Fatal(err)
@@ -66,8 +68,22 @@ func TestLiveCloudDeletionPublicAPIWithBilling(t *testing.T) {
 	op := decodeBody[struct {
 		Operation store.CloudDeletionOperation `json:"operation"`
 	}](t, out).Operation
-	if op, err = env.store.AdvanceCloudDeletion(context.Background(), owner.BrandCloudID, op.ID); err == nil || op.Phase != "closing" {
+	wantPhase := "closing"
+	wantState := "succeeded"
+	if mode == "cancel" {
+		wantPhase = "canceling"
+		wantState = "canceled"
+		if _, err = env.store.RequestCloudDeletionCancellation(context.Background(), owner.UserID, owner.BrandCloudID, op.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if op, err = env.store.AdvanceCloudDeletion(context.Background(), owner.BrandCloudID, op.ID); err == nil || op.Phase != wantPhase {
 		t.Fatalf("expected real Billing lost-reply window: %+v %v", op, err)
+	}
+	if mode == "close_wins" {
+		if _, err = env.store.RequestCloudDeletionCancellation(context.Background(), owner.UserID, owner.BrandCloudID, op.ID); err != nil {
+			t.Fatal(err)
+		}
 	}
 	restarted := store.New(env.db)
 	configure(restarted)
@@ -75,17 +91,47 @@ func TestLiveCloudDeletionPublicAPIWithBilling(t *testing.T) {
 	if err != nil || len(jobs) != 1 {
 		t.Fatalf("durable job %+v %v", jobs, err)
 	}
-	op, err = restarted.ProcessCloudDeletionJob(context.Background(), jobs[0])
-	if err != nil || op.State != "succeeded" {
+	for attempt := 0; attempt < 5; attempt++ {
+		op, err = restarted.ProcessCloudDeletionJob(context.Background(), jobs[0])
+		if err == nil && op.State == wantState {
+			break
+		}
+	}
+	if err != nil || op.State != wantState {
 		t.Fatalf("real Billing forward retry %+v %v", op, err)
 	}
 	status := performJSON(env.router, "GET", path+"/operations/"+op.ID, nil, owner.AccessToken)
-	if status.Code != 200 || !strings.Contains(status.Body.String(), `"state":"succeeded"`) {
+	if status.Code != 200 || !strings.Contains(status.Body.String(), `"state":"`+wantState+`"`) {
 		t.Fatalf("operation %d %s", status.Code, status.Body.String())
 	}
-	if got := performJSON(env.router, "GET", path, nil, owner.AccessToken); got.Code != 404 {
+	wantCode := 404
+	if mode == "cancel" {
+		wantCode = 200
+	}
+	if got := performJSON(env.router, "GET", path, nil, owner.AccessToken); got.Code != wantCode {
 		t.Fatalf("deleted cloud %d", got.Code)
 	}
+}
+
+type apiDeletionRecoveryProducer struct {
+	apiDeletionFixture
+	mu       sync.Mutex
+	canceled map[string]bool
+}
+
+func (f *apiDeletionRecoveryProducer) PrepareCloudDeletion(ctx context.Context, in billinghandoff.ClosureBinding, version int64) (store.CloudDeletionHold, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.canceled[in.OperationID] {
+		return store.CloudDeletionHold{}, store.ErrConflict
+	}
+	return f.apiDeletionFixture.PrepareCloudDeletion(ctx, in, version)
+}
+func (f *apiDeletionRecoveryProducer) CancelCloudDeletion(_ context.Context, in billinghandoff.ClosureBinding, version int64, id, sha string) (store.CloudDeletionRelease, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.canceled[in.OperationID] = true
+	return store.CloudDeletionRelease{Binding: in, CancellationID: id, Participant: "test_resources", Released: true, ReceiptSHA256: strings.Repeat("e", 64)}, nil
 }
 
 type apiDeletionFixture struct{}
