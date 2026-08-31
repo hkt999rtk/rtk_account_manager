@@ -2,6 +2,17 @@
 
 ## 2026-09-01 privileged claim override qualification
 
+Latest verification at `ecfce32`: the subsequent complete run
+`local-am-claim-override-v2` passes all executed functional tests (181.852s),
+but the store gate remains **FAIL: 4874/6095 = 79.97%, required 80%**. Overall
+coverage is 81.65%; other configured package ratchets and artifact redaction
+pass. The 19 added inconsistent-state/failure cases pass with race detection
+(7.965s); vet/build and the 241-case catalog/spec checks pass. No base ref was
+supplied, so differential coverage and the default pre-PR gate remain unproven.
+Report: `.artifacts/test-runs/local-am-claim-override-v2/coverage/test_report.md`.
+Log: `/tmp/rtk-am-claim-override-governed-v2.log`. The earlier failed assessment
+below is retained rather than overwritten. No coverage threshold was reduced.
+
 At runtime `91fd1ef`, all executed functional tests passed in the fresh complete
 PR-profile run `local-am-claim-override-91fd1ef` (173.187s). The gate still failed
 on store coverage: **4860/6095 = 79.74%, required 80%**; overall 81.54%, other

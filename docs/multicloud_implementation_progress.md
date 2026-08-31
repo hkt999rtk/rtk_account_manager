@@ -956,3 +956,11 @@ Race tests pass in 7.965s (`/tmp/rtk-claim-unprovision-failures-race-v2.log`);
 the initial test expected the wrong missing-claim error and was corrected to the
 existing `ErrNotProvisioned` contract, without production changes. Fresh full
 coverage must be rerun; no threshold or runtime authorization was weakened.
+
+Fresh full verification at `ecfce32` passes all executed functional tests in
+181.852s. Store coverage improves to 79.97% (4874/6095), still below 80%; the
+gate is FAIL, not rounded up. Overall coverage is 81.65%, other configured
+package gates and redaction pass. The test catalog/spec inventory checks remain
+valid (241 cases, zero blocking findings). Exact report/log identities are in
+`test_report.md`. Differential/default pre-PR, producer token administration and
+draining, Billing collector wiring, full CI/migration/staging remain unfinished.
