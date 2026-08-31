@@ -1844,6 +1844,10 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 	}
 
 	membersRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members", nil, member.AccessToken)
+	if membersRes.Code != http.StatusForbidden {
+		t.Fatalf("expected member collection hidden from member, got %d: %s", membersRes.Code, membersRes.Body.String())
+	}
+	membersRes = performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members", nil, login.Tokens.AccessToken)
 	if membersRes.Code != http.StatusOK {
 		t.Fatalf("expected member list 200, got %d: %s", membersRes.Code, membersRes.Body.String())
 	}
@@ -1855,6 +1859,10 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 	updateRes := performJSON(env.router, http.MethodPatch, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/"+member.UserID, map[string]any{"role": "admin"}, login.Tokens.AccessToken)
 	if updateRes.Code != http.StatusOK || decodeBody[memberBody](t, updateRes).Member.Role != "admin" {
 		t.Fatalf("expected member role update 200, got %d: %s", updateRes.Code, updateRes.Body.String())
+	}
+	adminListRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members", nil, member.AccessToken)
+	if adminListRes.Code != http.StatusForbidden {
+		t.Fatalf("admin role exposed cloud membership collection: %d", adminListRes.Code)
 	}
 	disableRes := performJSON(env.router, http.MethodPatch, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/"+member.UserID+"/disable", nil, login.Tokens.AccessToken)
 	if disableRes.Code != http.StatusOK || decodeBody[memberBody](t, disableRes).Member.DisabledAt == nil {
