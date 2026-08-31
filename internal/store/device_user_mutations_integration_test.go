@@ -114,27 +114,12 @@ func TestUserDeviceMutationsWaitForOwnershipChangeThenDenyFormerOwner(t *testing
 	if _, err = tx.Exec(ctx, `INSERT INTO organization_members(organization_id,user_id,role) VALUES($1,$2,'owner')`, source.BrandCloud.ID, target.User.ID); err != nil {
 		t.Fatal(err)
 	}
+	blockerPID := transactionBackendPID(t, ctx, tx)
 	results := make(chan error, 4)
 	for _, write := range deviceUserWrites(env.store, ctx, source.User.ID, source.BrandCloud.ID, d.ID) {
 		go func(write func() error) { results <- write() }(write)
 	}
-	// Observe the actual database lock wait instead of guessing from a sleep.
-	for {
-		var blocked bool
-		if err := env.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT COALESCE(platform_admin,false) FROM users%')`).Scan(&blocked); err != nil {
-			t.Fatal(err)
-		}
-		if blocked {
-			break
-		}
-		select {
-		case err := <-results:
-			t.Fatalf("write escaped ownership serialization: %v", err)
-		case <-ctx.Done():
-			t.Fatal(ctx.Err())
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
+	awaitBlockedConnections(t, ctx, env.db, blockerPID, 1, results)
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}

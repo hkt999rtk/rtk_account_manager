@@ -36,6 +36,9 @@ type IdentityCorrectionReport struct {
 // deliberately does not call Migrate, which commits migration files.
 func PreflightIdentityCorrection(ctx context.Context, pool *pgxpool.Pool) (report IdentityCorrectionReport, err error) {
 	report.Migration = identityCorrectionMigration
+	if pool == nil {
+		return report, errors.New("identity preflight requires database pool")
+	}
 	dir, err := findMigrationDir()
 	if err != nil {
 		return report, err

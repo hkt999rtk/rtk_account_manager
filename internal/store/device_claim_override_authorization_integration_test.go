@@ -197,6 +197,7 @@ func TestClaimOverridesLockOppositeCloudMovesInTheSameOrder(t *testing.T) {
 	if _, err := tx.Exec(ctx, `SELECT 1 FROM organizations WHERE id=$1 FOR UPDATE`, clouds[0]); err != nil {
 		t.Fatal(err)
 	}
+	blockerPID := transactionBackendPID(t, ctx, tx)
 	results := make(chan error, 2)
 	go func() {
 		_, err := invokeClaimOverride(env.store, ctx, "transfer", first.User.ID, second.Organization.ID, a)
@@ -206,22 +207,7 @@ func TestClaimOverridesLockOppositeCloudMovesInTheSameOrder(t *testing.T) {
 		_, err := invokeClaimOverride(env.store, ctx, "reclaim", second.User.ID, first.Organization.ID, b)
 		results <- err
 	}()
-	for {
-		var waiting int
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT organization_kind FROM organizations%'`).Scan(&waiting); err != nil {
-			t.Fatal(err)
-		}
-		if waiting >= 2 {
-			break
-		}
-		select {
-		case err := <-results:
-			t.Fatalf("override escaped ordered cloud locks: %v", err)
-		case <-ctx.Done():
-			t.Fatal(ctx.Err())
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
+	awaitBlockedConnections(t, ctx, env.db, blockerPID, 2, results)
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}

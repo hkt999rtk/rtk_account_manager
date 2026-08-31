@@ -178,6 +178,7 @@ func TestConcurrentProductPatchesPreserveDisjointFields(t *testing.T) {
 	if _, err := tx.Exec(ctx, `SELECT 1 FROM organizations WHERE id=$1 FOR UPDATE`, owner.BrandCloud.ID); err != nil {
 		t.Fatal(err)
 	}
+	blockerPID := transactionBackendPID(t, ctx, tx)
 	name, modelName := "New name", "New model"
 	result := make(chan error, 2)
 	go func() {
@@ -188,22 +189,7 @@ func TestConcurrentProductPatchesPreserveDisjointFields(t *testing.T) {
 		_, err := env.store.UpdateDeviceItemProfileAsUser(ctx, DeviceItemProfileUpdateInput{ActorUserID: &operator.User.ID, PlatformOverride: true, BrandCloudID: owner.BrandCloud.ID, ProfileID: p.ID, Model: &modelName})
 		result <- err
 	}()
-	for {
-		var waiting int
-		if err := env.db.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND (query LIKE 'SELECT organization_kind FROM organizations%' OR query LIKE 'SELECT id::text FROM organizations%')`).Scan(&waiting); err != nil {
-			t.Fatal(err)
-		}
-		if waiting == 2 {
-			break
-		}
-		select {
-		case err := <-result:
-			t.Fatalf("patch escaped cloud lock: %v", err)
-		case <-ctx.Done():
-			t.Fatal(ctx.Err())
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
+	awaitBlockedConnections(t, ctx, env.db, blockerPID, 2, result)
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
