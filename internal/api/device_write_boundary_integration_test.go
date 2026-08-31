@@ -38,17 +38,19 @@ func TestIntegrationDeviceWritesReauthorizeAfterMiddlewareAdmission(t *testing.T
 	defer cancel()
 	owner := verifiedDeveloperForTest(t, env, "device-http-owner@example.test")
 	target := verifiedDeveloperForTest(t, env, "device-http-target@example.test")
-	d, err := env.store.CreateDevice(ctx, owner.BrandCloudID, store.DeviceInput{Name: "Original", Category: model.DeviceCategoryIPCamera})
+	d, err := env.store.CreateDevice(ctx, owner.BrandCloudID, store.DeviceInput{Name: "Original", Category: model.DeviceCategoryIPCamera, Metadata: map[string]any{"video_cloud_devid": "http-lifecycle-device"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	base := "/v1/orgs/" + owner.BrandCloudID + "/devices"
 	release := make(chan struct{})
-	results := make(chan *httptest.ResponseRecorder, 3)
+	results := make(chan *httptest.ResponseRecorder, 5)
 	for _, tc := range []struct{ method, path, body string }{
 		{http.MethodPost, base, `{"name":"Late creation","category":"ip_camera"}`},
 		{http.MethodPatch, base + "/" + d.ID, `{"name":"Late update","category":"ip_camera"}`},
 		{http.MethodPatch, base + "/" + d.ID + "/status", `{"status":"online"}`},
+		{http.MethodPost, base + "/" + d.ID + "/provision", `{"video_cloud_devid":"http-lifecycle-device","activity_id":"activity","clip_public_key":"key"}`},
+		{http.MethodPost, base + "/" + d.ID + "/deactivate", `{"reason":"user_request"}`},
 	} {
 		body := &admittedDeviceRequestBody{ctx: ctx, ready: make(chan struct{}), release: release, reader: strings.NewReader(tc.body)}
 		request := httptest.NewRequest(tc.method, tc.path, body).WithContext(ctx)
@@ -85,7 +87,7 @@ func TestIntegrationDeviceWritesReauthorizeAfterMiddlewareAdmission(t *testing.T
 		t.Fatal(err)
 	}
 	close(release)
-	for range 3 {
+	for range 5 {
 		select {
 		case response := <-results:
 			if response.Code != http.StatusNotFound {
@@ -102,5 +104,8 @@ func TestIntegrationDeviceWritesReauthorizeAfterMiddlewareAdmission(t *testing.T
 	var count int
 	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM devices WHERE organization_id=$1`, owner.BrandCloudID).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("stale request created device: %d %v", count, err)
+	}
+	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM device_operations WHERE organization_id=$1`, owner.BrandCloudID).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("stale request queued lifecycle work: %d %v", count, err)
 	}
 }

@@ -854,3 +854,22 @@ and deletion store race regressions passed (51.273s); `go vet ./...` and
 `/tmp/rtk-billing-eligibility-cross-service.log`.
 This is protocol/admission evidence, not full ownership transfer, the governed
 coverage gate, production collector completeness or staging acceptance.
+
+## Human lifecycle operation admission — 2026-09-01
+
+Provision/deactivate now require a human actor and reauthorize the exact lifecycle
+permission under the actor/cloud/device write locks before creating any operation,
+outbox message or pending projection. They reuse the CRUD authorization boundary;
+Brand Cloud platform-only users, viewers, inactive owners and revoked owners do
+not bypass membership or lifecycle fences. New operations add an atomic audit
+event; successful idempotent replays retain the same operation/message and emit
+no duplicate audit. Provision admission cannot select another operation type.
+
+Focused store/API race tests passed (9.926s/7.044s), including five HTTP requests
+paused after middleware admission and released after an owner switch. Neither
+provision nor deactivate can queue work afterward. Audit rejection rolls back
+the operation, outbox and pending metadata together. Existing lifecycle/CRUD
+regressions, `go vet ./...` and `go build ./...` pass. Log:
+`/tmp/rtk-am-lifecycle-admission-race.log`. Full uncached and governed runs are
+tracked separately; this does not certify claim/unprovision, privileged producer
+paths, draining already queued work, production handoff adapters or staging.

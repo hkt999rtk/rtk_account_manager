@@ -19,43 +19,8 @@ func (s *Store) mutateDeviceAsUser(ctx context.Context, actor, org, device, even
 		return model.Device{}, err
 	}
 	defer tx.Rollback(ctx)
-	var platformAdmin bool
-	err = tx.QueryRow(ctx, `SELECT COALESCE(platform_admin,false) FROM users
-	 WHERE id::text=$1 AND disabled_at IS NULL AND signup_pending_verification=false FOR UPDATE`, actor).Scan(&platformAdmin)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return model.Device{}, ErrNotFound
-	}
-	if err != nil {
+	if err := authorizeDeviceUserMutationTx(ctx, tx, actor, org, device, "registry_device.manage"); err != nil {
 		return model.Device{}, err
-	}
-	var kind model.OrganizationKind
-	err = tx.QueryRow(ctx, `SELECT organization_kind FROM organizations WHERE id::text=$1 AND deleted_at IS NULL FOR UPDATE`, org).Scan(&kind)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return model.Device{}, ErrNotFound
-	}
-	if err != nil {
-		return model.Device{}, err
-	}
-	if device != "" {
-		if _, err := getDeviceForUpdateTx(ctx, tx, org, device); err != nil {
-			return model.Device{}, err
-		}
-	}
-	// Keep legacy customer-organization platform administration. Platform
-	// capabilities never substitute for Brand Cloud membership/owner authority.
-	if kind == model.OrganizationKindBrandCloud || !platformAdmin {
-		var allowed bool
-		if device == "" {
-			allowed, err = hasOrganizationPermission(ctx, tx, actor, org, "registry_device.manage")
-		} else {
-			allowed, err = hasUserDevicePermission(ctx, tx, actor, org, "registry_device.manage", device)
-		}
-		if err != nil {
-			return model.Device{}, err
-		}
-		if !allowed {
-			return model.Device{}, ErrNotFound
-		}
 	}
 	result, err := mutate(tx)
 	if err != nil {
@@ -65,6 +30,48 @@ func (s *Store) mutateDeviceAsUser(ctx context.Context, actor, org, device, even
 		return model.Device{}, err
 	}
 	return result, tx.Commit(ctx)
+}
+
+func authorizeDeviceUserMutationTx(ctx context.Context, tx pgx.Tx, actor, org, device, permission string) error {
+	var platformAdmin bool
+	err := tx.QueryRow(ctx, `SELECT COALESCE(platform_admin,false) FROM users
+	 WHERE id::text=$1 AND disabled_at IS NULL AND signup_pending_verification=false FOR UPDATE`, actor).Scan(&platformAdmin)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	var kind model.OrganizationKind
+	err = tx.QueryRow(ctx, `SELECT organization_kind FROM organizations WHERE id::text=$1 AND deleted_at IS NULL FOR UPDATE`, org).Scan(&kind)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if device != "" {
+		if _, err := getDeviceForUpdateTx(ctx, tx, org, device); err != nil {
+			return err
+		}
+	}
+	// Keep legacy customer-organization platform administration. Platform
+	// capabilities never substitute for Brand Cloud membership/owner authority.
+	if kind == model.OrganizationKindBrandCloud || !platformAdmin {
+		var allowed bool
+		if device == "" {
+			allowed, err = hasOrganizationPermission(ctx, tx, actor, org, permission)
+		} else {
+			allowed, err = hasUserDevicePermission(ctx, tx, actor, org, permission, device)
+		}
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return ErrNotFound
+		}
+	}
+	return nil
 }
 
 func (s *Store) CreateDeviceAsUser(ctx context.Context, actor, org string, in DeviceInput) (model.Device, error) {

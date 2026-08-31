@@ -108,6 +108,15 @@ not rewritten and are not used to bypass live revalidation. Installing this
 client alone does not enable admission: the reviewed producer inventory and
 authenticated preparation/release adapters remain mandatory.
 
+Human provision/deactivate admission must lock the actor, cloud and device and
+recheck the specific lifecycle permission in the same transaction that creates
+the operation/outbox and pending projection. A request admitted by middleware
+before revocation or handoff cannot enqueue work after the authority changes.
+Missing human actors are rejected; platform capability alone is not Brand Cloud
+authority. Successful new operations have an atomic audit event; idempotent
+replays do not emit another event. This admission fence does not certify draining
+previously admitted work: producer consumption/cutoff acknowledgments are separate.
+
 After authenticated target acceptance, durable outbox/inbox messages prepare
 Billing and cost-producing resource services. Messages bind operation/cloud ID,
 ownership version, cutoff and reconciliation evidence. Drain/fence producers;
