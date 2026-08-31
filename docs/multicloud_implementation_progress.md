@@ -429,6 +429,10 @@ untouched. No staging deployment or shared database migration has been performed
   `BILLING_HANDOFF_TOKEN`. Startup validates trusted origin and credential isolation.
   No runtime environment or secret was changed. Initial eligibility and producer
   inventory are still not configured in production, so new transfers fail closed.
+- The recovery worker additionally requires paired `FACTORY_HANDOFF_BASE_URL` and
+  dedicated `FACTORY_HANDOFF_TOKEN`, then registers the existing authenticated
+  `factory` participant client. Missing persisted participants still fail closed;
+  this wiring does not enable new transfers or claim MQTT/Billing-usage drainage.
 - Fresh isolated `multicloud_am_confirmation_test` and the separate cross-service
   `multicloud_am_public_http_test` databases on loopback 63229 applied through 057.
   No released migration marker or shared/staging database was modified.

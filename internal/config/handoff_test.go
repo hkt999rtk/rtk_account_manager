@@ -27,6 +27,28 @@ func TestHandoffBillingConfigurationIsPairedAndIsolated(t *testing.T) {
 	}
 }
 
+func TestFactoryHandoffConfigurationIsPairedAndIsolated(t *testing.T) {
+	if err := validateFactoryHandoffConfig(Config{}); err != nil {
+		t.Fatal(err)
+	}
+	valid := Config{FactoryHandoffBaseURL: "https://factory.example", FactoryHandoffToken: strings.Repeat("f", 32)}
+	if err := validateFactoryHandoffConfig(valid); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []func(*Config){
+		func(c *Config) { c.FactoryHandoffBaseURL = "" }, func(c *Config) { c.FactoryHandoffToken = "" },
+		func(c *Config) { c.FactoryHandoffBaseURL = "http://factory.example" }, func(c *Config) { c.FactoryHandoffBaseURL = "https://user:pass@factory.example" },
+		func(c *Config) { c.InternalAuthToken = c.FactoryHandoffToken }, func(c *Config) { c.BillingHandoffToken = c.FactoryHandoffToken },
+		func(c *Config) { c.FactoryEnrollmentToken = c.FactoryHandoffToken }, func(c *Config) { c.EmailOutboxEncryptionKey = c.FactoryHandoffToken },
+	} {
+		cfg := valid
+		change(&cfg)
+		if err := validateFactoryHandoffConfig(cfg); err == nil {
+			t.Fatal("unsafe factory handoff configuration accepted")
+		}
+	}
+}
+
 func TestLoadHandoffWorkerRequiresTransportAndBoundedLease(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("DATABASE_URL", "postgres://example")
@@ -39,6 +61,11 @@ func TestLoadHandoffWorkerRequiresTransportAndBoundedLease(t *testing.T) {
 	}
 	t.Setenv("BILLING_HANDOFF_BASE_URL", "https://billing.example")
 	t.Setenv("BILLING_HANDOFF_TOKEN", strings.Repeat("h", 32))
+	if _, err := LoadHandoffWorker(); err == nil {
+		t.Fatal("worker started without factory participant transport")
+	}
+	t.Setenv("FACTORY_HANDOFF_BASE_URL", "https://factory.example")
+	t.Setenv("FACTORY_HANDOFF_TOKEN", strings.Repeat("f", 32))
 	if _, err := LoadHandoffWorker(); err != nil {
 		t.Fatal(err)
 	}

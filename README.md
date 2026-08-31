@@ -122,15 +122,19 @@ protocol are still required. See
 `docs/multicloud_implementation_progress.md` before enabling any runtime rollout.
 
 `go run ./cmd/handoff-worker` runs the durable handoff recovery loop against an
-explicitly configured database (forward migration 059 required). It uses the
-same dedicated Billing transport. Optional settings are
+explicitly configured database (forward migration 059 required). It requires the
+same dedicated Billing transport plus paired `FACTORY_HANDOFF_BASE_URL` and
+`FACTORY_HANDOFF_TOKEN`. The factory URL is the trusted Video Cloud factory
+participant origin; its token must match `FACTORY_ENROLL_RECOVERY_TOKEN` on that
+service and must not be reused by any other AM integration. Optional settings are
 `HANDOFF_WORKER_POLL_INTERVAL` (5s), `HANDOFF_WORKER_LEASE_DURATION` (2m),
 `HANDOFF_WORKER_STEP_TIMEOUT` (45s), and `HANDOFF_WORKER_BATCH_SIZE` (10).
 The worker retries known decisions without a dead-letter action that clears holds.
-The current binary does **not** install production resource participant adapters;
+The binary installs the authenticated `factory` participant adapter. It does not
+shrink the participant inventory or synthesize evidence for other producers;
 missing prepare/release evidence remains fenced and is logged as unavailable.
-Do not deploy this binary alone or point it at a shared environment as a shortcut
-around the remaining coordinated rollout gates.
+Do not deploy it alone or point it at a shared environment as a shortcut around
+the remaining Billing-usage cutoff and coordinated rollout gates.
 
 Set `CROSS_SERVICE_BROKER=azure_eventhubs` plus `AZURE_EVENTHUB_CONNECTION_STRING` to run the workers against Azure Event Hubs instead of the local `log` adapter. The inbox worker persists Azure consumer checkpoints at `.state/azure_eventhubs/<stream>__<consumer-group>.json` by default; set `AZURE_EVENTHUB_CHECKPOINT_FILE` to override that path.
 

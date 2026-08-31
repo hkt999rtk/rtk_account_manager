@@ -57,12 +57,16 @@ Transport success without the complete record, 404, malformed responses and
 timeouts all retain the operation fence. No local receipt calculation substitutes
 for authenticated durable state.
 
-The adapter is available to the reviewed coordinator composition, but is not
-automatically registered by `cmd/server` and does not reduce the persisted
-participant inventory to only factory. Billing collection and every other
-producer must be implemented and explicitly configured before transfer can be
-enabled. Factory proof covers enrollment journal drainage only, not rated usage,
-all Video Cloud writes, or financial eligibility. The settled balance >= 0 rule
+`cmd/handoff-worker` requires paired `FACTORY_HANDOFF_BASE_URL` and
+`FACTORY_HANDOFF_TOKEN`, validates that the credential is isolated from every
+other configured secret, and registers this adapter under the exact `factory`
+name. `cmd/server` still does not enable new handoffs because the reviewed
+participant inventory is incomplete. The worker never reduces an operation's
+persisted inventory to only factory: unknown or unconfigured participants remain
+fenced across restart. Billing collection and every other producer must be
+implemented and explicitly configured before transfer can be enabled. Factory
+proof covers enrollment journal drainage only, not rated usage, all Video Cloud
+writes, or financial eligibility. The settled balance >= 0 rule
 and all other reviewed Billing blockers remain unchanged.
 
 ## Persistence and concurrency

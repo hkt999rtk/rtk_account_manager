@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"rtk_account_manager/internal/billinghandoff"
+	"rtk_account_manager/internal/factoryhandoff"
 )
 
 type Config struct {
@@ -82,6 +83,8 @@ type Config struct {
 	InternalAuthToken              string
 	BillingHandoffBaseURL          string
 	BillingHandoffToken            string
+	FactoryHandoffBaseURL          string
+	FactoryHandoffToken            string
 	BillingCloudCreationBaseURL    string
 	BillingCloudCreationToken      string
 	HandoffPollInterval            time.Duration
@@ -142,6 +145,9 @@ func Load() (Config, error) {
 	if err := validateHandoffBillingConfig(cfg); err != nil {
 		return Config{}, err
 	}
+	if err := validateFactoryHandoffConfig(cfg); err != nil {
+		return Config{}, err
+	}
 	if err := validateBillingCloudCreationConfig(cfg); err != nil {
 		return Config{}, err
 	}
@@ -173,9 +179,24 @@ func validateHandoffBillingConfig(cfg Config) error {
 	if _, err := billinghandoff.New(billinghandoff.Config{BaseURL: cfg.BillingHandoffBaseURL, Token: cfg.BillingHandoffToken}); err != nil {
 		return fmt.Errorf("BILLING_HANDOFF_BASE_URL and a dedicated BILLING_HANDOFF_TOKEN must be configured together with a trusted origin")
 	}
-	for _, secret := range []string{cfg.AccessSecret, cfg.RefreshSecret, cfg.InternalAuthToken, cfg.SendMailHTTPBearerToken, cfg.VideoCloudLifecycleToken, cfg.EmailOutboxEncryptionKey, cfg.FactoryProductionJWTSecret, cfg.FactoryEnrollmentToken, cfg.OIDCClientSecret, cfg.JWTAccessPKCS11PIN, cfg.JWTRefreshPKCS11PIN} {
+	for _, secret := range []string{cfg.AccessSecret, cfg.RefreshSecret, cfg.InternalAuthToken, cfg.SendMailHTTPBearerToken, cfg.VideoCloudLifecycleToken, cfg.EmailOutboxEncryptionKey, cfg.FactoryProductionJWTSecret, cfg.FactoryEnrollmentToken, cfg.FactoryHandoffToken, cfg.OIDCClientSecret, cfg.JWTAccessPKCS11PIN, cfg.JWTRefreshPKCS11PIN} {
 		if secret != "" && secret == cfg.BillingHandoffToken {
 			return fmt.Errorf("BILLING_HANDOFF_TOKEN must not reuse other service credentials")
+		}
+	}
+	return nil
+}
+
+func validateFactoryHandoffConfig(cfg Config) error {
+	if cfg.FactoryHandoffBaseURL == "" && cfg.FactoryHandoffToken == "" {
+		return nil
+	}
+	if _, err := factoryhandoff.New(factoryhandoff.Config{BaseURL: cfg.FactoryHandoffBaseURL, Token: cfg.FactoryHandoffToken}); err != nil {
+		return fmt.Errorf("FACTORY_HANDOFF_BASE_URL and a dedicated FACTORY_HANDOFF_TOKEN must be configured together with a trusted origin")
+	}
+	for _, secret := range []string{cfg.AccessSecret, cfg.RefreshSecret, cfg.InternalAuthToken, cfg.SendMailHTTPBearerToken, cfg.VideoCloudLifecycleToken, cfg.EmailOutboxEncryptionKey, cfg.FactoryProductionJWTSecret, cfg.FactoryEnrollmentToken, cfg.BillingHandoffToken, cfg.OIDCClientSecret, cfg.JWTAccessPKCS11PIN, cfg.JWTRefreshPKCS11PIN} {
+		if secret != "" && secret == cfg.FactoryHandoffToken {
+			return fmt.Errorf("FACTORY_HANDOFF_TOKEN must not reuse other service credentials")
 		}
 	}
 	return nil
@@ -186,10 +207,13 @@ func LoadHandoffWorker() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if cfg.BillingHandoffBaseURL == "" || cfg.BillingHandoffToken == "" {
-		return Config{}, fmt.Errorf("handoff worker requires dedicated Billing transport configuration")
+	if cfg.BillingHandoffBaseURL == "" || cfg.BillingHandoffToken == "" || cfg.FactoryHandoffBaseURL == "" || cfg.FactoryHandoffToken == "" {
+		return Config{}, fmt.Errorf("handoff worker requires dedicated Billing and factory transport configuration")
 	}
 	if err := validateHandoffBillingConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	if err := validateFactoryHandoffConfig(cfg); err != nil {
 		return Config{}, err
 	}
 	if cfg.HandoffPollInterval <= 0 || cfg.HandoffPollInterval > time.Minute || cfg.HandoffLeaseDuration < 30*time.Second || cfg.HandoffLeaseDuration > 5*time.Minute || cfg.HandoffStepTimeout <= 0 || cfg.HandoffStepTimeout+5*time.Second >= cfg.HandoffLeaseDuration || cfg.HandoffBatchSize < 1 || cfg.HandoffBatchSize > 128 {
@@ -459,6 +483,8 @@ func load() (Config, error) {
 		InternalAuthToken:              os.Getenv("ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN"),
 		BillingHandoffBaseURL:          strings.TrimSpace(os.Getenv("BILLING_HANDOFF_BASE_URL")),
 		BillingHandoffToken:            strings.TrimSpace(os.Getenv("BILLING_HANDOFF_TOKEN")),
+		FactoryHandoffBaseURL:          strings.TrimSpace(os.Getenv("FACTORY_HANDOFF_BASE_URL")),
+		FactoryHandoffToken:            strings.TrimSpace(os.Getenv("FACTORY_HANDOFF_TOKEN")),
 		BillingCloudCreationBaseURL:    strings.TrimSpace(os.Getenv("BILLING_CLOUD_CREATION_BASE_URL")),
 		BillingCloudCreationToken:      strings.TrimSpace(os.Getenv("BILLING_CLOUD_CREATION_TOKEN")),
 		HandoffPollInterval:            duration("HANDOFF_WORKER_POLL_INTERVAL", 5*time.Second),

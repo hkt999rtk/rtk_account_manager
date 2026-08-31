@@ -10,6 +10,7 @@ import (
 	"rtk_account_manager/internal/billinghandoff"
 	"rtk_account_manager/internal/config"
 	"rtk_account_manager/internal/database"
+	"rtk_account_manager/internal/factoryhandoff"
 	"rtk_account_manager/internal/logging"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/worker/handoff"
@@ -43,13 +44,20 @@ func main() {
 	if err := repo.ConfigureHandoffBilling(client); err != nil {
 		fatal(logger, "configure handoff repository failed", err)
 	}
+	factory, err := factoryhandoff.New(factoryhandoff.Config{BaseURL: cfg.FactoryHandoffBaseURL, Token: cfg.FactoryHandoffToken})
+	if err != nil {
+		fatal(logger, "configure factory handoff transport failed", err)
+	}
+	if err := repo.ConfigureHandoffParticipants(map[string]store.HandoffParticipant{factoryhandoff.Participant: factory}); err != nil {
+		fatal(logger, "configure factory handoff participant failed", err)
+	}
 	service, err := handoff.NewService(repo, handoff.Options{PollInterval: cfg.HandoffPollInterval, LeaseDuration: cfg.HandoffLeaseDuration, StepTimeout: cfg.HandoffStepTimeout, BatchSize: cfg.HandoffBatchSize, Logger: logger})
 	if err != nil {
 		fatal(logger, "configure handoff worker failed", err)
 	}
-	// Production producer transports are not yet installed. Never silently use
-	// a successful no-op adapter or shrink an operation's persisted inventory.
-	logger.Warn("resource participant adapters not installed; missing preparation or release evidence remains fenced")
+	// The worker installs only transports implemented by this candidate. Any
+	// additional participant persisted by the reviewed inventory remains fenced.
+	logger.Info("factory handoff participant installed", zap.String("participant", factoryhandoff.Participant))
 	logger.Info("starting handoff recovery worker", zap.Duration("poll_interval", cfg.HandoffPollInterval))
 	if err := service.Run(ctx); err != nil {
 		fatal(logger, "handoff worker stopped", err)
