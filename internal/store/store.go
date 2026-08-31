@@ -83,10 +83,13 @@ type OrganizationPage struct {
 }
 
 type BrandCloudInput struct {
-	Name       string
-	TenantSlug string
-	Status     model.OrganizationStatus
-	Metadata   map[string]any
+	// OwnerUserID is required for platform provisioning. It is never an
+	// ownership-update input; developer creation derives the owner from session.
+	OwnerUserID string
+	Name        string
+	TenantSlug  string
+	Status      model.OrganizationStatus
+	Metadata    map[string]any
 }
 
 type DeveloperSignupInput struct {

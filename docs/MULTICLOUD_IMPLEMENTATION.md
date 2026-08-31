@@ -62,6 +62,13 @@ cannot assign owner except atomic new-cloud creation; transfers use only the
 handoff commit. Register invokes exactly the signup service/request/202 response,
 including CAPTCHA, pending retry, sole-owner creation and transactional email.
 
+Platform new-cloud creation explicitly requires `owner_user_id` for an existing,
+enabled, verified global user, locks and enforces that user's ownership quota,
+and commits cloud, sole-owner membership and operator audit together. It never
+defaults the financial owner to the platform operator or grants that operator
+membership. A new developer uses the public email-activation onboarding first.
+An ownership field in cloud PATCH is rejected; it cannot bypass handoff.
+
 Create and lifecycle mutations require Idempotency-Key scoped by actor/cloud/type;
 same key with changed payload conflicts. DELETE creates a durable operation and
 returns 202 after rechecking advisory preflight. Fence new descendant resources

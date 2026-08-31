@@ -397,53 +397,10 @@ func (s *Server) Router() *gin.Engine {
 	return r
 }
 
-type registerRequest struct {
-	Email            string  `json:"email" binding:"required,email"`
-	Password         string  `json:"password" binding:"required,min=8"`
-	DisplayName      *string `json:"display_name"`
-	OrganizationName string  `json:"organization_name" binding:"required"`
-}
-
 func (s *Server) register(c *gin.Context) {
-	var req registerRequest
-	if !bind(c, &req) {
-		return
-	}
-	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if !s.allowSignup(c, email) {
-		return
-	}
-	if !requireNonBlank(c, "organization_name", req.OrganizationName) {
-		return
-	}
-	hash, err := auth.HashPassword(req.Password)
-	if err != nil {
-		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not hash password")
-		return
-	}
-	result, err := s.store.Register(c.Request.Context(), store.RegisterInput{
-		Email:                     email,
-		PasswordHash:              hash,
-		DisplayName:               req.DisplayName,
-		OrganizationName:          strings.TrimSpace(req.OrganizationName),
-		OrganizationTier:          model.OrganizationTierCommercial,
-		EvaluationDeviceQuota:     5,
-		SignupPendingVerification: false,
-	})
-	if err != nil {
-		writeStoreError(c, err)
-		return
-	}
-	if _, _, err := s.issueAuthToken(c, result.User.ID, result.User.Email, "email_verification"); err != nil {
-		writeError(c, http.StatusInternalServerError, "email_enqueue_failed", "Could not queue verification email")
-		return
-	}
-	tokens, err := s.issueTokens(c, result.User.ID)
-	if err != nil {
-		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
-		return
-	}
-	c.JSON(http.StatusCreated, gin.H{"user": result.User, "organization": result.Organization, "tokens": tokens})
+	// Both public names share validation, abuse controls, the transactional
+	// email outbox and pending response. Registration never issues a session.
+	s.signup(c)
 }
 
 type loginRequest struct {

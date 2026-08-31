@@ -88,7 +88,7 @@ paths:
       x-rtk-feature-id: FEAT-AM-SIGNUP-001
       x-rtk-requirement-ids:
         - REQ-E2E-CA-SIGNUP-EMAIL-001
-      summary: Register a user and initial organization.
+      summary: Alias of signup; create a pending global user and default owned cloud.
       requestBody:
         required: true
         content:
@@ -96,8 +96,8 @@ paths:
             schema:
               $ref: "#/components/schemas/RegisterRequest"
       responses:
-        "201":
-          description: Registered.
+        "202":
+          description: Pending registration accepted; email activation is required before login. No session tokens are returned.
           content:
             application/json:
               schema:
@@ -105,6 +105,8 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
         "409":
+          $ref: "#/components/responses/Error"
+        "429":
           $ref: "#/components/responses/Error"
   /v1/auth/signup:
     post:
@@ -1545,12 +1547,13 @@ paths:
       security:
         - bearerAuth: []
       summary: Create a platform-managed brand cloud.
+      description: Atomically creates a cloud and its sole owner membership for the explicitly designated enabled, verified global user. Platform privilege does not bypass that user's ownership quota or grant the operator a cloud membership.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/BrandCloudRequest"
+              $ref: "#/components/schemas/BrandCloudCreateRequest"
       responses:
         "201":
           description: Brand cloud created.
@@ -4555,23 +4558,8 @@ components:
           type: string
           example: ok
     RegisterRequest:
-      type: object
-      required: [email, password, organization_name]
-      properties:
-        email:
-          type: string
-          format: email
-        password:
-          type: string
-        app_csr_pem:
-          type: string
-          description: Optional app-generated CSR PEM for first-login app certificate bootstrap. The CSR private key stays on the app.
-          minLength: 8
-        display_name:
-          type: string
-        organization_name:
-          type: string
-          minLength: 1
+      allOf:
+        - $ref: "#/components/schemas/SignupRequest"
     SignupRequest:
       type: object
       required: [email]
@@ -5123,6 +5111,16 @@ components:
         name:
           type: string
           minLength: 1
+    BrandCloudCreateRequest:
+      allOf:
+        - $ref: "#/components/schemas/BrandCloudRequest"
+        - type: object
+          required: [name, owner_user_id]
+          properties:
+            owner_user_id:
+              type: string
+              format: uuid
+              description: Explicit designated global user; never defaults to the platform operator.
     BrandCloudRequest:
       type: object
       properties:
@@ -5521,15 +5519,8 @@ components:
         decision_reason:
           type: string
     RegisterResponse:
-      type: object
-      required: [user, organization, tokens]
-      properties:
-        user:
-          $ref: "#/components/schemas/User"
-        organization:
-          $ref: "#/components/schemas/Organization"
-        tokens:
-          $ref: "#/components/schemas/Tokens"
+      allOf:
+        - $ref: "#/components/schemas/SignupResponse"
     SignupResponse:
       type: object
       required: [user, brand_cloud, organization]

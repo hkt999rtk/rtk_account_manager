@@ -22,9 +22,9 @@ type rowQuerier interface {
 }
 
 func (s *Store) CreateBrandCloud(ctx context.Context, actorUserID string, in BrandCloudInput) (model.Organization, error) {
-	metadata, err := json.Marshal(defaultMetadata(in.Metadata))
-	if err != nil {
-		return model.Organization{}, err
+	ownerID := strings.TrimSpace(in.OwnerUserID)
+	if ownerID == "" {
+		return model.Organization{}, ErrConflict
 	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -32,29 +32,13 @@ func (s *Store) CreateBrandCloud(ctx context.Context, actorUserID string, in Bra
 	}
 	defer tx.Rollback(ctx)
 
-	name := strings.TrimSpace(in.Name)
-	slug := normalizeTenantSlug(in.TenantSlug)
-	if strings.TrimSpace(in.TenantSlug) != "" && slug == "" {
-		return model.Organization{}, ErrConflict
-	}
-	if slug == "" {
-		suffix, err := randomTenantSlugSuffix()
-		if err != nil {
-			return model.Organization{}, err
-		}
-		slug = generatedTenantSlug(name, suffix)
-	}
-	org, err := scanOrganization(tx.QueryRow(ctx, `
-		INSERT INTO organizations (name, tenant_slug, organization_kind, status, tier, evaluation_device_quota, metadata)
-		VALUES ($1, $2, 'brand_cloud', 'active', 'commercial', 5, $3)
-		RETURNING id::text, name, tenant_slug, ''::text, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at
-	`, name, slug, metadata))
+	// Platform privilege does not make the operator the billing owner and does
+	// not bypass the designated owner's activation or ownership quota.
+	org, err := createDeveloperBrandCloudTx(ctx, tx, ownerID, in, true)
 	if err != nil {
-		if isUniqueViolation(err) {
-			return model.Organization{}, ErrConflict
-		}
 		return model.Organization{}, err
 	}
+	org.Role = "" // The platform actor has not been granted a cloud membership.
 	if err := createAuditEventTx(ctx, tx, AuditEventInput{
 		EventType:      "brand_cloud_created",
 		ActorUserID:    &actorUserID,
@@ -62,6 +46,7 @@ func (s *Store) CreateBrandCloud(ctx context.Context, actorUserID string, in Bra
 		SubjectType:    "brand_cloud",
 		SubjectID:      org.ID,
 		Payload: map[string]any{
+			"owner_user_id":     ownerID,
 			"name":              org.Name,
 			"organization_kind": org.OrganizationKind,
 			"status":            org.Status,

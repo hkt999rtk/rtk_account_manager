@@ -12,10 +12,11 @@ import (
 )
 
 type brandCloudRequest struct {
-	Name       string         `json:"name,omitempty"`
-	TenantSlug string         `json:"tenant_slug,omitempty"`
-	Status     string         `json:"status,omitempty"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
+	OwnerUserID string         `json:"owner_user_id,omitempty" binding:"omitempty,uuid"`
+	Name        string         `json:"name,omitempty"`
+	TenantSlug  string         `json:"tenant_slug,omitempty"`
+	Status      string         `json:"status,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
 type brandCloudUserRequest struct {
@@ -79,10 +80,16 @@ func (s *Server) createBrandCloud(c *gin.Context) {
 	if !requireNonBlank(c, "name", req.Name) {
 		return
 	}
+	ownerID := strings.TrimSpace(req.OwnerUserID)
+	if ownerID == "" {
+		writeError(c, http.StatusBadRequest, "invalid_request", "owner_user_id must identify the designated global user")
+		return
+	}
 	org, err := s.store.CreateBrandCloud(c.Request.Context(), currentUserID(c), store.BrandCloudInput{
-		Name:       strings.TrimSpace(req.Name),
-		TenantSlug: strings.TrimSpace(req.TenantSlug),
-		Metadata:   req.Metadata,
+		OwnerUserID: ownerID,
+		Name:        strings.TrimSpace(req.Name),
+		TenantSlug:  strings.TrimSpace(req.TenantSlug),
+		Metadata:    req.Metadata,
 	})
 	if err != nil {
 		writeStoreError(c, err)
@@ -113,6 +120,10 @@ func (s *Server) getBrandCloud(c *gin.Context) {
 func (s *Server) updateBrandCloud(c *gin.Context) {
 	var req brandCloudRequest
 	if !bind(c, &req) {
+		return
+	}
+	if req.OwnerUserID != "" {
+		writeError(c, http.StatusBadRequest, "invalid_request", "ownership changes require an owner transfer")
 		return
 	}
 	status := model.OrganizationStatus(strings.TrimSpace(req.Status))
