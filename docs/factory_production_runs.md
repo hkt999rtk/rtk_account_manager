@@ -163,6 +163,15 @@ plain HTTP is only for owned loopback test endpoints.
   then executes current-authority/quota admission. Never persist/log the JWT.
 - `POST /v1/internal/factory-enrollments/lookup` reads an exact preexisting
   binding, including during a fence or after JWT expiry. It grants no new work.
+- `POST /v1/internal/factory-enrollments/cancel` is a trusted cancellation
+  decision, not a human endpoint or a lookup shortcut. It locks the cloud/run
+  in admission order and persists `cancel_requested` on the exact key, even
+  when the original admission never committed. Delayed admission cannot bypass
+  this record. Existing admitted work retains its quota hold. A key created
+  solely for cancellation has immutable `admitted=false`: it consumes no
+  capacity, can never become `issued`, and still blocks handoff until reconciled.
+  Neither kind is non-issuance evidence. Exact retries do not mutate terminal
+  results; actor revocation/expiry do not prevent trusted cancellation.
 - `POST /v1/internal/factory-enrollments/{reservationId}/result` verifies the
   binding and records a trusted reconciled terminal outcome. The adapter must
   authenticate durable issuer evidence, not translate an HTTP failure to
@@ -173,9 +182,17 @@ status. Secrets and certificates are excluded. Capacity exhaustion or changed
 payload/results return 409, unavailable scope 404, bad service/JWT credentials
 401, and missing configuration/dependency failure 503. Responses are no-store
 and request bodies are bounded to 32 KiB. These paths are not human login APIs.
-Production factory wiring, durable consumer journal, issuer reconciliation and
-real participant cutoff evidence still require integration before handoff is
-enabled. This document does not claim the current factory daemon uses the ledger.
+Video Cloud's factory application now uses this ledger and durable consumer
+journal. Its separately authenticated cancellation controller queues exact
+bindings; a restart-safe worker obtains this admission fence, the issuer's
+authenticated pre-sign cancellation receipt, then completes AM and its journal.
+Lost responses retain pending work and replay immutable evidence. The real
+cross-service test covers both issued and non-issued completion response loss.
+The worker does not infer cancellation decisions from elapsed time. Automated
+revocation/handoff decision dispatch, already-started signer reconciliation,
+real producer/Billing cutoffs and staging verification remain release gates.
+Migration 065 adds intent state and immutable admission provenance without
+changing the published migration 064 or historical reservation evidence.
 
 ## Configuration
 

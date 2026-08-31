@@ -32,6 +32,12 @@ func (s *factoryBacking) LookupFactoryEnrollment(_ context.Context, in store.Fac
 	return s.reservation, nil
 }
 
+func (s *factoryBacking) BeginFactoryEnrollmentCancellation(_ context.Context, in store.FactoryEnrollmentAdmission) (store.FactoryEnrollmentReservation, error) {
+	s.admissions = append(s.admissions, in)
+	s.reservation.Status = "cancel_requested"
+	return s.reservation, nil
+}
+
 func (s *factoryBacking) CompleteFactoryEnrollment(_ context.Context, in store.FactoryEnrollmentResult) (store.FactoryEnrollmentReservation, error) {
 	s.results = append(s.results, in)
 	s.reservation.Status, s.reservation.EvidenceSHA256 = in.Status, &in.EvidenceSHA256
@@ -81,10 +87,11 @@ func TestStoreFactoryCoordinationRoutesBypassUserCache(t *testing.T) {
 	call("reserve")
 	delete(body, "production_jwt")
 	call("lookup")
+	call("cancel")
 	body["status"], body["evidence_sha256"] = "issued", strings.Repeat("b", 64)
 	call("reservation/result")
 	call("reservation/result")
-	if len(backing.admissions) != 4 || len(backing.results) != 2 {
+	if len(backing.admissions) != 5 || len(backing.results) != 2 {
 		t.Fatal("factory operations were cached or not forwarded")
 	}
 	for _, got := range backing.admissions {

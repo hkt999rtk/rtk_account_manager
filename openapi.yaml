@@ -113,6 +113,27 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
+  /v1/internal/factory-enrollments/cancel:
+    post:
+      operationId: cancelFactoryEnrollment
+      tags: [Factory Enrollment]
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001]
+      summary: Persist a trusted cancellation intent and fence delayed admission.
+      description: Dedicated reconciliation service only. Locks the cloud and run and returns the exact reservation, creating a cancel_requested key if admission was absent. Existing admitted reservations retain quota; never-admitted cancellation keys consume no capacity and cannot become issued. Both retain handoff holds and are not proof of non-issuance. Definitive authenticated issuer evidence is still required by the result endpoint. Works after actor revocation or token expiry.
+      security: [{ factoryEnrollmentService: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FactoryEnrollmentScope' }
+      responses:
+        '200': { $ref: '#/components/responses/FactoryEnrollmentLedger' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /v1/internal/factory-enrollments/{reservationId}/result:
     post:
       operationId: completeFactoryEnrollment
@@ -4892,7 +4913,7 @@ components:
           required: [reservation_id, status]
           properties:
             reservation_id: { type: string, format: uuid }
-            status: { type: string, enum: [reserved, issued, not_issued] }
+            status: { type: string, enum: [reserved, cancel_requested, issued, not_issued] }
             evidence_sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
     CloudOperationResponse:
       type: object

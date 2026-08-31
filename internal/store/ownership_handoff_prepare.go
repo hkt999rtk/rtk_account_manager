@@ -41,7 +41,7 @@ func handoffPreparation(ctx context.Context, q handoffQuerier, id string) (Cloud
 		EXISTS(SELECT 1 FROM cloud_handoff_participants WHERE operation_id=h.id AND participant='billing')
 		AND EXISTS(SELECT 1 FROM cloud_handoff_participants WHERE operation_id=h.id AND participant<>'billing'),
 		(SELECT count(*) FROM factory_enrollment_reservations e JOIN factory_production_runs r ON r.id=e.production_run_id
-		 WHERE r.brand_cloud_id=h.brand_cloud_id AND e.status='reserved')
+		 WHERE r.brand_cloud_id=h.brand_cloud_id AND e.status IN ('reserved','cancel_requested'))
 		FROM cloud_ownership_handoffs h WHERE h.id::text=$1`, id).
 		Scan(&out.OperationID, &out.OwnershipVersion, &out.Cutoff, &out.Phase, &out.MissingParticipants, &hasInventory, &out.PendingFactoryEnrollments)
 	if errors.Is(err, pgx.ErrNoRows) {

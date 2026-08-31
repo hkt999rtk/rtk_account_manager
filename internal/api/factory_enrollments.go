@@ -13,6 +13,7 @@ import (
 )
 
 type factoryEnrollmentPersistence interface {
+	BeginFactoryEnrollmentCancellation(context.Context, store.FactoryEnrollmentAdmission) (store.FactoryEnrollmentReservation, error)
 	ReserveFactoryEnrollment(context.Context, store.FactoryEnrollmentAdmission) (store.FactoryEnrollmentReservation, error)
 	LookupFactoryEnrollment(context.Context, store.FactoryEnrollmentAdmission) (store.FactoryEnrollmentReservation, error)
 	CompleteFactoryEnrollment(context.Context, store.FactoryEnrollmentResult) (store.FactoryEnrollmentReservation, error)
@@ -98,6 +99,23 @@ func (s *Server) lookupFactoryEnrollment(c *gin.Context) {
 		return
 	}
 	r, err := p.LookupFactoryEnrollment(c.Request.Context(), req.admission())
+	if err != nil {
+		factoryEnrollmentError(c, err)
+		return
+	}
+	factoryEnrollmentReply(c, req, r)
+}
+
+func (s *Server) cancelFactoryEnrollment(c *gin.Context) {
+	p, ok := s.factoryEnrollmentStore(c)
+	if !ok {
+		return
+	}
+	var req factoryEnrollmentScope
+	if !bindStrict(c, &req) {
+		return
+	}
+	r, err := p.BeginFactoryEnrollmentCancellation(c.Request.Context(), req.admission())
 	if err != nil {
 		factoryEnrollmentError(c, err)
 		return

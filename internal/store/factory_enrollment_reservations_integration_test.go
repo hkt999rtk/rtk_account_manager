@@ -240,6 +240,16 @@ func TestFactoryEnrollmentPendingResultsBlockHandoffEvenWithAllReceipts(t *testi
 	if remote.reads != 0 {
 		t.Fatal("pending issue reached financial confirmation")
 	}
+	if _, err := env.store.BeginFactoryEnrollmentCancellation(ctx, in); err != nil {
+		t.Fatal("fence prevented trusted cancellation intent", err)
+	}
+	state, err = env.store.GetCloudHandoffPreparation(ctx, q)
+	if err != nil || state.AllParticipantsPrepared || state.PendingFactoryEnrollments != 1 {
+		t.Fatal("cancellation intent prematurely released handoff", err)
+	}
+	if _, err := env.store.PreviewOwnerHandoff(ctx, q); !errors.Is(err, ErrHandoffSnapshotNotReady) {
+		t.Fatal("intent without issuer proof enabled billing confirmation")
+	}
 	if _, err := env.store.ReserveFactoryEnrollment(ctx, in); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("fenced replay allowed issuance: %v", err)
 	}

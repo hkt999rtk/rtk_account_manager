@@ -100,13 +100,16 @@ func TestIntegrationFactoryApplicationAcrossRealServices(t *testing.T) {
 		ErrorCode, CertificateSHA256, JournalStatus, ReservationID, StoredCertificateSHA256 string
 		SignatureCount                                                                      int
 		DeviceUpdatedAt                                                                     time.Time
+		EvidenceSHA256                                                                      string
 	}
 	call := func(extra map[string]any) witness {
 		t.Helper()
 		if extra == nil {
 			extra = map[string]any{}
 		}
-		extra["Action"] = "enroll"
+		if extra["Action"] == nil {
+			extra["Action"] = "enroll"
+		}
 		if err := encoder.Encode(extra); err != nil {
 			t.Fatal("send factory request")
 		}
@@ -155,5 +158,42 @@ func TestIntegrationFactoryApplicationAcrossRealServices(t *testing.T) {
 	}
 	if err := env.db.QueryRow(ctx, `SELECT issued_quantity,(SELECT count(*) FROM factory_enrollment_reservations WHERE production_run_id=r.id) FROM factory_production_runs r WHERE id=$1`, body["production_run_id"]).Scan(&issued, &reservations); err != nil || issued != 1 || reservations != 1 {
 		t.Fatalf("cross-service retries changed quota: issued=%d reservations=%d err=%v", issued, reservations, err)
+	}
+	// A rejected admission still left a prepared consumer intent. With the owner
+	// revoked, queue trusted cancellation; AM must persist an admission fence
+	// rather than treating its absent reservation as proof of non-issuance.
+	const cancellationRequest = "revoked-factory-cancellation"
+	if out := call(map[string]any{"RequestID": cancellationRequest}); out.Code != 403 {
+		t.Fatal("revoked admission fixture failed")
+	}
+	if out := call(map[string]any{"Action": "cancel", "RequestID": cancellationRequest}); out.Code != 202 || out.JournalStatus != "prepared" {
+		t.Fatal("durable cancellation not queued")
+	}
+	loseCompletionReply.Store(true)
+	intent := call(map[string]any{"Action": "recover", "RequestID": cancellationRequest})
+	if intent.Code != 503 || intent.JournalStatus != "canceling" || intent.SignatureCount != 0 || intent.EvidenceSHA256 == "" {
+		t.Fatalf("lost non-issuance reply not retained: %+v", intent)
+	}
+	if err := env.db.QueryRow(ctx, `SELECT status,evidence_sha256 FROM factory_enrollment_reservations WHERE id=$1`, intent.ReservationID).Scan(&status, &evidence); err != nil || status != "not_issued" || evidence != intent.EvidenceSHA256 {
+		t.Fatal("AM did not commit non-issuance before dropped response", err)
+	}
+	if err := encoder.Encode(map[string]string{"Action": "restart"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := decoder.Decode(&restarted); err != nil || !restarted.Ready {
+		t.Fatal("recovery restart failed")
+	}
+	for range 3 {
+		out := call(map[string]any{"Action": "recover", "RequestID": cancellationRequest})
+		if out.Code != 200 || out.JournalStatus != "canceled" || out.ReservationID != intent.ReservationID || out.EvidenceSHA256 != evidence || out.SignatureCount != 0 || out.StoredCertificateSHA256 != "" {
+			t.Fatalf("cancellation replay lost evidence: %+v", out)
+		}
+	}
+	if out := call(map[string]any{"RequestID": cancellationRequest}); out.Code != 409 {
+		t.Fatal("canceled journal accepted public retry")
+	}
+	var cancellationAudits int
+	if err := env.db.QueryRow(ctx, `SELECT issued_quantity,(SELECT count(*) FROM factory_enrollment_reservations WHERE production_run_id=r.id),(SELECT count(*) FROM audit_events WHERE subject_id=$2) FROM factory_production_runs r WHERE id=$1`, body["production_run_id"], intent.ReservationID).Scan(&issued, &reservations, &cancellationAudits); err != nil || issued != 1 || reservations != 2 || cancellationAudits != 2 {
+		t.Fatalf("cancellation changed accounting: %d %d %d %v", issued, reservations, cancellationAudits, err)
 	}
 }

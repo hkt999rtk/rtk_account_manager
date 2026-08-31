@@ -18,13 +18,14 @@ type FactoryEnrollmentAdmission struct {
 }
 
 type FactoryEnrollmentReservation struct {
+	Admitted                                              bool
 	ID, RunID, RequestID, DeviceID, RequestSHA256, Status string
 	EvidenceSHA256                                        *string
 	CreatedAt                                             time.Time
 	CompletedAt                                           *time.Time
 }
 
-const factoryReservationColumns = `id::text,production_run_id::text,request_id,device_id,request_sha256,status,evidence_sha256,created_at,completed_at`
+const factoryReservationColumns = `id::text,production_run_id::text,request_id,device_id,request_sha256,status,evidence_sha256,created_at,completed_at,admitted`
 
 // Lookup is a trusted reconciliation read, not a new issuance authorization.
 // It deliberately works after the original JWT expires or a cloud is fenced.
@@ -37,7 +38,7 @@ func (s *Store) LookupFactoryEnrollment(ctx context.Context, in FactoryEnrollmen
 
 func scanFactoryReservation(row rowScanner) (FactoryEnrollmentReservation, error) {
 	var out FactoryEnrollmentReservation
-	err := row.Scan(&out.ID, &out.RunID, &out.RequestID, &out.DeviceID, &out.RequestSHA256, &out.Status, &out.EvidenceSHA256, &out.CreatedAt, &out.CompletedAt)
+	err := row.Scan(&out.ID, &out.RunID, &out.RequestID, &out.DeviceID, &out.RequestSHA256, &out.Status, &out.EvidenceSHA256, &out.CreatedAt, &out.CompletedAt, &out.Admitted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = ErrNotFound
 	}
@@ -96,6 +97,9 @@ func (s *Store) ReserveFactoryEnrollment(ctx context.Context, in FactoryEnrollme
 	out, err := scanFactoryReservation(tx.QueryRow(ctx, `SELECT `+factoryReservationColumns+` FROM factory_enrollment_reservations
 		WHERE production_run_id=$1 AND request_id=$2`, in.RunID, in.RequestID))
 	if err == nil {
+		if out.Status == "cancel_requested" {
+			return FactoryEnrollmentReservation{}, ErrConflict
+		}
 		if out.DeviceID != in.DeviceID || out.RequestSHA256 != in.RequestSHA256 {
 			return FactoryEnrollmentReservation{}, ErrConflict
 		}
@@ -105,7 +109,7 @@ func (s *Store) ReserveFactoryEnrollment(ctx context.Context, in FactoryEnrollme
 		return FactoryEnrollmentReservation{}, err
 	}
 	var pending int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM factory_enrollment_reservations WHERE production_run_id=$1 AND status='reserved'`, in.RunID).Scan(&pending); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM factory_enrollment_reservations WHERE production_run_id=$1 AND admitted AND status IN ('reserved','cancel_requested')`, in.RunID).Scan(&pending); err != nil {
 		return FactoryEnrollmentReservation{}, err
 	}
 	if issued >= allowed || pending >= allowed-issued {
@@ -168,13 +172,16 @@ func (s *Store) CompleteFactoryEnrollment(ctx context.Context, in FactoryEnrollm
 	if out.RequestSHA256 != in.RequestSHA256 {
 		return FactoryEnrollmentReservation{}, ErrConflict
 	}
-	if out.Status != "reserved" {
+	if out.Status != "reserved" && out.Status != "cancel_requested" {
 		if out.Status != in.Status || stringValue(out.EvidenceSHA256) != in.EvidenceSHA256 {
 			return FactoryEnrollmentReservation{}, ErrConflict
 		}
 		return out, nil
 	}
 	if in.Status == "issued" {
+		if !out.Admitted {
+			return FactoryEnrollmentReservation{}, ErrConflict
+		}
 		result, err := tx.Exec(ctx, `UPDATE factory_production_runs SET issued_quantity=issued_quantity+1
 			WHERE id=$1 AND issued_quantity<allowed_quantity`, run)
 		if err != nil {
@@ -201,5 +208,5 @@ func (s *Store) CompleteFactoryEnrollment(ctx context.Context, in FactoryEnrollm
 func auditFactoryReservation(ctx context.Context, tx pgx.Tx, cloud string, out FactoryEnrollmentReservation) error {
 	return createAuditEventTx(ctx, tx, AuditEventInput{EventType: "factory_enrollment_" + out.Status,
 		OrganizationID: &cloud, SubjectType: "factory_enrollment_reservation", SubjectID: out.ID,
-		Payload: map[string]any{"production_run_id": out.RunID, "request_sha256": out.RequestSHA256, "status": out.Status, "evidence_sha256": out.EvidenceSHA256}})
+		Payload: map[string]any{"production_run_id": out.RunID, "request_sha256": out.RequestSHA256, "status": out.Status, "evidence_sha256": out.EvidenceSHA256, "admitted": out.Admitted}})
 }

@@ -253,6 +253,7 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/internal/device-provisioning-results", s.handleInternalDeviceProvisioningResult)
 	v1.POST("/internal/factory-enrollments/reserve", s.reserveFactoryEnrollment)
 	v1.POST("/internal/factory-enrollments/lookup", s.lookupFactoryEnrollment)
+	v1.POST("/internal/factory-enrollments/cancel", s.cancelFactoryEnrollment)
 	v1.POST("/internal/factory-enrollments/:reservationId/result", s.completeFactoryEnrollment)
 
 	protected := v1.Group("")

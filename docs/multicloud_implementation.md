@@ -183,8 +183,13 @@ Only reconciled terminal issuer evidence closes a reservation; expiry, crashes
 and unknown responses do not. Pending reservations independently block handoff
 preparation, preview and commit. Closing previously admitted work remains possible
 under a fence without granting new authority. See `factory_production_runs.md`.
-This is a trusted store interface only: factory transport, durable consumer
-journal, issuer idempotency and real cutoff/usage adapters remain release gates.
+The production factory transport, consumer journal and issuer idempotency are
+now wired. Trusted cancellation persists an admission fence before contacting
+the issuer; existing capacity remains held until actual evidence completes it.
+Never-admitted cancellation keys cannot authorize issuance or consume quota.
+The restart-safe cancellation worker closes AM before terminalizing its journal.
+Actual lifecycle decision dispatch, already-started signer recovery and real
+cutoff/usage adapters remain release gates; local progress is not handoff readiness.
 
 After authenticated target acceptance, durable outbox/inbox messages prepare
 Billing and cost-producing resource services. Messages bind operation/cloud ID,
