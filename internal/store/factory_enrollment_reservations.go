@@ -26,6 +26,15 @@ type FactoryEnrollmentReservation struct {
 
 const factoryReservationColumns = `id::text,production_run_id::text,request_id,device_id,request_sha256,status,evidence_sha256,created_at,completed_at`
 
+// Lookup is a trusted reconciliation read, not a new issuance authorization.
+// It deliberately works after the original JWT expires or a cloud is fenced.
+func (s *Store) LookupFactoryEnrollment(ctx context.Context, in FactoryEnrollmentAdmission) (FactoryEnrollmentReservation, error) {
+	return scanFactoryReservation(s.db.QueryRow(ctx, `SELECT `+factoryReservationColumns+` FROM factory_enrollment_reservations
+		WHERE production_run_id::text=$1 AND request_id=$2 AND device_id=$3 AND request_sha256=$4
+		AND EXISTS(SELECT 1 FROM factory_production_runs r WHERE r.id=production_run_id AND r.brand_cloud_id::text=$5 AND r.device_item_profile_id::text=$6)`,
+		in.RunID, in.RequestID, in.DeviceID, in.RequestSHA256, in.CloudID, in.ProductID))
+}
+
 func scanFactoryReservation(row rowScanner) (FactoryEnrollmentReservation, error) {
 	var out FactoryEnrollmentReservation
 	err := row.Scan(&out.ID, &out.RunID, &out.RequestID, &out.DeviceID, &out.RequestSHA256, &out.Status, &out.EvidenceSHA256, &out.CreatedAt, &out.CompletedAt)

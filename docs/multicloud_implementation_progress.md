@@ -2,6 +2,24 @@
 
 This is implementation progress, not release acceptance or a replacement contract.
 
+## Factory coordination transport checkpoint — 2026-09-01
+
+Account Manager now exposes dedicated service-only reserve/lookup/result routes.
+Reserve independently verifies the production JWT before current-authority and
+quota admission. Lookup/result reconcile an exact existing run/cloud/Product/
+request/device/digest binding after token expiry or revocation; they grant no new
+admission. Request bodies are bounded, responses are no-store and errors do not
+expose tokens or database diagnostics. Startup rejects short/reused factory service
+credentials; general internal credentials and human JWTs do not authorize these
+routes. Service OpenAPI and environment/design references describe the protocol.
+
+The independently compiled Video Cloud client passes real HTTP tests against AM
+and owned PostgreSQL: reserve/replay, denial after source disable, retained lookup
+and exactly-once completion. Client tests reject insecure origins, redirects and
+malformed/mismatched evidence. This is transport compatibility evidence, not yet
+factory handler/journal wiring or actual producer handoff. Full package verification
+follows separately; all original release gates remain in force.
+
 ## Factory admission ledger checkpoint — 2026-09-01
 
 Forward migration 064 preserves old runs without inventing authorization

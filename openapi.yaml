@@ -64,6 +64,83 @@ tags:
 servers:
   - url: http://localhost:8080
 paths:
+  /v1/internal/factory-enrollments/reserve:
+    post:
+      operationId: reserveFactoryEnrollment
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001, REQ-MULTICLOUD-SHARING-001]
+      summary: Reserve factory capacity under current production-run authority.
+      description: Dedicated service-only coordination. Verifies the production JWT and rechecks its actor, ownership version, Product scope and run quota transactionally. An exact replay returns the existing ledger state, not permission to repeat a signer call. Never persist the JWT in consumer audit.
+      security: [{ factoryEnrollmentService: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/FactoryEnrollmentScope'
+                - type: object
+                  required: [production_jwt]
+                  properties:
+                    production_jwt: { type: string, writeOnly: true }
+      responses:
+        '200': { $ref: '#/components/responses/FactoryEnrollmentLedger' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /v1/internal/factory-enrollments/lookup:
+    post:
+      operationId: lookupFactoryEnrollment
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001]
+      summary: Reconcile an existing factory reservation by its complete binding.
+      description: Works after token expiry or a lifecycle fence. A missing entry is not a terminal non-issuance receipt and this read cannot create admission.
+      security: [{ factoryEnrollmentService: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FactoryEnrollmentScope' }
+      responses:
+        '200': { $ref: '#/components/responses/FactoryEnrollmentLedger' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /v1/internal/factory-enrollments/{reservationId}/result:
+    post:
+      operationId: completeFactoryEnrollment
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001]
+      summary: Persist a trusted reconciled issuer outcome exactly once.
+      description: The authenticated adapter must verify durable issuer evidence before calling. Never map timeouts or missing rows to not_issued. A non-issuance receipt must fence delayed issuer requests. Exact terminal replay is accepted; changed scope, digest or result conflicts. Closing this ledger alone does not prove downstream resource drain or Billing settlement.
+      security: [{ factoryEnrollmentService: [] }]
+      parameters:
+        - in: path
+          name: reservationId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/FactoryEnrollmentScope'
+                - type: object
+                  required: [status, evidence_sha256]
+                  properties:
+                    status: { type: string, enum: [issued, not_issued] }
+                    evidence_sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+      responses:
+        '200': { $ref: '#/components/responses/FactoryEnrollmentLedger' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /v1/health:
     get:
       tags:
@@ -4577,6 +4654,10 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
+    factoryEnrollmentService:
+      type: http
+      scheme: bearer
+      description: Dedicated ACCOUNT_MANAGER_FACTORY_ENROLLMENT_TOKEN, never a human JWT or general internal service token. Send only over trusted TLS or owned loopback test transport.
     bearerAuth:
       type: http
       scheme: bearer
@@ -4724,6 +4805,11 @@ components:
         default: 0
         minimum: 0
   responses:
+    FactoryEnrollmentLedger:
+      description: Scope-bound durable reservation state; not a new signer authorization.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/FactoryEnrollmentLedger' }
     Error:
       description: Error response.
       content:
@@ -4784,6 +4870,25 @@ components:
                   code: oidc_provider_misconfigured
                   message: OIDC provider is misconfigured
   schemas:
+    FactoryEnrollmentScope:
+      type: object
+      required: [production_run_id, brand_cloud_id, device_item_profile_id, request_id, devid, request_sha256]
+      properties:
+        production_run_id: { type: string, format: uuid }
+        brand_cloud_id: { type: string, format: uuid }
+        device_item_profile_id: { type: string, format: uuid }
+        request_id: { type: string, minLength: 1, maxLength: 128 }
+        devid: { type: string, minLength: 1, maxLength: 256 }
+        request_sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+    FactoryEnrollmentLedger:
+      allOf:
+        - $ref: '#/components/schemas/FactoryEnrollmentScope'
+        - type: object
+          required: [reservation_id, status]
+          properties:
+            reservation_id: { type: string, format: uuid }
+            status: { type: string, enum: [reserved, issued, not_issued] }
+            evidence_sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
     CloudOperationResponse:
       type: object
       required: [operation]

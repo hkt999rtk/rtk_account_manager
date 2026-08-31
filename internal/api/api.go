@@ -33,6 +33,7 @@ type Server struct {
 	oidcEnvClientSecretRef      string
 	appCertificateIssuer        AppCertificateIssuer
 	internalAuthToken           string
+	factoryEnrollmentToken      string
 	productionJWTSecret         string
 	productionJWTAudience       string
 	logger                      *zap.Logger
@@ -113,6 +114,10 @@ func (s *Server) ConfigureAppCertificateIssuer(issuer AppCertificateIssuer) {
 
 func (s *Server) ConfigureInternalAuthToken(token string) {
 	s.internalAuthToken = strings.TrimSpace(token)
+}
+
+func (s *Server) ConfigureFactoryEnrollmentToken(token string) {
+	s.factoryEnrollmentToken = strings.TrimSpace(token)
 }
 
 func (s *Server) ConfigureImmediateBrandAccountProvisioning(allow bool) {
@@ -246,6 +251,9 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/app/end-users/auth/refresh", s.appEndUserRefresh)
 	v1.POST("/internal/app-token-authorizations", s.handleInternalAppTokenAuthorization)
 	v1.POST("/internal/device-provisioning-results", s.handleInternalDeviceProvisioningResult)
+	v1.POST("/internal/factory-enrollments/reserve", s.reserveFactoryEnrollment)
+	v1.POST("/internal/factory-enrollments/lookup", s.lookupFactoryEnrollment)
+	v1.POST("/internal/factory-enrollments/:reservationId/result", s.completeFactoryEnrollment)
 
 	protected := v1.Group("")
 	protected.Use(s.requireAuth())

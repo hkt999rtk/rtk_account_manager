@@ -148,10 +148,31 @@ Closing the local ledger is necessary, not sufficient: the actual factory/issuer
 participant still proves its durable drain and usage cutoff. Deletion retains
 the existing nonempty-Product/resource and financial blockers.
 
-The local store boundary is the first implementation slice. Production factory
-transport, durable consumer journal, issuer idempotency/reconciliation and real
-participant cutoff evidence must be integrated and tested before enabling it.
-This document does not claim the current factory daemon enforces this ledger.
+Service coordination uses an independent `ACCOUNT_MANAGER_FACTORY_ENROLLMENT_TOKEN`
+bearer credential (at least 32 bytes, not reused from human JWTs, Billing or other
+service secrets). A missing credential disables these paths; ordinary login and
+general internal tokens cannot authorize them. Require trusted TLS in deployment;
+plain HTTP is only for owned loopback test endpoints.
+
+- `POST /v1/internal/factory-enrollments/reserve` accepts the complete run/cloud/
+  Product/request/device/digest binding and `production_jwt`. Account Manager
+  independently verifies HS256, audience, expiry, nbf, jti, subject and scope,
+  then executes current-authority/quota admission. Never persist/log the JWT.
+- `POST /v1/internal/factory-enrollments/lookup` reads an exact preexisting
+  binding, including during a fence or after JWT expiry. It grants no new work.
+- `POST /v1/internal/factory-enrollments/{reservationId}/result` verifies the
+  binding and records a trusted reconciled terminal outcome. The adapter must
+  authenticate durable issuer evidence, not translate an HTTP failure to
+  `not_issued`. Terminal evidence conflicts are rejected; exact retries replay.
+
+Responses bind reservation ID, run/cloud/Product, request/device/digest and
+status. Secrets and certificates are excluded. Capacity exhaustion or changed
+payload/results return 409, unavailable scope 404, bad service/JWT credentials
+401, and missing configuration/dependency failure 503. Responses are no-store
+and request bodies are bounded to 32 KiB. These paths are not human login APIs.
+Production factory wiring, durable consumer journal, issuer reconciliation and
+real participant cutoff evidence still require integration before handoff is
+enabled. This document does not claim the current factory daemon uses the ledger.
 
 ## Configuration
 
@@ -159,3 +180,4 @@ This document does not claim the current factory daemon enforces this ledger.
 | --- | --- |
 | `FACTORY_PRODUCTION_JWT_SECRET` | HS256 signing secret for factory production JWTs. Keep separate from user access and refresh token secrets. |
 | `FACTORY_PRODUCTION_JWT_AUDIENCE` | Expected factory enrollment audience. Defaults to `factory-enroll`. |
+| `ACCOUNT_MANAGER_FACTORY_ENROLLMENT_TOKEN` | Dedicated factory-to-Account-Manager coordination bearer token; empty disables admission/reconciliation HTTP paths. |

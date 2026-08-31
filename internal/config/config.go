@@ -92,6 +92,7 @@ type Config struct {
 	CloudDeletionBatchSize         int
 	AllowImmediateBrandAccounts    bool
 	FactoryProductionJWTSecret     string
+	FactoryEnrollmentToken         string
 	FactoryProductionJWTAudience   string
 	BootstrapPlatformAdminEmail    string
 	BootstrapPlatformAdminPassword string
@@ -139,7 +140,25 @@ func Load() (Config, error) {
 	if err := validateHandoffBillingConfig(cfg); err != nil {
 		return Config{}, err
 	}
+	if err := validateFactoryEnrollmentConfig(cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+func validateFactoryEnrollmentConfig(cfg Config) error {
+	if cfg.FactoryEnrollmentToken == "" {
+		return nil
+	}
+	if len(cfg.FactoryEnrollmentToken) < 32 || strings.TrimSpace(cfg.FactoryEnrollmentToken) != cfg.FactoryEnrollmentToken || strings.ContainsAny(cfg.FactoryEnrollmentToken, "\r\n\t") {
+		return fmt.Errorf("ACCOUNT_MANAGER_FACTORY_ENROLLMENT_TOKEN requires a dedicated token of at least 32 bytes")
+	}
+	for _, secret := range []string{cfg.AccessSecret, cfg.RefreshSecret, cfg.InternalAuthToken, cfg.FactoryProductionJWTSecret, cfg.BillingHandoffToken, cfg.VideoCloudLifecycleToken, cfg.SendMailHTTPBearerToken, cfg.EmailOutboxEncryptionKey, cfg.OIDCClientSecret, cfg.JWTAccessPKCS11PIN, cfg.JWTRefreshPKCS11PIN} {
+		if secret != "" && secret == cfg.FactoryEnrollmentToken {
+			return fmt.Errorf("ACCOUNT_MANAGER_FACTORY_ENROLLMENT_TOKEN must not reuse another credential")
+		}
+	}
+	return nil
 }
 
 func validateHandoffBillingConfig(cfg Config) error {
@@ -149,7 +168,7 @@ func validateHandoffBillingConfig(cfg Config) error {
 	if _, err := billinghandoff.New(billinghandoff.Config{BaseURL: cfg.BillingHandoffBaseURL, Token: cfg.BillingHandoffToken}); err != nil {
 		return fmt.Errorf("BILLING_HANDOFF_BASE_URL and a dedicated BILLING_HANDOFF_TOKEN must be configured together with a trusted origin")
 	}
-	for _, secret := range []string{cfg.AccessSecret, cfg.RefreshSecret, cfg.InternalAuthToken, cfg.SendMailHTTPBearerToken, cfg.VideoCloudLifecycleToken, cfg.EmailOutboxEncryptionKey, cfg.FactoryProductionJWTSecret, cfg.OIDCClientSecret, cfg.JWTAccessPKCS11PIN, cfg.JWTRefreshPKCS11PIN} {
+	for _, secret := range []string{cfg.AccessSecret, cfg.RefreshSecret, cfg.InternalAuthToken, cfg.SendMailHTTPBearerToken, cfg.VideoCloudLifecycleToken, cfg.EmailOutboxEncryptionKey, cfg.FactoryProductionJWTSecret, cfg.FactoryEnrollmentToken, cfg.OIDCClientSecret, cfg.JWTAccessPKCS11PIN, cfg.JWTRefreshPKCS11PIN} {
 		if secret != "" && secret == cfg.BillingHandoffToken {
 			return fmt.Errorf("BILLING_HANDOFF_TOKEN must not reuse other service credentials")
 		}
@@ -445,6 +464,7 @@ func load() (Config, error) {
 		CloudDeletionBatchSize:         intValue("CLOUD_DELETION_WORKER_BATCH_SIZE", 10),
 		AllowImmediateBrandAccounts:    strings.EqualFold(strings.TrimSpace(os.Getenv("ACCOUNT_MANAGER_ENV")), "staging") && boolValue("ACCOUNT_MANAGER_ALLOW_IMMEDIATE_BRAND_ACCOUNTS", false),
 		FactoryProductionJWTSecret:     os.Getenv("FACTORY_PRODUCTION_JWT_SECRET"),
+		FactoryEnrollmentToken:         os.Getenv("ACCOUNT_MANAGER_FACTORY_ENROLLMENT_TOKEN"),
 		FactoryProductionJWTAudience:   getenv("FACTORY_PRODUCTION_JWT_AUDIENCE", "factory-enroll"),
 		BootstrapPlatformAdminEmail:    os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL"),
 		BootstrapPlatformAdminPassword: os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD"),

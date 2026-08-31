@@ -96,6 +96,7 @@ func main() {
 	server.ConfigureInternalAuthToken(cfg.InternalAuthToken)
 	server.ConfigureImmediateBrandAccountProvisioning(cfg.AllowImmediateBrandAccounts)
 	server.ConfigureProductionJWT(cfg.FactoryProductionJWTSecret, cfg.FactoryProductionJWTAudience)
+	server.ConfigureFactoryEnrollmentToken(cfg.FactoryEnrollmentToken)
 	server.ConfigureChipsetManifestFetcher(api.NewChipsetManifestFetcher(api.ChipsetManifestFetcherConfig{AllowedHosts: cfg.ChipsetProviderAllowedHosts}))
 	if cfg.ChipsetProviderRefreshInterval > 0 {
 		go server.RunChipsetProviderRefresh(ctx, cfg.ChipsetProviderRefreshInterval)
