@@ -105,6 +105,18 @@ untouched. No staging deployment or shared database migration has been performed
   acknowledgments. This does not authenticate remote evidence on its own.
 - Acceptance now rechecks the invitation's actual expiry after the external
   eligibility call and user/cloud locks, rather than using only request-start time.
+- `internal/billinghandoff` implements the dedicated Billing HTTP client for
+  prepare, live settlement, exact participant confirmation, commit authorization,
+  finalize and precommit abort. It uses HTTPS except literal loopback test HTTP,
+  refuses redirects, bounds request lifetime/response size, validates the complete
+  echoed scope and nested cutoff/snapshot/grant/ack, and preserves int64 amounts.
+  Missing zero-value amount/confirmation fields cannot silently become valid data.
+  It sanitizes remote errors and does not autonomously retry or change durable IDs.
+- Billing's optional dedicated HTTP runtime and this separately compiled AM client
+  are tested over loopback TCP against isolated Billing PostgreSQL. This proves
+  transport/serialization/persistence, not actual AM owner commit: fixture collector
+  and AM decision evidence remain synthetic. This client is not yet wired into
+  the AM server/worker, eligibility provider or public preview/confirm endpoints.
 
 ## Verification at this checkpoint
 
@@ -175,8 +187,6 @@ untouched. No staging deployment or shared database migration has been performed
   commit, consent revocation or end-to-end staging acceptance. No runtime PR has
   been opened, merged or deployed for this implementation branch.
 
-## Required next work
-
 ### AM preparation receipt verification — 2026-08-31
 
 - Created a separate isolated PostgreSQL database `multicloud_am_prepare_test`
@@ -200,7 +210,25 @@ untouched. No staging deployment or shared database migration has been performed
   Billing amount confirmation, committed ownership or end-to-end handoff. The
   public preview/confirm and production participant adapters remain outstanding.
 
-### Remaining delivery gates
+### AM-to-Billing transport verification — 2026-08-31
+
+- The AM client passes three repeated race runs (1.645s), covering trusted TLS,
+  redirect refusal, scoped nested responses, cutoff/ownership mismatch, missing
+  explicit zero/confirmation fields, negative credit, blocked snapshots, response
+  size limits, malformed/cacheable replies and sanitized errors. Amounts 0, 1 and
+  `math.MaxInt64` retain exact int64 serialization through confirmation.
+- Full uncached AM suite passed on isolated `multicloud_am_prepare_test`
+  (API 62.757s, store 72.795s, client 1.858s), including App end-user/authentication,
+  migration and OpenAPI regressions. Log: `/tmp/rtk-am-transport-suite-20260831.log`.
+- Billing's `TestHandoffAccountManagerClientContract` ran this checkout's actual
+  client over loopback TCP into Billing's PostgreSQL-backed router. Three repeated
+  Billing HTTP/client-contract race runs passed (9.517s); separate full Billing
+  regression results are recorded in its checkpoint. Synthetic collector/AM
+  decision receipts do not prove global-session checks or an actual AM owner swap.
+- `go vet ./...` and `git diff --check` passed. No runtime PR, deployment, live
+  payment, email or staging owner change was performed.
+
+## Required next work
 
 1. Complete cross-service authorization, downloads/background work and cache
    invalidation around the implemented Product admission/viewer scope. Reconcile
@@ -208,7 +236,8 @@ untouched. No staging deployment or shared database migration has been performed
    Retire legacy human
    identity fallbacks, retaining only the required migration evidence.
 2. Complete cloud idempotent CRUD/deletion and the AM handoff coordinator beyond
-   acceptance/cancel preparation. Add production Billing eligibility/command adapters,
+   acceptance/cancel preparation. Wire the implemented Billing command client and
+   add the production Billing eligibility provider,
    dedicated credentials, outbox delivery/retries and actual producer hold/drain
    adapters for the persisted preparation acknowledgments. Implement the AM-side
    versioned settlement preview and both participant confirmations against Billing's
