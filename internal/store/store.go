@@ -52,6 +52,7 @@ type Store struct {
 	emailOutboxCipher        *emaildelivery.Cipher
 	ownershipHandoff         *OwnershipHandoffOptions
 	handoffBilling           HandoffBilling
+	handoffParticipants      map[string]HandoffParticipant
 }
 
 func (s *Store) ConfigureEmailOutboxCipher(cipher *emaildelivery.Cipher) {

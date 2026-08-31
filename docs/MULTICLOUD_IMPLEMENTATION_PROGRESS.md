@@ -342,6 +342,64 @@ untouched. No staging deployment or shared database migration has been performed
   rejected and leaves source ownership unchanged. Billing's actual-AM integration
   checkpoint is committed locally at `31aef1c`.
 
+### Durable handoff recovery worker checkpoint — 2026-08-31
+
+- Forward migration 059 adds per-operation scheduling/lease metadata and immutable
+  precommit cancellation decisions. Phase/prepare/confirmation/finalization writes
+  wake jobs without stealing leases. `SKIP LOCKED`, database time, random lease
+  tokens and compare-and-swap completion partition work and recover crashes.
+  A later wake generation beats an older attempt's backoff. Neither lease expiry
+  nor retry count changes ownership, reservations, protocol phase or resource holds.
+- `internal/worker/handoff` bounds batches and step lifetimes, applies capped
+  exponential retry and continues after temporary database errors. There is no
+  retry limit that declares a committed handoff canceled/completed. Logs and job
+  outcomes use fixed sanitized codes, not raw remote diagnostics or credentials.
+- The stage runner uses persisted operation/participant state, not browser or
+  transient worker flags. It installs Billing's actual hold, obtains each resource
+  adapter's bound hold/drain receipt and accepts Billing preparation evidence only
+  from its authoritative settled snapshot after resource preparation. HTTP prepare
+  delivery alone is never counted as drain or financial completeness.
+- Before commit, the worker can replay an original authenticated confirmation
+  intent whose response was lost, with the same actor/key/version/amount. It never
+  manufactures source/target consent. Once both persisted acknowledgments exist,
+  it automatically invokes the tested commit protocol, retries finalization and
+  requests release only after Billing's durable finalize acknowledgment.
+- Cancellation records a stable cancellation ID, attempted authorization ID and
+  decision digest in the same transaction as canceling/audit/outbox. Older
+  nonterminal canceling operations can recover this record from their durable
+  phase; no timeout is treated as cancellation. Billing prepare is idempotently
+  established before abort so cancellation can beat first delivery without treating
+  404 as proof of release. Abort-pending never counts as a release acknowledgment.
+- Billing now accepts the AM attempted authorization ID before a grant exists,
+  while requiring exact equality if one was issued. Same-payload cancellation
+  replay stays stable and late grant creation is blocked. This closes the window
+  between sending an authorization request and observing its result.
+- The new standalone `cmd/handoff-worker` validates dedicated Billing credentials
+  and bounded timing. It does not auto-migrate, modify runtime config or install
+  no-op producer adapters. Production resource adapters remain **unimplemented**;
+  unknown/missing persisted participants hold progress. Programmatic adapter
+  interfaces are exercised only with explicit synthetic resource fixtures so far.
+- Fresh isolated `multicloud_am_worker_test` applied through 059. Initial database
+  tests passed for partitioned claims, expired-lease recovery, stale completion,
+  wake-versus-backoff, missing/cross-scope participant evidence, lost consent/grant/
+  finalize replies across store restart, cancellation and terminal unscheduling.
+  Worker unit tests cover bounded configuration, step deadline, graceful shutdown,
+  sanitized failures and indefinite capped retry without dead-letter release.
+- The cross-repository API fixture adds a worker variant. After real authenticated
+  source/target confirmation, `RunOnce` claims persisted jobs and automatically
+  drives actual AM owner commit, real Billing HTTP finalization and terminal status.
+  Resource prepare/release and collector completeness remain synthetic; this is
+  not proof of real producer drain or end-to-end staging acceptance.
+- Full uncached AM suite passed on `multicloud_am_worker_test` (API 74.622s,
+  store 110.193s). Final targeted store/worker/config race tests passed three runs
+  (15.132s / 2.016s / 2.865s), including lease recovery, wake generations,
+  cancellation-versus-commit and lost-response recovery. Logs:
+  `/tmp/rtk-am-handoff-worker-suite-20260831.log` and
+  `/tmp/rtk-am-handoff-worker-race-20260831.log`. Billing's three-mode HTTP fixture
+  and abort cases also passed three race runs. Both repos passed `go vet ./...`
+  and `git diff --check`; Billing's OpenAPI importer test passed. These are local
+  correctness results, not runtime PR CI, scale benchmarks or deployment evidence.
+
 ## Required next work
 
 1. Complete cross-service authorization, downloads/background work and cache
@@ -349,10 +407,10 @@ untouched. No staging deployment or shared database migration has been performed
    generic provisioning/role APIs, activation holds and all resource-mutation fences.
    Retire legacy human
    identity fallbacks, retaining only the required migration evidence.
-2. Complete cloud idempotent CRUD/deletion and the automatic AM handoff coordinator.
-   The explicit commit/finalize store protocol is implemented through 058; wire
-   production Billing eligibility, dedicated credentials, outbox delivery/retries
-   and actual producer hold/drain/release adapters. Deliver the committed ownership
+2. Complete cloud idempotent CRUD/deletion and production handoff integration.
+   The automatic lease/retry coordinator is implemented through 059; wire
+   production Billing eligibility, dedicated runtime credentials and actual
+   producer hold/drain/release adapters. Deliver the committed ownership
    and authorization changes to resource services and queued work. Keep access
    fenced through every finalization acknowledgment; known commits only retry
    forward. Acceptance or two confirmations alone still do not complete transfer.

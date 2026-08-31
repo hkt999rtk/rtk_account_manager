@@ -82,6 +82,10 @@ type Config struct {
 	InternalAuthToken              string
 	BillingHandoffBaseURL          string
 	BillingHandoffToken            string
+	HandoffPollInterval            time.Duration
+	HandoffLeaseDuration           time.Duration
+	HandoffStepTimeout             time.Duration
+	HandoffBatchSize               int
 	AllowImmediateBrandAccounts    bool
 	FactoryProductionJWTSecret     string
 	FactoryProductionJWTAudience   string
@@ -147,6 +151,23 @@ func validateHandoffBillingConfig(cfg Config) error {
 		}
 	}
 	return nil
+}
+
+func LoadHandoffWorker() (Config, error) {
+	cfg, err := load()
+	if err != nil {
+		return Config{}, err
+	}
+	if cfg.BillingHandoffBaseURL == "" || cfg.BillingHandoffToken == "" {
+		return Config{}, fmt.Errorf("handoff worker requires dedicated Billing transport configuration")
+	}
+	if err := validateHandoffBillingConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	if cfg.HandoffPollInterval <= 0 || cfg.HandoffPollInterval > time.Minute || cfg.HandoffLeaseDuration < 30*time.Second || cfg.HandoffLeaseDuration > 5*time.Minute || cfg.HandoffStepTimeout <= 0 || cfg.HandoffStepTimeout+5*time.Second >= cfg.HandoffLeaseDuration || cfg.HandoffBatchSize < 1 || cfg.HandoffBatchSize > 128 {
+		return Config{}, fmt.Errorf("invalid handoff worker timing or batch size")
+	}
+	return cfg, nil
 }
 
 func LoadWorker() (Config, error) {
@@ -367,6 +388,10 @@ func load() (Config, error) {
 		InternalAuthToken:              os.Getenv("ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN"),
 		BillingHandoffBaseURL:          strings.TrimSpace(os.Getenv("BILLING_HANDOFF_BASE_URL")),
 		BillingHandoffToken:            strings.TrimSpace(os.Getenv("BILLING_HANDOFF_TOKEN")),
+		HandoffPollInterval:            duration("HANDOFF_WORKER_POLL_INTERVAL", 5*time.Second),
+		HandoffLeaseDuration:           duration("HANDOFF_WORKER_LEASE_DURATION", 2*time.Minute),
+		HandoffStepTimeout:             duration("HANDOFF_WORKER_STEP_TIMEOUT", 45*time.Second),
+		HandoffBatchSize:               intValue("HANDOFF_WORKER_BATCH_SIZE", 10),
 		AllowImmediateBrandAccounts:    strings.EqualFold(strings.TrimSpace(os.Getenv("ACCOUNT_MANAGER_ENV")), "staging") && boolValue("ACCOUNT_MANAGER_ALLOW_IMMEDIATE_BRAND_ACCOUNTS", false),
 		FactoryProductionJWTSecret:     os.Getenv("FACTORY_PRODUCTION_JWT_SECRET"),
 		FactoryProductionJWTAudience:   getenv("FACTORY_PRODUCTION_JWT_AUDIENCE", "factory-enroll"),

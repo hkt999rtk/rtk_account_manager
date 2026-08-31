@@ -52,6 +52,9 @@ func (s *Store) cancelOwnerHandoff(ctx context.Context, in BrandCloudOwnerTransf
 		if _, err := tx.Exec(ctx, `UPDATE cloud_ownership_handoffs SET phase='canceling',version=version+1,updated_at=now() WHERE id=$1`, in.TransferID); err != nil {
 			return model.BrandCloudOwnerTransfer{}, err
 		}
+		if _, err := ensureHandoffCancellationTx(ctx, tx, in.BrandCloudID, in.TransferID); err != nil {
+			return model.BrandCloudOwnerTransfer{}, err
+		}
 		if err := enqueueHandoffCommands(ctx, tx, in.TransferID, "abort"); err != nil {
 			return model.BrandCloudOwnerTransfer{}, err
 		}

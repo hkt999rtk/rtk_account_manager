@@ -26,3 +26,32 @@ func TestHandoffBillingConfigurationIsPairedAndIsolated(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadHandoffWorkerRequiresTransportAndBoundedLease(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("JWT_ACCESS_SECRET", "access")
+	t.Setenv("JWT_REFRESH_SECRET", "refresh")
+	t.Setenv("BILLING_HANDOFF_BASE_URL", "")
+	t.Setenv("BILLING_HANDOFF_TOKEN", "")
+	if _, err := LoadHandoffWorker(); err == nil {
+		t.Fatal("unconfigured worker started")
+	}
+	t.Setenv("BILLING_HANDOFF_BASE_URL", "https://billing.example")
+	t.Setenv("BILLING_HANDOFF_TOKEN", strings.Repeat("h", 32))
+	if _, err := LoadHandoffWorker(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HANDOFF_WORKER_LEASE_DURATION", "30s")
+	if _, err := LoadHandoffWorker(); err == nil {
+		t.Fatal("lease shorter than remote step accepted")
+	}
+	t.Setenv("HANDOFF_WORKER_STEP_TIMEOUT", "20s")
+	if _, err := LoadHandoffWorker(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HANDOFF_WORKER_BATCH_SIZE", "129")
+	if _, err := LoadHandoffWorker(); err == nil {
+		t.Fatal("unbounded batch accepted")
+	}
+}

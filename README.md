@@ -121,6 +121,17 @@ workers and automatic delivery of the implemented owner commit/finalization
 protocol are still required. See
 `docs/MULTICLOUD_IMPLEMENTATION_PROGRESS.md` before enabling any runtime rollout.
 
+`go run ./cmd/handoff-worker` runs the durable handoff recovery loop against an
+explicitly configured database (forward migration 059 required). It uses the
+same dedicated Billing transport. Optional settings are
+`HANDOFF_WORKER_POLL_INTERVAL` (5s), `HANDOFF_WORKER_LEASE_DURATION` (2m),
+`HANDOFF_WORKER_STEP_TIMEOUT` (45s), and `HANDOFF_WORKER_BATCH_SIZE` (10).
+The worker retries known decisions without a dead-letter action that clears holds.
+The current binary does **not** install production resource participant adapters;
+missing prepare/release evidence remains fenced and is logged as unavailable.
+Do not deploy this binary alone or point it at a shared environment as a shortcut
+around the remaining coordinated rollout gates.
+
 Set `CROSS_SERVICE_BROKER=azure_eventhubs` plus `AZURE_EVENTHUB_CONNECTION_STRING` to run the workers against Azure Event Hubs instead of the local `log` adapter. The inbox worker persists Azure consumer checkpoints at `.state/azure_eventhubs/<stream>__<consumer-group>.json` by default; set `AZURE_EVENTHUB_CHECKPOINT_FILE` to override that path.
 
 Set `ACCOUNT_MANAGER_USER_CACHE_ENABLED=true` to enable the Redis-compatible

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"rtk_account_manager/internal/billinghandoff"
 	"rtk_account_manager/internal/model"
 	"rtk_account_manager/internal/store"
+	"rtk_account_manager/internal/worker/handoff"
 )
 
 type publicHandoffFixture struct {
@@ -252,6 +254,51 @@ func TestLiveOwnerHandoffPublicAPIWithBilling(t *testing.T) {
 	exercisePublicHandoffConfirmation(t, f)
 	if os.Getenv("TEST_HANDOFF_MODE") == "commit" {
 		exerciseLiveHandoffCommit(t, f)
+	} else if os.Getenv("TEST_HANDOFF_MODE") == "worker" {
+		exerciseLiveHandoffWorker(t, f)
+	}
+}
+
+type liveFixtureParticipant struct{}
+
+func (liveFixtureParticipant) Prepare(context.Context, billinghandoff.Binding) (store.HandoffPrepareAck, error) {
+	return store.HandoffPrepareAck{}, fmt.Errorf("fixture preparation must already exist")
+}
+func (liveFixtureParticipant) Abort(context.Context, store.HandoffCanceledDecision) (store.HandoffAbortAck, error) {
+	return store.HandoffAbortAck{}, fmt.Errorf("unexpected fixture cancellation")
+}
+func (liveFixtureParticipant) Release(_ context.Context, d store.HandoffCommittedDecision) (store.HandoffFinalizationAck, error) {
+	return store.HandoffFinalizationAck{CloudID: d.Binding.CloudID, OperationID: d.Binding.OperationID, OwnershipVersion: d.Binding.OwnershipVersion, DecisionSHA256: d.DecisionSHA256, Participant: "test_resources", ReceiptSHA256: strings.Repeat("e", 64)}, nil
+}
+
+func exerciseLiveHandoffWorker(t *testing.T, f publicHandoffFixture) {
+	t.Helper()
+	ctx := context.Background()
+	if err := f.env.store.ConfigureHandoffParticipants(map[string]store.HandoffParticipant{"test_resources": liveFixtureParticipant{}}); err != nil {
+		t.Fatal(err)
+	}
+	service, err := handoff.NewService(f.env.store, handoff.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		stats, err := service.RunOnce(ctx)
+		if err != nil || stats.Progress != 1 || stats.Retrying != 0 {
+			t.Fatalf("worker step %d %+v %v", i, stats, err)
+		}
+	}
+	res := performJSON(f.env.router, http.MethodGet, f.path, nil, f.target.AccessToken)
+	newResponseContract(t).validate(t, http.MethodGet, f.path, res)
+	view := decodeBody[brandCloudOwnerTransferResponse](t, res).OwnerTransfer
+	if view.Phase != "succeeded" || !*view.SourceConfirmed || !*view.TargetConfirmed {
+		t.Fatalf("worker did not finalize: %+v", view)
+	}
+	var owner string
+	if err := f.env.db.QueryRow(ctx, `SELECT user_id::text FROM organization_members WHERE organization_id=$1 AND role='owner'`, f.binding.CloudID).Scan(&owner); err != nil || owner != f.target.UserID {
+		t.Fatal("worker owner mismatch", owner, err)
+	}
+	if stats, err := service.RunOnce(ctx); err != nil || stats.Claimed != 0 {
+		t.Fatalf("worker rescheduled completed transfer: %+v %v", stats, err)
 	}
 }
 
