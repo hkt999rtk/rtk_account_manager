@@ -1,600 +1,6 @@
 # Test Report
 
-## 2026-09-01 new-cloud Billing bootstrap qualification
-
-AM runtime `8dec808` passes complete PR-profile run
-`local-am-cloud-bootstrap-v2` in **269.433s**: overall **82.28%**, store
-**5160/6392 = 80.73%**, bootstrap transport/worker **66/69 = 95.65%**.
-All executed functional tests, configured package ratchets and artifact
-redaction pass. No base ref was supplied, so this is not differential coverage,
-the default pre-PR gate or GitHub CI qualification.
-
-Migration 066 enqueues an immutable event inside the new cloud/owner transaction.
-Focused owned-database tests prove complete rollback on deferred event failure,
-no missing-receipt acknowledgment, disjoint leases and stale-worker rejection.
-The first full run correctly failed on a changed SQLSTATE for an ownerless cloud;
-the corrected trigger preserves 23514. Fresh-database tests also prove no backfill
-of existing cloud responsibility and no event minted by a later owner change or
-migration replay. No applied/published migration marker was deleted or rewritten.
-
-The real AM/Billing fixture runs in the full suite in **5.71s**, not skipped,
-using independent Billing runtime `2d5b7c6`. Billing commits the zero-balance
-account, original responsibility period, receipt and audit before its response
-is lost; AM retries through a recreated worker and acknowledges the same receipt
-without duplicate effects. The real AM/Factory regression also passes in **1.89s**.
-The final Billing runtime `3fce593` additionally preserves invalid-currency/amount
-responses while removing implicit account creation in debit/invoice/read paths.
-Its full run `local-billing-cloud-bootstrap-v3` passes in **78.330s**, governed
-**74.01%**, paymentstore **1859/2382 = 78.04%**, all configured ratchets/redaction
-PASS. Billing's tracked 80% overall target is not claimed to be reached.
-The independent AM/Billing race fixture was then rebuilt/repeated against final
-Billing runtime `3fce593`: **PASS 2.07s** (package 3.941s), with AM `8dec808`.
-
-Reports in the unpublished qualification checkout rooted at workspace `d128eab`:
-
-- `.artifacts/test-runs/local-am-cloud-bootstrap-v2/coverage/test_report.md`
-  — coverage SHA-256 `239cc52a6c2d89b0f93ff10342efd01ef0457ae475449e413663797c6884bb1b`.
-- `.artifacts/test-runs/local-billing-cloud-bootstrap-v3/coverage/test_report.md`
-  — coverage SHA-256 `25f628767a2c5d77b40941b6708ffc90fb1293a4b2b9ef29123ceae99a70f52c`.
-
-The 259-case catalog, 393-requirement/664-operation/67-workflow inventory, five
-OpenAPI documents and canonical checkout consistency pass. Inventory retains
-91 nonblocking unspecified normative candidates and has zero blocking findings.
-Vet/build, Billing's extractor test and diff checks pass. This proves new-cloud
-bootstrap, not trusted legacy history or usage/invoice/provider completeness.
-Producer/collector integration, remaining UI, default pre-PR/differential/CI,
-restore/migration and staging email/device/certificate/MQTT evidence remain open.
-No shared database, real email/payment, deployment, runtime PR or parent gitlink
-was published. The approved settled balance >= 0 transfer rule is unchanged.
-
-## 2026-09-01 durable factory participant transport qualification
-
-Runtime `43f88ba` passes complete AM PR-profile run `local-am-factory-handoff`
-in **243.404s**, including PostgreSQL integration, package ratchets and artifact
-redaction. Overall **82.16% >= 80%**; store **5135/6367 = 80.65% >= 80%**;
-the new factory handoff adapter covers **83/88 = 94.32%**. No base ref was supplied,
-so differential coverage, default pre-PR and GitHub CI remain unproven.
-
-The adapter implements the durable coordinator's participant interface, validates
-the exact authenticated scope, microsecond cutoff, immutable hold/drain counts
-and receipt hashes, and binds terminal decisions before returning an ack. Missing
-or malformed evidence, redirects, 404 and transport failure cannot release a
-fence. It is not automatically installed as a factory-only production inventory.
-
-The independently compiled VC fixture `58bc318` contains runtime `98511bf`.
-The real-service case executes in the complete run in **2.55s**, not skipped.
-Besides issued/canceled response-loss recovery, the AM adapter calls actual
-factory prepare, which drains the earlier quota-rejected consumer intent through
-real AM HTTP/store and the mTLS issuer. Another lost AM result retains the hold;
-retry produces the same checkpoint, abort persists/replays a tombstone, and late
-prepare is rejected. No additional signature or issued count is produced. These
-are trusted protocol fixture decisions, not an actual Billing/ownership commit.
-
-Report: `.artifacts/test-runs/local-am-factory-handoff/coverage/test_report.md`
-in the unpublished qualification checkout rooted at workspace `d128eab`.
-Coverage SHA-256: `dafc27c562f12bbdf877d5f8322a3333fe520fc419b84bdaf29e83bb221ddf81`.
-VC full run `local-vc-factory-handoff` passes at `98511bf` in 28.828s (75.06%
-overall; PostgreSQL 81.81%). The 255-case catalog, 393-requirement/663-operation/
-67-workflow inventory, four existing OpenAPI documents, new factory participant
-OpenAPI and canonical consistency pass with zero blocking inventory findings.
-
-Production participant composition, other producers/Billing usage cutoff,
-unknown-signature recovery, full UI/CI, migration/restore and staging acceptance
-remain required. No live/shared DB, email, payment or staging was operated. The
-settled balance >= 0 rule and all other reviewed Billing blockers are unchanged.
-
-## 2026-09-01 factory cancellation intent and recovery qualification
-
-Runtime `1fde494` passes the complete AM PR-profile run
-`local-am-factory-recovery` in **216.501s**. All executed tests, package ratchets
-and artifact redaction pass. Overall coverage is **82.09% >= 80%**; store is
-**5135/6367 = 80.65% >= 80%**. No base ref was supplied; differential coverage,
-default pre-PR and GitHub CI remain unproven.
-
-Migration 065 preserves published markers and adds immutable admission provenance
-and cancellation intent. Dedicated service authorization, cache forwarding,
-absent/late admission, admitted quota retention, non-admitted no-quota/no-issuance,
-audit rollback, terminal replay and independent handoff holds are tested. Local
-verification uses a new owned database `multicloud_factory_recovery_20260901`;
-earlier fixture databases were not reset or deleted. No live/shared DB was used.
-
-The independently compiled Video Cloud application includes runtime `5143638`.
-`TestIntegrationFactoryApplicationAcrossRealServices` executes in this full AM
-run (**1.290s**, not skipped) with real AM HTTP/JWT/store and real factory
-application/PostgreSQL journal/mTLS issuer. In addition to issued-result response
-loss, the test queues a revoked owner's prepared intent, loses AM's committed
-`not_issued` reply, recreates the factory application and resumes the persisted
-queue. It preserves the original cancellation evidence and UUID, creates no new
-certificate, changes no issued count and records exactly two cancellation audit
-entries. Public retries remain blocked. This is application recreation inside
-the child, not an entire process/cluster restart or a live HSM experiment.
-
-Report: `.artifacts/test-runs/local-am-factory-recovery/coverage/test_report.md`
-in the unpublished qualification checkout rooted at workspace `d128eab`.
-Coverage SHA-256: `d50247f91319158ec7aa2799fb080b67bec9e022f54df5808229eb348350eadb`.
-VC's full `local-vc-factory-recovery` run also passes (40.496s, 74.87% overall,
-81.19% PostgreSQL). Four OpenAPI checks, canonical checkout consistency and the
-253-case spec/catalog inventory pass (392 requirements, 660 operations, zero
-blocking findings). No configured gate was lowered.
-
-Remaining requirements include real lifecycle decision dispatch, already-started
-signer reconciliation, producer/Billing cutoff adapters, Product CA resolution,
-complete UI/CI/leaf PRs, migration restoration and staging activation/MQTT
-evidence. The worker does not infer cancellation from timeout or silently release
-holds. This is not ownership-handoff readiness; settled balance >= 0 and the
-other financial checks remain unchanged. No live email/payment/staging operation
-was performed.
-
-## 2026-09-01 real factory application interoperability qualification
-
-Candidate `b117c95` passes the complete AM PR-profile run
-`local-am-factory-real-services` in 256.957s. All executed tests, configured
-package ratchets and artifact redaction pass. Overall coverage is **82.08%**;
-store is **5106/6330 = 80.66%** against 80%. No base ref was supplied, so this
-does not prove differential coverage, default pre-PR or GitHub CI.
-
-`TestIntegrationFactoryApplicationAcrossRealServices` actually executes
-(1.930s, not skipped), using an independently compiled Video Cloud `043ddd4`
-factory application test binary. AM HTTP/JWT/authorization/quota and both
-PostgreSQL stores are real, as are VC factory composition, journal/projections
-and the mTLS issuer. A transport fault drops AM's response only after its issued
-result has committed. Recreating the factory application and retrying preserves
-one certificate, matching DER evidence, one reservation/issued count and the
-original device projection timestamp. Quota excess, cloud override and disabled
-owner are rejected. The focused AM race run passes in 5.759s.
-
-The child receives fixture secrets on stdin, reports only status/digests/durable
-witnesses, exits cleanly and removes only its own unique local schema. It does
-not simulate a full process/cluster restart, real Product CA hierarchy or live
-HSM. The real-service test's binary/DSN opt-in is explicit; missing dependencies
-skip and are not interoperability evidence. Build/vet pass.
-
-Report: `.artifacts/test-runs/local-am-factory-real-services/coverage/test_report.md`
-in the unpublished qualification checkout rooted at workspace `d128eab`.
-Coverage SHA-256: `4ecb7cde4910f38436ae83e2048b4853a9244be08a42c1829f46710fe1111d21`.
-Full execution events are in `logs/account-manager.log`. The complete VC run
-`local-vc-factory-real-services` also passes at `043ddd4` (38.400s, 74.71% overall,
-PostgreSQL 81.16%). Four OpenAPI files, the 250-case catalog/spec inventory and
-canonical checkout consistency pass (392 requirements, 659 operations, zero
-blocking findings). No gates were weakened.
-
-Autonomous expiry/revocation reconciliation, trusted cancellation of prepared or
-reserved work, real producer/Billing cutoffs, full UI/CI, migration/restore and
-staging acceptance are still required. Transfer eligibility remains settled
-balance **>= 0** plus the independent financial checks. This is not handoff or
-release acceptance. No live email, payment, factory/HSM or staging action ran.
-
-## 2026-09-01 factory coordination HTTP and cache qualification
-
-Runtime `be2dbc6` passes the complete Account Manager PR-profile run
-`local-am-factory-transport-v2` in 237.696s. All executed tests, configured package
-ratchets and artifact redaction pass. Overall coverage is **82.05%**; store is
-**5102/6330 = 80.60%** against 80%. No base ref was supplied: this does not prove
-differential coverage, default pre-PR or GitHub CI.
-
-The independently built Video Cloud client (`821a3b5`) executes against real AM
-HTTP and owned PostgreSQL, not a local client double (1.230s, not skipped).
-The production `api.Store -> usercache.NewStore -> api.New` composition also has
-a regression proving all three factory routes reach persistence without user
-caching. Factory persistence is now required by the API store interface, so
-enabling user cache cannot drop these methods through an optional assertion.
-Focused API tests pass (3.558s), cache race tests pass (1.671s), and build passes.
-
-The previous run `local-am-factory-transport` failed because the three new
-OpenAPI operations omitted tags. Their declared Factory Enrollment tag fixes
-that failure; the original failed report is retained, not relabeled as passing.
-
-Report: `.artifacts/test-runs/local-am-factory-transport-v2/coverage/test_report.md`
-in the unpublished qualification checkout rooted at workspace `d128eab`.
-Coverage SHA-256: `e0658630060050d9023e39d94af893316c9f0319187752510b2213bfee0c0056`.
-Full events are in `logs/account-manager.log`. The 248-case catalog and spec
-inventory pass (392 requirements, 659 operations, zero blocking findings), as
-does canonical contract checkout consistency. Local infrastructure only; no
-deployment, shared DB, live email, payment or factory issuance was performed.
-
-Video Cloud now also has a durable consumer journal, but the actual factory
-handler, recovery/cancellation and participant cutoffs are still unwired. These
-tests do not qualify complete handoff, Billing settlement, full UI/CI, migration
-restore or staging acceptance. Transfer eligibility remains settled balance
-**>= 0** plus the independent financial safety checks, not a positive-only rule.
-
-## 2026-09-01 factory reservation ledger qualification
-
-Runtime `2a9973d` passes the complete Account Manager PR-profile run
-`local-am-factory-reservations` in 209.507s. All executed functional tests pass;
-overall coverage is **82.02%**, store **5105/6329 = 80.66%** against 80%.
-All configured package ratchets and artifact redaction pass. No base ref was
-supplied: differential coverage, the default pre-PR gate and CI are not proven
-by the report's generic success assessment.
-
-Focused PostgreSQL race tests pass (12.144s), covering 12-way quota reservation,
-10-way terminal-result replay, authority/ownership/run validity rejection,
-scope changes during admission locks, seven write/audit/deferred-commit failures,
-and handoff rejection while any local issuance result is unknown. Synthetic
-participant receipts explicitly test that the local pending-work guard cannot
-be bypassed; they do not prove actual factory/issuer drain or Billing settlement.
-Vet/build and four OpenAPI checks pass. The 245-case catalog/spec inventory
-passes (391 requirements, 656 operations, zero blocking findings); canonical
-contract checkout consistency also passes.
-
-Report: `.artifacts/test-runs/local-am-factory-reservations/coverage/test_report.md`
-in the unpublished qualification checkout rooted at workspace `d128eab`.
-Coverage SHA-256: `2d2ae96610e72a1fee7ad48a28d9496fc766fb35e50ed1575791f1a399d227d3`.
-The report's `logs/account-manager.log` contains the complete executed test events.
-
-Only owned loopback infrastructure was used. This is the trusted local ledger,
-not yet a production consumer transport or issuer journal. Inspection of Video
-Cloud `437e44a` shows factory issuer replay performs GetRequest, signing, then
-UpsertRequest without a durable pre-sign claim; parallel requests and a crash
-after signing still need reconciliation/serialization. Wire the authenticated
-factory consumer, durable issuer outcome and actual cutoff/usage adapters before
-enabling ownership handoff. Full UI/CI, migration/restore and staging acceptance
-remain outstanding. No live factory issuance, email, payment or deployment ran.
-
-## 2026-09-01 transactional production-run issuance qualification
-
-Runtime `fe464c6` passes the complete Account Manager PR-profile run
-`local-am-production-issuance` in 196.153s. All executed functional tests pass;
-overall coverage is **81.91%**, store **5014/6235 = 80.42%** against 80%.
-Other configured package ratchets and artifact redaction pass. No base ref was
-supplied: differential coverage, the default pre-PR gate and CI are not proven
-by the report's generic success assessment.
-
-Store race tests pass (5.440s), HTTP failure/admission race tests pass (21.719s),
-and existing production/JWT/Product regressions pass (store 11.268s/API 15.616s).
-The tests cover Product scope, viewer ceilings, platform and owner revocation,
-pending owners, handoff fences, disabled Products, missing/failed/empty signing,
-write/audit/deferred-commit failures, sanitized errors and no token delivery on
-failed commit. The existing HTTP test verifies real HMAC JWT claim binding.
-Vet/build, four OpenAPI checks and the 244-case catalog/spec inventory pass
-(391 requirements, 656 operations, zero blocking findings).
-
-Report: `.artifacts/test-runs/local-am-production-issuance/coverage/test_report.md`
-in the unpublished qualification checkout rooted at workspace `d128eab`.
-Coverage SHA-256: `7049575390af3af9709bec895ea4f5c9682cda2872c0fb094ff82b90caf7233f`.
-Logs: `/tmp/rtk-production-issue-race.log`,
-`/tmp/rtk-production-issue-http-race.log`,
-`/tmp/rtk-am-production-issuance-governed.log`.
-
-Only owned loopback infrastructure was used. Factory JWT consumers still need
-current run/cloud/ownership and quantity enforcement, in-flight enrollment
-fences and cutoff evidence; issuance tests do not prove these. Remaining release
-gates include other resource-family protection, producer/collector adapters,
-full UI/CI, migration/restore and staging activation/device/certificate/MQTT.
-No live factory issuance, shared database mutation or deployment occurred.
-
-## 2026-09-01 transactional Product administration qualification
-
-Runtime `c683286` passes the complete Account Manager PR-profile run
-`local-am-product-admission` in 195.377s, with no executed functional test
-failures. Overall coverage is **81.80%**, store **4987/6212 = 80.28%** against
-80%; all configured package ratchets and artifact redaction pass. No base ref
-was supplied, so differential/default pre-PR and full CI remain unproven despite
-the report's generic success assessment.
-
-Focused store/API race tests pass (14.630s/12.542s), including Product admission,
-viewer ceilings, explicit platform access, inactive/handoff/cancellation fences,
-audit/commit rollback, concurrent disjoint PATCH and six HTTP writes revoked
-after admission. Earlier Product regressions also pass (2.650s/19.155s). Vet/build,
-four OpenAPI validations and the 243-case catalog/spec inventory pass (391
-requirements, 656 operations, zero blocking findings).
-
-Report: `.artifacts/test-runs/local-am-product-admission/coverage/test_report.md`
-in the unpublished qualification checkout rooted at workspace `d128eab`.
-Coverage SHA-256: `687b4396445bb3a7adb9ca8a6c3c26ddad0f8cd5fd0bf494f7b64b08f88141e6`.
-Logs: `/tmp/rtk-product-writes-final-race.log`,
-`/tmp/rtk-am-product-admission-governed.log`.
-All database tests used owned loopback PostgreSQL; no staging or real financial
-operations were invoked. Production-run admission and signing/consumption,
-other resource families, producer drain/cutoff evidence, Billing collectors,
-full UI/CI, migration/restore and staging acceptance remain release gates.
-
-## 2026-09-01 platform claim-token administration qualification
-
-Runtime `6504594` passes the complete Account Manager PR-profile run
-`local-am-token-admin-v2` in 167.955s. All executed functional tests pass.
-Overall coverage is **81.77%** and store coverage is **4948/6170 = 80.19%**
-(required 80%); all configured package ratchets and artifact redaction pass.
-No base ref was supplied: despite the report's generic success assessment,
-this is **not** differential coverage, the default pre-PR gate or full CI.
-
-Report: `.artifacts/test-runs/local-am-token-admin-v2/coverage/test_report.md`
-in the unpublished qualification checkout rooted at workspace `d128eab`.
-Coverage SHA-256: `07a241c5f97141c2fc64b9c34abf8ed60d803f12096e1af92f0889d6d72469c8`.
-Log: `/tmp/rtk-am-token-admin-governed-v2.log`. The initial attempted run
-`local-am-token-admin` was rejected before execution because the new catalog ID
-had too many segments; the catalog was corrected and checked before this rerun.
-
-Focused store/API race tests pass (16.598s/11.352s), as do all-package vet/build,
-the four OpenAPI validations, and the 242-case catalog/spec inventory (391
-requirements, 656 operations, zero blocking findings). Local database receipts
-remain synthetic protocol fixtures. Only owned loopback infrastructure was used.
-
-Remaining release requirements include Product create/update/disable transaction
-authorization and consistent actor/cloud/Product lock order, other producer
-write/drain paths, trusted Billing collector/participant wiring, complete BFF/UI
-qualification, differential/default pre-PR and CI, migration/restore rehearsal,
-and staging activation/device/certificate/MQTT acceptance. No deployment or
-runtime service PR merge is claimed. Transfer still requires nonnegative balance
-plus independently proven settlement conditions; deletion requires zero.
-
-## 2026-09-01 privileged claim override qualification
-
-Latest verification at `ecfce32`: the subsequent complete run
-`local-am-claim-override-v2` passes all executed functional tests (181.852s),
-but the store gate remains **FAIL: 4874/6095 = 79.97%, required 80%**. Overall
-coverage is 81.65%; other configured package ratchets and artifact redaction
-pass. The 19 added inconsistent-state/failure cases pass with race detection
-(7.965s); vet/build and the 241-case catalog/spec checks pass. No base ref was
-supplied, so differential coverage and the default pre-PR gate remain unproven.
-Report: `.artifacts/test-runs/local-am-claim-override-v2/coverage/test_report.md`.
-Log: `/tmp/rtk-am-claim-override-governed-v2.log`. The earlier failed assessment
-below is retained rather than overwritten. No coverage threshold was reduced.
-
-At runtime `91fd1ef`, all executed functional tests passed in the fresh complete
-PR-profile run `local-am-claim-override-91fd1ef` (173.187s). The gate still failed
-on store coverage: **4860/6095 = 79.74%, required 80%**; overall 81.54%, other
-configured package gates and artifact redaction passed. This run has no base ref
-and is not differential coverage or a default pre-PR pass. Report:
-`.artifacts/test-runs/local-am-claim-override-91fd1ef/coverage/test_report.md`
-in the unpublished qualification checkout rooted at workspace `d128eab`.
-
-Focused store/API race tests pass (13.646s/10.395s), as do vet/build, four OpenAPI
-validations and the 241-case catalog/spec inventory (391 requirements, 656
-operations, zero blocking findings). Privileged transfer/reclaim admission is
-now fenced; token administration, other producer write/drain integration,
-trusted Billing collectors, full CI, migration rehearsal and staging remain.
-No shared infrastructure or real email/payment operation was used.
-
-## 2026-09-01 claim/unprovision and independent App claim recheck
-
-Runtime commit `f6c29c8` completes transactional human claim/unprovision admission
-and independent atomic App claim/binding. Focused store/API race tests passed
-(13.148s/18.905s); the legacy customer/profile and App Product-boundary regression
-passed with race detection (4.928s). All-package vet/build and the four workspace
-OpenAPI validations passed. The candidate catalog contains 240 cases and its
-spec inventory has 391 requirements, 656 operations and zero blocking findings.
-
-The first full run at `a5e9c29` failed one legacy customer profile claim. The fix
-preserves manufacturer profiles for legacy customer organizations while enforcing
-Product/cloud equality for Brand Clouds. The subsequent complete PR-profile run
-`local-am-claim-admission-v2` passed all executed functional tests, including
-`TestDeviceItemProfileBacksClaimTokenSnapshotAndResolve`,
-`TestIntegrationAppEndUserClaimCreatesMultiBrandBindings` and
-`TestEndUserClaimKeepsIdentitySeparateAndRollsBackBindingFailure`.
-
-The gate still **FAILS**: overall 81.39%, store **79.49% (4833/6080), required
-80%**. Other configured package ratchets and artifact redaction passed. Duration
-189.604s. Report:
-`.artifacts/test-runs/local-am-claim-admission-v2/coverage/test_report.md` in the
-unpublished qualification checkout rooted at workspace `d128eab`. No base ref
-was supplied, so this is not differential coverage or the default pre-PR gate.
-Logs: `/tmp/rtk-claim-admission-final-race.log`,
-`/tmp/rtk-claim-legacy-boundary-race.log`,
-`/tmp/rtk-am-claim-admission-governed-v2.log`.
-
-Only owned loopback databases were used. No shared database, migration marker,
-real email/payment, staging deployment or production handoff enablement changed.
-Privileged claim transfer/reclaim and producer write/drain integration, trusted
-Billing collectors, full CI, migration rehearsal and staging acceptance remain.
-
-## 2026-09-01 Billing eligibility and lifecycle admission
-
-At runtime commit `d7f5c21`, full uncached `go test ./...` passed against the
-owned loopback PostgreSQL database `multicloud_device_writes_20260901` (API
-85.672s, store 223.015s). Focused lifecycle/CRUD store and HTTP race tests passed
-(9.926s/7.044s); all-package vet/build passed. The HTTP test now pauses five
-requests after middleware admission and proves the former owner cannot create,
-update, change status, provision or deactivate after an ownership switch.
-Audit-failure tests prove lifecycle work, outbox and pending projection roll back.
-These switches and Billing receipts are isolated fixtures, not staging evidence.
-
-The subsequent PR-profile package run `local-am-lifecycle-admission` completed
-all functional tests and artifact redaction (224.395s), with overall 81.28% and
-store **79.30% (4777/6024), below the 80% ratchet**. The gate therefore remains
-FAIL. No base ref was supplied, so this is not a differential-coverage or default
-pre-PR pass. Other configured package gates passed. No threshold was changed.
-Report: `.artifacts/test-runs/local-am-lifecycle-admission/coverage/test_report.md`
-in the unpublished qualification checkout rooted at workspace `d128eab`.
-Logs: `/tmp/rtk-am-lifecycle-admission-full.log`,
-`/tmp/rtk-am-lifecycle-admission-race.log`,
-`/tmp/rtk-am-lifecycle-admission-governed.log`.
-
-Billing eligibility's actual separately compiled HTTP client/router tests cover
--1/0/+1 at request and acceptance. The four OpenAPI files validate and the
-candidate inventory now has 239 cases, 391 requirements, 656 operations and zero
-blocking findings. Those checks do not prove collector completeness, producer
-draining, claim/unprovision admission, full CI or staging acceptance.
-
-## 2026-09-01 handoff worker dependency failures
-
-New table-driven worker tests verify preparing/canceling/finalizing remain fenced
-with missing adapters, unavailable producers, cross-scope replies and invalid
-receipt digests. Billing prepare/settlement outages, negative balances, unsettled
-usage, mismatched operations/currencies/cutoffs and old snapshots cannot create
-a Billing preparation acknowledgment or change the unique owner.
-
-Focused tests passed with race detection (3.264s), and store vet passed. Log:
-`/tmp/rtk-worker-failures.log`. These use synthetic dependency adapters and the
-owned loopback database. Combining this focused profile with the previous
-unchanged-production profile gives diagnostic store coverage 79.24%; it is not
-a new authoritative suite result and remains below 80%. The full PR-profile gate
-below therefore remains FAIL pending more implementation/verification work.
-
-## 2026-09-01 governed recheck at 2187425
-
-The PR-profile service run `local-am-deletion-recovery` completed all functional
-tests and artifact redaction (183.335s). Overall coverage is 81.03%; database is
-88.71% and passes its 84% ratchet. Store increased to 78.89% (4740/6008) but still
-fails its 80% ratchet, so the authoritative result remains FAIL. No threshold
-was lowered. `go vet ./...` and `go build ./...` separately passed.
-
-Report: task-owned qualification checkout
-`.artifacts/test-runs/local-am-deletion-recovery/coverage/test_report.md`;
-log: `/tmp/rtk-am-deletion-recovery-governed.log`. This checkout combines unmerged
-service commits and is not a published workspace or staging qualification.
-
-## 2026-09-01 deletion evidence and cancellation regression
-
-- A new delayed-response test first reproduced a false successful hold
-  acknowledgment after cancellation. The conditional receipt insert wrote zero
-  rows but emitted a producer-held audit. The store now requires one inserted
-  receipt before acknowledging/auditing; canceled operations return conflict.
-- Added six audit-rejection/retry cases covering request, producer hold, close
-  command, command retirement, cancellation intent and hold release. Each proves
-  no partial decision survives and an explicit retry persists exactly one row.
-- Malformed/mixed retirement proofs, conflicting receipt replays, unknown release
-  participants and release-before-cancellation are rejected. Retirement alone
-  cannot tombstone the cloud or release its fence.
-- Canceled handoff/deletion calls preserve durable owner, operation, outbox,
-  evidence, audit and worker lease state; a valid later worker can still recover.
-- All deletion tests plus the new canceled-call cases passed twice with the race
-  detector (18.535s), followed by `go vet ./internal/store`.
-  Log: `/tmp/rtk-deletion-failure-fixed-race.log`.
-
-Only synthetic Billing/producer adapters and owned loopback PostgreSQL databases
-were used. Full governed coverage must be rerun; this does not close production
-adapter, service CI or staging acceptance gates. Deletion still requires zero
-balance; ownership transfer remains eligible at settled balance >= 0.
-
-## 2026-09-01 migration failure recovery and governed coverage checkpoint
-
-- The real workspace PR-profile Account Manager coverage run at `da50842`
-  completed all tests and redaction checks, but failed package ratchets:
-  overall 80.54%, database 80.65% (required 84%), store 78.00% (required 80%).
-  Report: `local-am-da50842/coverage/test_report.md` in the task-owned
-  qualification checkout. This is not a passing release gate.
-- Added real PostgreSQL tests for missing preflight inputs, canceled connections,
-  unavailable marker/token tables, rejected migration markers and deferred
-  commit failures. Failed migrations leave neither DDL nor markers; repaired
-  synthetic migrations can safely retry. Published SQL and markers are unchanged.
-- Focused tests passed (8.730s); the complete database suite passed with race
-  detection (50.208s, 88.7% package coverage), followed by `go vet`.
-  Logs: `/tmp/rtk-migration-failure-tests.log` and
-  `/tmp/rtk-migration-failure-full.log`; profile:
-  `/tmp/rtk-migration-failure-full-coverage.out`.
-
-Only disposable task-owned loopback databases were used. Store coverage and a
-fresh governed run remain outstanding; these tests do not certify staging or
-the coordinated production migration/restore rehearsal.
-
-## 2026-09-01 human device-write authorization boundary
-
-- Full uncached Go tests with coverage and `go vet ./...` passed against the
-  task-owned database `multicloud_device_writes_20260901`, loopback port 63229.
-  API: 85.290s (82.9%), database: 35.949s (80.6%), store: 148.368s (70.7%).
-  This is package-level measurement, not governed PR coverage acceptance.
-- Four store regression cases ran twice with the race detector (4.817s): current
-  viewer/activation/handoff denial, real lock waiting across a synthetic owner
-  switch, audit rollback, and legacy platform/error behavior. The old ACL remains
-  present in the ownership race to prove that membership removal is authoritative.
-- A subsequent HTTP test ran twice with the race detector (12.630s), pausing
-  body binding after middleware admission. After a synthetic sole-owner switch,
-  create/update/status requests all returned 404 with unchanged device data/count.
-  This added test is separate from the preceding full-suite coverage profile.
-  It used the already task-owned `multicloud_identity_auth_20260901` database.
-- Logs: `/tmp/rtk-device-user-writes-focused.log`,
-  `/tmp/rtk-device-user-writes-race.log`,
-  `/tmp/rtk-device-user-writes-http-race.log`, and
-  `/tmp/rtk-device-user-writes-full.log`.
-  Coverage: `/tmp/rtk-device-user-writes-coverage.out`.
-
-No shared database, real user, provider, staging service or migration was changed.
-These tests do not prove production producer drain, Billing settlement or full
-resource lifecycle correctness; those remain release gates.
-
-## 2026-09-01 shared global-auth boundary
-
-- Full uncached `go test ./... -count=1 -coverprofile=...` and `go vet ./...`
-  passed with the isolated PostgreSQL database `multicloud_identity_auth_20260901`
-  on loopback port 63229. API: 107.633s (82.9%), auth: 2.721s (82.0%),
-  database: 50.417s (80.6%), store: 166.557s (70.2%). These package measurements
-  are not a claim that the governed PR coverage gate has passed.
-- Focused race tests passed (API 8.477s; auth 8.177s), covering shared-parser
-  rejection, persistence-free middleware rejection and explicit Product scope.
-- Focused database-backed retired-route, end-user, Product and fleet tests passed
-  (API 6.882s; auth 0.437s).
-- Fixtures independently sign obsolete credentials; no production tenant-token
-  issuer remains. RSA/HMAC and access/refresh variants reject legacy and mixed
-  claims while valid global and App end-user credentials still parse.
-- Logs: `/tmp/rtk-global-auth-boundary-full.log` and
-  `/tmp/rtk-global-auth-boundary-focused.log`; coverage profile:
-  `/tmp/rtk-global-auth-boundary-coverage.out`.
-
-Local synthetic evidence only; no staging, email, MQTT, provider or shared
-database changes. Migration rehearsal, governed CI and staging acceptance remain
-open release gates.
-
-## 2026-08-31 local forward-identity integration checkpoint
-
-This section records the implementation worktree, not a deployment or a new
-coverage/CI certification. The historical generated CI summary below is not
-evidence for these changes.
-
-- Forward 051 and activation-hold/current-state guards were integrated with the
-  multi-cloud schema through 063; published 049 and applied markers are unchanged.
-- Targeted isolated PostgreSQL migration, store and API tests passed. Cases include
-  unsafe inherited credentials, protected existing/remediated users, blocking SSO
-  adoption, explicit provenance resolutions, exact hold restoration, administrative
-  disable/role changes/removal, token replay and pending JWT/refresh/certificate
-  denial. OIDC/ACL tests now explicitly require membership before an organization
-  assignment becomes effective; a group mapping alone is not admission.
-- Multi-cloud cases prove exactly one designated owner is retained even when
-  credential correction suspends them. Both owner and collaborators are fenced;
-  approved email activation releases the fence. Zero/multiple owners block,
-  including disabled clouds. Applying 051 after an earlier candidate already
-  containing 052–063 is tested without deleting any migration marker.
-- Rollback-only preflight validates deferred constraints, reports controlled
-  blocker IDs and ineligible-owner cloud counts, and leaves no schema, audit,
-  credential, grant or authority-version changes behind.
-- Two targeted race-instrumented runs passed: database 109.350s, store 41.448s,
-  API 22.754s. Log: `/tmp/rtk-am-identity-race-20260831.log`.
-- Full uncached `go test -p 1 ./... -count=1` passed on the isolated database:
-  API 80.113s, database 39.063s, store 91.456s. Log:
-  `/tmp/rtk-am-identity-suite-final-20260831.log`. The first run found the old
-  OIDC test's no-membership assumption; that test now proves denial before
-  membership and success after admission. It was not fixed by relaxing authority.
-- Build, vet, formatting and whitespace checks passed. The migration executable
-  exposes `--identity-preflight` in its help output. The no-database Go run also
-  passed but is not counted as integration evidence.
-
-Test data is synthetic, in newly created databases
-`multicloud_identity_correction_20260831` and
-`multicloud_identity_correction_race_20260831`, only on loopback port 63229.
-Per-case migration databases are created separately and removed by test cleanup.
-No staging/shared database, real email recipient, provider or MQTT deployment was
-changed.
-
-Remaining release gates: a reviewed path for pre-049 duplicate-target and
-reset-required sole-owner cutovers (the expected duplicate refusal is reproduced
-and its rollback verified, not claimed repaired), full coverage/spec-inventory/
-contract/PR CI, real cross-service producer/Billing adapters, coordinated
-backup/restore/maintenance, and staging activation/device/certificate/MQTT.
-Legacy identity tables/evidence are not cleaned up by this checkpoint.
-
-## 2026-08-31 local Product-device display checkpoint
-
-The scoped display endpoint/store/API-contract tests passed on the isolated
-`multicloud_device_display_20260831` PostgreSQL database at loopback port 63229.
-Tests prove exact cloud/Product binding, current authority/viewer/activation
-ceilings, concurrent independent display edits, explicit model clearing,
-preserved hardware identity/operational metadata and transactional audit.
-
-Full uncached `go test ./... -count=1` PASS with the isolated database configured:
-API 85.215s, database 39.817s, store 137.074s. Targeted store/API race cases passed
-twice; `go vet ./...` PASS. Logs: `/tmp/rtk-device-display-am-full.log` and
-`/tmp/rtk-device-display-am-race.log`. AM OpenAPI and HTTP response-contract
-validation PASS. These results do not replace whole-project coverage/hosted CI.
-
-A read-only inventory overlay of all current AM/Billing/Admin implementations
-found 21 blocking operation mappings and stale workspace traceability. This is
-more complete evidence than the earlier Admin-only inventory; it is **not green**.
-The release gates listed above remain outstanding. No shared database, staging
-deployment, real email, payment, certificate or MQTT operation was performed.
-
-## Historical generated CI report
-
-Generated: ci-candidate
+Generated: 2026-08-31T23:34:51Z
 
 ## Summary
 
@@ -611,7 +17,7 @@ Generated: ci-candidate
 
 | Metric | Value |
 | --- | --- |
-| Total statement coverage | recorded in reports/coverage.txt |
+| Total statement coverage | 82.3% |
 | Minimum required coverage | 80.0% |
 | Coverage mode | atomic |
 | Coverage scope | ./internal/... |
@@ -620,10 +26,10 @@ Generated: ci-candidate
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 30 |
-| Test cases started | recorded in reports/test-events.json |
-| JSON pass events | recorded in reports/test-events.json |
-| JSON fail events | recorded in reports/test-events.json |
+| Go packages | 37 |
+| Test cases started | 1379 |
+| JSON pass events | 1395 |
+| JSON fail events | 0 |
 | Integration database | Postgres via TEST_DATABASE_URL |
 
 ## Correctness Gates
@@ -663,7 +69,7 @@ Generated: ci-candidate
 | Broker adapters | `TestAzureEventHubsPublisherPublishesJSONRecord` | PASS |
 | Database invariants | `TestIntegrationDatabaseSchemaInvariants` | PASS |
 | OpenAPI contract | `TestIntegrationResponsesMatchOpenAPIContract` | PASS |
-| Brand-cloud scoped user namespace | `TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug` | PASS |
+| Global user authentication and retired tenant auth | `TestIntegrationPlatformAdminCreatesActiveBrandCloudUser` | PASS |
 | Developer-owned brand clouds | `TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit` | PASS |
 | Brand-cloud owner transfer | `TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession` | PASS |
 | ChipSet SDK provider lifecycle and ACL | `TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit` | PASS |
@@ -724,7 +130,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Broker adapters | `TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds`, `TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds`, `TestLogPublisherWritesEnvelopeJSON`, `TestLogConsumerReadsEnvelopeJSON`, `TestAzureEventHubsPublisherPublishesJSONRecord`, `TestAzureEventHubsConsumerReadsAcrossPartitions`, `TestAzureEventHubsConsumerAcknowledgesAndResumesFromCheckpoint`, and `TestOpenAzurePartitionsUsesStoredCheckpointWhenPresent` cover the deterministic local default adapter plus Azure Event Hubs publish/consume and durable checkpoint resume behavior without requiring live Azure. |
 | Database invariants | `TestIntegrationDatabaseSchemaInvariants` plus existing migration tests verify idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, critical tables/columns/constraints/indexes, and automatic `updated_at` triggers. |
 | OpenAPI contract | `TestIntegrationResponsesMatchOpenAPIContract` plus OpenAPI schema validation cover representative Claim Token resolve/admin, registry-only provisioning-state with nullable `operation`, provisioned/failed provisioning-state, provisioning, deactivation, quota visibility, audit visibility, public OIDC, current-user identity, and admin identity-provider responses against `openapi.yaml`. |
-| Brand-cloud scoped user namespace | `TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug`, `TestIntegrationPlatformAdminBrandCloudLifecycle`, `TestIntegrationPlatformAdminCreatesActiveBrandCloudUser`, `TestIntegrationDatabaseSchemaInvariants`, and brand-cloud token/helper unit tests verify tenant slug uniqueness, brand-scoped user storage, same-email cross-brand login isolation, brand-only refresh/logout handling, platform-login rejection for brand users, and brand-cloud membership authorization. |
+| Global user authentication and retired tenant auth | `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace`, `TestIntegrationPlatformAdminCreatesActiveBrandCloudUser`, `TestIntegrationRetiredTenantAuthenticationAndTokensRejected`, and `TestMultiCloudRegisterSignupOnboardingParityIntegration` verify one global human identity across memberships, global login and activation, tenant auth endpoint retirement, legacy JWT rejection, and organization-scoped authorization. |
 | Developer-owned brand clouds | `TestDeveloperSignupCreatesDefaultBrandCloudAndEnforcesCloudLimit`, `TestEnsurePlatformAdminCreatesRealtekConnectBrandCloud`, and `TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit` verify global developer signup, default brand cloud creation, root `Realtek Connect+` bootstrap, and developer cloud limits. |
 | Brand-cloud owner transfer | `TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper` and `TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession` verify existing-target checks, email token delivery, target-session acceptance, old-owner downgrade, and replay rejection. |
 | ChipSet SDK information providers | `TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit`, `TestChipsetProviderSnapshotLifecycle`, and manifest fetch security tests verify independent read/edit/publish ACLs, draft/published/unpublished visibility, synchronous and background refresh, ETag 304, atomic snapshots, stale last-known-good fallback, audit correlation, SSRF controls, timeout, redirect, response-size, and JSON-complexity limits. |
@@ -822,6 +228,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestChipsetResourcePackageRejectsMalformedCollections/releases_not_an_array`
 - `rtk_account_manager/internal/api`: `TestChipsetResourcePackageRejectsMalformedCollections/resources_not_an_array`
 - `rtk_account_manager/internal/api`: `TestChipsetResourcePackageRejectsMalformedCollections`
+- `rtk_account_manager/internal/api`: `TestCloudDeletionHTTPContract`
+- `rtk_account_manager/internal/api`: `TestCloudMemberCollectionIsOwnerOnly`
 - `rtk_account_manager/internal/api`: `TestDefaultChipsetFetcherDialGuards/disallowed_host`
 - `rtk_account_manager/internal/api`: `TestDefaultChipsetFetcherDialGuards/empty_resolver`
 - `rtk_account_manager/internal/api`: `TestDefaultChipsetFetcherDialGuards/invalid_address`
@@ -882,10 +290,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession`
 - `rtk_account_manager/internal/api`: `TestIntegrationBrandCloudResourceScopeFiltersFleetQueries`
 - `rtk_account_manager/internal/api`: `TestIntegrationBrandCloudScopedRoleAssignmentWorkflow`
-- `rtk_account_manager/internal/api`: `TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug`
 - `rtk_account_manager/internal/api`: `TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit`
 - `rtk_account_manager/internal/api`: `TestIntegrationClaimResolveEndpoint`
+- `rtk_account_manager/internal/api`: `TestIntegrationClaimTokenWritesRecheckRevokedPlatformAuthority`
 - `rtk_account_manager/internal/api`: `TestIntegrationCleanupRefreshTokensRemovesExpiredAndRevokedRows`
+- `rtk_account_manager/internal/api`: `TestIntegrationCloudDeletionPreflightDefaultIsReadOnlyAndFailClosed`
+- `rtk_account_manager/internal/api`: `TestIntegrationCloudViewerScopeAndCollections`
 - `rtk_account_manager/internal/api`: `TestIntegrationCurrentUserCanChangePassword`
 - `rtk_account_manager/internal/api`: `TestIntegrationCurrentUserCanDisableSelfWithOwnerSafety`
 - `rtk_account_manager/internal/api`: `TestIntegrationCurrentUserOIDCIdentityManagement`
@@ -895,10 +305,28 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit`
 - `rtk_account_manager/internal/api`: `TestIntegrationDeveloperSignupUsesEmailAndRejectsLegacyFields`
 - `rtk_account_manager/internal/api`: `TestIntegrationDeviceUserUnprovisionWorkflow`
+- `rtk_account_manager/internal/api`: `TestIntegrationDeviceWritesReauthorizeAfterMiddlewareAdmission`
 - `rtk_account_manager/internal/api`: `TestIntegrationDisabledUserCannotManageOIDCIdentities`
 - `rtk_account_manager/internal/api`: `TestIntegrationDisabledUserCannotUseExistingTokens`
 - `rtk_account_manager/internal/api`: `TestIntegrationEmailSignInValidationPaths`
 - `rtk_account_manager/internal/api`: `TestIntegrationEmailVerificationAndPasswordRecovery`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCancellationRequiresTrustedCredentialAndFullBinding`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationBindsCredentialsScopeAndReconciliation`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationFailsClosedOnMalformedOrUnavailableRequests`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationRejectsInvalidProductionJWTs/algorithm`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationRejectsInvalidProductionJWTs/audience`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationRejectsInvalidProductionJWTs/cloud`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationRejectsInvalidProductionJWTs/expired`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationRejectsInvalidProductionJWTs/future`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationRejectsInvalidProductionJWTs/missing_exp`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationRejectsInvalidProductionJWTs/missing_jti`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationRejectsInvalidProductionJWTs/missing_nbf`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationRejectsInvalidProductionJWTs/product`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationRejectsInvalidProductionJWTs/quantity`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationRejectsInvalidProductionJWTs/run`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationRejectsInvalidProductionJWTs/signature`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationRejectsInvalidProductionJWTs/subject`
+- `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationRejectsInvalidProductionJWTs`
 - `rtk_account_manager/internal/api`: `TestIntegrationFleetDeviceQueryAndSummaryAreServerSide`
 - `rtk_account_manager/internal/api`: `TestIntegrationFleetGroupsAndTags`
 - `rtk_account_manager/internal/api`: `TestIntegrationInternalAppTokenAuthorization`
@@ -908,6 +336,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationLoginAppCertificateCSRRequired`
 - `rtk_account_manager/internal/api`: `TestIntegrationLoginAppCertificateRejectsUnavailableIssuerAndInvalidCSR`
 - `rtk_account_manager/internal/api`: `TestIntegrationLoginWithAppCSRStoresCertificateAndReusesIt`
+- `rtk_account_manager/internal/api`: `TestIntegrationManagedCloudWrites`
 - `rtk_account_manager/internal/api`: `TestIntegrationMigrationsAreIdempotent`
 - `rtk_account_manager/internal/api`: `TestIntegrationOIDCCallbackRejectsUnknownDisabledAndUnverifiedUsers/disabled_linked_user`
 - `rtk_account_manager/internal/api`: `TestIntegrationOIDCCallbackRejectsUnknownDisabledAndUnverifiedUsers/unknown_without_auto_link`
@@ -919,13 +348,26 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanDisableAndEnableMemberUser`
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanUpdateAndRemoveMember`
 - `rtk_account_manager/internal/api`: `TestIntegrationOwnerCanUpdateOrganization`
+- `rtk_account_manager/internal/api`: `TestIntegrationPendingGlobalUserCannotUseExistingTokens/verified-false`
+- `rtk_account_manager/internal/api`: `TestIntegrationPendingGlobalUserCannotUseExistingTokens/verified-true`
+- `rtk_account_manager/internal/api`: `TestIntegrationPendingGlobalUserCannotUseExistingTokens`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminBrandCloudLifecycle`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminCreatesActiveBrandCloudUser`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminCreatesProductionRunJWT`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminDeviceItemProfileLifecycle`
 - `rtk_account_manager/internal/api`: `TestIntegrationPlatformAdminMissingBrandResourcesReturnNotFound`
+- `rtk_account_manager/internal/api`: `TestIntegrationPlatformUnprovisionRechecksRevokedPrivilege`
 - `rtk_account_manager/internal/api`: `TestIntegrationProductCollaboratorLifecycleAndVisibility`
+- `rtk_account_manager/internal/api`: `TestIntegrationProductDeviceDisplay`
+- `rtk_account_manager/internal/api`: `TestIntegrationProductWritesReauthorizeAfterAdmission/cloud`
+- `rtk_account_manager/internal/api`: `TestIntegrationProductWritesReauthorizeAfterAdmission/platform`
+- `rtk_account_manager/internal/api`: `TestIntegrationProductWritesReauthorizeAfterAdmission`
+- `rtk_account_manager/internal/api`: `TestIntegrationProductionRunRechecksAdmissionBeforeSigning/owner_revoked`
+- `rtk_account_manager/internal/api`: `TestIntegrationProductionRunRechecksAdmissionBeforeSigning/platform_revoked`
+- `rtk_account_manager/internal/api`: `TestIntegrationProductionRunRechecksAdmissionBeforeSigning/product_disabled`
+- `rtk_account_manager/internal/api`: `TestIntegrationProductionRunRechecksAdmissionBeforeSigning/signing_failed`
+- `rtk_account_manager/internal/api`: `TestIntegrationProductionRunRechecksAdmissionBeforeSigning`
 - `rtk_account_manager/internal/api`: `TestIntegrationPrometheusMetricsReportsEmptySnapshot`
 - `rtk_account_manager/internal/api`: `TestIntegrationProvisioningEndpoints`
 - `rtk_account_manager/internal/api`: `TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness`
@@ -933,6 +375,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationRegisterLoginRefreshAndLogout`
 - `rtk_account_manager/internal/api`: `TestIntegrationRejectsBlankNames`
 - `rtk_account_manager/internal/api`: `TestIntegrationResponsesMatchOpenAPIContract`
+- `rtk_account_manager/internal/api`: `TestIntegrationRetiredTenantAuthenticationAndTokensRejected`
 - `rtk_account_manager/internal/api`: `TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness`
 - `rtk_account_manager/internal/api`: `TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow`
 - `rtk_account_manager/internal/api`: `TestIntegrationSignupQueuesEncryptedEmailForSendMailHTTP`
@@ -951,8 +394,16 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests/member_role`
 - `rtk_account_manager/internal/api`: `TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests`
 - `rtk_account_manager/internal/api`: `TestLoadSignupPolicyHonorsEnvironmentOverrides`
+- `rtk_account_manager/internal/api`: `TestManagedCloudListHandler`
+- `rtk_account_manager/internal/api`: `TestManagedCloudNonHumanSessionRejected`
 - `rtk_account_manager/internal/api`: `TestMatchExistingDeactivateOperation`
 - `rtk_account_manager/internal/api`: `TestMatchExistingProvisionOperation`
+- `rtk_account_manager/internal/api`: `TestMultiCloudRegisterSignupEmailFailureRollsBackIntegration//v1/auth/register`
+- `rtk_account_manager/internal/api`: `TestMultiCloudRegisterSignupEmailFailureRollsBackIntegration//v1/auth/signup`
+- `rtk_account_manager/internal/api`: `TestMultiCloudRegisterSignupEmailFailureRollsBackIntegration`
+- `rtk_account_manager/internal/api`: `TestMultiCloudRegisterSignupOnboardingParityIntegration//v1/auth/register`
+- `rtk_account_manager/internal/api`: `TestMultiCloudRegisterSignupOnboardingParityIntegration//v1/auth/signup`
+- `rtk_account_manager/internal/api`: `TestMultiCloudRegisterSignupOnboardingParityIntegration`
 - `rtk_account_manager/internal/api`: `TestNewAppCertificateBundle`
 - `rtk_account_manager/internal/api`: `TestNewAuthToken`
 - `rtk_account_manager/internal/api`: `TestNewHTTPAppCertificateIssuerValidatesConfig`
@@ -968,6 +419,9 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes/string_slice`
 - `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes/unsupported`
 - `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes`
+- `rtk_account_manager/internal/api`: `TestOwnerHandoffRequiresHumanSessionEvenForMatchingUUID`
+- `rtk_account_manager/internal/api`: `TestOwnerTransferFinancialBlockersHaveExplicitHTTPResults`
+- `rtk_account_manager/internal/api`: `TestOwnerTransferWithoutBillingAdapterFailsClosed`
 - `rtk_account_manager/internal/api`: `TestPaginationClampsAndDefaultsValues`
 - `rtk_account_manager/internal/api`: `TestParseChipsetManifestRejectsInvalidSnapshots/duplicate_release`
 - `rtk_account_manager/internal/api`: `TestParseChipsetManifestRejectsInvalidSnapshots/non_HTTPS_endpoint`
@@ -985,9 +439,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestParseChipsetManifestRejectsUnsupportedVersionAndExcessiveDepth`
 - `rtk_account_manager/internal/api`: `TestParseChipsetManifestV1`
 - `rtk_account_manager/internal/api`: `TestParseDeviceClaimTokenCategoryRejectsUnknownValue`
+- `rtk_account_manager/internal/api`: `TestPlatformCloudCreationRequiresDesignatedOwner`
 - `rtk_account_manager/internal/api`: `TestPostgresStoreSatisfiesAPIPersistenceBoundaries`
+- `rtk_account_manager/internal/api`: `TestProductScopeNeverFallsBackToTenantClaims`
 - `rtk_account_manager/internal/api`: `TestPrometheusMetricHelpersFormatLabelsDeterministically`
 - `rtk_account_manager/internal/api`: `TestPrometheusMetricsRoute`
+- `rtk_account_manager/internal/api`: `TestPublicOwnerHandoffPreviewConfirmationAndReplay`
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/accepted_provisioning_waits_for_activation`
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/activation_failure_stays_visible`
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/activation_succeeded_and_online_is_ready`
@@ -998,6 +455,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates/registry_disabled_stays_account-side_only`
 - `rtk_account_manager/internal/api`: `TestReadinessFromProjectionStates`
 - `rtk_account_manager/internal/api`: `TestRecoveryLogDoesNotIncludeSensitiveHeaders`
+- `rtk_account_manager/internal/api`: `TestRegisterSignupValidationAndSharedRateLimit`
 - `rtk_account_manager/internal/api`: `TestRejectUnsupportedClaimMaterial/activation_code`
 - `rtk_account_manager/internal/api`: `TestRejectUnsupportedClaimMaterial/factory_identity`
 - `rtk_account_manager/internal/api`: `TestRejectUnsupportedClaimMaterial/mac_address`
@@ -1009,6 +467,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsInvalidToken`
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsMissingToken`
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsRefreshTokenAsBearer`
+- `rtk_account_manager/internal/api`: `TestRetiredTenantTokenRejectedWithoutPersistence`
 - `rtk_account_manager/internal/api`: `TestRootRouteDescribesAPIService`
 - `rtk_account_manager/internal/api`: `TestSignupLimiterEvictsStaleEntries`
 - `rtk_account_manager/internal/api`: `TestSplitCSVQuery`
@@ -1030,7 +489,6 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/user_not_provisioned`
 - `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures`
 - `rtk_account_manager/internal/api`: `TestWriteStatusMetricsSortsStatuses`
-- `rtk_account_manager/internal/auth`: `TestBrandCloudTokenClaimsCarryScopedSubject`
 - `rtk_account_manager/internal/auth`: `TestEndUserTokenClaimsCarryGlobalSubject`
 - `rtk_account_manager/internal/auth`: `TestExpiredAndWrongSecretTokensFailParsing`
 - `rtk_account_manager/internal/auth`: `TestLoadPEMTokenSignerRejectsInvalidMaterial`
@@ -1071,8 +529,128 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/auth`: `TestProviderResolverRejectsUnsupportedOrUnsetSecretRefs`
 - `rtk_account_manager/internal/auth`: `TestRS256TokenSignerErrorPaths`
 - `rtk_account_manager/internal/auth`: `TestRandomTokenProducesHashableDistinctValues`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/access/end_user`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/access/global_user`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/access/legacy_global_user`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/access/mixed_end_user`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/access/tenant_cloud_claim`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/access/tenant_slug_claim`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/access/tenant_sub_without_type`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/access/tenant_subject`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/access/tenant_user_claim`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/access/unknown_subject`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/refresh/end_user`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/refresh/global_user`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/refresh/legacy_global_user`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/refresh/mixed_end_user`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/refresh/tenant_cloud_claim`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/refresh/tenant_slug_claim`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/refresh/tenant_sub_without_type`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/refresh/tenant_subject`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/refresh/tenant_user_claim`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/HMAC/refresh/unknown_subject`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/access/end_user`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/access/global_user`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/access/legacy_global_user`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/access/mixed_end_user`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/access/tenant_cloud_claim`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/access/tenant_slug_claim`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/access/tenant_sub_without_type`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/access/tenant_subject`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/access/tenant_user_claim`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/access/unknown_subject`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/refresh/end_user`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/refresh/global_user`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/refresh/legacy_global_user`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/refresh/mixed_end_user`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/refresh/tenant_cloud_claim`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/refresh/tenant_slug_claim`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/refresh/tenant_sub_without_type`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/refresh/tenant_subject`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/refresh/tenant_user_claim`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser/RSA/refresh/unknown_subject`
+- `rtk_account_manager/internal/auth`: `TestRetiredTenantTokensRejectedAtSharedParser`
 - `rtk_account_manager/internal/auth`: `TestTokenKindValidationWithRSASigners`
 - `rtk_account_manager/internal/auth`: `TestTokenKindValidation`
+- `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapClientRequiresExactAuthenticatedCreationReceipt/account`
+- `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapClientRequiresExactAuthenticatedCreationReceipt/cloud`
+- `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapClientRequiresExactAuthenticatedCreationReceipt/digest`
+- `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapClientRequiresExactAuthenticatedCreationReceipt/event`
+- `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapClientRequiresExactAuthenticatedCreationReceipt/extra`
+- `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapClientRequiresExactAuthenticatedCreationReceipt/null`
+- `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapClientRequiresExactAuthenticatedCreationReceipt/oversize`
+- `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapClientRequiresExactAuthenticatedCreationReceipt/owner`
+- `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapClientRequiresExactAuthenticatedCreationReceipt/status`
+- `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapClientRequiresExactAuthenticatedCreationReceipt/success`
+- `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapClientRequiresExactAuthenticatedCreationReceipt/time`
+- `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapClientRequiresExactAuthenticatedCreationReceipt/version`
+- `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapClientRequiresExactAuthenticatedCreationReceipt`
+- `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapWorkerRetainsFailuresAndStopsOnCancellation`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientNeverFollowsRedirectOrLeaksRemoteDiagnostics`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientRejectsUnsafeConfiguration`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientValidatesScopeSnapshotAndExactNonnegativeIntegers/0`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientValidatesScopeSnapshotAndExactNonnegativeIntegers/1`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientValidatesScopeSnapshotAndExactNonnegativeIntegers/9223372036854775807`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientValidatesScopeSnapshotAndExactNonnegativeIntegers/blocked_snapshot`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientValidatesScopeSnapshotAndExactNonnegativeIntegers/missing_confirmation`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientValidatesScopeSnapshotAndExactNonnegativeIntegers/missing_snapshot_without_blocker`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientValidatesScopeSnapshotAndExactNonnegativeIntegers/missing_zero_amount`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientValidatesScopeSnapshotAndExactNonnegativeIntegers/negative`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientValidatesScopeSnapshotAndExactNonnegativeIntegers/nested_wrong_operation`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientValidatesScopeSnapshotAndExactNonnegativeIntegers/wrong_cloud`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientValidatesScopeSnapshotAndExactNonnegativeIntegers/wrong_cutoff`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientValidatesScopeSnapshotAndExactNonnegativeIntegers/wrong_operation`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientValidatesScopeSnapshotAndExactNonnegativeIntegers/wrong_ownership`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientValidatesScopeSnapshotAndExactNonnegativeIntegers`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudCloseRetirementTransportRejectsAmbiguousProof/both_outcomes`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudCloseRetirementTransportRejectsAmbiguousProof/closed_wrong_operation`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudCloseRetirementTransportRejectsAmbiguousProof/closed`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudCloseRetirementTransportRejectsAmbiguousProof/missing_proof`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudCloseRetirementTransportRejectsAmbiguousProof/missing_time`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudCloseRetirementTransportRejectsAmbiguousProof/null`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudCloseRetirementTransportRejectsAmbiguousProof/retired`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudCloseRetirementTransportRejectsAmbiguousProof/wrong_owner`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudCloseRetirementTransportRejectsAmbiguousProof/wrong_settlement`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudCloseRetirementTransportRejectsAmbiguousProof`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudClosureTransportScopeAndEvidence/cached`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudClosureTransportScopeAndEvidence/contradictory`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudClosureTransportScopeAndEvidence/missing_ready`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudClosureTransportScopeAndEvidence/missing_receipt`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudClosureTransportScopeAndEvidence/nested_scope`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudClosureTransportScopeAndEvidence/null_ready`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudClosureTransportScopeAndEvidence/oversize`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudClosureTransportScopeAndEvidence/owner`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudClosureTransportScopeAndEvidence/valid`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudClosureTransportScopeAndEvidence/version`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudClosureTransportScopeAndEvidence`
+- `rtk_account_manager/internal/billinghandoff`: `TestCloudDeletionPreflightTransportRejectsInvalidEvidence`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityRejectsInvalidRequestsAndHTTPFailures/cacheable`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityRejectsInvalidRequestsAndHTTPFailures/canceled`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityRejectsInvalidRequestsAndHTTPFailures/malformed`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityRejectsInvalidRequestsAndHTTPFailures/oversized`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityRejectsInvalidRequestsAndHTTPFailures/unauthorized`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityRejectsInvalidRequestsAndHTTPFailures`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/duplicate_blocker`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/excess_lifetime`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/expired`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/false_negative_blocker`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/future_observed`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/incomplete_without_blocker`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/missing_action`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/missing_amount`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/missing_empty_transfer`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/missing_evidence`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/missing_proof`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/negative_without_blocker`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/negative`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/nil_blockers`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/null_amount`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/positive`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/unknown_blocker`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/wrong_action`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/wrong_target`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/zero`
+- `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence`
 - `rtk_account_manager/internal/broker`: `TestAzureCheckpointFileDefaultsAndSanitizesComponents`
 - `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerAcknowledgesAndResumesFromCheckpoint`
 - `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerCloseClosesPartitions`
@@ -1175,17 +753,37 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields/source_service`
 - `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields/target_service`
 - `rtk_account_manager/internal/channel`: `TestValidateRejectsMissingEnvelopeFields`
+- `rtk_account_manager/internal/config`: `TestBillingCloudCreationConfigRequiresSeparateOriginAndCredential`
+- `rtk_account_manager/internal/config`: `TestCloudDeletionWorkerConfiguration/ACCOUNT_MANAGER_INTERNAL_AUTH_TOKENhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh`
+- `rtk_account_manager/internal/config`: `TestCloudDeletionWorkerConfiguration/BILLING_HANDOFF_BASE_URLhttp://billing.example`
+- `rtk_account_manager/internal/config`: `TestCloudDeletionWorkerConfiguration/CLOUD_DELETION_WORKER_BATCH_SIZE-1`
+- `rtk_account_manager/internal/config`: `TestCloudDeletionWorkerConfiguration/CLOUD_DELETION_WORKER_BATCH_SIZE0`
+- `rtk_account_manager/internal/config`: `TestCloudDeletionWorkerConfiguration/CLOUD_DELETION_WORKER_BATCH_SIZE129`
+- `rtk_account_manager/internal/config`: `TestCloudDeletionWorkerConfiguration/CLOUD_DELETION_WORKER_BATCH_SIZENaN`
+- `rtk_account_manager/internal/config`: `TestCloudDeletionWorkerConfiguration/CLOUD_DELETION_WORKER_LEASE_DURATION30s`
+- `rtk_account_manager/internal/config`: `TestCloudDeletionWorkerConfiguration/CLOUD_DELETION_WORKER_POLL_INTERVAL0s`
+- `rtk_account_manager/internal/config`: `TestCloudDeletionWorkerConfiguration/CLOUD_DELETION_WORKER_POLL_INTERVAL_0s_`
+- `rtk_account_manager/internal/config`: `TestCloudDeletionWorkerConfiguration/CLOUD_DELETION_WORKER_POLL_INTERVALinvalid`
+- `rtk_account_manager/internal/config`: `TestCloudDeletionWorkerConfiguration/CLOUD_DELETION_WORKER_STEP_TIMEOUT2562047h47m16.854775807s`
+- `rtk_account_manager/internal/config`: `TestCloudDeletionWorkerConfiguration/CLOUD_DELETION_WORKER_STEP_TIMEOUT2m`
+- `rtk_account_manager/internal/config`: `TestCloudDeletionWorkerConfiguration/DATABASE_URL`
+- `rtk_account_manager/internal/config`: `TestCloudDeletionWorkerConfiguration`
 - `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed/EMAIL_OUTBOX_BATCH_SIZE`
 - `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed/EMAIL_OUTBOX_MAX_ATTEMPTS`
 - `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed/EMAIL_OUTBOX_POLL_INTERVAL`
 - `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed/EMAIL_OUTBOX_RETRY_BASE`
 - `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed/EMAIL_OUTBOX_RETRY_MAX`
 - `rtk_account_manager/internal/config`: `TestEmailOutboxRetryConfigurationFailsClosed`
+- `rtk_account_manager/internal/config`: `TestFactoryEnrollmentCredentialIsDedicated`
+- `rtk_account_manager/internal/config`: `TestFactoryHandoffConfigurationIsPairedAndIsolated`
+- `rtk_account_manager/internal/config`: `TestHandoffBillingConfigurationIsPairedAndIsolated`
 - `rtk_account_manager/internal/config`: `TestLoadAcceptsPEMJWTSignerWithoutSharedSecrets`
 - `rtk_account_manager/internal/config`: `TestLoadAcceptsPKCS11JWTSignerWithoutSharedSecrets`
 - `rtk_account_manager/internal/config`: `TestLoadDotEnvSetsMissingValuesAndPreservesExistingEnv`
 - `rtk_account_manager/internal/config`: `TestLoadEmailWorkerCanonicalConfiguration`
+- `rtk_account_manager/internal/config`: `TestLoadFactoryEnrollmentCredentialValidation`
 - `rtk_account_manager/internal/config`: `TestLoadFallsBackForInvalidDurations`
+- `rtk_account_manager/internal/config`: `TestLoadHandoffWorkerRequiresTransportAndBoundedLease`
 - `rtk_account_manager/internal/config`: `TestLoadReadsEnvironmentAndDurations`
 - `rtk_account_manager/internal/config`: `TestLoadRejectsIncompletePEMJWTSigner`
 - `rtk_account_manager/internal/config`: `TestLoadRejectsIncompletePKCS11JWTSigner/missing_key_label`
@@ -1211,6 +809,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration/plaintext_production_URL`
 - `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration/zero_timeout`
 - `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration`
+- `rtk_account_manager/internal/database`: `TestBillingCreationMigrationDoesNotInferHistoricalResponsibility`
 - `rtk_account_manager/internal/database`: `TestConnectAppliesPoolTuningIntegration`
 - `rtk_account_manager/internal/database`: `TestConnectRejectsInvalidConfig`
 - `rtk_account_manager/internal/database`: `TestConnectRejectsUnreachableDatabase`
@@ -1219,7 +818,63 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirCandidates`
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirHonorsEnvOverride`
 - `rtk_account_manager/internal/database`: `TestFindMigrationDirMissing`
+- `rtk_account_manager/internal/database`: `TestHandoffDatabaseTransitionCannotSkipPreparationOrReleaseEvidence`
+- `rtk_account_manager/internal/database`: `TestIdentityCorrectionFencesAllCloudActorsUntilOwnerActivates`
 - `rtk_account_manager/internal/database`: `TestIdentityCutoverMigratesExistingPlatformAuthTokensIntegration`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardAcceptsPendingOrDisabledDesignatedOwner/disabled`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardAcceptsPendingOrDisabledDesignatedOwner/pending`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardAcceptsPendingOrDisabledDesignatedOwner`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardActivationProvenanceIntegration/administratively_disabled_provisioning`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardActivationProvenanceIntegration/created_legacy_suspension`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardActivationProvenanceIntegration/edited_email_provisioning`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardActivationProvenanceIntegration/edited_legacy_suspension`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardActivationProvenanceIntegration/existing_global_legacy_ambiguity`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardActivationProvenanceIntegration/expired_email_provisioning`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardActivationProvenanceIntegration/explicit_keep_overrides_eligible_legacy_backfill`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardActivationProvenanceIntegration/legacy_administrative_disable`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardActivationProvenanceIntegration/missing_provisioning_token`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardActivationProvenanceIntegration/non-pending_email_provisioning`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardActivationProvenanceIntegration/pending_email_provisioning`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardActivationProvenanceIntegration`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardAppliesAfterPreviouslyInstalledMultiCloudMigrations`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardCredentialCorrectionIntegration/OIDC_audit_adoption_blocks`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardCredentialCorrectionIntegration/OIDC_linked_adoption_blocks`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardCredentialCorrectionIntegration/changed_global_credential_untouched`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardCredentialCorrectionIntegration/empty_inherited_credential`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardCredentialCorrectionIntegration/existing_global_untouched`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardCredentialCorrectionIntegration/malformed_inherited_credential`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardCredentialCorrectionIntegration/sole_owner_correction_retains_ownership_and_fences_cloud`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardCredentialCorrectionIntegration`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardRejectsNonUniqueDesignatedOwner/multiple-active-cloud`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardRejectsNonUniqueDesignatedOwner/zero-disabled-cloud`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardRejectsNonUniqueDesignatedOwner`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardResolutionGuardsIntegration/conflicting`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardResolutionGuardsIntegration/latest-keep`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardResolutionGuardsIntegration/missing-actor`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardResolutionGuardsIntegration/missing-evidence`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardResolutionGuardsIntegration/stale`
+- `rtk_account_manager/internal/database`: `TestIdentityForwardResolutionGuardsIntegration`
+- `rtk_account_manager/internal/database`: `TestIdentityPre049DuplicateTargetRemainsReleaseBlocker`
+- `rtk_account_manager/internal/database`: `TestIdentityPreflightRejectsUnavailableInputsWithoutClaimingReady/canceled_connection`
+- `rtk_account_manager/internal/database`: `TestIdentityPreflightRejectsUnavailableInputsWithoutClaimingReady/missing_SQL`
+- `rtk_account_manager/internal/database`: `TestIdentityPreflightRejectsUnavailableInputsWithoutClaimingReady/missing_directory`
+- `rtk_account_manager/internal/database`: `TestIdentityPreflightRejectsUnavailableInputsWithoutClaimingReady/missing_marker_table`
+- `rtk_account_manager/internal/database`: `TestIdentityPreflightRejectsUnavailableInputsWithoutClaimingReady/missing_token_table`
+- `rtk_account_manager/internal/database`: `TestIdentityPreflightRejectsUnavailableInputsWithoutClaimingReady`
+- `rtk_account_manager/internal/database`: `TestIdentityPreflightRequiresPreparedDatabase`
+- `rtk_account_manager/internal/database`: `TestMigrationMarkerAndCommitFailuresRollBackDDL/deferred_commit_rejection`
+- `rtk_account_manager/internal/database`: `TestMigrationMarkerAndCommitFailuresRollBackDDL/marker_rejection`
+- `rtk_account_manager/internal/database`: `TestMigrationMarkerAndCommitFailuresRollBackDDL`
+- `rtk_account_manager/internal/database`: `TestMigrationRejectsCanceledDatabaseAndMissingDirectory`
+- `rtk_account_manager/internal/database`: `TestMultiCloudLegacyCustomerOwnerIntegration`
+- `rtk_account_manager/internal/database`: `TestMultiCloudOwnerWriteSerializationIntegration`
+- `rtk_account_manager/internal/database`: `TestMultiCloudPreflightRejectsAmbiguousOwnersIntegration/0`
+- `rtk_account_manager/internal/database`: `TestMultiCloudPreflightRejectsAmbiguousOwnersIntegration/2`
+- `rtk_account_manager/internal/database`: `TestMultiCloudPreflightRejectsAmbiguousOwnersIntegration`
+- `rtk_account_manager/internal/database`: `TestMultiCloudProductAdmissionMigrationIntegration`
+- `rtk_account_manager/internal/database`: `TestMultiCloudSoleOwnerIntegration`
+- `rtk_account_manager/internal/database`: `TestMultiCloudViewerScopeConstraintsIntegration`
+- `rtk_account_manager/internal/database`: `TestPreflightIdentityCorrectionRejectsNilPool`
 - `rtk_account_manager/internal/emaildelivery`: `TestAuthEmailHTMLEscapesContent`
 - `rtk_account_manager/internal/emaildelivery`: `TestCipherRejectsInvalidKey`
 - `rtk_account_manager/internal/emaildelivery`: `TestCipherRoundTripAndWrongKey`
@@ -1249,6 +904,39 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientClassifiesResponses`
 - `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientSendsOpenAPIRequest`
 - `rtk_account_manager/internal/emaildelivery`: `TestSendMailHTTPClientValidatesConfigurationAndMessage`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientBindsTerminalDecisionsAndRejectsTransportUncertainty/abort/digest`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientBindsTerminalDecisionsAndRejectsTransportUncertainty/abort/id`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientBindsTerminalDecisionsAndRejectsTransportUncertainty/abort/phase`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientBindsTerminalDecisionsAndRejectsTransportUncertainty/abort/time`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientBindsTerminalDecisionsAndRejectsTransportUncertainty/abort/version`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientBindsTerminalDecisionsAndRejectsTransportUncertainty/release/digest`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientBindsTerminalDecisionsAndRejectsTransportUncertainty/release/id`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientBindsTerminalDecisionsAndRejectsTransportUncertainty/release/missing_drain`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientBindsTerminalDecisionsAndRejectsTransportUncertainty/release/phase`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientBindsTerminalDecisionsAndRejectsTransportUncertainty/release/time`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientBindsTerminalDecisionsAndRejectsTransportUncertainty/release/version`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientBindsTerminalDecisionsAndRejectsTransportUncertainty`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/cloud`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/committed`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/cutoff`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/decision`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/drain`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/extra_json`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/hold`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/missing_count`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/negative`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/null_count`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/operation`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/oversize`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/phase`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/source`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/status`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/target`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/time`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/unknown`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/version`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof`
+- `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientValidatesConfigurationAndExactReceipts`
 - `rtk_account_manager/internal/lifecyclehttp`: `TestNewPublisherRejectsUnsafeConfiguration/credential_URL`
 - `rtk_account_manager/internal/lifecyclehttp`: `TestNewPublisherRejectsUnsafeConfiguration/missing_token`
 - `rtk_account_manager/internal/lifecyclehttp`: `TestNewPublisherRejectsUnsafeConfiguration/path_URL`
@@ -1266,6 +954,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/logging`: `TestServiceUnitMapping`
 - `rtk_account_manager/internal/logging`: `TestSyncHandlesNilLogger`
 - `rtk_account_manager/internal/model`: `TestChipsetEndpointUnmarshalMetadataAndErrors`
+- `rtk_account_manager/internal/model`: `TestCloudViewerScopeJSON`
 - `rtk_account_manager/internal/openapi`: `TestOpenAPIContractIsValid`
 - `rtk_account_manager/internal/openapi`: `TestOpenAPIOperationsHaveCompleteMetadata`
 - `rtk_account_manager/internal/readiness`: `TestOptionsFromEnvReadsSmokeSettings`
@@ -1285,7 +974,14 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestACLSeedPermissionCatalogAndSystemRoles`
 - `rtk_account_manager/internal/store`: `TestACLValueHelpers`
 - `rtk_account_manager/internal/store`: `TestAppCertificateCreateRotatesActiveCertificate`
+- `rtk_account_manager/internal/store`: `TestAppCertificateHonorsCurrentGlobalUserState/active`
+- `rtk_account_manager/internal/store`: `TestAppCertificateHonorsCurrentGlobalUserState/disabled`
+- `rtk_account_manager/internal/store`: `TestAppCertificateHonorsCurrentGlobalUserState/pending`
+- `rtk_account_manager/internal/store`: `TestAppCertificateHonorsCurrentGlobalUserState`
 - `rtk_account_manager/internal/store`: `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`
+- `rtk_account_manager/internal/store`: `TestBillingCloudCreationFailureRollsBackSignupAndExcludesLegacyOrganizations`
+- `rtk_account_manager/internal/store`: `TestBillingCloudCreationOutboxCommitsWithUniqueInitialOwner`
+- `rtk_account_manager/internal/store`: `TestBillingCloudCreationOutboxPartitionsLeasesAndPreservesEventOnTimeout`
 - `rtk_account_manager/internal/store`: `TestBrandCloudLoginActivationTokenIsTenantScoped`
 - `rtk_account_manager/internal/store`: `TestBrandCloudLoginTokenAndEmailOutboxCommitTogether`
 - `rtk_account_manager/internal/store`: `TestBrandCloudMemberInvitationLifecycleAndConflicts`
@@ -1298,11 +994,72 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestChipsetProviderStoreErrorAndSnapshotGuards/provider_scan`
 - `rtk_account_manager/internal/store`: `TestChipsetProviderStoreErrorAndSnapshotGuards/snapshot_scan`
 - `rtk_account_manager/internal/store`: `TestChipsetProviderStoreErrorAndSnapshotGuards`
+- `rtk_account_manager/internal/store`: `TestClaimAdmissionRequiresCurrentOwnerApprovedProductScope`
+- `rtk_account_manager/internal/store`: `TestClaimAndUnprovisionAuditFailurePreservesDeviceAndClaim`
 - `rtk_account_manager/internal/store`: `TestClaimOutboxMessagesReadyLeasesRows`
+- `rtk_account_manager/internal/store`: `TestClaimOverrideRejectsInconsistentStateWithoutMutation/canceled`
+- `rtk_account_manager/internal/store`: `TestClaimOverrideRejectsInconsistentStateWithoutMutation/invalid_evidence`
+- `rtk_account_manager/internal/store`: `TestClaimOverrideRejectsInconsistentStateWithoutMutation/missing_claim`
+- `rtk_account_manager/internal/store`: `TestClaimOverrideRejectsInconsistentStateWithoutMutation/missing_target`
+- `rtk_account_manager/internal/store`: `TestClaimOverrideRejectsInconsistentStateWithoutMutation/revoked_token`
+- `rtk_account_manager/internal/store`: `TestClaimOverrideRejectsInconsistentStateWithoutMutation/unclaimed_token`
+- `rtk_account_manager/internal/store`: `TestClaimOverrideRejectsInconsistentStateWithoutMutation/wrong_device_cloud`
+- `rtk_account_manager/internal/store`: `TestClaimOverrideRejectsInconsistentStateWithoutMutation/wrong_token_cloud`
+- `rtk_account_manager/internal/store`: `TestClaimOverrideRejectsInconsistentStateWithoutMutation`
+- `rtk_account_manager/internal/store`: `TestClaimOverrideWriteFailuresRollBackThenRetry/audit`
+- `rtk_account_manager/internal/store`: `TestClaimOverrideWriteFailuresRollBackThenRetry/claim`
+- `rtk_account_manager/internal/store`: `TestClaimOverrideWriteFailuresRollBackThenRetry/commit`
+- `rtk_account_manager/internal/store`: `TestClaimOverrideWriteFailuresRollBackThenRetry/device`
+- `rtk_account_manager/internal/store`: `TestClaimOverrideWriteFailuresRollBackThenRetry/duplicate_serial`
+- `rtk_account_manager/internal/store`: `TestClaimOverrideWriteFailuresRollBackThenRetry/token`
+- `rtk_account_manager/internal/store`: `TestClaimOverrideWriteFailuresRollBackThenRetry`
+- `rtk_account_manager/internal/store`: `TestClaimOverridesLockOppositeCloudMovesInTheSameOrder`
+- `rtk_account_manager/internal/store`: `TestClaimOverridesRequirePlatformAuthorityOperationalCloudsAndProduct/reclaim`
+- `rtk_account_manager/internal/store`: `TestClaimOverridesRequirePlatformAuthorityOperationalCloudsAndProduct/transfer`
+- `rtk_account_manager/internal/store`: `TestClaimOverridesRequirePlatformAuthorityOperationalCloudsAndProduct`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionAuditFailuresRollbackEachDurableDecision/cancellation_requested`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionAuditFailuresRollbackEachDurableDecision/close_requested`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionAuditFailuresRollbackEachDurableDecision/command_retired`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionAuditFailuresRollbackEachDurableDecision/hold_released`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionAuditFailuresRollbackEachDurableDecision/producer_held`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionAuditFailuresRollbackEachDurableDecision/requested`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionAuditFailuresRollbackEachDurableDecision`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionCancellationInvalidatesStaleWriter`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionCancellationKeepsIdempotencyActorScoped`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionCancellationWaitsForEveryRelease`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionCloseWinsCancellation`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionDelayedHoldCannotSucceedAfterCancellation`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionDurableReplayAndLostBillingReply`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionFinancialBlockersAreConservative`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionLeasedJobRecovery`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionOwnerOnlyAndConcurrentAdmission`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRecoversRetiredStaleCommand`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRecoveryConfigurationRejectsPartialProtocol`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRecoveryOnlyCannotAdmitOrInventProducers`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRecoveryRejectsMalformedRetirementProof/bad_digest`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRecoveryRejectsMalformedRetirementProof/closed_without_acknowledgment`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRecoveryRejectsMalformedRetirementProof/empty_timestamp`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRecoveryRejectsMalformedRetirementProof/missing_timestamp`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRecoveryRejectsMalformedRetirementProof/mixed_outcomes`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRecoveryRejectsMalformedRetirementProof/unknown_outcome`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRecoveryRejectsMalformedRetirementProof/wrong_command`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRecoveryRejectsMalformedRetirementProof/wrong_operation`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRecoveryRejectsMalformedRetirementProof/wrong_settlement`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRecoveryRejectsMalformedRetirementProof`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionReleaseRejectsWrongPhaseAndConflictingReplay`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRequiresEvidenceAndPreservesAuditAtomicity/audit`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRequiresEvidenceAndPreservesAuditAtomicity/billing`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRequiresEvidenceAndPreservesAuditAtomicity/producer`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionRequiresEvidenceAndPreservesAuditAtomicity`
+- `rtk_account_manager/internal/store`: `TestCloudDeletionWorkerCancellationWakeBeatsStaleBackoff`
+- `rtk_account_manager/internal/store`: `TestCloudViewerScopeNormalizationAndComparison`
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshotWithLossyUTF8`
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshot`
 - `rtk_account_manager/internal/store`: `TestCompareOperationCreate`
+- `rtk_account_manager/internal/store`: `TestConcurrentHandoffAcceptsCannotOverReserveTargetQuota`
+- `rtk_account_manager/internal/store`: `TestConcurrentProductPatchesPreserveDisjointFields`
 - `rtk_account_manager/internal/store`: `TestConfigureAuthTokenRateLimit`
+- `rtk_account_manager/internal/store`: `TestConfigureOwnershipHandoffValidatesAndCopiesInventory`
 - `rtk_account_manager/internal/store`: `TestCreateDeviceClaimTokenRejectsUnsupportedServiceOptions`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetDeviceOperationIsIdempotent`
 - `rtk_account_manager/internal/store`: `TestCreateOrGetDeviceOperationRejectsMismatchedDeviceOrganization`
@@ -1310,6 +1067,25 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestCreateOrGetInboxMessagePreservesDeadLetterPayloadSnapshot`
 - `rtk_account_manager/internal/store`: `TestCreateProductionRunBindsBrandCloudAndProfile`
 - `rtk_account_manager/internal/store`: `TestCreateProductionRunRejectsDisabledOrCrossBrandProfile`
+- `rtk_account_manager/internal/store`: `TestDeletionCanceledCallsPreserveFenceAndWorkerLease/advance`
+- `rtk_account_manager/internal/store`: `TestDeletionCanceledCallsPreserveFenceAndWorkerLease/cancel`
+- `rtk_account_manager/internal/store`: `TestDeletionCanceledCallsPreserveFenceAndWorkerLease/claim_job`
+- `rtk_account_manager/internal/store`: `TestDeletionCanceledCallsPreserveFenceAndWorkerLease/complete`
+- `rtk_account_manager/internal/store`: `TestDeletionCanceledCallsPreserveFenceAndWorkerLease/finish_job`
+- `rtk_account_manager/internal/store`: `TestDeletionCanceledCallsPreserveFenceAndWorkerLease/preflight`
+- `rtk_account_manager/internal/store`: `TestDeletionCanceledCallsPreserveFenceAndWorkerLease/prepare_close`
+- `rtk_account_manager/internal/store`: `TestDeletionCanceledCallsPreserveFenceAndWorkerLease/process_job`
+- `rtk_account_manager/internal/store`: `TestDeletionCanceledCallsPreserveFenceAndWorkerLease/record_hold`
+- `rtk_account_manager/internal/store`: `TestDeletionCanceledCallsPreserveFenceAndWorkerLease/record_release`
+- `rtk_account_manager/internal/store`: `TestDeletionCanceledCallsPreserveFenceAndWorkerLease/request`
+- `rtk_account_manager/internal/store`: `TestDeletionCanceledCallsPreserveFenceAndWorkerLease`
+- `rtk_account_manager/internal/store`: `TestDeletionPreflightFinancialAndMissingEvidence`
+- `rtk_account_manager/internal/store`: `TestDeletionPreflightRechecksResourcesAndOwnerAfterDependencyIO/disabled-owner`
+- `rtk_account_manager/internal/store`: `TestDeletionPreflightRechecksResourcesAndOwnerAfterDependencyIO/handoff`
+- `rtk_account_manager/internal/store`: `TestDeletionPreflightRechecksResourcesAndOwnerAfterDependencyIO/new-product`
+- `rtk_account_manager/internal/store`: `TestDeletionPreflightRechecksResourcesAndOwnerAfterDependencyIO`
+- `rtk_account_manager/internal/store`: `TestDeletionPreflightRejectsScopeAndDependencyChanges`
+- `rtk_account_manager/internal/store`: `TestDeletionPreflightResourceCountsAndNoSideEffects`
 - `rtk_account_manager/internal/store`: `TestDeveloperBrandCloudErrorPaths`
 - `rtk_account_manager/internal/store`: `TestDeveloperSignupCreatesDefaultBrandCloudAndEnforcesCloudLimit`
 - `rtk_account_manager/internal/store`: `TestDeviceClaimReclaimRequiresEvidenceAndRejectsInvalidTransitions`
@@ -1319,15 +1095,82 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileBacksClaimTokenSnapshotAndResolve`
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileCRUDAndAudit`
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
+- `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/admin-disable-then-email`
+- `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/admin-disable`
+- `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/existing-admin-disable`
+- `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/existing-unverified`
+- `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/global-disable-enable`
+- `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/new`
+- `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/outbox-rollback`
+- `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/provision-role-change`
+- `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/removed-member`
+- `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/repeat-email`
+- `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/role-change`
+- `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/same-transaction-disable`
+- `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/stale-hold`
+- `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds`
 - `rtk_account_manager/internal/store`: `TestEmailOutboxClaimLeaseAndIdempotency`
 - `rtk_account_manager/internal/store`: `TestEmailOutboxTokenAndQueueAreTransactional`
 - `rtk_account_manager/internal/store`: `TestEmailOutboxTransitionsListRequeueAndCounts`
+- `rtk_account_manager/internal/store`: `TestEndUserClaimKeepsIdentitySeparateAndRollsBackBindingFailure`
 - `rtk_account_manager/internal/store`: `TestEndUserPersistenceErrorPaths`
 - `rtk_account_manager/internal/store`: `TestEnsurePlatformAdminCreatesAndReenablesUser`
 - `rtk_account_manager/internal/store`: `TestEnsurePlatformAdminCreatesRealtekConnectBrandCloud`
 - `rtk_account_manager/internal/store`: `TestEvaluationQuotaUsageUtilizationHandlesZeroAndNonZeroQuotas`
+- `rtk_account_manager/internal/store`: `TestFactoryCancellationFencesAbsentAndDelayedAdmissions`
+- `rtk_account_manager/internal/store`: `TestFactoryCancellationRacesAdmissionAndPreservesIssuedOutcomes`
+- `rtk_account_manager/internal/store`: `TestFactoryCancellationValidationAndPersistenceFailures`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance/canceled`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance/disabled_product`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance/disabled_run`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance/expired_run`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance/future_run`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance/invalid_device`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance/invalid_digest`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance/invalid_request`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance/legacy_run`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance/missing_run`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance/no_actor`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance/pending_owner`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance/revoked_actor`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance/stale_ownership`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance/wrong_cloud`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance/wrong_product`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentAdmissionRechecksAuthorityAndProvenance`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentPendingResultsBlockHandoffEvenWithAllReceipts`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentPlatformAuthorityIsPersistedAndRechecked`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentRechecksRunAfterWaitingForCloudLock/deleted`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentRechecksRunAfterWaitingForCloudLock/different_creator`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentRechecksRunAfterWaitingForCloudLock/different_product`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentRechecksRunAfterWaitingForCloudLock/disabled`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentRechecksRunAfterWaitingForCloudLock`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentReservationsSerializeQuotaAndReplayResults`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentResultValidationAndConcurrentCompletion/canceled`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentResultValidationAndConcurrentCompletion/inconsistent_counter`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentResultValidationAndConcurrentCompletion/missing_cloud`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentResultValidationAndConcurrentCompletion/missing_digest`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentResultValidationAndConcurrentCompletion/missing_evidence`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentResultValidationAndConcurrentCompletion/missing_reservation`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentResultValidationAndConcurrentCompletion/missing_run`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentResultValidationAndConcurrentCompletion/unknown_outcome`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentResultValidationAndConcurrentCompletion/wrong_digest`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentResultValidationAndConcurrentCompletion`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentWritesRollbackOnPersistenceFailure/counter_write`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentWritesRollbackOnPersistenceFailure/reserve_audit`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentWritesRollbackOnPersistenceFailure/reserve_commit`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentWritesRollbackOnPersistenceFailure/reserve_write`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentWritesRollbackOnPersistenceFailure/result_audit`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentWritesRollbackOnPersistenceFailure/result_commit`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentWritesRollbackOnPersistenceFailure/result_write`
+- `rtk_account_manager/internal/store`: `TestFactoryEnrollmentWritesRollbackOnPersistenceFailure`
 - `rtk_account_manager/internal/store`: `TestGeneratedTenantSlugUsesNameAndEightCharSuffix`
 - `rtk_account_manager/internal/store`: `TestGetOutboxMessageDetailIncludesOperation`
+- `rtk_account_manager/internal/store`: `TestGlobalAuthorizationHonorsCurrentUserAndMembershipState/active`
+- `rtk_account_manager/internal/store`: `TestGlobalAuthorizationHonorsCurrentUserAndMembershipState/disabled-member`
+- `rtk_account_manager/internal/store`: `TestGlobalAuthorizationHonorsCurrentUserAndMembershipState/disabled-user`
+- `rtk_account_manager/internal/store`: `TestGlobalAuthorizationHonorsCurrentUserAndMembershipState/no-member`
+- `rtk_account_manager/internal/store`: `TestGlobalAuthorizationHonorsCurrentUserAndMembershipState/pending`
+- `rtk_account_manager/internal/store`: `TestGlobalAuthorizationHonorsCurrentUserAndMembershipState`
 - `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace/admin`
 - `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace/disabled-owner`
 - `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace/dual-role`
@@ -1339,18 +1182,141 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace/platform-only`
 - `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace/unknown`
 - `rtk_account_manager/internal/store`: `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace`
+- `rtk_account_manager/internal/store`: `TestGlobalVerificationTokenStatusHonorsAccountAndTokenState/already-verified`
+- `rtk_account_manager/internal/store`: `TestGlobalVerificationTokenStatusHonorsAccountAndTokenState/consumed`
+- `rtk_account_manager/internal/store`: `TestGlobalVerificationTokenStatusHonorsAccountAndTokenState/disabled`
+- `rtk_account_manager/internal/store`: `TestGlobalVerificationTokenStatusHonorsAccountAndTokenState/expired`
+- `rtk_account_manager/internal/store`: `TestGlobalVerificationTokenStatusHonorsAccountAndTokenState/legacy-subject`
+- `rtk_account_manager/internal/store`: `TestGlobalVerificationTokenStatusHonorsAccountAndTokenState/mismatched-subject`
+- `rtk_account_manager/internal/store`: `TestGlobalVerificationTokenStatusHonorsAccountAndTokenState/tenant-scope`
+- `rtk_account_manager/internal/store`: `TestGlobalVerificationTokenStatusHonorsAccountAndTokenState/unverified-non-pending`
+- `rtk_account_manager/internal/store`: `TestGlobalVerificationTokenStatusHonorsAccountAndTokenState/unverified-pending`
+- `rtk_account_manager/internal/store`: `TestGlobalVerificationTokenStatusHonorsAccountAndTokenState/wrong-purpose`
+- `rtk_account_manager/internal/store`: `TestGlobalVerificationTokenStatusHonorsAccountAndTokenState`
+- `rtk_account_manager/internal/store`: `TestHandoffAcceptanceRechecksExpiryAfterRemoteEligibility`
+- `rtk_account_manager/internal/store`: `TestHandoffAcceptanceReservesQuotaAndCancellationWaitsForEveryHoldRelease`
+- `rtk_account_manager/internal/store`: `TestHandoffBalanceChangeToZeroRequiresFreshConsentAndNewKey`
+- `rtk_account_manager/internal/store`: `TestHandoffBalancePreviewRequiresAllPrepareEvidenceAndPreservesSnapshot`
+- `rtk_account_manager/internal/store`: `TestHandoffBalanceRechecksParticipantAfterRemoteRead`
+- `rtk_account_manager/internal/store`: `TestHandoffCanceledCallsPreserveOwnerDecisionsAndWorkerLease/abort_acknowledgment`
+- `rtk_account_manager/internal/store`: `TestHandoffCanceledCallsPreserveOwnerDecisionsAndWorkerLease/abort`
+- `rtk_account_manager/internal/store`: `TestHandoffCanceledCallsPreserveOwnerDecisionsAndWorkerLease/accept_replay`
+- `rtk_account_manager/internal/store`: `TestHandoffCanceledCallsPreserveOwnerDecisionsAndWorkerLease/advance_job`
+- `rtk_account_manager/internal/store`: `TestHandoffCanceledCallsPreserveOwnerDecisionsAndWorkerLease/cancel`
+- `rtk_account_manager/internal/store`: `TestHandoffCanceledCallsPreserveOwnerDecisionsAndWorkerLease/claim_jobs`
+- `rtk_account_manager/internal/store`: `TestHandoffCanceledCallsPreserveOwnerDecisionsAndWorkerLease/commit`
+- `rtk_account_manager/internal/store`: `TestHandoffCanceledCallsPreserveOwnerDecisionsAndWorkerLease/finalization_acknowledgment`
+- `rtk_account_manager/internal/store`: `TestHandoffCanceledCallsPreserveOwnerDecisionsAndWorkerLease/finalize`
+- `rtk_account_manager/internal/store`: `TestHandoffCanceledCallsPreserveOwnerDecisionsAndWorkerLease/finish_job`
+- `rtk_account_manager/internal/store`: `TestHandoffCanceledCallsPreserveOwnerDecisionsAndWorkerLease/prepare_acknowledgment`
+- `rtk_account_manager/internal/store`: `TestHandoffCanceledCallsPreserveOwnerDecisionsAndWorkerLease/preview`
+- `rtk_account_manager/internal/store`: `TestHandoffCanceledCallsPreserveOwnerDecisionsAndWorkerLease`
+- `rtk_account_manager/internal/store`: `TestHandoffCommitCannotSkipPreparationConsentOrLatestBalance/negative_after_consent`
+- `rtk_account_manager/internal/store`: `TestHandoffCommitCannotSkipPreparationConsentOrLatestBalance/no_consent`
+- `rtk_account_manager/internal/store`: `TestHandoffCommitCannotSkipPreparationConsentOrLatestBalance/sql_skip`
+- `rtk_account_manager/internal/store`: `TestHandoffCommitCannotSkipPreparationConsentOrLatestBalance`
+- `rtk_account_manager/internal/store`: `TestHandoffCommitDecisionCannotPersistWithoutOwnerTransaction`
+- `rtk_account_manager/internal/store`: `TestHandoffCommitLostGrantAndAuditFailureRetrySameDecision/commit_audit`
+- `rtk_account_manager/internal/store`: `TestHandoffCommitLostGrantAndAuditFailureRetrySameDecision/grant_reply`
+- `rtk_account_manager/internal/store`: `TestHandoffCommitLostGrantAndAuditFailureRetrySameDecision`
+- `rtk_account_manager/internal/store`: `TestHandoffCommitRechecksCancellationEligibilityAndQuotaAfterGrant/cancel`
+- `rtk_account_manager/internal/store`: `TestHandoffCommitRechecksCancellationEligibilityAndQuotaAfterGrant/disabled`
+- `rtk_account_manager/internal/store`: `TestHandoffCommitRechecksCancellationEligibilityAndQuotaAfterGrant/expired`
+- `rtk_account_manager/internal/store`: `TestHandoffCommitRechecksCancellationEligibilityAndQuotaAfterGrant/quota`
+- `rtk_account_manager/internal/store`: `TestHandoffCommitRechecksCancellationEligibilityAndQuotaAfterGrant`
+- `rtk_account_manager/internal/store`: `TestHandoffCommitRevokesSourceAndFinalizationReleasesOnlyAfterAllAcks`
+- `rtk_account_manager/internal/store`: `TestHandoffConcurrentCommitIsOneOwnerDecision`
+- `rtk_account_manager/internal/store`: `TestHandoffConcurrentSameAcceptanceAndAuditRollback`
+- `rtk_account_manager/internal/store`: `TestHandoffConfirmationAuditFailureCannotEraseRemoteConsentIntent`
+- `rtk_account_manager/internal/store`: `TestHandoffConfirmationConcurrentSameIntent`
+- `rtk_account_manager/internal/store`: `TestHandoffFinalizationAuditFailureRetainsFenceAndRetries`
+- `rtk_account_manager/internal/store`: `TestHandoffFinancialEvidenceFailsClosedAtRequestAndAcceptance/-1`
+- `rtk_account_manager/internal/store`: `TestHandoffFinancialEvidenceFailsClosedAtRequestAndAcceptance/0`
+- `rtk_account_manager/internal/store`: `TestHandoffFinancialEvidenceFailsClosedAtRequestAndAcceptance/1`
+- `rtk_account_manager/internal/store`: `TestHandoffFinancialEvidenceFailsClosedAtRequestAndAcceptance`
+- `rtk_account_manager/internal/store`: `TestHandoffJobConcurrentClaimsArePartitioned`
+- `rtk_account_manager/internal/store`: `TestHandoffJobLeaseRecoveryAndNewWakeWinsOverOldBackoff`
+- `rtk_account_manager/internal/store`: `TestHandoffLatePreviewCannotUndoCancellationOrExpiry/cancel`
+- `rtk_account_manager/internal/store`: `TestHandoffLatePreviewCannotUndoCancellationOrExpiry/expire`
+- `rtk_account_manager/internal/store`: `TestHandoffLatePreviewCannotUndoCancellationOrExpiry`
+- `rtk_account_manager/internal/store`: `TestHandoffLiveFinancialBlockerInvalidatesConsentNotHistory`
+- `rtk_account_manager/internal/store`: `TestHandoffLostConfirmationReplyReplaysDurableIntent`
+- `rtk_account_manager/internal/store`: `TestHandoffOlderRemoteSnapshotCannotReplaceNewerPreview`
+- `rtk_account_manager/internal/store`: `TestHandoffPreparationRequiresEveryBoundDurableCheckpoint`
+- `rtk_account_manager/internal/store`: `TestHandoffPrepareReceiptAuditRollbackAndConcurrentReplay`
+- `rtk_account_manager/internal/store`: `TestHandoffPreparedReceiptsCannotReleaseCancellationFence`
+- `rtk_account_manager/internal/store`: `TestHandoffRechecksOwnerAndTargetAfterExternalPreflight`
+- `rtk_account_manager/internal/store`: `TestHandoffSnapshotBindingComparesCutoffInstant`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerCancellationRequiresAllReleaseReceipts`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/canceling/invalid_receipt`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/canceling/missing_adapter`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/canceling/unavailable`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/canceling/wrong_scope`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/canceling`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/finalizing/invalid_receipt`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/finalizing/missing_adapter`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/finalizing/unavailable`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/finalizing/wrong_scope`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/finalizing`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/preparing/invalid_receipt`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/preparing/missing_adapter`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/preparing/unavailable`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/preparing/wrong_scope`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/preparing`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerPreparationConsentCommitAndFinalize`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerRejectsUnavailableOrUnboundSettlement/negative_balance`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerRejectsUnavailableOrUnboundSettlement/old_snapshot`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerRejectsUnavailableOrUnboundSettlement/prepare_unavailable`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerRejectsUnavailableOrUnboundSettlement/prepare_wrong_scope`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerRejectsUnavailableOrUnboundSettlement/settlement_unavailable`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerRejectsUnavailableOrUnboundSettlement/unsettled_usage`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerRejectsUnavailableOrUnboundSettlement/wrong_currency`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerRejectsUnavailableOrUnboundSettlement/wrong_cutoff`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerRejectsUnavailableOrUnboundSettlement/wrong_operation`
+- `rtk_account_manager/internal/store`: `TestHandoffWorkerRejectsUnavailableOrUnboundSettlement`
 - `rtk_account_manager/internal/store`: `TestIdentityProviderRejectsRawClientSecretRef`
 - `rtk_account_manager/internal/store`: `TestIdentityProviderStoreCRUDAndEnabledInvariant`
 - `rtk_account_manager/internal/store`: `TestIntegrationDatabaseSchemaInvariants`
 - `rtk_account_manager/internal/store`: `TestJSONHelpers`
 - `rtk_account_manager/internal/store`: `TestLifecycleMetricsAggregatesQueueAndOperationHealth`
+- `rtk_account_manager/internal/store`: `TestLifecycleUserAdmissionAuditFailureRollsBackOutboxAndProjection`
+- `rtk_account_manager/internal/store`: `TestLifecycleUserAdmissionRechecksAuthorityAndAuditsOnce`
+- `rtk_account_manager/internal/store`: `TestLifecycleUserAdmissionRejectsAbsentActorAndWrongOperation`
 - `rtk_account_manager/internal/store`: `TestListAuditEventsReturnsRecordedLifecycleEvents`
 - `rtk_account_manager/internal/store`: `TestListInboxMessagesByStatusAndShowDetail`
 - `rtk_account_manager/internal/store`: `TestListOutboxMessagesByStatusFiltersLifecycleRows`
 - `rtk_account_manager/internal/store`: `TestListUserOrganizationPermissionsIncludesOwnerBillingOnlyInsideOrganization`
 - `rtk_account_manager/internal/store`: `TestLoginActivationTokenLifecycleAndScope`
+- `rtk_account_manager/internal/store`: `TestManagedCloudPatchScopeReplayAndHandoffFence`
+- `rtk_account_manager/internal/store`: `TestManagedCloudWriteConcurrentReplayAndQuota`
+- `rtk_account_manager/internal/store`: `TestManagedCloudWriteValidationActivationAndRollback`
+- `rtk_account_manager/internal/store`: `TestManagedCloudWriteValidation`
 - `rtk_account_manager/internal/store`: `TestMergeDeviceMetadataPreservesUnrelatedFields`
 - `rtk_account_manager/internal/store`: `TestMetadataChangedProjectionFiltersNonVideoCloudKeys`
+- `rtk_account_manager/internal/store`: `TestMultiCloudConcurrentCreationQuotaIntegration`
+- `rtk_account_manager/internal/store`: `TestMultiCloudDelegatedProductOwnerCannotExpandAdmissionIntegration`
+- `rtk_account_manager/internal/store`: `TestMultiCloudEligibilityFencesStaleACLIntegration/cloud_disabled`
+- `rtk_account_manager/internal/store`: `TestMultiCloudEligibilityFencesStaleACLIntegration/member_disabled`
+- `rtk_account_manager/internal/store`: `TestMultiCloudEligibilityFencesStaleACLIntegration/owner_disabled`
+- `rtk_account_manager/internal/store`: `TestMultiCloudEligibilityFencesStaleACLIntegration/owner_membership_disabled`
+- `rtk_account_manager/internal/store`: `TestMultiCloudEligibilityFencesStaleACLIntegration/owner_pending`
+- `rtk_account_manager/internal/store`: `TestMultiCloudEligibilityFencesStaleACLIntegration/owner_unverified`
+- `rtk_account_manager/internal/store`: `TestMultiCloudEligibilityFencesStaleACLIntegration`
+- `rtk_account_manager/internal/store`: `TestMultiCloudInvitationConcurrentAcceptanceIntegration`
+- `rtk_account_manager/internal/store`: `TestMultiCloudInvitationRevalidatesOwnerIntegration/disabled`
+- `rtk_account_manager/internal/store`: `TestMultiCloudInvitationRevalidatesOwnerIntegration/pending`
+- `rtk_account_manager/internal/store`: `TestMultiCloudInvitationRevalidatesOwnerIntegration/unverified`
+- `rtk_account_manager/internal/store`: `TestMultiCloudInvitationRevalidatesOwnerIntegration`
+- `rtk_account_manager/internal/store`: `TestMultiCloudListScopeAndQuotaIntegration`
+- `rtk_account_manager/internal/store`: `TestMultiCloudPlatformCreationIsAtomicAndExplicitIntegration`
+- `rtk_account_manager/internal/store`: `TestMultiCloudProductAcceptSerializesWithMembershipRevocationIntegration`
+- `rtk_account_manager/internal/store`: `TestMultiCloudProductInvitationRequiresPriorCloudAdmissionIntegration`
+- `rtk_account_manager/internal/store`: `TestMultiCloudProductMutationAuditFailureRollsBackIntegration/remove`
+- `rtk_account_manager/internal/store`: `TestMultiCloudProductMutationAuditFailureRollsBackIntegration/role`
+- `rtk_account_manager/internal/store`: `TestMultiCloudProductMutationAuditFailureRollsBackIntegration/transfer`
+- `rtk_account_manager/internal/store`: `TestMultiCloudProductMutationAuditFailureRollsBackIntegration`
+- `rtk_account_manager/internal/store`: `TestMultiCloudViewerScopeLifecycleIntegration`
 - `rtk_account_manager/internal/store`: `TestNewStoreHasDefaultAuthTokenRateLimit`
 - `rtk_account_manager/internal/store`: `TestNormalizeTenantSlug/empty_after_normalization`
 - `rtk_account_manager/internal/store`: `TestNormalizeTenantSlug/lowercase`
@@ -1362,8 +1328,56 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestOnlineChangedProjectionSetsStatusAndLastSeenAt`
 - `rtk_account_manager/internal/store`: `TestOutboxMessagePersistenceAndReadyList`
 - `rtk_account_manager/internal/store`: `TestOwnerTransferAndEmailOutboxCommitOrRollbackTogether`
+- `rtk_account_manager/internal/store`: `TestPlatformACLWithoutMembershipRequiresEligibleGlobalUser/active`
+- `rtk_account_manager/internal/store`: `TestPlatformACLWithoutMembershipRequiresEligibleGlobalUser/disabled`
+- `rtk_account_manager/internal/store`: `TestPlatformACLWithoutMembershipRequiresEligibleGlobalUser/pending`
+- `rtk_account_manager/internal/store`: `TestPlatformACLWithoutMembershipRequiresEligibleGlobalUser`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationAuditAndCommitRollback/create/audit`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationAuditAndCommitRollback/create/commit`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationAuditAndCommitRollback/create/write`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationAuditAndCommitRollback/revoke/audit`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationAuditAndCommitRollback/revoke/commit`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationAuditAndCommitRollback/revoke/write`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationAuditAndCommitRollback`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationLocksManufacturerAndTargetClouds`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationRechecksAuthority/create/canceled`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationRechecksAuthority/create/disabled`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationRechecksAuthority/create/missing_actor`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationRechecksAuthority/create/not_admin`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationRechecksAuthority/create/pending`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationRechecksAuthority/revoke/canceled`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationRechecksAuthority/revoke/disabled`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationRechecksAuthority/revoke/missing_actor`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationRechecksAuthority/revoke/not_admin`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationRechecksAuthority/revoke/pending`
+- `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationRechecksAuthority`
+- `rtk_account_manager/internal/store`: `TestPlatformTokenRevocationRejectsScopeChangeWhileWaiting/delete`
+- `rtk_account_manager/internal/store`: `TestPlatformTokenRevocationRejectsScopeChangeWhileWaiting/move`
+- `rtk_account_manager/internal/store`: `TestPlatformTokenRevocationRejectsScopeChangeWhileWaiting`
+- `rtk_account_manager/internal/store`: `TestPlatformUnprovisionRechecksPrivilegeAndCloudFence`
 - `rtk_account_manager/internal/store`: `TestProductCollaborationInvitationVisibilityAndOwnershipTransferIntegration`
 - `rtk_account_manager/internal/store`: `TestProductCollaboratorPendingInvitationLifecycleIntegration`
+- `rtk_account_manager/internal/store`: `TestProductDeviceDisplayPreservesIdentityAndRequiresCurrentScope`
+- `rtk_account_manager/internal/store`: `TestProductMutationAuditAndCommitFailuresRollBack/create/audit`
+- `rtk_account_manager/internal/store`: `TestProductMutationAuditAndCommitFailuresRollBack/create/commit`
+- `rtk_account_manager/internal/store`: `TestProductMutationAuditAndCommitFailuresRollBack/disable/audit`
+- `rtk_account_manager/internal/store`: `TestProductMutationAuditAndCommitFailuresRollBack/disable/commit`
+- `rtk_account_manager/internal/store`: `TestProductMutationAuditAndCommitFailuresRollBack/update/audit`
+- `rtk_account_manager/internal/store`: `TestProductMutationAuditAndCommitFailuresRollBack/update/commit`
+- `rtk_account_manager/internal/store`: `TestProductMutationAuditAndCommitFailuresRollBack`
+- `rtk_account_manager/internal/store`: `TestProductWritesRequireCurrentAuthorityAndApprovedScope`
+- `rtk_account_manager/internal/store`: `TestProductionRunIssuanceFailuresNeverReturnTokenOrCommitRun/audit`
+- `rtk_account_manager/internal/store`: `TestProductionRunIssuanceFailuresNeverReturnTokenOrCommitRun/canceled`
+- `rtk_account_manager/internal/store`: `TestProductionRunIssuanceFailuresNeverReturnTokenOrCommitRun/commit`
+- `rtk_account_manager/internal/store`: `TestProductionRunIssuanceFailuresNeverReturnTokenOrCommitRun/disabled_product`
+- `rtk_account_manager/internal/store`: `TestProductionRunIssuanceFailuresNeverReturnTokenOrCommitRun/empty_token`
+- `rtk_account_manager/internal/store`: `TestProductionRunIssuanceFailuresNeverReturnTokenOrCommitRun/invalid_quantity`
+- `rtk_account_manager/internal/store`: `TestProductionRunIssuanceFailuresNeverReturnTokenOrCommitRun/missing_product`
+- `rtk_account_manager/internal/store`: `TestProductionRunIssuanceFailuresNeverReturnTokenOrCommitRun/nil_issuer`
+- `rtk_account_manager/internal/store`: `TestProductionRunIssuanceFailuresNeverReturnTokenOrCommitRun/sign_error`
+- `rtk_account_manager/internal/store`: `TestProductionRunIssuanceFailuresNeverReturnTokenOrCommitRun/write`
+- `rtk_account_manager/internal/store`: `TestProductionRunIssuanceFailuresNeverReturnTokenOrCommitRun`
+- `rtk_account_manager/internal/store`: `TestProductionRunIssuanceRequiresCurrentProductAuthority`
 - `rtk_account_manager/internal/store`: `TestProjectDeviceProvisioningAndOnlineRules`
 - `rtk_account_manager/internal/store`: `TestProjectDeviceRejectsDisabledDevicesExceptDeactivateResults`
 - `rtk_account_manager/internal/store`: `TestQuotaDecisionAndEmailOutboxCommitOrRollbackTogether`
@@ -1393,6 +1407,22 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestStartDeviceLifecycleOperationPersistsPendingProvisionMetadata`
 - `rtk_account_manager/internal/store`: `TestStoreOperationsRespectCanceledContextIntegration`
 - `rtk_account_manager/internal/store`: `TestUnprovisionDeviceRetainsClaimHistoryAndAllowsReplacementClaim`
+- `rtk_account_manager/internal/store`: `TestUnprovisionFailureKeepsDeviceAndDoesNotQueueWork/actor`
+- `rtk_account_manager/internal/store`: `TestUnprovisionFailureKeepsDeviceAndDoesNotQueueWork/canceled`
+- `rtk_account_manager/internal/store`: `TestUnprovisionFailureKeepsDeviceAndDoesNotQueueWork/commit`
+- `rtk_account_manager/internal/store`: `TestUnprovisionFailureKeepsDeviceAndDoesNotQueueWork/delete`
+- `rtk_account_manager/internal/store`: `TestUnprovisionFailureKeepsDeviceAndDoesNotQueueWork/disabled`
+- `rtk_account_manager/internal/store`: `TestUnprovisionFailureKeepsDeviceAndDoesNotQueueWork/evidence`
+- `rtk_account_manager/internal/store`: `TestUnprovisionFailureKeepsDeviceAndDoesNotQueueWork/missing_claim`
+- `rtk_account_manager/internal/store`: `TestUnprovisionFailureKeepsDeviceAndDoesNotQueueWork/missing_platform_device`
+- `rtk_account_manager/internal/store`: `TestUnprovisionFailureKeepsDeviceAndDoesNotQueueWork/not_provisioned`
+- `rtk_account_manager/internal/store`: `TestUnprovisionFailureKeepsDeviceAndDoesNotQueueWork/operation`
+- `rtk_account_manager/internal/store`: `TestUnprovisionFailureKeepsDeviceAndDoesNotQueueWork/outbox`
+- `rtk_account_manager/internal/store`: `TestUnprovisionFailureKeepsDeviceAndDoesNotQueueWork`
+- `rtk_account_manager/internal/store`: `TestUserDeviceMutationAuditFailureRollsBackWrite`
+- `rtk_account_manager/internal/store`: `TestUserDeviceMutationsPreserveLegacyPlatformAndFailureSemantics`
+- `rtk_account_manager/internal/store`: `TestUserDeviceMutationsRecheckViewerHandoffAndActivation`
+- `rtk_account_manager/internal/store`: `TestUserDeviceMutationsWaitForOwnershipChangeThenDenyFormerOwner`
 - `rtk_account_manager/internal/store`: `TestUserIdentityStoreEnforcesUniquenessAndListsByUser`
 - `rtk_account_manager/internal/store`: `TestValidProductCollaboratorRole`
 - `rtk_account_manager/internal/store`: `TestValidateDeviceItemProfileRejectsInvalidFields/duplicate_service`
@@ -1403,6 +1433,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestValidateDeviceItemProfileRejectsInvalidFields/missing_key`
 - `rtk_account_manager/internal/store`: `TestValidateDeviceItemProfileRejectsInvalidFields/unsupported_service`
 - `rtk_account_manager/internal/store`: `TestValidateDeviceItemProfileRejectsInvalidFields`
+- `rtk_account_manager/internal/store`: `TestValidateHandoffEligibilityRequiresFreshNonnegativeUnblockedEvidence`
 - `rtk_account_manager/internal/store`: `TestValidatePartitionKeyMatchesOperationSkipsBlankValues`
 - `rtk_account_manager/internal/store`: `TestValidateProductionRunCreateRejectsInvalidInput/missing_brand_cloud`
 - `rtk_account_manager/internal/store`: `TestValidateProductionRunCreateRejectsInvalidInput/missing_profile`
@@ -1421,6 +1452,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/usercache`: `TestStoreConstructorAndHelpers`
 - `rtk_account_manager/internal/usercache`: `TestStoreDisableCurrentUserDeletesCachedUser`
 - `rtk_account_manager/internal/usercache`: `TestStoreEndUserMutationRefreshesCache`
+- `rtk_account_manager/internal/usercache`: `TestStoreFactoryCoordinationRoutesBypassUserCache`
 - `rtk_account_manager/internal/usercache`: `TestStoreGetEndUserPasswordReadThroughCachesLoginProjection`
 - `rtk_account_manager/internal/usercache`: `TestStoreGetUserFallsBackToPostgresWhenRedisUnavailable`
 - `rtk_account_manager/internal/usercache`: `TestStoreGetUserPasswordReadThroughCachesAuthProjection`
@@ -1428,11 +1460,23 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/usercache`: `TestStoreIgnoresCacheReadAndWriteErrors`
 - `rtk_account_manager/internal/usercache`: `TestStoreProvisionBrandCloudAccountRefreshesRotatedAuthCache`
 - `rtk_account_manager/internal/usercache`: `TestStoreRegisterRefreshesUserAuthCacheAfterCommit`
+- `rtk_account_manager/internal/worker/clouddeletion`: `TestCloudDeletionWorkerBoundedRetryAndSanitizedLogs`
+- `rtk_account_manager/internal/worker/clouddeletion`: `TestCloudDeletionWorkerFinishFailureAndLeaseLoss`
+- `rtk_account_manager/internal/worker/clouddeletion`: `TestCloudDeletionWorkerRejectsInvalidOptions`
+- `rtk_account_manager/internal/worker/clouddeletion`: `TestCloudDeletionWorkerRunRecoversClaimErrorAndStops`
+- `rtk_account_manager/internal/worker/clouddeletion`: `TestCloudDeletionWorkerStartsBatchBeforeLeasesExpire`
+- `rtk_account_manager/internal/worker/clouddeletion`: `TestCloudDeletionWorkerTimeoutAndShutdown/deadline`
+- `rtk_account_manager/internal/worker/clouddeletion`: `TestCloudDeletionWorkerTimeoutAndShutdown/shutdown`
+- `rtk_account_manager/internal/worker/clouddeletion`: `TestCloudDeletionWorkerTimeoutAndShutdown`
 - `rtk_account_manager/internal/worker/emailoutbox`: `TestServiceExpiresWithoutSending`
 - `rtk_account_manager/internal/worker/emailoutbox`: `TestServiceRetriesTransientAndDeadLettersPermanent/permanent`
 - `rtk_account_manager/internal/worker/emailoutbox`: `TestServiceRetriesTransientAndDeadLettersPermanent/transient`
 - `rtk_account_manager/internal/worker/emailoutbox`: `TestServiceRetriesTransientAndDeadLettersPermanent`
 - `rtk_account_manager/internal/worker/emailoutbox`: `TestServiceSendsAndClearsPayload`
+- `rtk_account_manager/internal/worker/handoff`: `TestHandoffWorkerCancellationLeavesLeaseForRecovery`
+- `rtk_account_manager/internal/worker/handoff`: `TestHandoffWorkerOptionsBoundResourceUse`
+- `rtk_account_manager/internal/worker/handoff`: `TestHandoffWorkerRetriesWithoutDeadLetterOrLeakingErrors`
+- `rtk_account_manager/internal/worker/handoff`: `TestHandoffWorkerStepDeadlinePersistsRetry`
 - `rtk_account_manager/internal/worker/inbox`: `TestPostgresStoreSatisfiesInboxMessageStore`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidMessages`
 - `rtk_account_manager/internal/worker/inbox`: `TestRunOnceDeadLettersInvalidPartitionKeysAfterPersistingInboxRow/blank_partition_key_is_normalized_for_storage_and_dead-lettered`
