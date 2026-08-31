@@ -1,5 +1,31 @@
 # Test Report
 
+## 2026-09-01 transactional Product administration qualification
+
+Runtime `c683286` passes the complete Account Manager PR-profile run
+`local-am-product-admission` in 195.377s, with no executed functional test
+failures. Overall coverage is **81.80%**, store **4987/6212 = 80.28%** against
+80%; all configured package ratchets and artifact redaction pass. No base ref
+was supplied, so differential/default pre-PR and full CI remain unproven despite
+the report's generic success assessment.
+
+Focused store/API race tests pass (14.630s/12.542s), including Product admission,
+viewer ceilings, explicit platform access, inactive/handoff/cancellation fences,
+audit/commit rollback, concurrent disjoint PATCH and six HTTP writes revoked
+after admission. Earlier Product regressions also pass (2.650s/19.155s). Vet/build,
+four OpenAPI validations and the 243-case catalog/spec inventory pass (391
+requirements, 656 operations, zero blocking findings).
+
+Report: `.artifacts/test-runs/local-am-product-admission/coverage/test_report.md`
+in the unpublished qualification checkout rooted at workspace `d128eab`.
+Coverage SHA-256: `687b4396445bb3a7adb9ca8a6c3c26ddad0f8cd5fd0bf494f7b64b08f88141e6`.
+Logs: `/tmp/rtk-product-writes-final-race.log`,
+`/tmp/rtk-am-product-admission-governed.log`.
+All database tests used owned loopback PostgreSQL; no staging or real financial
+operations were invoked. Production-run admission and signing/consumption,
+other resource families, producer drain/cutoff evidence, Billing collectors,
+full UI/CI, migration/restore and staging acceptance remain release gates.
+
 ## 2026-09-01 platform claim-token administration qualification
 
 Runtime `6504594` passes the complete Account Manager PR-profile run

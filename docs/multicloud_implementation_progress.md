@@ -1021,3 +1021,11 @@ regressions also pass (2.650s/19.155s). Logs:
 Vet/build/diff checks pass. Full governed verification follows separately;
 production-run admission, other resource families, queued-work draining,
 collector/participant wiring, full CI, migration and staging remain incomplete.
+
+Full PR-profile verification at `c683286` passes in 195.377s: all executed
+functional tests, configured package ratchets and artifact redaction pass.
+Overall coverage is 81.80%, store 80.28% (4987/6212). Four OpenAPI checks and
+the 243-case catalog/spec inventory pass. Report/log identities are recorded in
+`test_report.md`. Differential/default pre-PR and CI were not executed by this
+package-only command. Production-run and other resource admission/consumption,
+producer/collector wiring and migration/staging acceptance remain unfinished.
