@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 
 	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/model"
@@ -28,12 +30,14 @@ type brandCloudOwnerTransferResponse struct {
 }
 
 type developerBrandCloudMemberRequest struct {
-	Role model.Role `json:"role" binding:"required"`
+	Role        json.RawMessage `json:"role"`
+	AccessScope json.RawMessage `json:"access_scope,omitempty"`
 }
 
 type developerBrandCloudInvitationRequest struct {
-	Email string     `json:"email" binding:"required,email"`
-	Role  model.Role `json:"role" binding:"required"`
+	AccessScope json.RawMessage `json:"access_scope,omitempty"`
+	Email       string          `json:"email" binding:"required,email"`
+	Role        model.Role      `json:"role" binding:"required"`
 }
 
 type developerBrandCloudInvitationAcceptRequest struct {
@@ -132,6 +136,9 @@ func (s *Server) getDeveloperBrandCloud(c *gin.Context) {
 }
 
 func developerCapabilitiesForRole(role model.Role) []string {
+	if role == model.RoleViewer {
+		return []string{"fleet.read", "product.read", "firmware.release.read", "ota.plan.read", "reports.read"}
+	}
 	read := []string{"fleet.read", "product.read", "firmware.release.read", "ota.plan.read", "reports.read", "team.read", "provisioning.read"}
 	if role == model.RoleMember {
 		return read
@@ -145,6 +152,9 @@ func developerCapabilitiesForRole(role model.Role) []string {
 
 func (s *Server) developerCapabilitiesForUser(ctx context.Context, userID, brandCloudID string, role model.Role) ([]string, error) {
 	capabilities := developerCapabilitiesForRole(role)
+	if role == model.RoleViewer {
+		return capabilities, nil
+	}
 	permissions, err := s.store.ListUserOrganizationPermissions(ctx, userID, brandCloudID)
 	if err != nil {
 		return nil, err
@@ -207,7 +217,16 @@ func (s *Server) inviteDeveloperBrandCloudMember(c *gin.Context) {
 		return
 	}
 	var req developerBrandCloudInvitationRequest
-	if !bind(c, &req) || !validDeveloperInvitationRole(c, req.Role) {
+	if !bindStrict(c, &req) || !validDeveloperInvitationRole(c, req.Role) {
+		return
+	}
+	if err := binding.Validator.ValidateStruct(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	scope, err := parseViewerScope(req.AccessScope)
+	if err != nil {
+		writeStoreError(c, err)
 		return
 	}
 	token, expiresAt, err := s.newAuthToken("brand_cloud_membership_invitation")
@@ -219,7 +238,7 @@ func (s *Server) inviteDeveloperBrandCloudMember(c *gin.Context) {
 	outbox := authTokenEmailOutbox(email, "brand_cloud_membership_invitation", token, expiresAt)
 	invitation, created, err := s.store.CreateBrandCloudMemberInvitation(c.Request.Context(), store.BrandCloudMemberInvitationInput{
 		BrandCloudID: c.Param("brandCloudId"), InvitedByUserID: currentUserID(c), TargetEmail: email,
-		Role: req.Role, TokenHash: auth.HashToken(token), ExpiresAt: expiresAt, Email: &outbox,
+		Role: req.Role, AccessScope: scope, TokenHash: auth.HashToken(token), ExpiresAt: expiresAt, Email: &outbox,
 	}, time.Now().UTC())
 	if err != nil {
 		writeStoreError(c, err)
@@ -232,11 +251,22 @@ func (s *Server) inviteDeveloperBrandCloudMember(c *gin.Context) {
 }
 
 func validDeveloperInvitationRole(c *gin.Context, role model.Role) bool {
-	if role != model.RoleAdmin && role != model.RoleMember {
-		writeError(c, http.StatusBadRequest, "invalid_role", "Invitation role must be admin or member")
+	if role != model.RoleAdmin && role != model.RoleMember && role != model.RoleViewer {
+		writeError(c, http.StatusBadRequest, "invalid_role", "Invitation role must be admin, member or viewer")
 		return false
 	}
 	return true
+}
+
+func parseViewerScope(raw json.RawMessage) (*model.CloudViewerScope, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	var scope model.CloudViewerScope
+	if err := json.Unmarshal(raw, &scope); err != nil {
+		return nil, model.ErrInvalidCloudViewerScope
+	}
+	return &scope, nil
 }
 
 func (s *Server) listDeveloperBrandCloudMemberInvitations(c *gin.Context) {
@@ -309,10 +339,25 @@ func (s *Server) updateDeveloperBrandCloudMember(c *gin.Context) {
 		return
 	}
 	var req developerBrandCloudMemberRequest
-	if !bind(c, &req) || !validDeveloperInvitationRole(c, req.Role) {
+	if !bindStrict(c, &req) {
 		return
 	}
-	member, err := s.store.UpdateMemberRole(c.Request.Context(), c.Param("brandCloudId"), c.Param("userId"), req.Role)
+	role := model.Role("")
+	if req.Role != nil {
+		if err := json.Unmarshal(req.Role, &role); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid_role", "Invalid role")
+			return
+		}
+		if !validDeveloperInvitationRole(c, role) {
+			return
+		}
+	}
+	scope, err := parseViewerScope(req.AccessScope)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	member, err := s.store.UpdateDeveloperBrandCloudMember(c.Request.Context(), store.CloudMemberUpdateInput{BrandCloudID: c.Param("brandCloudId"), ActorUserID: currentUserID(c), TargetUserID: c.Param("userId"), Role: role, AccessScope: scope})
 	if err != nil {
 		if errors.Is(err, store.ErrLastOwner) {
 			writeError(c, http.StatusConflict, "last_owner", err.Error())

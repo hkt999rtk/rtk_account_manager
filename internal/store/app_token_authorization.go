@@ -18,6 +18,7 @@ func (s *Store) AuthorizeUserForVideoDevice(ctx context.Context, userID, videoCl
 		WHERE m.user_id = $1
 		  AND user_can_access_brand_cloud_product(m.user_id::text, m.organization_id::text, d.device_item_profile_id::text)
 		  AND m.disabled_at IS NULL
+		  AND m.role <> 'viewer'
 		  AND d.disabled_at IS NULL
 		  AND d.metadata ->> $2 = $3
 		LIMIT 1

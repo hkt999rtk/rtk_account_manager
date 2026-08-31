@@ -1253,6 +1253,10 @@ type addMemberRequest struct {
 }
 
 func (s *Server) addMember(c *gin.Context) {
+	if c.GetBool("brandCloudScope") {
+		writeError(c, http.StatusConflict, "invitation_required", "Brand Cloud members must accept an owner invitation")
+		return
+	}
 	var req addMemberRequest
 	if !bind(c, &req) || !validRole(c, req.Role) {
 		return
@@ -1274,7 +1278,13 @@ func (s *Server) updateMemberRole(c *gin.Context) {
 	if !bind(c, &req) || !validRole(c, req.Role) {
 		return
 	}
-	member, err := s.store.UpdateMemberRole(c.Request.Context(), c.Param("orgId"), c.Param("userId"), req.Role)
+	var member model.Member
+	var err error
+	if c.GetBool("brandCloudScope") {
+		member, err = s.store.UpdateDeveloperBrandCloudMember(c.Request.Context(), store.CloudMemberUpdateInput{BrandCloudID: c.Param("orgId"), ActorUserID: currentUserID(c), TargetUserID: c.Param("userId"), Role: req.Role})
+	} else {
+		member, err = s.store.UpdateMemberRole(c.Request.Context(), c.Param("orgId"), c.Param("userId"), req.Role)
+	}
 	if err != nil {
 		if errors.Is(err, store.ErrLastOwner) {
 			writeError(c, http.StatusConflict, "last_owner", err.Error())
@@ -1366,7 +1376,7 @@ func (s *Server) listDevices(c *gin.Context) {
 		filter.BrandCloudUserID = currentBrandCloudUserID(c)
 		filter.ScopePermission = "registry_device.read"
 	}
-	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser && !s.currentUserIsPlatformAdmin(c) {
+	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser {
 		filter.UserID = currentUserID(c)
 		filter.ScopePermission = "registry_device.read"
 	}
@@ -1410,7 +1420,7 @@ func (s *Server) listFleetDevices(c *gin.Context) {
 		filter.BrandCloudUserID = currentBrandCloudUserID(c)
 		filter.ScopePermission = "registry_device.read"
 	}
-	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser && !s.currentUserIsPlatformAdmin(c) {
+	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser {
 		filter.UserID = currentUserID(c)
 		filter.ScopePermission = "registry_device.read"
 	}
@@ -1441,8 +1451,6 @@ func (s *Server) fleetSummary(c *gin.Context) {
 	var err error
 	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
 		summary, err = s.store.FleetSummaryForBrandCloudUser(c.Request.Context(), c.Param("orgId"), currentBrandCloudUserID(c))
-	} else if s.currentUserIsPlatformAdmin(c) {
-		summary, err = s.store.FleetSummary(c.Request.Context(), c.Param("orgId"))
 	} else {
 		summary, err = s.store.FleetSummaryForUser(c.Request.Context(), c.Param("orgId"), currentUserID(c))
 	}
@@ -1542,7 +1550,7 @@ func (s *Server) createDeviceGroup(c *gin.Context) {
 
 func (s *Server) listDeviceGroups(c *gin.Context) {
 	limit, offset := pagination(c)
-	groupPage, err := s.store.ListDeviceGroups(c.Request.Context(), c.Param("orgId"), limit, offset)
+	groupPage, err := s.store.ListDeviceGroupsForUser(c.Request.Context(), c.Param("orgId"), currentUserID(c), "", limit, offset)
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -1551,7 +1559,7 @@ func (s *Server) listDeviceGroups(c *gin.Context) {
 }
 
 func (s *Server) getDeviceGroup(c *gin.Context) {
-	group, err := s.store.GetDeviceGroup(c.Request.Context(), c.Param("orgId"), c.Param("groupId"))
+	group, err := s.store.GetDeviceGroupForUser(c.Request.Context(), c.Param("orgId"), currentUserID(c), c.Param("groupId"))
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -1601,7 +1609,11 @@ func (s *Server) removeDeviceFromGroup(c *gin.Context) {
 
 func (s *Server) listDeviceGroupDevices(c *gin.Context) {
 	limit, offset := pagination(c)
-	devicePage, err := s.store.ListDeviceGroupDevices(c.Request.Context(), c.Param("orgId"), c.Param("groupId"), limit, offset)
+	if _, err := s.store.GetDeviceGroupForUser(c.Request.Context(), c.Param("orgId"), currentUserID(c), c.Param("groupId")); err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	devicePage, err := s.store.ListDevicesFiltered(c.Request.Context(), store.DeviceListFilter{OrganizationID: c.Param("orgId"), UserID: currentUserID(c), GroupID: c.Param("groupId"), ScopePermission: "device_group.read", Limit: limit, Offset: offset})
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -1646,7 +1658,7 @@ func (s *Server) listDeviceTags(c *gin.Context) {
 
 func (s *Server) listOrganizationTags(c *gin.Context) {
 	limit, offset := pagination(c)
-	page, err := s.store.ListOrganizationTags(c.Request.Context(), c.Param("orgId"), limit, offset)
+	page, err := s.store.ListOrganizationTagsForUser(c.Request.Context(), c.Param("orgId"), currentUserID(c), limit, offset)
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -1707,14 +1719,18 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 
 func (s *Server) requirePermission(permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		brandCloudScope := false
 		if orgID := c.Param("orgId"); orgID != "" {
-			if _, err := s.store.GetRole(c.Request.Context(), orgID, currentUserID(c)); err != nil {
+			org, err := s.store.GetOrganization(c.Request.Context(), orgID, currentUserID(c))
+			if err != nil {
 				writeError(c, http.StatusNotFound, "not_found", "Resource not found")
 				c.Abort()
 				return
 			}
+			brandCloudScope = org.OrganizationKind == model.OrganizationKindBrandCloud
 		}
-		if isAdmin, err := s.store.IsPlatformAdmin(c.Request.Context(), currentUserID(c)); err == nil && isAdmin {
+		c.Set("brandCloudScope", brandCloudScope)
+		if isAdmin, err := s.store.IsPlatformAdmin(c.Request.Context(), currentUserID(c)); !brandCloudScope && err == nil && isAdmin {
 			c.Set("permission", permission)
 			c.Next()
 			return
@@ -1892,6 +1908,8 @@ func trimPtr(value *string) *string {
 
 func writeStoreError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, model.ErrInvalidCloudViewerScope):
+		writeError(c, http.StatusBadRequest, "invalid_access_scope", err.Error())
 	case errors.Is(err, store.ErrAccountNotActivated):
 		writeError(c, http.StatusForbidden, "account_activation_required", "Complete email activation before creating a cloud")
 	case errors.Is(err, store.ErrNotFound):

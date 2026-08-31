@@ -86,6 +86,7 @@ type memberPersistence interface {
 	ListDeveloperBrandCloudMembers(ctx context.Context, brandCloudID string, limit, offset int) (store.MemberPage, error)
 	AddMember(ctx context.Context, orgID, email string, role model.Role) (model.Member, error)
 	UpdateMemberRole(ctx context.Context, orgID, userID string, role model.Role) (model.Member, error)
+	UpdateDeveloperBrandCloudMember(ctx context.Context, in store.CloudMemberUpdateInput) (model.Member, error)
 	DisableMemberUser(ctx context.Context, orgID, userID string) (model.Member, error)
 	EnableMemberUser(ctx context.Context, orgID, userID string) (model.Member, error)
 	RemoveMember(ctx context.Context, orgID, userID string) error
@@ -109,6 +110,9 @@ type devicePersistence interface {
 type deviceGroupPersistence interface {
 	CreateDeviceGroup(ctx context.Context, orgID string, in store.DeviceGroupInput) (model.DeviceGroup, error)
 	ListDeviceGroups(ctx context.Context, orgID string, limit, offset int) (store.DeviceGroupPage, error)
+	ListDeviceGroupsForUser(ctx context.Context, orgID, userID, groupID string, limit, offset int) (store.DeviceGroupPage, error)
+	GetDeviceGroupForUser(ctx context.Context, orgID, userID, groupID string) (model.DeviceGroup, error)
+	ListOrganizationTagsForUser(ctx context.Context, orgID, userID string, limit, offset int) (store.DeviceTagSummaryPage, error)
 	GetDeviceGroup(ctx context.Context, orgID, groupID string) (model.DeviceGroup, error)
 	UpdateDeviceGroup(ctx context.Context, orgID, groupID string, in store.DeviceGroupInput) (model.DeviceGroup, error)
 	DeleteDeviceGroup(ctx context.Context, orgID, groupID string) error

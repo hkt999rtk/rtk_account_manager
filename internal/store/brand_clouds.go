@@ -410,7 +410,7 @@ func (s *Store) ProvisionBrandCloudAccount(ctx context.Context, actorUserID, org
 	}
 
 	memberDisabled := in.ActivationMode == "email" && !user.EmailVerified
-	member, err := scanDeveloperMember(tx.QueryRow(ctx, `INSERT INTO organization_members (organization_id,user_id,role,disabled_at) VALUES ($1,$2,$3,CASE WHEN $4 THEN now() ELSE NULL END) ON CONFLICT (organization_id,user_id) DO UPDATE SET role=EXCLUDED.role,disabled_at=CASE WHEN $4 THEN organization_members.disabled_at ELSE NULL END,updated_at=now() RETURNING organization_id::text,user_id::text,$5::text,$6::text,role,created_at,updated_at,disabled_at`, orgID, user.ID, in.Role, memberDisabled, user.Email, user.DisplayName))
+	member, err := scanDeveloperMember(tx.QueryRow(ctx, `INSERT INTO organization_members (organization_id,user_id,role,disabled_at) VALUES ($1,$2,$3,CASE WHEN $4 THEN now() ELSE NULL END) ON CONFLICT (organization_id,user_id) DO UPDATE SET role=EXCLUDED.role,disabled_at=CASE WHEN $4 THEN organization_members.disabled_at ELSE NULL END,updated_at=now() RETURNING organization_id::text,user_id::text,$5::text,$6::text,role,created_at,updated_at,disabled_at,access_scope`, orgID, user.ID, in.Role, memberDisabled, user.Email, user.DisplayName))
 	if err != nil {
 		return BrandCloudAccountResult{}, err
 	}

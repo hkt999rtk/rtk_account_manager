@@ -40,6 +40,23 @@ untouched. No staging deployment or shared database migration has been performed
   Acceptance revalidates the inviter's current ownership and operational eligibility;
   a former owner retained as a member cannot admit invitees. Concurrent acceptance
   admits exactly once. This does not replace the pending Billing handoff work.
+- Forward migration 054 adds cloud viewer membership and persisted selected/all
+  Product scope. Viewer reads come from this scope, including future Products,
+  without one Product role per resource. Pending invitation replay compares the
+  normalized complete scope, resend preserves it, and acceptance uses stored scope.
+  Owner-only member PATCH replaces scope atomically; changing away from viewer
+  removes viewer scope and stale grants without granting new Product access.
+- Viewer permission ceilings reject writes, Billing and playback even with stale
+  high-privilege ACLs. Product managers cannot promote cloud viewers or expand their
+  selected scope. Tenant device/profile/fleet queries no longer bypass scope for
+  platform-capable users; independent admin routes remain separate.
+- Scoped group/tag lists and group details count only authorized devices, including
+  mixed groups. Their totals and rows use the same repeatable-read snapshot.
+  Service OpenAPI now describes viewer scope, owner-only member PATCH and the actual
+  member DELETE path (previously nested under the enable path by mistake).
+- The generic organization member-create API rejects Brand Clouds, requiring the
+  invitation workflow. Generic Brand Cloud role updates use the owner-checked
+  transactional member mutation and reject direct owner assignment.
 - Billing has a tested financial eligibility predicate: settled credit >= 0 for
   transfer; exactly 0 for closure; missing evidence and pending monetary/setup
   work remain independent blockers. This predicate is not yet connected to a
@@ -66,6 +83,18 @@ untouched. No staging deployment or shared database migration has been performed
 - Cloud invitation owner-eligibility and concurrent-acceptance tests passed three
   repeated runs. The full API package passed again after invitation locking changes
   (`/tmp/rtk-multicloud-invitation-api-20260831.log`); `go vet ./...` passed.
+- Viewer API/store/fresh-database constraint tests passed repeated runs, including
+  future Products, scope reduction, role changes, rejoin, group/tag counts, token
+  rotation, normalized replay, invalid/null scope and platform/tenant separation.
+  Full API tests passed after service OpenAPI updates (39.733s), with viewer
+  invitation/acceptance/PATCH responses validated against that contract.
+  Logs: `/tmp/rtk-multicloud-viewer-api-final-20260831.log` and
+  `/tmp/rtk-multicloud-viewer-suite-final-20260831.jsonl`. The complete rerun after
+  the platform-permission guard still has only the known old owner-transfer test
+  failure; it is not green. The full API suite passed again after generic member
+  entry-point guards (`/tmp/rtk-multicloud-viewer-api-generic-20260831.log`). Focused
+  tests additionally inject actual owner/admin ACLs and verify real Billing/payment
+  permissions remain denied and Product role projection stays read-only.
 - Billing full suite passed with a separate isolated PostgreSQL database. Its
   new eligibility tests cover -1/0/+1, int64 extremes, independent blockers,
   malformed/unknown evidence, and transfer-versus-deletion rules.
@@ -74,8 +103,10 @@ untouched. No staging deployment or shared database migration has been performed
 
 ## Required next work
 
-1. Complete explicit Product admission/viewer scope and consistent authorization,
-   revocation/rejoin, queued work and cache invalidation. Retire legacy human
+1. Complete cross-service authorization, downloads/background work and cache
+   invalidation around the implemented Product admission/viewer scope. Reconcile
+   generic provisioning/role APIs, activation holds and all resource-mutation fences.
+   Retire legacy human
    identity fallbacks, retaining only the required migration evidence.
 2. Implement cloud idempotent CRUD/deletion lifecycle and durable AM/Billing
    prepare/commit/finalize/abort, quota reservations and resource fences. Replace

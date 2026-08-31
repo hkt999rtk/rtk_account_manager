@@ -33,7 +33,8 @@ func lockBrandCloudCollaborationTx(ctx context.Context, tx pgx.Tx, cloudID strin
 const canManageProductCollaboratorsSQL = `SELECT EXISTS (
     SELECT 1 FROM organization_members m
     WHERE m.organization_id::text=$2 AND m.user_id::text=$1
-      AND user_can_access_brand_cloud_product($1,$2,$3)
+      AND m.role <> 'viewer'
+	      AND user_can_access_brand_cloud_product($1,$2,$3)
       AND (m.role='owner' OR EXISTS (
           SELECT 1 FROM role_assignments ra JOIN roles r ON r.id=ra.role_id
           WHERE ra.actor_type='user' AND ra.actor_id=$1 AND ra.organization_id=m.organization_id
@@ -75,18 +76,29 @@ func lockProductInvitationMutationTx(ctx context.Context, tx pgx.Tx, in ProductC
 // member. A delegated Product owner can only invite within existing approval.
 // This check never creates or re-enables a membership.
 func productInvitationAdmissionTx(ctx context.Context, tx pgx.Tx, actor, target, cloud, product string) (bool, error) {
-	var cloudOwner, admitted bool
-	err := tx.QueryRow(ctx, `SELECT m.role='owner',user_can_access_brand_cloud_product($2,$3,$4)
+	var cloudOwner, admitted, viewer bool
+	err := tx.QueryRow(ctx, `SELECT m.role='owner',user_can_access_brand_cloud_product($2,$3,$4),EXISTS(SELECT 1 FROM organization_members t WHERE t.organization_id=m.organization_id AND t.user_id::text=$2 AND t.role='viewer')
         FROM organization_members m WHERE m.organization_id::text=$3 AND m.user_id::text=$1
-        AND user_can_access_brand_cloud($1,$3) AND user_can_access_brand_cloud($2,$3)`, actor, target, cloud, product).Scan(&cloudOwner, &admitted)
+        AND user_can_access_brand_cloud($1,$3) AND user_can_access_brand_cloud($2,$3)`, actor, target, cloud, product).Scan(&cloudOwner, &admitted, &viewer)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, ErrNotFound
 	}
 	if err != nil {
 		return false, err
 	}
-	if !cloudOwner && !admitted {
+	if (!cloudOwner || viewer) && !admitted {
 		return false, ErrNotFound
 	}
-	return cloudOwner, nil
+	return cloudOwner && !viewer, nil
+}
+
+func requireProductRoleCeilingTx(ctx context.Context, tx pgx.Tx, target, cloud, role string) error {
+	var viewer bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM organization_members WHERE organization_id::text=$1 AND user_id::text=$2 AND role='viewer')`, cloud, target).Scan(&viewer); err != nil {
+		return err
+	}
+	if viewer && role != ProductViewerRole {
+		return ErrConflict
+	}
+	return nil
 }

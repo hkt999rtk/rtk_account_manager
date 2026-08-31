@@ -526,7 +526,8 @@ paths:
       x-rtk-feature-id: FEAT-CA-BRAND-001
       x-rtk-requirement-ids:
         - REQ-UI-CA-CLOUD-005
-      summary: Update a Developer Brand Cloud member role.
+        - REQ-MULTICLOUD-SHARING-001
+      summary: Owner replaces a member role or the complete viewer scope.
       security:
         - bearerAuth: []
       parameters:
@@ -537,14 +538,30 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [role]
-              properties:
-                role: { type: string, enum: [owner, admin, member] }
+              $ref: '#/components/schemas/CloudMemberUpdateRequest'
       responses:
         "200": { description: Member updated. }
+        "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Developer Brand Clouds]
+      operationId: removeDeveloperBrandCloudMember
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids: [REQ-UI-CA-CLOUD-005]
+      summary: Remove membership and invalidate its grants and invitations.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204": { description: Member removed. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /v1/developer/brand-clouds/{brandCloudId}/members/{userId}/disable:
     patch:
       tags: [Developer Brand Clouds]
@@ -576,22 +593,6 @@ paths:
         - $ref: "#/components/parameters/UserId"
       responses:
         "200": { description: Member enabled. }
-    delete:
-      tags: [Developer Brand Clouds]
-      operationId: removeDeveloperBrandCloudMember
-      x-rtk-feature-id: FEAT-CA-BRAND-001
-      x-rtk-requirement-ids:
-        - REQ-UI-CA-CLOUD-005
-      summary: Remove a Developer Brand Cloud member.
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/BrandCloudId"
-        - $ref: "#/components/parameters/UserId"
-      responses:
-        "204": { description: Member removed. }
-        "401": { $ref: "#/components/responses/Error" }
-        "403": { $ref: "#/components/responses/Error" }
   /v1/developer/brand-clouds/{brandCloudId}/members/invitations:
     get:
       tags: [Developer Brand Clouds]
@@ -621,6 +622,7 @@ paths:
       x-rtk-feature-id: FEAT-CA-BRAND-001
       x-rtk-requirement-ids:
         - REQ-CA-BRAND-MEMBER-INVITE-001
+        - REQ-MULTICLOUD-SHARING-001
       summary: Create a pending invitation for an existing verified Developer.
       security:
         - bearerAuth: []
@@ -633,15 +635,23 @@ paths:
             schema:
               type: object
               required: [email, role]
+              additionalProperties: false
               properties:
                 email: { type: string, format: email }
-                role: { type: string, enum: [admin, member] }
+                role: { type: string, enum: [admin, member, viewer] }
+                access_scope: { $ref: '#/components/schemas/CloudViewerScope' }
+              oneOf:
+                - properties: { role: { enum: [admin, member] } }
+                  not: { required: [access_scope] }
+                - properties: { role: { enum: [viewer] } }
+                  required: [access_scope]
       responses:
         "202":
           description: Pending invitation created or replayed without creating membership.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BrandCloudMemberInvitationResponse" }
+        "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
@@ -2969,7 +2979,8 @@ paths:
         - REQ-AM-MEMBERSHIP-INVARIANT-001
       security:
         - bearerAuth: []
-      summary: Add an existing user to an organization.
+      summary: Add an existing user to a legacy customer organization.
+      description: Brand Clouds return invitation_required; use the owner invitation and authenticated acceptance workflow.
       parameters:
         - $ref: "#/components/parameters/OrgId"
       requestBody:
@@ -3006,7 +3017,7 @@ paths:
       security:
         - bearerAuth: []
       summary: Update member role.
-      description: Refuses to downgrade the last active organization owner. Disabled owner memberships do not satisfy the active-owner invariant.
+      description: Legacy customer organizations retain their active-owner guard. For Brand Clouds, only the owner can change another member, owner assignment requires the dedicated billing handoff, and the dedicated developer member PATCH accepts viewer scope. Every non-deleted Brand Cloud retains exactly one designated owner, including while that owner is disabled.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/UserId"
@@ -6265,7 +6276,8 @@ components:
         invited_by_user_id: { type: string, format: uuid }
         target_user_id: { type: string, format: uuid }
         target_email: { type: string, format: email }
-        role: { type: string, enum: [admin, member] }
+        role: { type: string, enum: [admin, member, viewer] }
+        access_scope: { $ref: '#/components/schemas/CloudViewerScope' }
         status: { type: string, enum: [pending, accepted, canceled, expired] }
         expires_at: { type: string, format: date-time }
         accepted_at: { type: string, format: date-time }
@@ -6422,6 +6434,7 @@ components:
           type: string
         role:
           $ref: "#/components/schemas/Role"
+        access_scope: { $ref: '#/components/schemas/CloudViewerScope' }
         capabilities:
           type: array
           items: { type: string }
@@ -6434,6 +6447,42 @@ components:
         disabled_at:
           type: string
           format: date-time
+    CloudViewerScope:
+      description: Owner-approved read-only scope; all_products includes future Products. No Billing, private keys, payment methods or playback.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, product_ids]
+          properties:
+            kind: { type: string, enum: [selected_products] }
+            product_ids:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              items: { type: string, format: uuid }
+        - type: object
+          additionalProperties: false
+          required: [kind]
+          properties:
+            kind: { type: string, enum: [all_products] }
+    CloudMemberUpdateRequest:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [role]
+          properties:
+            role: { type: string, enum: [admin, member] }
+        - type: object
+          additionalProperties: false
+          required: [role, access_scope]
+          properties:
+            role: { type: string, enum: [viewer] }
+            access_scope: { $ref: '#/components/schemas/CloudViewerScope' }
+        - type: object
+          additionalProperties: false
+          required: [access_scope]
+          properties:
+            access_scope: { $ref: '#/components/schemas/CloudViewerScope' }
     DeviceItemProfile:
       type: object
       required: [id, brand_cloud_id, profile_key, display_name, status, category, metadata_defaults, metadata_schema, ca_profile, issuer_profile, service_options, claim_policy, provisioning_policy, created_at, updated_at]
@@ -6860,7 +6909,7 @@ components:
           type: integer
     Role:
       type: string
-      enum: [owner, admin, member]
+      enum: [owner, admin, member, viewer]
     DeviceCategory:
       type: string
       enum: [ip_camera, mqtt_device, generic]

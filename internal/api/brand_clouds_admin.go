@@ -188,7 +188,7 @@ func (s *Server) createDeviceItemProfile(c *gin.Context) {
 
 func (s *Server) listDeviceItemProfiles(c *gin.Context) {
 	limit, offset := pagination(c)
-	isPlatformAdmin := s.currentUserIsPlatformAdmin(c)
+	isPlatformAdmin := strings.HasPrefix(c.FullPath(), "/v1/admin/") && s.currentUserIsPlatformAdmin(c)
 	status := model.DeviceItemProfileStatus(strings.TrimSpace(c.Query("status")))
 	if status != "" && status != model.DeviceItemProfileStatusActive && status != model.DeviceItemProfileStatusDisabled {
 		writeError(c, http.StatusBadRequest, "invalid_status", "status must be active or disabled")

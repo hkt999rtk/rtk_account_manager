@@ -124,6 +124,7 @@ type BrandCloudOwnerTransferQuery struct {
 }
 
 type BrandCloudMemberInvitationInput struct {
+	AccessScope     *model.CloudViewerScope
 	BrandCloudID    string
 	InvitedByUserID string
 	TargetEmail     string
@@ -378,6 +379,7 @@ func fleetAccessPredicate(actorID, actorType, permission string) (string, []any)
 		WHERE ra.actor_type = $4 AND ra.actor_id = $2 AND p.name = $3
 		  AND ra.disabled_at IS NULL AND ra.organization_id = d.organization_id
 		  AND ($4 <> 'user' OR user_can_access_brand_cloud_product($2,d.organization_id::text,d.device_item_profile_id::text))
+		  AND ($4 <> 'user' OR brand_cloud_permission_allowed($2,d.organization_id::text,$3))
 		  AND (
 		    ra.scope_type = 'organization'
 		    OR (ra.scope_type = 'product' AND ra.scope_id = d.device_item_profile_id::text)
@@ -1341,7 +1343,7 @@ func (s *Store) ListMembers(ctx context.Context, orgID string, limit, offset int
 		return MemberPage{}, err
 	}
 	rows, err := s.db.Query(ctx, `
-		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, u.disabled_at
+		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, u.disabled_at,m.access_scope
 		FROM organization_members m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.organization_id = $1
@@ -1356,7 +1358,7 @@ func (s *Store) ListMembers(ctx context.Context, orgID string, limit, offset int
 	members := []model.Member{}
 	for rows.Next() {
 		var member model.Member
-		if err := rows.Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &member.CreatedAt, &member.UpdatedAt, &member.DisabledAt); err != nil {
+		if err := rows.Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &member.CreatedAt, &member.UpdatedAt, &member.DisabledAt, &member.AccessScope); err != nil {
 			return MemberPage{}, err
 		}
 		members = append(members, member)
@@ -1370,11 +1372,11 @@ func (s *Store) ListMembers(ctx context.Context, orgID string, limit, offset int
 func (s *Store) getMemberTx(ctx context.Context, tx pgx.Tx, orgID, userID string) (model.Member, error) {
 	var member model.Member
 	err := tx.QueryRow(ctx, `
-		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, u.disabled_at
+		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, u.disabled_at,m.access_scope
 		FROM organization_members m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.organization_id = $1 AND m.user_id = $2
-	`, orgID, userID).Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &member.CreatedAt, &member.UpdatedAt, &member.DisabledAt)
+	`, orgID, userID).Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &member.CreatedAt, &member.UpdatedAt, &member.DisabledAt, &member.AccessScope)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Member{}, ErrNotFound
 	}
@@ -1664,6 +1666,7 @@ func (s *Store) ListDevicesFiltered(ctx context.Context, in DeviceListFilter) (D
 		actorTypePlaceholder := "$" + strconv.Itoa(len(args))
 		if actorType == "user" {
 			where = append(where, fmt.Sprintf(`user_can_access_brand_cloud_product(%s,d.organization_id::text,d.device_item_profile_id::text)`, userPlaceholder))
+			where = append(where, fmt.Sprintf(`brand_cloud_permission_allowed(%s,d.organization_id::text,%s)`, userPlaceholder, permissionPlaceholder))
 		}
 		where = append(where, fmt.Sprintf(`EXISTS (
 			SELECT 1 FROM role_assignments ra

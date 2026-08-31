@@ -177,7 +177,7 @@ func (s *Store) SetDeveloperCloudLimit(ctx context.Context, userID string, limit
 
 func (s *Store) GetDeveloperBrandCloudMember(ctx context.Context, brandCloudID, userID string) (model.Member, error) {
 	member, err := scanDeveloperMember(s.db.QueryRow(ctx, `
-		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, m.disabled_at
+		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, m.disabled_at, m.access_scope
 		FROM organization_members m
 		JOIN organizations o ON o.id = m.organization_id
 		JOIN users u ON u.id = m.user_id
@@ -199,7 +199,7 @@ func (s *Store) ListDeveloperBrandCloudMembers(ctx context.Context, brandCloudID
 	if err := s.db.QueryRow(ctx, `SELECT count(*) FROM organization_members m JOIN organizations o ON o.id = m.organization_id WHERE m.organization_id = $1 AND o.organization_kind = 'brand_cloud'`, brandCloudID).Scan(&total); err != nil {
 		return MemberPage{}, err
 	}
-	rows, err := s.db.Query(ctx, `SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, COALESCE(m.disabled_at, u.disabled_at) FROM organization_members m JOIN organizations o ON o.id = m.organization_id JOIN users u ON u.id = m.user_id WHERE m.organization_id = $1 AND o.organization_kind = 'brand_cloud' ORDER BY m.created_at ASC LIMIT $2 OFFSET $3`, brandCloudID, limit, offset)
+	rows, err := s.db.Query(ctx, `SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, COALESCE(m.disabled_at, u.disabled_at), m.access_scope FROM organization_members m JOIN organizations o ON o.id = m.organization_id JOIN users u ON u.id = m.user_id WHERE m.organization_id = $1 AND o.organization_kind = 'brand_cloud' ORDER BY m.created_at ASC LIMIT $2 OFFSET $3`, brandCloudID, limit, offset)
 	if err != nil {
 		return MemberPage{}, err
 	}
@@ -224,7 +224,7 @@ func (s *Store) DisableDeveloperBrandCloudMember(ctx context.Context, brandCloud
 	if err := ensureNotLastActiveOwnerTx(ctx, tx, brandCloudID, userID); err != nil {
 		return model.Member{}, err
 	}
-	member, err := scanDeveloperMember(tx.QueryRow(ctx, `UPDATE organization_members m SET disabled_at = COALESCE(m.disabled_at, now()), updated_at = now() FROM users u WHERE m.organization_id = $1 AND m.user_id = $2 AND u.id = m.user_id RETURNING m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, m.disabled_at`, brandCloudID, userID))
+	member, err := scanDeveloperMember(tx.QueryRow(ctx, `UPDATE organization_members m SET disabled_at = COALESCE(m.disabled_at, now()), updated_at = now() FROM users u WHERE m.organization_id = $1 AND m.user_id = $2 AND u.id = m.user_id RETURNING m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, m.disabled_at, m.access_scope`, brandCloudID, userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Member{}, ErrNotFound
 	}
@@ -238,7 +238,7 @@ func (s *Store) DisableDeveloperBrandCloudMember(ctx context.Context, brandCloud
 }
 
 func (s *Store) EnableDeveloperBrandCloudMember(ctx context.Context, brandCloudID, userID string) (model.Member, error) {
-	member, err := scanDeveloperMember(s.db.QueryRow(ctx, `UPDATE organization_members m SET disabled_at = NULL, updated_at = now() FROM users u WHERE m.organization_id = $1 AND m.user_id = $2 AND u.id = m.user_id RETURNING m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, m.disabled_at`, brandCloudID, userID))
+	member, err := scanDeveloperMember(s.db.QueryRow(ctx, `UPDATE organization_members m SET disabled_at = NULL, updated_at = now() FROM users u WHERE m.organization_id = $1 AND m.user_id = $2 AND u.id = m.user_id RETURNING m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, m.disabled_at, m.access_scope`, brandCloudID, userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Member{}, ErrNotFound
 	}
@@ -247,7 +247,7 @@ func (s *Store) EnableDeveloperBrandCloudMember(ctx context.Context, brandCloudI
 
 func scanDeveloperMember(row scanner) (model.Member, error) {
 	var member model.Member
-	err := row.Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &member.CreatedAt, &member.UpdatedAt, &member.DisabledAt)
+	err := row.Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &member.CreatedAt, &member.UpdatedAt, &member.DisabledAt, &member.AccessScope)
 	return member, err
 }
 

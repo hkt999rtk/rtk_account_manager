@@ -57,8 +57,9 @@ func (s *Store) GetProductCollaboratorRole(ctx context.Context, brandCloudUserID
 
 func (s *Store) GetUserProductCollaboratorRole(ctx context.Context, userID, brandCloudID, productID string) (string, error) {
 	var role string
-	err := s.db.QueryRow(ctx, `SELECT CASE WHEN r.name='owner' AND ra.scope_type='organization' THEN 'brand_owner' ELSE r.name END
+	err := s.db.QueryRow(ctx, `SELECT CASE WHEN m.role='viewer' THEN 'product_viewer' WHEN r.name='owner' AND ra.scope_type='organization' THEN 'brand_owner' ELSE r.name END
 		FROM role_assignments ra JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL
+		JOIN organization_members m ON m.organization_id=ra.organization_id AND m.user_id::text=ra.actor_id
 		WHERE ra.actor_type='user' AND ra.actor_id=$1 AND ra.organization_id::text=$2 AND ra.disabled_at IS NULL
 		AND user_can_access_brand_cloud_product($1,$2,$3)
 		AND (ra.scope_type='organization' OR (ra.scope_type='product' AND ra.scope_id=$3))
@@ -127,6 +128,9 @@ func (s *Store) CreateProductCollaboratorInvitation(ctx context.Context, in Prod
 		return model.ProductCollaboratorInvitation{}, false, err
 	}
 	if _, err := productInvitationAdmissionTx(ctx, tx, in.InvitedByUserID, target.ID, in.BrandCloudID, in.ProductID); err != nil {
+		return model.ProductCollaboratorInvitation{}, false, err
+	}
+	if err := requireProductRoleCeilingTx(ctx, tx, target.ID, in.BrandCloudID, in.Role); err != nil {
 		return model.ProductCollaboratorInvitation{}, false, err
 	}
 	var alreadyAssigned bool
@@ -308,6 +312,9 @@ func (s *Store) AcceptProductCollaboratorInvitation(ctx context.Context, targetU
 			return model.ProductCollaboratorInvitation{}, err
 		}
 	}
+	if err := requireProductRoleCeilingTx(ctx, tx, targetUserID, invitation.BrandCloudID, invitation.Role); err != nil {
+		return model.ProductCollaboratorInvitation{}, err
+	}
 	var roleID string
 	if err := tx.QueryRow(ctx, `SELECT id::text FROM roles WHERE name=$1 AND disabled_at IS NULL`, invitation.Role).Scan(&roleID); err != nil {
 		return model.ProductCollaboratorInvitation{}, err
@@ -356,6 +363,9 @@ func (s *Store) UpdateProductCollaborator(ctx context.Context, actorUserID, bran
 	}
 	if !admitted {
 		return model.ProductCollaborator{}, ErrNotFound
+	}
+	if err := requireProductRoleCeilingTx(ctx, tx, targetUserID, brandCloudID, role); err != nil {
+		return model.ProductCollaborator{}, err
 	}
 	var roleID string
 	if err := tx.QueryRow(ctx, `SELECT id::text FROM roles WHERE name=$1 AND disabled_at IS NULL`, role).Scan(&roleID); err != nil {
@@ -465,6 +475,9 @@ func (s *Store) TransferProductOwnership(ctx context.Context, actorUserID, brand
 	}
 	if !admitted {
 		return ErrNotFound
+	}
+	if err := requireProductRoleCeilingTx(ctx, tx, targetUserID, brandCloudID, ProductOwnerRole); err != nil {
+		return err
 	}
 	if _, err := tx.Exec(ctx, `SELECT id FROM device_item_profiles WHERE id::text=$1 AND brand_cloud_id::text=$2 FOR UPDATE`, productID, brandCloudID); err != nil {
 		return err
