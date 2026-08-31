@@ -82,6 +82,8 @@ type Config struct {
 	InternalAuthToken              string
 	BillingHandoffBaseURL          string
 	BillingHandoffToken            string
+	BillingCloudCreationBaseURL    string
+	BillingCloudCreationToken      string
 	HandoffPollInterval            time.Duration
 	HandoffLeaseDuration           time.Duration
 	HandoffStepTimeout             time.Duration
@@ -138,6 +140,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if err := validateHandoffBillingConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	if err := validateBillingCloudCreationConfig(cfg); err != nil {
 		return Config{}, err
 	}
 	if err := validateFactoryEnrollmentConfig(cfg); err != nil {
@@ -454,6 +459,8 @@ func load() (Config, error) {
 		InternalAuthToken:              os.Getenv("ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN"),
 		BillingHandoffBaseURL:          strings.TrimSpace(os.Getenv("BILLING_HANDOFF_BASE_URL")),
 		BillingHandoffToken:            strings.TrimSpace(os.Getenv("BILLING_HANDOFF_TOKEN")),
+		BillingCloudCreationBaseURL:    strings.TrimSpace(os.Getenv("BILLING_CLOUD_CREATION_BASE_URL")),
+		BillingCloudCreationToken:      strings.TrimSpace(os.Getenv("BILLING_CLOUD_CREATION_TOKEN")),
 		HandoffPollInterval:            duration("HANDOFF_WORKER_POLL_INTERVAL", 5*time.Second),
 		HandoffLeaseDuration:           duration("HANDOFF_WORKER_LEASE_DURATION", 2*time.Minute),
 		HandoffStepTimeout:             duration("HANDOFF_WORKER_STEP_TIMEOUT", 45*time.Second),

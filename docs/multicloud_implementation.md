@@ -5,6 +5,38 @@ Status: design-first target, not deployed acceptance. Canonical behavior is
 [contracts PR #131](https://github.com/hkt999rtk/rtk_cloud_contracts_doc/pull/131).
 Runtime work follows reviewed/merged docs-only PRs.
 
+## New-cloud Billing projection
+
+Forward migration 066 appends an immutable Billing creation event when a new
+Brand Cloud and its sole owner commit. A deferred constraint trigger covers all
+new-cloud insertion paths, including public signup and platform creation. It
+does not backfill existing clouds or infer historical owners; legacy customer
+organizations are excluded. Pending activation retains a designated initial
+owner without granting operational access.
+
+The API process optionally runs `billingbootstrap.Worker` when both
+`BILLING_CLOUD_CREATION_BASE_URL` and `BILLING_CLOUD_CREATION_TOKEN` are configured.
+The credential is distinct from human JWT, handoff, factory, mail and other
+service secrets. Remote origins require HTTPS; literal loopback HTTP is allowed
+for isolated tests, redirects are refused, and responses are bounded to 16 KiB.
+The Billing receiver uses the same dedicated token and atomically creates only
+a new account plus version-1 responsibility and an append-only receipt/audit.
+
+Claims use database-time leases and SKIP LOCKED (four events, two-minute leases).
+Each HTTP request is bounded to 12 seconds and each worker batch to one minute.
+Failure schedules the same event after 30 seconds; polling is every five seconds.
+Expired workers cannot acknowledge a reclaimed event. Exact receipt validation
+precedes delivery acknowledgment. There is no maximum-attempt deletion, current-
+owner refresh, or silent empty-account adoption. A lost commit response retries
+without duplicate account, balance, period or audit; creation receipts remain
+historical after later ownership transfer/deletion. No Billing eligibility or
+settlement proof is created by this workflow.
+
+Migration 066 and Billing 057 must ship with matching binaries/configuration.
+With transport disabled, events remain durable and Billing access fails closed
+until projection; signup and activation email keep their existing atomic flow.
+No existing migration marker or historical responsibility is rewritten.
+
 ## Factory participant transport
 
 `internal/factoryhandoff.Client` implements `store.HandoffParticipant` under the

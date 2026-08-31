@@ -9,6 +9,7 @@ import (
 
 	"rtk_account_manager/internal/api"
 	"rtk_account_manager/internal/auth"
+	"rtk_account_manager/internal/billingbootstrap"
 	"rtk_account_manager/internal/billinghandoff"
 	"rtk_account_manager/internal/config"
 	"rtk_account_manager/internal/database"
@@ -45,6 +46,17 @@ func main() {
 		fatal(logger, "configure auth token signer failed", err)
 	}
 	accountStore := store.New(db)
+	if cfg.BillingCloudCreationBaseURL != "" {
+		client, err := billingbootstrap.New(billingbootstrap.Config{BaseURL: cfg.BillingCloudCreationBaseURL, Token: cfg.BillingCloudCreationToken})
+		if err != nil {
+			fatal(logger, "configure Billing cloud creation failed", err)
+		}
+		worker, err := billingbootstrap.NewWorker(accountStore, client, logger)
+		if err != nil {
+			fatal(logger, "configure Billing cloud creation worker failed", err)
+		}
+		go worker.Run(ctx)
+	}
 	if cfg.BillingHandoffBaseURL != "" {
 		client, err := billinghandoff.New(billinghandoff.Config{BaseURL: cfg.BillingHandoffBaseURL, Token: cfg.BillingHandoffToken})
 		if err != nil {
