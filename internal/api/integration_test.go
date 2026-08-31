@@ -3026,15 +3026,7 @@ func TestIntegrationBrandCloudScopedRoleAssignmentWorkflow(t *testing.T) {
 	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	brand := createBrandCloudForTest(t, env, admin.Tokens.AccessToken, "Scoped ACL Brand", "scoped-acl-brand")
-	operator := legacyCustomerForTest(t, env, "scoped-acl-operator@example.com", "Scoped ACL Operator")
-	userRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email": operator.User.Email, "role": "owner", "activation_mode": "email",
-	}, admin.Tokens.AccessToken)
-	if userRes.Code != http.StatusOK {
-		t.Fatalf("expected global user membership assignment 200, got %d: %s", userRes.Code, userRes.Body.String())
-	}
-	account := decodeBody[brandCloudAccountBody](t, userRes)
+	brand, operator := createOwnedBrandCloudForTest(t, env, admin.Tokens.AccessToken, "Scoped ACL Brand", "scoped-acl-brand")
 	accessToken := operator.Tokens.AccessToken
 	rolesRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/roles?limit=250", nil, accessToken)
 	if rolesRes.Code != http.StatusOK || !bytes.Contains(rolesRes.Body.Bytes(), []byte("firmware_operator")) {
@@ -3057,7 +3049,7 @@ func TestIntegrationBrandCloudScopedRoleAssignmentWorkflow(t *testing.T) {
 		t.Fatalf("expected scoped assignment list 200, got %d: %s", listRes.Code, listRes.Body.String())
 	}
 	assignmentRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+brand.BrandCloud.ID+"/role-assignments", map[string]any{
-		"role_name": "firmware_operator", "actor_id": account.User.ID, "scope_type": "product", "scope_id": "product-camera-pro",
+		"role_name": "firmware_operator", "actor_id": operator.User.ID, "scope_type": "product", "scope_id": "product-camera-pro",
 	}, accessToken)
 	if assignmentRes.Code != http.StatusCreated {
 		t.Fatalf("expected scoped assignment create 201, got %d: %s", assignmentRes.Code, assignmentRes.Body.String())
@@ -3079,14 +3071,7 @@ func TestIntegrationBrandCloudResourceScopeFiltersFleetQueries(t *testing.T) {
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	brand := createBrandCloudForTest(t, env, admin.Tokens.AccessToken, "Resource Scope Brand", "resource-scope-brand")
-	owner := legacyCustomerForTest(t, env, "resource-scope-owner@example.com", "Resource Scope Owner")
-	ownerRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email": owner.User.Email, "role": "owner", "activation_mode": "email",
-	}, admin.Tokens.AccessToken)
-	if ownerRes.Code != http.StatusOK {
-		t.Fatalf("expected existing owner assignment 200, got %d: %s", ownerRes.Code, ownerRes.Body.String())
-	}
+	brand, owner := createOwnedBrandCloudForTest(t, env, admin.Tokens.AccessToken, "Resource Scope Brand", "resource-scope-brand")
 	createDevice := func(name string) deviceBody {
 		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+brand.BrandCloud.ID+"/devices", map[string]any{"name": name, "category": "generic"}, owner.Tokens.AccessToken)
 		if res.Code != http.StatusCreated {
@@ -3097,6 +3082,7 @@ func TestIntegrationBrandCloudResourceScopeFiltersFleetQueries(t *testing.T) {
 	scopedDevice := createDevice("Scoped Device")
 	otherDevice := createDevice("Other Device")
 	memberUser := legacyCustomerForTest(t, env, "resource-scope-member@example.com", "Resource Scope Member")
+	activateGlobalFixtureForTest(t, env, memberUser.User.Email)
 	memberRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
 		"email": memberUser.User.Email, "role": "member", "activation_mode": "email",
 	}, admin.Tokens.AccessToken)
@@ -6546,6 +6532,12 @@ func brandCloudListHasRole(body brandCloudsBody, brandCloudID, role string) bool
 
 func createBrandCloudForTest(t *testing.T, env integrationEnv, accessToken, name, tenantSlug string) brandCloudBody {
 	t.Helper()
+	brand, _ := createOwnedBrandCloudForTest(t, env, accessToken, name, tenantSlug)
+	return brand
+}
+
+func createOwnedBrandCloudForTest(t *testing.T, env integrationEnv, accessToken, name, tenantSlug string) (brandCloudBody, registerBody) {
+	t.Helper()
 	owner := legacyCustomerForTest(t, env, tenantSlug+"-designated@example.com", name+" Owner")
 	activateGlobalFixtureForTest(t, env, owner.User.Email)
 	res := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
@@ -6556,7 +6548,7 @@ func createBrandCloudForTest(t *testing.T, env integrationEnv, accessToken, name
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected brand cloud create 201, got %d: %s", res.Code, res.Body.String())
 	}
-	return decodeBody[brandCloudBody](t, res)
+	return decodeBody[brandCloudBody](t, res), owner
 }
 
 func activateGlobalFixtureForTest(t *testing.T, env integrationEnv, email string) {
