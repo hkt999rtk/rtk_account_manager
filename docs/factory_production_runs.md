@@ -133,6 +133,12 @@ quota update; exact retries do not count twice. Timeouts, lost responses, worker
 crashes and token expiry are unknown outcomes, not evidence of non-issuance.
 They never release capacity automatically. Do not send JWTs, CSRs, private keys
 or certificate bodies to this ledger or its audit payloads.
+`not_issued` requires an issuer-side durable terminal rejection/cancellation
+that also rejects delayed copies of the original request. A missing issuer row,
+a transport error or an elapsed lease is not that proof. After local admission,
+the consumer retains the original reservation/request binding for reconciliation;
+it must not request fresh admission merely to learn an expired/fenced request's
+outcome or retry the signer after a failure to persist the certificate.
 
 An accepted handoff fences new reservations. Already admitted work may report a
 terminal result while fenced, without acquiring new authority to issue. Pending

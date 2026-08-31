@@ -1,5 +1,38 @@
 # Test Report
 
+## 2026-09-01 factory reservation ledger qualification
+
+Runtime `2a9973d` passes the complete Account Manager PR-profile run
+`local-am-factory-reservations` in 209.507s. All executed functional tests pass;
+overall coverage is **82.02%**, store **5105/6329 = 80.66%** against 80%.
+All configured package ratchets and artifact redaction pass. No base ref was
+supplied: differential coverage, the default pre-PR gate and CI are not proven
+by the report's generic success assessment.
+
+Focused PostgreSQL race tests pass (12.144s), covering 12-way quota reservation,
+10-way terminal-result replay, authority/ownership/run validity rejection,
+scope changes during admission locks, seven write/audit/deferred-commit failures,
+and handoff rejection while any local issuance result is unknown. Synthetic
+participant receipts explicitly test that the local pending-work guard cannot
+be bypassed; they do not prove actual factory/issuer drain or Billing settlement.
+Vet/build and four OpenAPI checks pass. The 245-case catalog/spec inventory
+passes (391 requirements, 656 operations, zero blocking findings); canonical
+contract checkout consistency also passes.
+
+Report: `.artifacts/test-runs/local-am-factory-reservations/coverage/test_report.md`
+in the unpublished qualification checkout rooted at workspace `d128eab`.
+Coverage SHA-256: `2d2ae96610e72a1fee7ad48a28d9496fc766fb35e50ed1575791f1a399d227d3`.
+The report's `logs/account-manager.log` contains the complete executed test events.
+
+Only owned loopback infrastructure was used. This is the trusted local ledger,
+not yet a production consumer transport or issuer journal. Inspection of Video
+Cloud `437e44a` shows factory issuer replay performs GetRequest, signing, then
+UpsertRequest without a durable pre-sign claim; parallel requests and a crash
+after signing still need reconciliation/serialization. Wire the authenticated
+factory consumer, durable issuer outcome and actual cutoff/usage adapters before
+enabling ownership handoff. Full UI/CI, migration/restore and staging acceptance
+remain outstanding. No live factory issuance, email, payment or deployment ran.
+
 ## 2026-09-01 transactional production-run issuance qualification
 
 Runtime `fe464c6` passes the complete Account Manager PR-profile run

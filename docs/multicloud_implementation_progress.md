@@ -21,6 +21,16 @@ handoff readiness after definite reconciliation. Vet passes. Complete governed
 qualification follows separately. No production consumer transport/journal or
 real issuer/participant integration is claimed, and no staging action occurred.
 
+Complete PR-profile qualification at `2a9973d` subsequently passes in 209.507s:
+all executed tests, configured ratchets and redaction pass. Overall coverage is
+82.02%, store 80.66% (5105/6329). Four OpenAPI validations, the 245-case catalog,
+spec inventory and canonical checkout consistency pass. See `test_report.md`
+for the exact artifact digest. Differential/default pre-PR and CI are untested.
+Next, integrate the real consumer and issuer: Video Cloud `437e44a` factory
+issuer replay reads, signs, then upserts and does not yet provide a durable
+pre-sign claim for concurrent retries or crashes after signing. No actor-supplied
+success flag or request timeout can substitute for a reconciled issuer outcome.
+
 ## Approved baseline
 
 Contracts #131, Account Manager #298, Billing #7 and Cloud Admin #314 are merged.
