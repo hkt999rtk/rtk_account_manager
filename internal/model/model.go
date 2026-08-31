@@ -472,19 +472,48 @@ type BrandCloudMember struct {
 }
 
 type BrandCloudOwnerTransfer struct {
-	OperationPhase    string     `json:"operation_phase,omitempty"`
-	OwnershipVersion  int64      `json:"ownership_version,omitempty"`
-	ID                string     `json:"id"`
-	BrandCloudID      string     `json:"brand_cloud_id"`
-	RequestedByUserID string     `json:"requested_by_user_id"`
-	TargetUserID      string     `json:"target_user_id"`
-	TargetEmail       string     `json:"target_email,omitempty"`
-	Status            string     `json:"status"`
-	ExpiresAt         time.Time  `json:"expires_at"`
-	AcceptedAt        *time.Time `json:"accepted_at,omitempty"`
-	CanceledAt        *time.Time `json:"canceled_at,omitempty"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	SourceUserID       string                `json:"source_user_id"`
+	Phase              string                `json:"phase"`
+	Blockers           []CloudBlocker        `json:"blockers"`
+	HasSettledSnapshot bool                  `json:"has_settled_snapshot"`
+	BalanceSnapshot    *CloudBalanceSnapshot `json:"balance_snapshot,omitempty"`
+	SourceConfirmed    *bool                 `json:"source_confirmed,omitempty"`
+	TargetConfirmed    *bool                 `json:"target_confirmed,omitempty"`
+	Operation          *CloudOperation       `json:"operation,omitempty"`
+	OperationPhase     string                `json:"operation_phase,omitempty"`
+	OwnershipVersion   int64                 `json:"ownership_version,omitempty"`
+	ID                 string                `json:"id"`
+	BrandCloudID       string                `json:"brand_cloud_id"`
+	RequestedByUserID  string                `json:"requested_by_user_id"`
+	TargetUserID       string                `json:"target_user_id"`
+	TargetEmail        string                `json:"target_email,omitempty"`
+	Status             string                `json:"status"`
+	ExpiresAt          time.Time             `json:"expires_at"`
+	AcceptedAt         *time.Time            `json:"accepted_at,omitempty"`
+	CanceledAt         *time.Time            `json:"canceled_at,omitempty"`
+	CreatedAt          time.Time             `json:"created_at"`
+	UpdatedAt          time.Time             `json:"updated_at"`
+}
+
+type CloudBalanceSnapshot struct {
+	OwnershipVersion       int64  `json:"ownership_version"`
+	BillingSnapshotVersion int64  `json:"billing_snapshot_version"`
+	BalanceMinor           int64  `json:"balance_minor"`
+	Currency               string `json:"currency"`
+}
+type CloudBlocker struct {
+	Code      string `json:"code"`
+	Retryable bool   `json:"retryable"`
+}
+type CloudOperation struct {
+	ID           string         `json:"id"`
+	BrandCloudID string         `json:"brand_cloud_id"`
+	Type         string         `json:"type"`
+	State        string         `json:"state"`
+	Phase        string         `json:"phase"`
+	Blockers     []CloudBlocker `json:"blockers"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
 }
 
 type BrandCloudMemberInvitation struct {

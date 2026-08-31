@@ -65,7 +65,7 @@ func (s *Store) cancelOwnerHandoff(ctx context.Context, in BrandCloudOwnerTransf
 	if err := tx.Commit(ctx); err != nil {
 		return model.BrandCloudOwnerTransfer{}, err
 	}
-	return transfer, nil
+	return hydrateHandoff(ctx, s.db, transfer)
 }
 
 type HandoffAbortAck struct {

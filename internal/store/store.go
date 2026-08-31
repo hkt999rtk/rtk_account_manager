@@ -41,6 +41,7 @@ var (
 	ErrHandoffUnavailable          = errors.New("trusted ownership handoff evidence unavailable")
 	ErrHandoffFinancialBlocked     = errors.New("ownership handoff financial conditions not satisfied")
 	ErrHandoffBalanceNegative      = fmt.Errorf("balance_negative: %w", ErrHandoffFinancialBlocked)
+	ErrHandoffSnapshotNotReady     = errors.New("handoff requires fresh settled balance and preparation evidence")
 )
 
 type Store struct {
@@ -50,6 +51,7 @@ type Store struct {
 	authTokenRateLimitWindow time.Duration
 	emailOutboxCipher        *emaildelivery.Cipher
 	ownershipHandoff         *OwnershipHandoffOptions
+	handoffBilling           HandoffBilling
 }
 
 func (s *Store) ConfigureEmailOutboxCipher(cipher *emaildelivery.Cipher) {

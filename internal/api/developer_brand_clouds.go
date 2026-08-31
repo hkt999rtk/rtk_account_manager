@@ -417,6 +417,10 @@ func (s *Server) enableDeveloperBrandCloudMember(c *gin.Context) {
 }
 
 func (s *Server) createBrandCloudOwnerTransfer(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	if !requireHandoffGlobalSession(c) {
+		return
+	}
 	if _, ok := developerBrandCloudManager(c, s); !ok {
 		return
 	}
@@ -451,6 +455,10 @@ func (s *Server) createBrandCloudOwnerTransfer(c *gin.Context) {
 }
 
 func (s *Server) acceptBrandCloudOwnerTransfer(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	if !requireHandoffGlobalSession(c) {
+		return
+	}
 	var req brandCloudOwnerTransferAcceptRequest
 	if !bind(c, &req) {
 		return
@@ -464,9 +472,13 @@ func (s *Server) acceptBrandCloudOwnerTransfer(c *gin.Context) {
 }
 
 func (s *Server) getBrandCloudOwnerTransfer(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	if !requireHandoffGlobalSession(c) {
+		return
+	}
 	// The target is a participant, not a member. The store checks this global
 	// session against the exact operation's source/target even while cloud-fenced.
-	transfer, err := s.store.GetBrandCloudOwnerTransfer(c.Request.Context(), store.BrandCloudOwnerTransferQuery{BrandCloudID: c.Param("brandCloudId"), TransferID: c.Param("transferId"), RequesterID: currentUserID(c)}, time.Now().UTC())
+	transfer, err := s.store.GetOwnerHandoffStatus(c.Request.Context(), store.BrandCloudOwnerTransferQuery{BrandCloudID: c.Param("brandCloudId"), TransferID: c.Param("transferId"), RequesterID: currentUserID(c)})
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -475,6 +487,10 @@ func (s *Server) getBrandCloudOwnerTransfer(c *gin.Context) {
 }
 
 func (s *Server) cancelBrandCloudOwnerTransfer(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	if !requireHandoffGlobalSession(c) {
+		return
+	}
 	transfer, err := s.store.CancelBrandCloudOwnerTransfer(c.Request.Context(), store.BrandCloudOwnerTransferQuery{BrandCloudID: c.Param("brandCloudId"), TransferID: c.Param("transferId"), RequesterID: currentUserID(c)}, time.Now().UTC())
 	if err != nil {
 		writeStoreError(c, err)

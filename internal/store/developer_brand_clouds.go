@@ -335,7 +335,7 @@ func (s *Store) CreateBrandCloudOwnerTransfer(ctx context.Context, in BrandCloud
 	if err := tx.Commit(ctx); err != nil {
 		return model.BrandCloudOwnerTransfer{}, err
 	}
-	return transfer, nil
+	return projectHandoffStatus(transfer), nil
 }
 
 func (s *Store) AcceptBrandCloudOwnerTransfer(ctx context.Context, targetUserID, tokenHash string, now time.Time) (model.BrandCloudOwnerTransfer, error) {
@@ -343,7 +343,10 @@ func (s *Store) AcceptBrandCloudOwnerTransfer(ctx context.Context, targetUserID,
 }
 
 func (s *Store) GetBrandCloudOwnerTransfer(ctx context.Context, in BrandCloudOwnerTransferQuery, now time.Time) (model.BrandCloudOwnerTransfer, error) {
-	transfer, err := scanBrandCloudOwnerTransfer(s.db.QueryRow(ctx, `
+	return getHandoffParticipant(ctx, s.db, in, now)
+}
+func getHandoffParticipant(ctx context.Context, q handoffQuerier, in BrandCloudOwnerTransferQuery, now time.Time) (model.BrandCloudOwnerTransfer, error) {
+	transfer, err := scanBrandCloudOwnerTransfer(q.QueryRow(ctx, `
 		SELECT id::text, brand_cloud_id::text, requested_by_user_id::text, target_user_id::text,
 		       status, expires_at, accepted_at, canceled_at, created_at, updated_at
 		FROM brand_cloud_owner_transfers
@@ -359,7 +362,7 @@ func (s *Store) GetBrandCloudOwnerTransfer(ctx context.Context, in BrandCloudOwn
 	if transfer.Status == "pending" && !transfer.ExpiresAt.After(now) {
 		transfer.Status = "expired"
 	}
-	return hydrateHandoff(ctx, s.db, transfer)
+	return hydrateHandoff(ctx, q, transfer)
 }
 
 func (s *Store) CancelBrandCloudOwnerTransfer(ctx context.Context, in BrandCloudOwnerTransferQuery, now time.Time) (model.BrandCloudOwnerTransfer, error) {

@@ -978,8 +978,68 @@ paths:
         - $ref: "#/components/parameters/BrandCloudId"
         - { name: transferId, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        "200": { description: Owner transfer status. }
+        "200":
+          description: Participant status with retained settled preview; confirmation flags come only from current Billing evidence.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrandCloudOwnerTransferResponse" }
+        "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/owner-transfer/{transferId}/preview:
+    get:
+      tags: [Developer Brand Clouds]
+      operationId: previewBrandCloudOwnerTransfer
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001]
+      summary: Read the current settled handoff snapshot as its authenticated source or target.
+      description: Requires every persisted producer preparation receipt, current source ownership/version, eligible participants and an unexpired operation. Returns 409 until Billing provides a fresh confirmable nonnegative snapshot. Status retains the last snapshot through outages/cancellation with stale confirmation flags reset to false. No membership or Billing-account access is granted.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/BrandCloudId" }
+        - { name: transferId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Current exact settled snapshot and confirmation progress. Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrandCloudHandoffPreviewResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/owner-transfer/{transferId}/confirm:
+    post:
+      tags: [Developer Brand Clouds]
+      operationId: confirmBrandCloudOwnerTransfer
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001]
+      summary: Confirm the exact settled balance as the current authenticated participant.
+      description: Persists the actor/key/immutable snapshot intent before delivery to Billing. Identical retries cannot change the amount/version or duplicate acknowledgment. After ambiguous delivery retry the same key and payload; stale snapshots require a fresh preview and new key. Acceptance is not ownership commit, payment consent or fence release.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/BrandCloudId" }
+        - { name: transferId, in: path, required: true, schema: { type: string, format: uuid } }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[!-~]+$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CloudBalanceConfirmation" }
+      responses:
+        "202":
+          description: Exact participant confirmation recorded; inspect status for the remaining handoff. Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrandCloudHandoffPreviewResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /v1/developer/brand-clouds/{brandCloudId}/owner-transfer/{transferId}/cancel:
     post:
       tags: [Developer Brand Clouds]
@@ -6242,10 +6302,66 @@ components:
         disabled_at:
           type: string
           format: date-time
+    CloudBalanceConfirmation:
+      type: object
+      additionalProperties: false
+      required: [ownership_version, billing_snapshot_version, balance_minor, currency]
+      properties:
+        ownership_version: { type: integer, format: int64, minimum: 1 }
+        billing_snapshot_version: { type: integer, format: int64, minimum: 2 }
+        balance_minor: { type: integer, format: int64, minimum: 0 }
+        currency: { type: string, enum: [TWD] }
+    CloudHandoffBlocker:
+      type: object
+      required: [code, retryable]
+      properties:
+        code: { type: string, enum: [products_present, devices_present, jobs_running, balance_nonzero, balance_negative, usage_unsettled, debt_outstanding, payment_pending, refund_pending, dispute_pending, evidence_unavailable, lifecycle_conflict, confirmation_stale, quota_exceeded] }
+        retryable: { type: boolean }
+    CloudHandoffOperation:
+      type: object
+      required: [id, brand_cloud_id, type, state, phase, blockers, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        brand_cloud_id: { type: string, format: uuid }
+        type: { type: string, enum: [owner_transfer] }
+        state: { type: string, enum: [pending, running, blocked, succeeded, failed, canceled] }
+        phase: { type: string }
+        blockers: { type: array, items: { $ref: "#/components/schemas/CloudHandoffBlocker" } }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    BrandCloudHandoffPreviewResponse:
+      type: object
+      required: [owner_transfer]
+      properties:
+        owner_transfer:
+          allOf:
+            - { $ref: "#/components/schemas/BrandCloudOwnerTransfer" }
+            - required: [operation, ownership_version, balance_snapshot, source_confirmed, target_confirmed]
+              properties:
+                phase: { type: string, enum: [awaiting_balance_confirmation] }
     BrandCloudOwnerTransfer:
       type: object
-      required: [id, brand_cloud_id, requested_by_user_id, target_user_id, status, expires_at, created_at, updated_at]
+      required: [id, brand_cloud_id, source_user_id, requested_by_user_id, target_user_id, status, phase, blockers, has_settled_snapshot, expires_at, created_at, updated_at]
+      oneOf:
+        - properties:
+            has_settled_snapshot: { type: boolean, enum: [false] }
+          not:
+            anyOf:
+              - required: [balance_snapshot]
+              - required: [source_confirmed]
+              - required: [target_confirmed]
+        - required: [balance_snapshot, source_confirmed, target_confirmed]
+          properties:
+            has_settled_snapshot: { type: boolean, enum: [true] }
       properties:
+        source_user_id: { type: string, format: uuid }
+        phase: { type: string, enum: [requested, awaiting_acceptance, preparing, awaiting_balance_confirmation, committing, finalizing, succeeded, blocked, canceled, expired] }
+        blockers: { type: array, items: { $ref: "#/components/schemas/CloudHandoffBlocker" } }
+        has_settled_snapshot: { type: boolean }
+        balance_snapshot: { $ref: "#/components/schemas/CloudBalanceConfirmation" }
+        source_confirmed: { type: boolean }
+        target_confirmed: { type: boolean }
+        operation: { $ref: "#/components/schemas/CloudHandoffOperation" }
         ownership_version: { type: integer, format: int64, minimum: 1 }
         operation_phase: { type: string, enum: [preparing, canceling, canceled] }
         id:

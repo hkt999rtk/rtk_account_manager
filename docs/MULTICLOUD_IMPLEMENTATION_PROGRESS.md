@@ -115,8 +115,9 @@ untouched. No staging deployment or shared database migration has been performed
 - Billing's optional dedicated HTTP runtime and this separately compiled AM client
   are tested over loopback TCP against isolated Billing PostgreSQL. This proves
   transport/serialization/persistence, not actual AM owner commit: fixture collector
-  and AM decision evidence remain synthetic. This client is not yet wired into
-  the AM server/worker, eligibility provider or public preview/confirm endpoints.
+  and AM decision evidence remain synthetic. The server/public preview and confirm
+  adapter is now wired as described below; production eligibility and workers remain
+  outstanding.
 
 ## Verification at this checkpoint
 
@@ -228,6 +229,61 @@ untouched. No staging deployment or shared database migration has been performed
 - `go vet ./...` and `git diff --check` passed. No runtime PR, deployment, live
   payment, email or staging owner change was performed.
 
+### Public preview and confirmation checkpoint — 2026-08-31
+
+- Forward migration 057 adds immutable observed Billing snapshots, authenticated
+  participant confirmation intents and acknowledgments. Snapshot cutoff and actor
+  references are constrained; one actor/idempotency key cannot change snapshots.
+  Confirmation intent and audit commit before remote delivery. Lost replies or
+  local acknowledgment/audit failure retain the intent for exact explicit replay.
+- Participant-only global-session GET status/preview and POST confirm use the
+  dedicated Billing client. Preview requires every persisted preparation receipt,
+  current eligible source/target, matching ownership version and unexpired request.
+  Remote calls run outside AM locks; all local gates are rechecked afterward.
+  The API rejects missing/null/negative amounts, unknown fields, trailing JSON,
+  missing idempotency keys and non-human subject types. Zero is explicitly valid.
+- Observed snapshots survive restart, outages, cancellation and terminal reload.
+  Without fresh confirmable Billing evidence, confirmation flags reset to false;
+  the previous amount remains history, not reusable approval. New amount/version
+  requires new exact consent. Out-of-order responses cannot overwrite newer
+  snapshots; a canceled operation cannot be revived by a delayed read.
+- The server optionally configures paired `BILLING_HANDOFF_BASE_URL` and dedicated
+  `BILLING_HANDOFF_TOKEN`. Startup validates trusted origin and credential isolation.
+  No runtime environment or secret was changed. Initial eligibility and producer
+  inventory are still not configured in production, so new transfers fail closed.
+- Fresh isolated `multicloud_am_confirmation_test` and the separate cross-service
+  `multicloud_am_public_http_test` databases on loopback 63229 applied through 057.
+  No released migration marker or shared/staging database was modified.
+- Database-backed API responses are validated against service OpenAPI, including
+  zero preview, source/target confirmation, replay, reload, cancellation, outsider
+  denial and malformed requests. Store tests additionally cover changed amount,
+  remote reply loss, audit rollback, disabled target during I/O, older responses,
+  expiry/cancellation during I/O, financial blockers and concurrent same-key writes.
+- Billing's optional `TestHandoffAccountManagerPublicAPIContract` runs this
+  checkout's `TestLiveOwnerHandoffPublicAPIWithBilling` with actual AM global
+  sessions, request/email-token acceptance, HTTP transport and separate AM/Billing
+  persistence. Both participants confirm zero and retries persist once; source
+  remains owner and target still has no ordinary cloud membership. The bootstrap
+  HTTP hook exists only in Billing's test wrapper, never its production router.
+  Initial financial eligibility, producer receipts and settlement checkpoints
+  are synthetic. This does not prove real producer settlement or owner commit.
+- Confirmation does not release fences, consume quota, change owner/Product roles
+  or finalize Billing. Pending intents have explicit replay but not yet an automatic
+  delivery worker. Runtime CI, browser and staging acceptance remain outstanding.
+- Full uncached `go test ./... -count=1` passed on the confirmation database
+  (API 86.340s, store 110.684s), including migration, App end-user, authentication
+  and OpenAPI regressions. Log: `/tmp/rtk-am-public-handoff-suite-20260831.log`.
+  Billing's full suite with both cross-repository fixtures enabled also passed;
+  its public-API fixture passed three repeated Billing-side race runs (13.555s).
+  `go vet ./...` and `git diff --check` passed. Durations are not benchmarks;
+  integration fixtures serialize on their database advisory lock.
+
+  Final focused AM race tests passed three consecutive runs (API 30.071s,
+  store 42.709s, config 1.444s), including confirmation replay/concurrency,
+  financial drift, cancellation/expiry and API authorization/contract assertions.
+  Log: `/tmp/rtk-am-public-handoff-race-20260831.log`. Cross-service fixture
+  implementation and Billing evidence are committed locally at `07e9fa2`.
+
 ## Required next work
 
 1. Complete cross-service authorization, downloads/background work and cache
@@ -236,16 +292,15 @@ untouched. No staging deployment or shared database migration has been performed
    Retire legacy human
    identity fallbacks, retaining only the required migration evidence.
 2. Complete cloud idempotent CRUD/deletion and the AM handoff coordinator beyond
-   acceptance/cancel preparation. Wire the implemented Billing command client and
+   acceptance/cancel preparation and balance consent. Wire the remaining Billing commands and
    add the production Billing eligibility provider,
    dedicated credentials, outbox delivery/retries and actual producer hold/drain
-   adapters for the persisted preparation acknowledgments. Implement the AM-side
-   versioned settlement preview and both participant confirmations against Billing's
-   authoritative snapshots. Then commit
+   adapters for the persisted preparation acknowledgments. Consume the implemented
+   versioned previews and participant confirmations in the coordinator. Then commit
    the sole-owner swap, consume the reservation, transfer Product-owner duties and
    remove every old-owner membership/delegated grant atomically with the committed
    outbox event. Keep access fenced until Billing finalize acknowledgment; after a
-   known commit only forward retry is legal. Current 055/056 deliberately have no
+   known commit only forward retry is legal. Current 055–057 deliberately have no
    successful owner-commit path; acceptance is not transfer completion.
 3. Integrate Billing's implemented store protocol/privacy with real AM decisions,
    evidence collectors, provider adapters and audited operations. A configured test

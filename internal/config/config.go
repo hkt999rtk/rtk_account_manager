@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"rtk_account_manager/internal/billinghandoff"
 )
 
 type Config struct {
@@ -78,6 +80,8 @@ type Config struct {
 	AppCertIssuerCAFile            string
 	AppCertIssuerTimeout           time.Duration
 	InternalAuthToken              string
+	BillingHandoffBaseURL          string
+	BillingHandoffToken            string
 	AllowImmediateBrandAccounts    bool
 	FactoryProductionJWTSecret     string
 	FactoryProductionJWTAudience   string
@@ -124,7 +128,25 @@ func Load() (Config, error) {
 	if err := validateEmailConfig(cfg); err != nil {
 		return Config{}, err
 	}
+	if err := validateHandoffBillingConfig(cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+func validateHandoffBillingConfig(cfg Config) error {
+	if cfg.BillingHandoffBaseURL == "" && cfg.BillingHandoffToken == "" {
+		return nil
+	}
+	if _, err := billinghandoff.New(billinghandoff.Config{BaseURL: cfg.BillingHandoffBaseURL, Token: cfg.BillingHandoffToken}); err != nil {
+		return fmt.Errorf("BILLING_HANDOFF_BASE_URL and a dedicated BILLING_HANDOFF_TOKEN must be configured together with a trusted origin")
+	}
+	for _, secret := range []string{cfg.AccessSecret, cfg.RefreshSecret, cfg.InternalAuthToken, cfg.SendMailHTTPBearerToken, cfg.VideoCloudLifecycleToken, cfg.EmailOutboxEncryptionKey, cfg.FactoryProductionJWTSecret, cfg.OIDCClientSecret, cfg.JWTAccessPKCS11PIN, cfg.JWTRefreshPKCS11PIN} {
+		if secret != "" && secret == cfg.BillingHandoffToken {
+			return fmt.Errorf("BILLING_HANDOFF_TOKEN must not reuse other service credentials")
+		}
+	}
+	return nil
 }
 
 func LoadWorker() (Config, error) {
@@ -343,6 +365,8 @@ func load() (Config, error) {
 		AppCertIssuerCAFile:            os.Getenv("APP_CERT_ISSUER_CA_FILE"),
 		AppCertIssuerTimeout:           duration("APP_CERT_ISSUER_TIMEOUT", 10*time.Second),
 		InternalAuthToken:              os.Getenv("ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN"),
+		BillingHandoffBaseURL:          strings.TrimSpace(os.Getenv("BILLING_HANDOFF_BASE_URL")),
+		BillingHandoffToken:            strings.TrimSpace(os.Getenv("BILLING_HANDOFF_TOKEN")),
 		AllowImmediateBrandAccounts:    strings.EqualFold(strings.TrimSpace(os.Getenv("ACCOUNT_MANAGER_ENV")), "staging") && boolValue("ACCOUNT_MANAGER_ALLOW_IMMEDIATE_BRAND_ACCOUNTS", false),
 		FactoryProductionJWTSecret:     os.Getenv("FACTORY_PRODUCTION_JWT_SECRET"),
 		FactoryProductionJWTAudience:   getenv("FACTORY_PRODUCTION_JWT_AUDIENCE", "factory-enroll"),

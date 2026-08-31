@@ -273,6 +273,8 @@ func (s *Server) Router() *gin.Engine {
 	protected.DELETE("/developer/brand-clouds/:brandCloudId/members/:userId", s.removeDeveloperBrandCloudMember)
 	protected.POST("/developer/brand-clouds/:brandCloudId/owner-transfer", s.createBrandCloudOwnerTransfer)
 	protected.GET("/developer/brand-clouds/:brandCloudId/owner-transfer/:transferId", s.getBrandCloudOwnerTransfer)
+	protected.GET("/developer/brand-clouds/:brandCloudId/owner-transfer/:transferId/preview", s.previewOwnerHandoff)
+	protected.POST("/developer/brand-clouds/:brandCloudId/owner-transfer/:transferId/confirm", s.confirmOwnerHandoff)
 	protected.POST("/developer/brand-clouds/:brandCloudId/owner-transfer/:transferId/cancel", s.cancelBrandCloudOwnerTransfer)
 	protected.POST("/developer/brand-clouds/:brandCloudId/pki/test-app-certificates", s.issueDeveloperPKITestAppCertificate)
 	protected.POST("/developer/brand-cloud-owner-transfers/accept", s.acceptBrandCloudOwnerTransfer)
@@ -1912,6 +1914,8 @@ func writeStoreError(c *gin.Context, err error) {
 		writeError(c, http.StatusBadRequest, "invalid_access_scope", err.Error())
 	case errors.Is(err, store.ErrHandoffUnavailable):
 		writeError(c, http.StatusServiceUnavailable, "ownership_handoff_unavailable", "Trusted Billing evidence and the producer inventory are required")
+	case errors.Is(err, store.ErrHandoffSnapshotNotReady):
+		writeError(c, http.StatusConflict, "ownership_handoff_not_ready", "Fresh preparation and exact settled balance confirmation are required; refresh transfer status")
 	case errors.Is(err, store.ErrHandoffBalanceNegative):
 		writeError(c, http.StatusConflict, "balance_negative", "Settle Billing to a nonnegative cloud balance before transfer")
 	case errors.Is(err, store.ErrHandoffFinancialBlocked):

@@ -9,6 +9,7 @@ import (
 
 	"rtk_account_manager/internal/api"
 	"rtk_account_manager/internal/auth"
+	"rtk_account_manager/internal/billinghandoff"
 	"rtk_account_manager/internal/config"
 	"rtk_account_manager/internal/database"
 	"rtk_account_manager/internal/emaildelivery"
@@ -44,6 +45,15 @@ func main() {
 		fatal(logger, "configure auth token signer failed", err)
 	}
 	accountStore := store.New(db)
+	if cfg.BillingHandoffBaseURL != "" {
+		client, err := billinghandoff.New(billinghandoff.Config{BaseURL: cfg.BillingHandoffBaseURL, Token: cfg.BillingHandoffToken})
+		if err != nil {
+			fatal(logger, "configure Billing handoff transport failed", err)
+		}
+		if err := accountStore.ConfigureHandoffBilling(client); err != nil {
+			fatal(logger, "configure Billing handoff observations failed", err)
+		}
+	}
 	accountStore.ConfigureAuthTokenRateLimit(cfg.AuthTokenRateLimitMax, cfg.AuthTokenRateLimitWindow)
 	cipher, err := emaildelivery.NewCipher(cfg.EmailOutboxEncryptionKey)
 	if err != nil {

@@ -117,8 +117,25 @@ func countCloudQuotaUsageTx(ctx context.Context, q handoffQuerier, user string) 
 const transferColumns = `id::text,brand_cloud_id::text,requested_by_user_id::text,target_user_id::text,status,expires_at,accepted_at,canceled_at,created_at,updated_at`
 
 func hydrateHandoff(ctx context.Context, q handoffQuerier, transfer model.BrandCloudOwnerTransfer) (model.BrandCloudOwnerTransfer, error) {
-	err := q.QueryRow(ctx, `SELECT COALESCE(t.ownership_version,0),COALESCE(h.phase,'') FROM brand_cloud_owner_transfers t LEFT JOIN cloud_ownership_handoffs h ON h.id=t.id WHERE t.id=$1`, transfer.ID).Scan(&transfer.OwnershipVersion, &transfer.OperationPhase)
-	return transfer, err
+	var created, updated *time.Time
+	err := q.QueryRow(ctx, `SELECT COALESCE(t.ownership_version,0),COALESCE(h.phase,''),h.created_at,h.updated_at FROM brand_cloud_owner_transfers t LEFT JOIN cloud_ownership_handoffs h ON h.id=t.id WHERE t.id=$1`, transfer.ID).Scan(&transfer.OwnershipVersion, &transfer.OperationPhase, &created, &updated)
+	if err != nil {
+		return transfer, err
+	}
+	if created != nil && updated != nil {
+		transfer.Operation = &model.CloudOperation{ID: transfer.ID, BrandCloudID: transfer.BrandCloudID, Type: "owner_transfer", CreatedAt: *created, UpdatedAt: *updated}
+	}
+	var snapshot model.CloudBalanceSnapshot
+	snapshot.OwnershipVersion = transfer.OwnershipVersion
+	err = q.QueryRow(ctx, `SELECT billing_snapshot_version,balance_minor,currency FROM cloud_handoff_billing_snapshots WHERE operation_id=$1 ORDER BY billing_snapshot_version DESC LIMIT 1`, transfer.ID).
+		Scan(&snapshot.BillingSnapshotVersion, &snapshot.BalanceMinor, &snapshot.Currency)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return transfer, err
+	}
+	if err == nil {
+		transfer.BalanceSnapshot = &snapshot
+	}
+	return projectHandoffStatus(transfer), nil
 }
 
 func enqueueHandoffCommands(ctx context.Context, tx pgx.Tx, operation, action string) error {
@@ -252,5 +269,5 @@ func (s *Store) acceptOwnerHandoff(ctx context.Context, target, token string, no
 		return model.BrandCloudOwnerTransfer{}, err
 	}
 	transfer.OperationPhase, transfer.OwnershipVersion = "preparing", version
-	return transfer, nil
+	return hydrateHandoff(ctx, s.db, transfer)
 }
