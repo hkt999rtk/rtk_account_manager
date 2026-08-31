@@ -95,7 +95,7 @@ func (s *Server) createDeviceClaimToken(c *gin.Context) {
 		responseRaw = &rawToken
 	}
 
-	token, err := s.store.CreateDeviceClaimToken(c.Request.Context(), store.DeviceClaimTokenCreateInput{
+	token, err := s.store.CreateDeviceClaimTokenAsPlatform(c.Request.Context(), store.DeviceClaimTokenCreateInput{
 		OrganizationID:      trimPtr(req.OrganizationID),
 		CreatedBy:           stringPtr(currentUserID(c)),
 		DeviceItemProfileID: trimPtr(req.DeviceItemProfileID),
@@ -141,7 +141,7 @@ func (s *Server) getDeviceClaimToken(c *gin.Context) {
 }
 
 func (s *Server) revokeDeviceClaimToken(c *gin.Context) {
-	token, err := s.store.RevokeDeviceClaimToken(c.Request.Context(), c.Param("tokenId"), time.Now().UTC())
+	token, err := s.store.RevokeDeviceClaimTokenAsPlatform(c.Request.Context(), currentUserID(c), c.Param("tokenId"), time.Now().UTC())
 	if err != nil {
 		writeStoreError(c, err)
 		return

@@ -146,10 +146,10 @@ type provisioningPersistence interface {
 }
 
 type deviceClaimPersistence interface {
-	CreateDeviceClaimToken(ctx context.Context, in store.DeviceClaimTokenCreateInput) (model.DeviceClaimToken, error)
+	CreateDeviceClaimTokenAsPlatform(ctx context.Context, in store.DeviceClaimTokenCreateInput) (model.DeviceClaimToken, error)
 	ListDeviceClaimTokens(ctx context.Context, in store.DeviceClaimTokenListFilter) (store.DeviceClaimTokenPage, error)
 	GetDeviceClaimToken(ctx context.Context, tokenID string) (model.DeviceClaimToken, error)
-	RevokeDeviceClaimToken(ctx context.Context, tokenID string, now time.Time) (model.DeviceClaimToken, error)
+	RevokeDeviceClaimTokenAsPlatform(ctx context.Context, actor, tokenID string, now time.Time) (model.DeviceClaimToken, error)
 	ResolveDeviceClaimToken(ctx context.Context, in store.DeviceClaimResolveInput) (store.DeviceClaimResolveResult, error)
 	ResolveEndUserDeviceClaimToken(ctx context.Context, in store.EndUserDeviceClaimResolveInput) (store.EndUserDeviceClaimResolveResult, error)
 	TransferDeviceClaim(ctx context.Context, in store.DeviceClaimTransferInput) (store.DeviceClaimOverrideResult, error)

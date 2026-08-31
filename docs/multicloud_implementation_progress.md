@@ -964,3 +964,25 @@ package gates and redaction pass. The test catalog/spec inventory checks remain
 valid (241 cases, zero blocking findings). Exact report/log identities are in
 `test_report.md`. Differential/default pre-PR, producer token administration and
 draining, Billing collector wiring, full CI/migration/staging remain unfinished.
+
+## Platform claim-token administration — 2026-09-01
+
+The HTTP persistence interface now exposes only the explicitly authorized
+platform create/revoke entrypoints. Both recheck the active global operator
+inside the write transaction, lock target/manufacturer clouds in sorted order,
+and revalidate Product/token scope before writing. Brand Cloud Product equality
+is enforced when a Product is supplied; legacy customer manufacturer tokens
+and unbound platform manufacturing tokens remain supported. Inactive or
+handoff/deletion-fenced clouds cannot be bypassed. Mutation and a secret-free
+audit commit together; repeated revocation preserves its timestamp and audit.
+The low-level fixture/bootstrap methods are not human HTTP entrypoints.
+
+Focused store/API race tests pass (16.598s/11.352s). They include revoked,
+disabled and pending platform actors, canceled requests, manufacturer handoff
+and cancellation fences, Product scope rejection, write/audit/commit rollback
+and retry, revocation replay, and tokens moved/deleted while waiting for a cloud
+lock. HTTP requests admitted before platform revocation cannot create/revoke.
+Log: `/tmp/rtk-token-admin-final-race.log`. Vet/build/diff checks pass. Fresh full
+coverage follows separately. Other resource-family admission, queued-work drain,
+real producer/collector integration, CI and staging remain unproven; no shared
+database, real email/payment, migration marker or deployment was changed.

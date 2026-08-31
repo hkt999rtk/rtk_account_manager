@@ -142,6 +142,18 @@ unchanged. A changed source or mismatched claim/device/token scope is a conflict
 not permission to act on a cloud that was not locked. Audit failure rolls back
 the entire device/token/claim mutation.
 
+Platform claim-token creation/revocation use the same transaction-local platform
+authority check. Lock all affected clouds (explicit organization and the Product's
+manufacturer cloud) before Product/token rows, and revalidate the observed scope.
+A Product-bound Brand Cloud token must reference that cloud's Product; legacy
+customer manufacturing tokens retain their independent manufacturer relationship.
+Unbound platform manufacturing tokens remain supported. Creating/revoking tokens
+cannot bypass an inactive cloud or handoff/deletion fence. Audit token IDs and
+scope only, never claim secrets or provisioning material; audit failure rolls
+back the token write. Repeated revocation retains its original timestamp and
+does not emit duplicate audit. Low-level fixture/bootstrap persistence is not
+included in the HTTP persistence interface and must not authorize human requests.
+
 After authenticated target acceptance, durable outbox/inbox messages prepare
 Billing and cost-producing resource services. Messages bind operation/cloud ID,
 ownership version, cutoff and reconciliation evidence. Drain/fence producers;

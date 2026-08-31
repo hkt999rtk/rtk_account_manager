@@ -79,13 +79,22 @@ type DeviceClaimOverrideResult struct {
 	Device model.Device           `json:"device"`
 }
 
+// Low-level bootstrap/fixture persistence. Human HTTP callers must use the
+// separately authorized CreateDeviceClaimTokenAsPlatform entrypoint.
 func (s *Store) CreateDeviceClaimToken(ctx context.Context, in DeviceClaimTokenCreateInput) (model.DeviceClaimToken, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return model.DeviceClaimToken{}, err
 	}
 	defer tx.Rollback(ctx)
+	token, err := createDeviceClaimTokenTx(ctx, tx, in)
+	if err != nil {
+		return model.DeviceClaimToken{}, err
+	}
+	return token, tx.Commit(ctx)
+}
 
+func createDeviceClaimTokenTx(ctx context.Context, tx pgx.Tx, in DeviceClaimTokenCreateInput) (model.DeviceClaimToken, error) {
 	metadataValue := defaultMetadata(in.Metadata)
 	category := in.Category
 	serviceOptionValues := in.ServiceOptions
@@ -163,9 +172,6 @@ func (s *Store) CreateDeviceClaimToken(ctx context.Context, in DeviceClaimTokenC
 	if err != nil {
 		return model.DeviceClaimToken{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return model.DeviceClaimToken{}, err
-	}
 	return token, nil
 }
 
@@ -211,11 +217,16 @@ func (s *Store) GetDeviceClaimToken(ctx context.Context, tokenID string) (model.
 	return token, err
 }
 
+// Low-level bootstrap/fixture persistence, not a human request authorization path.
 func (s *Store) RevokeDeviceClaimToken(ctx context.Context, tokenID string, now time.Time) (model.DeviceClaimToken, error) {
+	return revokeDeviceClaimToken(ctx, s.db, tokenID, now)
+}
+
+func revokeDeviceClaimToken(ctx context.Context, q handoffQuerier, tokenID string, now time.Time) (model.DeviceClaimToken, error) {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	token, err := scanDeviceClaimToken(s.db.QueryRow(ctx, `
+	token, err := scanDeviceClaimToken(q.QueryRow(ctx, `
 		UPDATE device_claim_tokens
 		SET revoked_at = COALESCE(revoked_at, $2), updated_at = $2
 		WHERE id = $1

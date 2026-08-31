@@ -193,3 +193,86 @@ func TestIntegrationPlatformUnprovisionRechecksRevokedPrivilege(t *testing.T) {
 		t.Fatalf("revoked operator changed claim: %s/%s/%s %v", claimCloud, tokenCloud, status, err)
 	}
 }
+
+// Pause only after HTTP middleware and binding, then delegate to the real store.
+type admittedClaimTokenStore struct {
+	Store
+	ready   chan struct{}
+	release <-chan struct{}
+}
+
+func (s *admittedClaimTokenStore) wait(ctx context.Context) error {
+	s.ready <- struct{}{}
+	select {
+	case <-s.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *admittedClaimTokenStore) CreateDeviceClaimTokenAsPlatform(ctx context.Context, in store.DeviceClaimTokenCreateInput) (model.DeviceClaimToken, error) {
+	if err := s.wait(ctx); err != nil {
+		return model.DeviceClaimToken{}, err
+	}
+	return s.Store.CreateDeviceClaimTokenAsPlatform(ctx, in)
+}
+
+func (s *admittedClaimTokenStore) RevokeDeviceClaimTokenAsPlatform(ctx context.Context, actor, id string, now time.Time) (model.DeviceClaimToken, error) {
+	if err := s.wait(ctx); err != nil {
+		return model.DeviceClaimToken{}, err
+	}
+	return s.Store.RevokeDeviceClaimTokenAsPlatform(ctx, actor, id, now)
+}
+
+func TestIntegrationClaimTokenWritesRecheckRevokedPlatformAuthority(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	owner := verifiedDeveloperForTest(t, env, "token-http-owner@example.test")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin=true WHERE id=$1`, owner.UserID); err != nil {
+		t.Fatal(err)
+	}
+	token, err := env.store.CreateDeviceClaimToken(ctx, store.DeviceClaimTokenCreateInput{OrganizationID: &owner.BrandCloudID, TokenHash: "existing-http-token", Category: model.DeviceCategoryIPCamera, VideoCloudDevid: "existing", ActivityID: "activity", ClipPublicKey: "key", ExpiresAt: time.Now().Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	ready := make(chan struct{}, 2)
+	env.server.store = &admittedClaimTokenStore{Store: env.store, ready: ready, release: release}
+	results := make(chan *httptest.ResponseRecorder, 2)
+	for _, tc := range []struct{ path, body string }{
+		{"/v1/admin/device-claim-tokens", `{"organization_id":"` + owner.BrandCloudID + `","category":"ip_camera","video_cloud_devid":"late","activity_id":"activity","clip_public_key":"key","service_options":["mqtt"],"expires_at":"` + time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano) + `"}`},
+		{"/v1/admin/device-claim-tokens/" + token.ID + "/revoke", `{}`},
+	} {
+		req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body)).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+owner.AccessToken)
+		go func() { r := httptest.NewRecorder(); env.router.ServeHTTP(r, req); results <- r }()
+		select {
+		case <-ready:
+		case r := <-results:
+			t.Fatalf("request failed before admission: %d %s", r.Code, r.Body)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin=false WHERE id=$1`, owner.UserID); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	for range 2 {
+		select {
+		case r := <-results:
+			if r.Code != http.StatusNotFound {
+				t.Fatalf("stale authority wrote token: %d %s", r.Code, r.Body)
+			}
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	var tokens, revoked int
+	if err := env.db.QueryRow(ctx, `SELECT count(*),count(revoked_at) FROM device_claim_tokens`).Scan(&tokens, &revoked); err != nil || tokens != 1 || revoked != 0 {
+		t.Fatalf("stale token mutation: %d/%d %v", tokens, revoked, err)
+	}
+}
