@@ -695,6 +695,9 @@ paths:
     get:
       tags: [Developer Brand Clouds]
       operationId: listProductCollaborators
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
+      x-rtk-requirement-ids:
+        - REQ-AM-PRODUCT-COLLAB-001
       summary: List developers assigned to a Product project.
       security: [{ bearerAuth: [] }]
       responses:
@@ -709,6 +712,9 @@ paths:
     patch:
       tags: [Developer Brand Clouds]
       operationId: updateProductCollaborator
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
+      x-rtk-requirement-ids:
+        - REQ-AM-PRODUCT-COLLAB-001
       summary: Change a Product collaborator between editor and viewer.
       security: [{ bearerAuth: [] }]
       requestBody:
@@ -727,6 +733,9 @@ paths:
     delete:
       tags: [Developer Brand Clouds]
       operationId: removeProductCollaborator
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
+      x-rtk-requirement-ids:
+        - REQ-AM-PRODUCT-COLLAB-001
       summary: Remove a developer from a Product project.
       security: [{ bearerAuth: [] }]
       responses:
@@ -740,6 +749,9 @@ paths:
     get:
       tags: [Developer Brand Clouds]
       operationId: listProductCollaboratorInvitations
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
+      x-rtk-requirement-ids:
+        - REQ-AM-PRODUCT-COLLAB-001
       summary: List pending and completed Product invitations.
       security: [{ bearerAuth: [] }]
       responses:
@@ -749,6 +761,9 @@ paths:
     post:
       tags: [Developer Brand Clouds]
       operationId: inviteProductCollaborator
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
+      x-rtk-requirement-ids:
+        - REQ-AM-PRODUCT-COLLAB-001
       summary: Invite a registered developer to a Product project.
       security: [{ bearerAuth: [] }]
       requestBody:
@@ -771,6 +786,9 @@ paths:
     post:
       tags: [Developer Brand Clouds]
       operationId: mutateProductCollaboratorInvitation
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
+      x-rtk-requirement-ids:
+        - REQ-AM-PRODUCT-COLLAB-001
       summary: Resend or cancel a pending Product invitation.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -788,6 +806,9 @@ paths:
     post:
       tags: [Developer Brand Clouds]
       operationId: transferProductOwnership
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
+      x-rtk-requirement-ids:
+        - REQ-AM-PRODUCT-COLLAB-001
       summary: Transfer explicit ownership of a Product project.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -810,6 +831,9 @@ paths:
     post:
       tags: [Developer Brand Clouds]
       operationId: acceptProductCollaboratorInvitation
+      x-rtk-feature-id: FEAT-AM-IDENTITY-001
+      x-rtk-requirement-ids:
+        - REQ-AM-PRODUCT-COLLAB-001
       summary: Accept a Product invitation as its target developer.
       security: [{ bearerAuth: [] }]
       requestBody:
@@ -4284,6 +4308,9 @@ paths:
     post:
       tags: [Developer Brand Clouds]
       operationId: issueDeveloperPKITestAppCertificate
+      x-rtk-feature-id: FEAT-CA-BFF-001
+      x-rtk-requirement-ids:
+        - REQ-CA-BFF-PKI-TEST-001
       summary: Issue a fixed 30-day certificate-only test bundle for a scoped app identity.
       security:
         - bearerAuth: []
