@@ -42,7 +42,10 @@ func awaitBlockedConnections(t *testing.T, ctx context.Context, observer blocked
 	defer ticker.Stop()
 	for {
 		var waiting int
-		if err := observer.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity a WHERE a.datname=current_database() AND $1=ANY(pg_blocking_pids(a.pid))`, blockerPID).Scan(&waiting); err != nil {
+		// A competing operation can wait behind another waiter rather than directly
+		// behind blockerPID. Count the whole database's lock waiters; integration
+		// tests hold the database-wide test lock, so no unrelated test can contribute.
+		if err := observer.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>$1 AND wait_event_type='Lock'`, blockerPID).Scan(&waiting); err != nil {
 			t.Fatal(err)
 		}
 		if waiting >= expected {
