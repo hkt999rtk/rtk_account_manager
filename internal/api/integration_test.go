@@ -3098,6 +3098,27 @@ func TestIntegrationBrandCloudResourceScopeFiltersFleetQueries(t *testing.T) {
 		t.Fatalf("expected existing member assignment 200, got %d: %s", memberRes.Code, memberRes.Body.String())
 	}
 	member := decodeBody[brandCloudAccountBody](t, memberRes)
+	product, err := store.New(env.db).CreateDeviceItemProfile(ctx, store.DeviceItemProfileCreateInput{ActorUserID: &owner.User.ID, BrandCloudID: brand.BrandCloud.ID, ProfileKey: "resource-scope", DisplayName: "Resource scope", Category: model.DeviceCategoryGeneric, CAProfile: "ca", IssuerProfile: "issuer", ServiceOptions: []string{"video_streaming"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE devices SET device_item_profile_id=$2 WHERE id=$1`, scopedDevice.Device.ID, product.ID); err != nil {
+		t.Fatal(err)
+	}
+	productBase := "/v1/developer/brand-clouds/" + brand.BrandCloud.ID + "/products/" + product.ID
+	inviteRes := performJSON(env.router, http.MethodPost, productBase+"/collaborator-invitations", map[string]any{"email": member.User.Email, "role": "product_viewer"}, owner.Tokens.AccessToken)
+	if inviteRes.Code != http.StatusAccepted {
+		t.Fatalf("owner Product approval: %d %s", inviteRes.Code, inviteRes.Body.String())
+	}
+	productToken := latestAuthToken(t, env.tokenObserver, member.User.Email, "product_collaborator_invitation")
+	acceptRes := performJSON(env.router, http.MethodPost, "/v1/developer/product-collaborator-invitations/accept", map[string]any{"token": productToken}, memberUser.Tokens.AccessToken)
+	if acceptRes.Code != http.StatusOK {
+		t.Fatalf("accept Product approval: %d %s", acceptRes.Code, acceptRes.Body.String())
+	}
+	// Keep the owner-approved Product ceiling, but exercise a narrower device ACL.
+	if _, err := env.db.Exec(ctx, `UPDATE role_assignments SET disabled_at=now() WHERE actor_type='user' AND actor_id=$1 AND scope_type='product'`, member.User.ID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := env.db.Exec(ctx, `UPDATE role_assignments SET disabled_at = now() WHERE actor_type = 'user' AND actor_id = $1 AND scope_type = 'organization'`, member.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -6574,6 +6595,22 @@ func TestIntegrationProductCollaboratorLifecycleAndVisibility(t *testing.T) {
 	owner := verifiedDeveloperForTest(t, env, "product-api-owner@example.com")
 	editor := verifiedDeveloperForTest(t, env, "product-api-editor@example.com")
 	viewer := verifiedDeveloperForTest(t, env, "product-api-viewer@example.com")
+	// Product invitations cannot admit an external account to the cloud. The
+	// cloud owner must first invite it, and the developer must accept that invite.
+	for _, target := range []struct {
+		email     string
+		developer verifiedDeveloperFixture
+	}{{"product-api-editor@example.com", editor}, {"product-api-viewer@example.com", viewer}} {
+		res := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+owner.BrandCloudID+"/members/invitations", map[string]any{"email": target.email, "role": "member"}, owner.AccessToken)
+		if res.Code != http.StatusAccepted {
+			t.Fatalf("invite cloud member: %d %s", res.Code, res.Body.String())
+		}
+		token := latestAuthToken(t, env.tokenObserver, target.email, "brand_cloud_membership_invitation")
+		res = performJSON(env.router, http.MethodPost, "/v1/developer/brand-cloud-member-invitations/accept", map[string]any{"token": token}, target.developer.AccessToken)
+		if res.Code != http.StatusOK {
+			t.Fatalf("accept cloud membership: %d %s", res.Code, res.Body.String())
+		}
+	}
 
 	createProduct := func(key string) model.DeviceItemProfile {
 		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.BrandCloudID+"/device-item-profiles", map[string]any{
@@ -6658,8 +6695,8 @@ func TestIntegrationProductCollaboratorLifecycleAndVisibility(t *testing.T) {
 		t.Fatalf("transfer Product owner: %d %s", transferRes.Code, transferRes.Body.String())
 	}
 	oldOwnerRes := performJSON(env.router, http.MethodGet, base+"/collaborators", nil, owner.AccessToken)
-	if oldOwnerRes.Code != http.StatusNotFound {
-		t.Fatalf("old owner collaborator access = %d, want 404", oldOwnerRes.Code)
+	if oldOwnerRes.Code != http.StatusOK {
+		t.Fatalf("cloud owner must retain Product management: %d %s", oldOwnerRes.Code, oldOwnerRes.Body.String())
 	}
 	newOwnerRes := performJSON(env.router, http.MethodGet, base+"/collaborators", nil, editor.AccessToken)
 	if newOwnerRes.Code != http.StatusOK {

@@ -331,6 +331,13 @@ func TestBrandCloudMemberInvitationLifecycleAndConflicts(t *testing.T) {
 	if _, err := env.db.Exec(ctx, `DELETE FROM organization_members WHERE organization_id = $1 AND user_id = $2`, owner.BrandCloud.ID, target.User.ID); err != nil {
 		t.Fatal(err)
 	}
+	if _, _, err := env.store.AcceptBrandCloudMemberInvitation(ctx, target.User.ID, base.TokenHash, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("revocation must cancel earlier invitation: %v", err)
+	}
+	base.TokenHash = "invitation-after-revocation"
+	if _, created, err := env.store.CreateBrandCloudMemberInvitation(ctx, base, now); err != nil || !created {
+		t.Fatalf("fresh owner invitation after revocation: %v %v", created, err)
+	}
 	if _, _, err := env.store.AcceptBrandCloudMemberInvitation(ctx, owner.User.ID, base.TokenHash, now); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("wrong developer should not accept invitation, got %v", err)
 	}

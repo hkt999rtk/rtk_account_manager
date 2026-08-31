@@ -377,6 +377,7 @@ func fleetAccessPredicate(actorID, actorType, permission string) (string, []any)
 		JOIN permissions p ON p.id = rp.permission_id
 		WHERE ra.actor_type = $4 AND ra.actor_id = $2 AND p.name = $3
 		  AND ra.disabled_at IS NULL AND ra.organization_id = d.organization_id
+		  AND ($4 <> 'user' OR user_can_access_brand_cloud_product($2,d.organization_id::text,d.device_item_profile_id::text))
 		  AND (
 		    ra.scope_type = 'organization'
 		    OR (ra.scope_type = 'product' AND ra.scope_id = d.device_item_profile_id::text)
@@ -1661,6 +1662,9 @@ func (s *Store) ListDevicesFiltered(ctx context.Context, in DeviceListFilter) (D
 		userPlaceholder := "$" + strconv.Itoa(len(args)-2)
 		permissionPlaceholder := "$" + strconv.Itoa(len(args)-1)
 		actorTypePlaceholder := "$" + strconv.Itoa(len(args))
+		if actorType == "user" {
+			where = append(where, fmt.Sprintf(`user_can_access_brand_cloud_product(%s,d.organization_id::text,d.device_item_profile_id::text)`, userPlaceholder))
+		}
 		where = append(where, fmt.Sprintf(`EXISTS (
 			SELECT 1 FROM role_assignments ra
 			JOIN roles r ON r.id = ra.role_id AND r.disabled_at IS NULL

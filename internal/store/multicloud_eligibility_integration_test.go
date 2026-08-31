@@ -35,6 +35,19 @@ func TestMultiCloudEligibilityFencesStaleACLIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// This fixture has an existing explicit Product approval. Operational
+	// eligibility must still deny it while its cloud owner is pending/disabled.
+	var product string
+	if err := env.db.QueryRow(ctx, `INSERT INTO device_item_profiles(brand_cloud_id,profile_key,display_name,category,ca_profile,issuer_profile)
+	    VALUES ($1,'eligibility','Eligibility','ip_camera','ca','issuer') RETURNING id::text`, cloud).Scan(&product); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE devices SET device_item_profile_id=$2 WHERE id=$1`, device.ID, product); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `INSERT INTO brand_cloud_product_admissions(organization_id,user_id,product_id,provenance,approved_by) VALUES ($1,$2,$3,'owner_invitation',$4)`, cloud, member.User.ID, product, owner.User.ID); err != nil {
+		t.Fatal(err)
+	}
 	check := func(t *testing.T, want bool) {
 		t.Helper()
 		checks := []struct {

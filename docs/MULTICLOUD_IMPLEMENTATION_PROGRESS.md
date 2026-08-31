@@ -26,6 +26,16 @@ untouched. No staging deployment or shared database migration has been performed
 - Generic account provisioning rejects owner assignment/demotion. Cloud member
   collection reads are owner-only. Legacy customer fixtures are explicitly separate
   from public registration tests.
+- Forward migration 053 persists cloud-owner-approved Product admission separately
+  from Product roles. It backfills only explicit existing Product assignments and
+  rejects cross-cloud Product references. Membership removal disables old ACLs,
+  deletes admission and cancels pending invitations; rejoin cannot revive them.
+- Product invitations require an already accepted cloud membership. Delegated
+  Product owners cannot expand the cloud owner's approved scope. Mutations lock
+  users/cloud, recheck authorization, write audit and change authorization version
+  transactionally. Cloud owners retain management after Product-only delegation.
+  Product/device/fleet reads and video-device eligibility intersect Product scope.
+  This is not yet complete viewer, download, job or cache authorization coverage.
 - Billing has a tested financial eligibility predicate: settled credit >= 0 for
   transfer; exactly 0 for closure; missing evidence and pending monetary/setup
   work remain independent blockers. This predicate is not yet connected to a
@@ -36,16 +46,19 @@ untouched. No staging deployment or shared database migration has been performed
 - Account Manager sole-owner/concurrency/eligibility/list tests passed repeated
   isolated PostgreSQL runs, including stale-repeatable-read writers and failed
   migration preflights. Published migration markers were not edited.
-- Account Manager full API package passed with isolated PostgreSQL (38.846s).
+- Account Manager full API package passed with isolated PostgreSQL (54.322s).
   Covers current signup/register parity, encrypted email rollback, activation,
   global login, owner-only member listing, platform creation, device profiles,
   factory JWTs and App end-user multi-cloud binding.
-- The last complete Account Manager suite is not green. Its remaining store
-  failures include `TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper`
-  and `TestProductCollaborationInvitationVisibilityAndOwnershipTransferIntegration`.
-  Their old transfer/admission semantics must be replaced by the approved flows,
-  not preserved merely to pass tests. The two API fixture failures in that run
-  were subsequently corrected and the full API package rerun passed.
+- The last complete Account Manager suite is not green. Its sole remaining failure
+  is `TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper`.
+  The old immediate transfer/old-owner-admin flow must be replaced by the approved
+  Billing handoff, not preserved merely to pass tests. The full run is recorded at
+  `/tmp/rtk-multicloud-product-suite-20260831-r2.jsonl`.
+- Product admission/delegation/revocation/concurrent-acceptance tests passed three
+  consecutive isolated runs. Fresh-database migration tests verify backfill,
+  provenance, cross-cloud rejection and no revival on marker replay. Injected
+  audit failures roll back role changes, removal and Product ownership transfer.
 - Billing full suite passed with a separate isolated PostgreSQL database. Its
   new eligibility tests cover -1/0/+1, int64 extremes, independent blockers,
   malformed/unknown evidence, and transfer-versus-deletion rules.

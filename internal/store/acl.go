@@ -148,6 +148,9 @@ func (s *Store) HasPermission(ctx context.Context, userID, orgID, permission str
 }
 
 func (s *Store) HasUserPermissionForResource(ctx context.Context, userID, orgID, permission, scopeType, scopeID string) (bool, error) {
+	if strings.TrimSpace(scopeType) == ScopeTypeDevice {
+		return s.HasUserDevicePermission(ctx, strings.TrimSpace(userID), strings.TrimSpace(orgID), strings.TrimSpace(permission), strings.TrimSpace(scopeID))
+	}
 	var allowed bool
 	err := s.db.QueryRow(ctx, `SELECT EXISTS (
 		SELECT 1 FROM role_assignments ra
@@ -157,6 +160,7 @@ func (s *Store) HasUserPermissionForResource(ctx context.Context, userID, orgID,
 		WHERE ra.actor_type='user' AND ra.actor_id=$1 AND p.name=$2 AND ra.organization_id::text=$3
 		  AND ra.disabled_at IS NULL AND (ra.scope_type='organization' OR (ra.scope_type=$4 AND ra.scope_id=$5))
 		  AND user_can_access_brand_cloud($1, $3)
+		  AND ($4 <> 'product' OR user_can_access_brand_cloud_product($1,$3,$5))
 	)`, strings.TrimSpace(userID), strings.TrimSpace(permission), strings.TrimSpace(orgID), strings.TrimSpace(scopeType), strings.TrimSpace(scopeID)).Scan(&allowed)
 	return allowed, err
 }
@@ -179,7 +183,7 @@ func (s *Store) HasUserDevicePermission(ctx context.Context, userID, orgID, perm
 		SELECT 1 FROM devices d JOIN role_assignments ra ON ra.actor_type='user' AND ra.actor_id=$1 AND ra.organization_id=d.organization_id AND ra.disabled_at IS NULL
 		JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL JOIN role_permissions rp ON rp.role_id=r.id
 		JOIN permissions p ON p.id=rp.permission_id AND p.name=$3 JOIN users u ON u.id::text=ra.actor_id AND u.disabled_at IS NULL
-		WHERE d.id::text=$2 AND d.organization_id::text=$4 AND user_can_access_brand_cloud($1, $4) AND (ra.scope_type='organization'
+		WHERE d.id::text=$2 AND d.organization_id::text=$4 AND user_can_access_brand_cloud_product($1, $4, d.device_item_profile_id::text) AND (ra.scope_type='organization'
 		 OR (ra.scope_type='product' AND ra.scope_id=d.device_item_profile_id::text)
 		 OR (ra.scope_type='region' AND ra.scope_id=COALESCE(NULLIF(d.metadata->>'region',''),'未設定'))
 		 OR (ra.scope_type='device' AND ra.scope_id=d.id::text)

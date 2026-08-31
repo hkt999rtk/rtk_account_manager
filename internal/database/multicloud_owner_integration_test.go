@@ -20,6 +20,15 @@ const multiCloudMigration = "052_multicloud_owner_invariant.sql"
 // Each case owns a newly created database, never the caller's configured DB.
 func newMultiCloudDatabase(t *testing.T, beforeFoundation bool) *pgxpool.Pool {
 	t.Helper()
+	before := ""
+	if beforeFoundation {
+		before = multiCloudMigration
+	}
+	return newMultiCloudDatabaseBefore(t, before)
+}
+
+func newMultiCloudDatabaseBefore(t *testing.T, before string) *pgxpool.Pool {
+	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL is required")
@@ -53,14 +62,14 @@ func newMultiCloudDatabase(t *testing.T, beforeFoundation bool) *pgxpool.Pool {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if beforeFoundation {
+	if before != "" {
 		staged := t.TempDir()
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") || entry.Name() >= multiCloudMigration {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") || entry.Name() >= before {
 				continue
 			}
 			b, err := os.ReadFile(filepath.Join(dir, entry.Name()))

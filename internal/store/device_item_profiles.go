@@ -171,6 +171,7 @@ func (s *Store) ListDeviceItemProfiles(ctx context.Context, in DeviceItemProfile
 				JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL
 				WHERE ra.actor_type=$4 AND ra.actor_id=$3 AND ra.disabled_at IS NULL
 				  AND ra.organization_id=dip.brand_cloud_id
+				  AND ($4 <> 'user' OR user_can_access_brand_cloud_product($3,$1::text,dip.id::text))
 				  AND (ra.scope_type='organization' OR (ra.scope_type='product' AND ra.scope_id=dip.id::text))
 			))
 	`, in.BrandCloudID, status, actorID, actorType).Scan(&total); err != nil {
@@ -188,6 +189,7 @@ func (s *Store) ListDeviceItemProfiles(ctx context.Context, in DeviceItemProfile
 				JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL
 				WHERE ra.actor_type=$4 AND ra.actor_id=$3 AND ra.disabled_at IS NULL
 				  AND ra.organization_id=dip.brand_cloud_id
+				  AND ($4 <> 'user' OR user_can_access_brand_cloud_product($3,$1::text,dip.id::text))
 				  AND (ra.scope_type='organization' OR (ra.scope_type='product' AND ra.scope_id=dip.id::text))
 			))
 		ORDER BY dip.created_at DESC

@@ -35,16 +35,7 @@ func validProductCollaboratorRole(role string) bool {
 
 func (s *Store) CanManageProductCollaborators(ctx context.Context, actorUserID, brandCloudID, productID string) (bool, error) {
 	var allowed bool
-	err := s.db.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM device_item_profiles dip
-			JOIN role_assignments ra ON ra.actor_type = 'user' AND ra.actor_id = $1
-			JOIN roles r ON r.id = ra.role_id AND r.name = 'product_owner' AND r.disabled_at IS NULL
-			WHERE dip.id::text = $3 AND dip.brand_cloud_id::text = $2
-			  AND ra.scope_type = 'product' AND ra.scope_id = dip.id::text AND ra.disabled_at IS NULL
-		)
-	`, strings.TrimSpace(actorUserID), strings.TrimSpace(brandCloudID), strings.TrimSpace(productID)).Scan(&allowed)
+	err := s.db.QueryRow(ctx, canManageProductCollaboratorsSQL, strings.TrimSpace(actorUserID), strings.TrimSpace(brandCloudID), strings.TrimSpace(productID)).Scan(&allowed)
 	return allowed, err
 }
 
@@ -69,8 +60,9 @@ func (s *Store) GetUserProductCollaboratorRole(ctx context.Context, userID, bran
 	err := s.db.QueryRow(ctx, `SELECT CASE WHEN r.name='owner' AND ra.scope_type='organization' THEN 'brand_owner' ELSE r.name END
 		FROM role_assignments ra JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL
 		WHERE ra.actor_type='user' AND ra.actor_id=$1 AND ra.organization_id::text=$2 AND ra.disabled_at IS NULL
+		AND user_can_access_brand_cloud_product($1,$2,$3)
 		AND (ra.scope_type='organization' OR (ra.scope_type='product' AND ra.scope_id=$3))
-		ORDER BY CASE WHEN r.name='product_owner' THEN 0 WHEN ra.scope_type='organization' THEN 1 WHEN r.name='product_editor' THEN 2 ELSE 3 END LIMIT 1`, userID, brandCloudID, productID).Scan(&role)
+		ORDER BY CASE WHEN r.name='product_owner' THEN 0 WHEN r.name='owner' AND ra.scope_type='organization' THEN 1 WHEN r.name='product_editor' THEN 2 WHEN r.name='product_viewer' THEN 3 ELSE 4 END LIMIT 1`, userID, brandCloudID, productID).Scan(&role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
 	}
@@ -86,6 +78,7 @@ func (s *Store) ListProductCollaborators(ctx context.Context, brandCloudID, prod
 		JOIN users u ON u.id::text = ra.actor_id
 		WHERE ra.actor_type = 'user' AND ra.scope_type = 'product'
 		  AND ra.scope_id = $2 AND ra.organization_id::text = $1 AND ra.disabled_at IS NULL
+		  AND r.disabled_at IS NULL AND user_can_access_brand_cloud_product(u.id::text,$1,$2)
 		ORDER BY CASE r.name WHEN 'product_owner' THEN 0 WHEN 'product_editor' THEN 1 ELSE 2 END,
 		         lower(u.email)
 	`, strings.TrimSpace(brandCloudID), strings.TrimSpace(productID))
@@ -113,19 +106,17 @@ func (s *Store) CreateProductCollaboratorInvitation(ctx context.Context, in Prod
 		return model.ProductCollaboratorInvitation{}, false, err
 	}
 	defer tx.Rollback(ctx)
-	var canManage bool
-	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM device_item_profiles dip
-			JOIN role_assignments ra ON ra.actor_id=$1 AND ra.actor_type='user'
-			JOIN roles r ON r.id=ra.role_id AND r.name='product_owner'
-			WHERE dip.id::text=$3 AND dip.brand_cloud_id::text=$2 AND ra.scope_type='product'
-			  AND ra.scope_id=dip.id::text AND ra.disabled_at IS NULL
-		)
-	`, in.InvitedByUserID, in.BrandCloudID, in.ProductID).Scan(&canManage); err != nil || !canManage {
-		if err == nil {
+	var targetID string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM users WHERE email=$1`, strings.ToLower(strings.TrimSpace(in.TargetEmail))).Scan(&targetID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			err = ErrNotFound
 		}
+		return model.ProductCollaboratorInvitation{}, false, err
+	}
+	if err := lockProductCollaborationTx(ctx, tx, in.BrandCloudID, in.InvitedByUserID, targetID); err != nil {
+		return model.ProductCollaboratorInvitation{}, false, err
+	}
+	if err := requireProductManagerTx(ctx, tx, in.InvitedByUserID, in.BrandCloudID, in.ProductID); err != nil {
 		return model.ProductCollaboratorInvitation{}, false, err
 	}
 	target, err := getDeveloperUserByEmailTx(ctx, tx, in.TargetEmail)
@@ -133,6 +124,9 @@ func (s *Store) CreateProductCollaboratorInvitation(ctx context.Context, in Prod
 		if err == nil {
 			err = ErrNotFound
 		}
+		return model.ProductCollaboratorInvitation{}, false, err
+	}
+	if _, err := productInvitationAdmissionTx(ctx, tx, in.InvitedByUserID, target.ID, in.BrandCloudID, in.ProductID); err != nil {
 		return model.ProductCollaboratorInvitation{}, false, err
 	}
 	var alreadyAssigned bool
@@ -202,20 +196,20 @@ func (s *Store) ListProductCollaboratorInvitations(ctx context.Context, brandClo
 }
 
 func (s *Store) ResendProductCollaboratorInvitation(ctx context.Context, in ProductCollaboratorInvitationMutation, now time.Time) (model.ProductCollaboratorInvitation, error) {
-	allowed, err := s.CanManageProductCollaborators(ctx, in.ActorUserID, in.BrandCloudID, in.ProductID)
-	if err != nil || !allowed {
-		if err == nil {
-			err = ErrNotFound
-		}
-		return model.ProductCollaboratorInvitation{}, err
-	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return model.ProductCollaboratorInvitation{}, err
 	}
 	defer tx.Rollback(ctx)
+	target, err := lockProductInvitationMutationTx(ctx, tx, in)
+	if err != nil {
+		return model.ProductCollaboratorInvitation{}, err
+	}
+	if _, err := productInvitationAdmissionTx(ctx, tx, in.ActorUserID, target, in.BrandCloudID, in.ProductID); err != nil {
+		return model.ProductCollaboratorInvitation{}, err
+	}
 	item, err := scanProductCollaboratorInvitation(tx.QueryRow(ctx, `UPDATE product_collaborator_invitations SET token_hash=$4, expires_at=$5, updated_at=$6
-		WHERE id::text=$3 AND brand_cloud_id::text=$1 AND product_id::text=$2 AND status='pending'
+		WHERE id::text=$3 AND brand_cloud_id::text=$1 AND product_id::text=$2 AND status='pending' AND expires_at > $6
 		RETURNING id::text,brand_cloud_id::text,product_id::text,invited_by_user_id::text,target_user_id::text,target_email,role,status,expires_at,accepted_at,canceled_at,created_at,updated_at`, in.BrandCloudID, in.ProductID, in.InvitationID, in.TokenHash, in.ExpiresAt, now))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.ProductCollaboratorInvitation{}, ErrNotFound
@@ -240,23 +234,27 @@ func (s *Store) ResendProductCollaboratorInvitation(ctx context.Context, in Prod
 }
 
 func (s *Store) CancelProductCollaboratorInvitation(ctx context.Context, in ProductCollaboratorInvitationMutation, now time.Time) (model.ProductCollaboratorInvitation, error) {
-	allowed, err := s.CanManageProductCollaborators(ctx, in.ActorUserID, in.BrandCloudID, in.ProductID)
-	if err != nil || !allowed {
-		if err == nil {
-			err = ErrNotFound
-		}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
 		return model.ProductCollaboratorInvitation{}, err
 	}
-	item, err := scanProductCollaboratorInvitation(s.db.QueryRow(ctx, `UPDATE product_collaborator_invitations SET status='canceled',canceled_at=$4,updated_at=$4
+	defer tx.Rollback(ctx)
+	if _, err := lockProductInvitationMutationTx(ctx, tx, in); err != nil {
+		return model.ProductCollaboratorInvitation{}, err
+	}
+	item, err := scanProductCollaboratorInvitation(tx.QueryRow(ctx, `UPDATE product_collaborator_invitations SET status='canceled',canceled_at=$4,updated_at=$4
 		WHERE brand_cloud_id::text=$1 AND product_id::text=$2 AND id::text=$3 AND status='pending'
 		RETURNING id::text,brand_cloud_id::text,product_id::text,invited_by_user_id::text,target_user_id::text,target_email,role,status,expires_at,accepted_at,canceled_at,created_at,updated_at`, in.BrandCloudID, in.ProductID, in.InvitationID, now))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.ProductCollaboratorInvitation{}, ErrNotFound
 	}
-	if err == nil {
-		_ = s.CreateAuditEvent(ctx, AuditEventInput{EventType: "product_collaborator_invitation_canceled", ActorUserID: &in.ActorUserID, OrganizationID: &in.BrandCloudID, SubjectType: "product_collaborator_invitation", SubjectID: item.ID, Payload: map[string]any{"product_id": in.ProductID}})
+	if err != nil {
+		return model.ProductCollaboratorInvitation{}, err
 	}
-	return item, err
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{EventType: "product_collaborator_invitation_canceled", ActorUserID: &in.ActorUserID, OrganizationID: &in.BrandCloudID, SubjectType: "product_collaborator_invitation", SubjectID: item.ID, Payload: map[string]any{"product_id": in.ProductID}}); err != nil {
+		return model.ProductCollaboratorInvitation{}, err
+	}
+	return item, tx.Commit(ctx)
 }
 
 func (s *Store) AcceptProductCollaboratorInvitation(ctx context.Context, targetUserID, tokenHash string, now time.Time) (model.ProductCollaboratorInvitation, error) {
@@ -265,12 +263,22 @@ func (s *Store) AcceptProductCollaboratorInvitation(ctx context.Context, targetU
 		return model.ProductCollaboratorInvitation{}, err
 	}
 	defer tx.Rollback(ctx)
+	var cloudID, inviterID string
+	if err := tx.QueryRow(ctx, `SELECT brand_cloud_id::text,invited_by_user_id::text FROM product_collaborator_invitations WHERE token_hash=$1 AND target_user_id::text=$2 AND status='pending'`, tokenHash, targetUserID).Scan(&cloudID, &inviterID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = ErrNotFound
+		}
+		return model.ProductCollaboratorInvitation{}, err
+	}
+	if err := lockProductCollaborationTx(ctx, tx, cloudID, inviterID, targetUserID); err != nil {
+		return model.ProductCollaboratorInvitation{}, err
+	}
 	invitation, err := scanProductCollaboratorInvitation(tx.QueryRow(ctx, `SELECT i.id::text, i.brand_cloud_id::text, i.product_id::text,
 		i.invited_by_user_id::text, i.target_user_id::text, i.target_email, i.role, i.status, i.expires_at,
 		i.accepted_at, i.canceled_at, i.created_at, i.updated_at
 		FROM product_collaborator_invitations i JOIN users u ON u.id=i.target_user_id
 		WHERE i.token_hash=$1 AND i.target_user_id::text=$2 AND i.status='pending'
-		  AND u.disabled_at IS NULL AND u.email_verified=true AND u.signup_pending_verification=false
+		  AND u.disabled_at IS NULL AND u.email_verified=true AND u.signup_pending_verification=false AND u.email=i.target_email
 		FOR UPDATE`, tokenHash, targetUserID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.ProductCollaboratorInvitation{}, ErrNotFound
@@ -279,13 +287,26 @@ func (s *Store) AcceptProductCollaboratorInvitation(ctx context.Context, targetU
 		return model.ProductCollaboratorInvitation{}, err
 	}
 	if !invitation.ExpiresAt.After(now) {
-		_, _ = tx.Exec(ctx, `UPDATE product_collaborator_invitations SET status='expired', updated_at=$2 WHERE id=$1`, invitation.ID, now)
-		_ = tx.Commit(ctx)
+		if _, err := tx.Exec(ctx, `UPDATE product_collaborator_invitations SET status='expired', updated_at=$2 WHERE id=$1`, invitation.ID, now); err != nil {
+			return model.ProductCollaboratorInvitation{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return model.ProductCollaboratorInvitation{}, err
+		}
 		return model.ProductCollaboratorInvitation{}, ErrNotFound
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO organization_members (organization_id,user_id,role) VALUES ($1,$2,'member')
-		ON CONFLICT (organization_id,user_id) DO UPDATE SET disabled_at=NULL, updated_at=now()`, invitation.BrandCloudID, targetUserID); err != nil {
+	if err := requireProductManagerTx(ctx, tx, invitation.InvitedByUserID, invitation.BrandCloudID, invitation.ProductID); err != nil {
 		return model.ProductCollaboratorInvitation{}, err
+	}
+	cloudOwner, err := productInvitationAdmissionTx(ctx, tx, invitation.InvitedByUserID, targetUserID, invitation.BrandCloudID, invitation.ProductID)
+	if err != nil {
+		return model.ProductCollaboratorInvitation{}, err
+	}
+	if cloudOwner {
+		if _, err := tx.Exec(ctx, `INSERT INTO brand_cloud_product_admissions(organization_id,user_id,product_id,provenance,approved_by)
+            VALUES($1,$2,$3,'owner_invitation',$4) ON CONFLICT DO NOTHING`, invitation.BrandCloudID, targetUserID, invitation.ProductID, invitation.InvitedByUserID); err != nil {
+			return model.ProductCollaboratorInvitation{}, err
+		}
 	}
 	var roleID string
 	if err := tx.QueryRow(ctx, `SELECT id::text FROM roles WHERE name=$1 AND disabled_at IS NULL`, invitation.Role).Scan(&roleID); err != nil {
@@ -305,6 +326,9 @@ func (s *Store) AcceptProductCollaboratorInvitation(ctx context.Context, targetU
 	if err := createAuditEventTx(ctx, tx, AuditEventInput{EventType: "product_collaborator_invitation_accepted", ActorUserID: &targetUserID, OrganizationID: &invitation.BrandCloudID, SubjectType: "product", SubjectID: invitation.ProductID, Payload: map[string]any{"role": invitation.Role}}); err != nil {
 		return model.ProductCollaboratorInvitation{}, err
 	}
+	if _, err := tx.Exec(ctx, `UPDATE organizations SET authorization_version=authorization_version+1 WHERE id=$1`, invitation.BrandCloudID); err != nil {
+		return model.ProductCollaboratorInvitation{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return model.ProductCollaboratorInvitation{}, err
 	}
@@ -315,19 +339,30 @@ func (s *Store) UpdateProductCollaborator(ctx context.Context, actorUserID, bran
 	if !validProductCollaboratorRole(role) {
 		return model.ProductCollaborator{}, ErrConflict
 	}
-	allowed, err := s.CanManageProductCollaborators(ctx, actorUserID, brandCloudID, productID)
-	if err != nil || !allowed {
-		if err == nil {
-			err = ErrNotFound
-		}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
 		return model.ProductCollaborator{}, err
 	}
+	defer tx.Rollback(ctx)
+	if err := lockProductCollaborationTx(ctx, tx, brandCloudID, actorUserID, targetUserID); err != nil {
+		return model.ProductCollaborator{}, err
+	}
+	if err := requireProductManagerTx(ctx, tx, actorUserID, brandCloudID, productID); err != nil {
+		return model.ProductCollaborator{}, err
+	}
+	var admitted bool
+	if err := tx.QueryRow(ctx, `SELECT user_can_access_brand_cloud_product($1,$2,$3)`, targetUserID, brandCloudID, productID).Scan(&admitted); err != nil {
+		return model.ProductCollaborator{}, err
+	}
+	if !admitted {
+		return model.ProductCollaborator{}, ErrNotFound
+	}
 	var roleID string
-	if err := s.db.QueryRow(ctx, `SELECT id::text FROM roles WHERE name=$1 AND disabled_at IS NULL`, role).Scan(&roleID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM roles WHERE name=$1 AND disabled_at IS NULL`, role).Scan(&roleID); err != nil {
 		return model.ProductCollaborator{}, err
 	}
 	var assignmentID string
-	err = s.db.QueryRow(ctx, `UPDATE role_assignments ra SET role_id=$1, updated_at=now()
+	err = tx.QueryRow(ctx, `UPDATE role_assignments ra SET role_id=$1, updated_at=now()
 		FROM roles current_product_role
 		WHERE ra.actor_type='user' AND ra.actor_id=$2 AND ra.role_id=current_product_role.id
 		  AND ra.organization_id::text=$3 AND ra.scope_type='product' AND ra.scope_id=$4
@@ -339,54 +374,98 @@ func (s *Store) UpdateProductCollaborator(ctx context.Context, actorUserID, bran
 	if err != nil {
 		return model.ProductCollaborator{}, err
 	}
-	items, err := s.ListProductCollaborators(ctx, brandCloudID, productID)
+	var item model.ProductCollaborator
+	err = tx.QueryRow(ctx, `SELECT ra.id::text,ra.scope_id,u.id::text,u.email,u.display_name,r.name,u.disabled_at,ra.created_at
+        FROM role_assignments ra JOIN roles r ON r.id=ra.role_id JOIN users u ON u.id::text=ra.actor_id WHERE ra.id=$1`, assignmentID).
+		Scan(&item.AssignmentID, &item.ProductID, &item.UserID, &item.Email, &item.DisplayName, &item.Role, &item.DisabledAt, &item.CreatedAt)
 	if err != nil {
 		return model.ProductCollaborator{}, err
 	}
-	for _, item := range items {
-		if item.AssignmentID == assignmentID {
-			_ = s.CreateAuditEvent(ctx, AuditEventInput{EventType: "product_collaborator_role_changed", ActorUserID: &actorUserID, OrganizationID: &brandCloudID, SubjectType: "product", SubjectID: productID, Payload: map[string]any{"target_user_id": targetUserID, "role": role}})
-			return item, nil
-		}
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{EventType: "product_collaborator_role_changed", ActorUserID: &actorUserID, OrganizationID: &brandCloudID, SubjectType: "product", SubjectID: productID, Payload: map[string]any{"target_user_id": targetUserID, "role": role}}); err != nil {
+		return model.ProductCollaborator{}, err
 	}
-	return model.ProductCollaborator{}, ErrNotFound
+	if _, err := tx.Exec(ctx, `UPDATE organizations SET authorization_version=authorization_version+1 WHERE id=$1`, brandCloudID); err != nil {
+		return model.ProductCollaborator{}, err
+	}
+	return item, tx.Commit(ctx)
 }
 
 func (s *Store) RemoveProductCollaborator(ctx context.Context, actorUserID, brandCloudID, productID, targetUserID string) error {
-	allowed, err := s.CanManageProductCollaborators(ctx, actorUserID, brandCloudID, productID)
-	if err != nil || !allowed {
-		if err == nil {
-			err = ErrNotFound
-		}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	tag, err := s.db.Exec(ctx, `UPDATE role_assignments ra SET disabled_at=now(), updated_at=now()
+	defer tx.Rollback(ctx)
+	if err := lockProductCollaborationTx(ctx, tx, brandCloudID, actorUserID, targetUserID); err != nil {
+		return err
+	}
+	if err := requireProductManagerTx(ctx, tx, actorUserID, brandCloudID, productID); err != nil {
+		return err
+	}
+	var isProductOwner bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM role_assignments ra JOIN roles r ON r.id=ra.role_id
+        WHERE ra.actor_type='user' AND ra.actor_id=$1 AND ra.organization_id::text=$2 AND ra.scope_type='product'
+        AND ra.scope_id=$3 AND r.name='product_owner' AND ra.disabled_at IS NULL AND r.disabled_at IS NULL)`, targetUserID, brandCloudID, productID).Scan(&isProductOwner); err != nil {
+		return err
+	}
+	if isProductOwner {
+		return ErrConflict
+	}
+	tag, err := tx.Exec(ctx, `UPDATE role_assignments ra SET disabled_at=now(), updated_at=now()
 		FROM roles r WHERE ra.actor_type='user' AND ra.actor_id=$1 AND ra.role_id=r.id
 		  AND ra.organization_id::text=$2 AND ra.scope_type='product' AND ra.scope_id=$3
 		  AND r.name IN ('product_editor','product_viewer') AND ra.disabled_at IS NULL`, targetUserID, brandCloudID, productID)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	// The cloud owner can withdraw the admission itself. Delegated Product
+	// managers can remove a role, but cannot change the owner's scope decision.
+	admissionTag, err := tx.Exec(ctx, `DELETE FROM brand_cloud_product_admissions a WHERE a.organization_id::text=$1 AND a.product_id::text=$2 AND a.user_id::text=$3
+        AND EXISTS(SELECT 1 FROM organization_members m WHERE m.organization_id=a.organization_id AND m.user_id::text=$4 AND m.role='owner')`, brandCloudID, productID, targetUserID, actorUserID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 && admissionTag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	_ = s.CreateAuditEvent(ctx, AuditEventInput{EventType: "product_collaborator_removed", ActorUserID: &actorUserID, OrganizationID: &brandCloudID, SubjectType: "product", SubjectID: productID, Payload: map[string]any{"target_user_id": targetUserID}})
-	return nil
+	if admissionTag.RowsAffected() > 0 {
+		if _, err := tx.Exec(ctx, `UPDATE role_assignments SET disabled_at=COALESCE(disabled_at,now()),updated_at=now()
+            WHERE actor_type='user' AND actor_id=$1 AND organization_id::text=$2 AND scope_type='product' AND scope_id=$3`, targetUserID, brandCloudID, productID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE product_collaborator_invitations SET status='canceled',canceled_at=now(),updated_at=now()
+        WHERE brand_cloud_id::text=$1 AND product_id::text=$2 AND target_user_id::text=$3 AND status='pending'`, brandCloudID, productID, targetUserID); err != nil {
+		return err
+	}
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{EventType: "product_collaborator_removed", ActorUserID: &actorUserID, OrganizationID: &brandCloudID, SubjectType: "product", SubjectID: productID, Payload: map[string]any{"target_user_id": targetUserID}}); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE organizations SET authorization_version=authorization_version+1 WHERE id=$1`, brandCloudID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) TransferProductOwnership(ctx context.Context, actorUserID, brandCloudID, productID, targetUserID string) error {
-	allowed, err := s.CanManageProductCollaborators(ctx, actorUserID, brandCloudID, productID)
-	if err != nil || !allowed {
-		if err == nil {
-			err = ErrNotFound
-		}
-		return err
-	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockProductCollaborationTx(ctx, tx, brandCloudID, actorUserID, targetUserID); err != nil {
+		return err
+	}
+	if err := requireProductManagerTx(ctx, tx, actorUserID, brandCloudID, productID); err != nil {
+		return err
+	}
+	var admitted bool
+	if err := tx.QueryRow(ctx, `SELECT user_can_access_brand_cloud_product($1,$2,$3)`, targetUserID, brandCloudID, productID).Scan(&admitted); err != nil {
+		return err
+	}
+	if !admitted {
+		return ErrNotFound
+	}
 	if _, err := tx.Exec(ctx, `SELECT id FROM device_item_profiles WHERE id::text=$1 AND brand_cloud_id::text=$2 FOR UPDATE`, productID, brandCloudID); err != nil {
 		return err
 	}
@@ -410,6 +489,9 @@ func (s *Store) TransferProductOwnership(ctx context.Context, actorUserID, brand
 		return err
 	}
 	if err := createAuditEventTx(ctx, tx, AuditEventInput{EventType: "product_owner_transferred", ActorUserID: &actorUserID, OrganizationID: &brandCloudID, SubjectType: "product", SubjectID: productID, Payload: map[string]any{"target_user_id": targetUserID}}); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE organizations SET authorization_version=authorization_version+1 WHERE id=$1`, brandCloudID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
