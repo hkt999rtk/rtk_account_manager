@@ -32,9 +32,15 @@ DECLARE initial_owner UUID; cloud_created_at TIMESTAMPTZ;
 BEGIN
     IF NEW.organization_kind<>'brand_cloud' THEN RETURN NULL; END IF;
     -- Deferred: the complete organization + unique owner transaction is visible.
-    SELECT o.created_at,m.user_id INTO STRICT cloud_created_at,initial_owner
-      FROM organizations o JOIN organization_members m ON m.organization_id=o.id AND m.role='owner'
-      WHERE o.id=NEW.id AND o.organization_kind='brand_cloud';
+    BEGIN
+        SELECT o.created_at,m.user_id INTO STRICT cloud_created_at,initial_owner
+          FROM organizations o JOIN organization_members m ON m.organization_id=o.id AND m.role='owner'
+          WHERE o.id=NEW.id AND o.organization_kind='brand_cloud';
+    EXCEPTION WHEN NO_DATA_FOUND OR TOO_MANY_ROWS THEN
+        -- This trigger may run before the existing deferred owner validator;
+        -- preserve its constraint-violation contract, not a PL/pgSQL error.
+        RAISE EXCEPTION 'Brand Cloud must have exactly one designated owner' USING ERRCODE='23514';
+    END;
     INSERT INTO brand_cloud_billing_creation_outbox(cloud_id,owner_user_id,occurred_at)
       VALUES(NEW.id,initial_owner,cloud_created_at);
     RETURN NULL;
