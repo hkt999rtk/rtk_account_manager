@@ -74,6 +74,13 @@ are true:
 - The current global hash still equals that legacy hash and the current user
   is still verified/non-pending. A user who has since activated, reset a
   password, or otherwise changed credentials is not overwritten.
+- No linked `user_identities` record or post-cutover OIDC sign-in evidence
+  indicates account adoption. OIDC can claim the global account without
+  changing its password hash or verification flags; those accounts are not
+  unchanged correction candidates. Report them separately for credential
+  remediation through the approved global flows, preserving SSO access and
+  memberships. Do not mark an adopted SSO identity pending automatically or
+  silently count its unsupported password as repaired.
 
 For those exact candidates, atomically set the reset-required account state,
 replace the unusable hash with a non-authenticating marker, disable affected
@@ -83,8 +90,10 @@ mapping conflict statuses while preserving original mapping outcomes. Record
 the correction reason and affected global/legacy IDs in a new audit event;
 do not rewrite historical events or include raw hashes, tokens or passwords.
 
-Preflight and postflight both check active Brand Clouds for an enabled,
-verified, non-disabled global owner. If correction would remove the final
+Preflight and postflight both check active Brand Clouds for an enabled
+membership whose global owner has `disabled_at IS NULL`, `email_verified=true`
+and `signup_pending_verification=false`. A verified-but-pending owner is not
+usable and cannot satisfy either check. If correction would remove the final
 valid owner, stop and resolve ownership/activation through the approved global
 flows before retrying. Do not bypass verification in the database. Do not
 enable disabled users or change unrelated global users/memberships.
@@ -200,6 +209,8 @@ Required isolated PostgreSQL evidence includes:
 - Forward repair of an unchanged bad migrated credential; preservation of an
   existing global user and a migrated user whose password has since changed;
   correction audit, refresh revocation, owner refusal and idempotent replay.
+- OIDC adoption with unchanged password/verification fields is excluded from
+  automatic repair; verified-but-pending sole owners fail both owner checks.
 
 Before shared staging execution, freeze account writes and make a fresh
 recoverable database backup. Run preflight on a restored copy, compare counts
