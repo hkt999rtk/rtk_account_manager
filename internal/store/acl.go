@@ -159,8 +159,12 @@ func (s *Store) HasUserPermissionForResource(ctx context.Context, userID, orgID,
 	if strings.TrimSpace(scopeType) == ScopeTypeDevice {
 		return s.HasUserDevicePermission(ctx, strings.TrimSpace(userID), strings.TrimSpace(orgID), strings.TrimSpace(permission), strings.TrimSpace(scopeID))
 	}
+	return hasUserPermissionForResource(ctx, s.db, userID, orgID, permission, scopeType, scopeID)
+}
+
+func hasUserPermissionForResource(ctx context.Context, q rowQuerier, userID, orgID, permission, scopeType, scopeID string) (bool, error) {
 	var allowed bool
-	err := s.db.QueryRow(ctx, `SELECT EXISTS (
+	err := q.QueryRow(ctx, `SELECT EXISTS (
 		SELECT 1 FROM role_assignments ra
 		JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL
 		JOIN role_permissions rp ON rp.role_id=r.id JOIN permissions p ON p.id=rp.permission_id

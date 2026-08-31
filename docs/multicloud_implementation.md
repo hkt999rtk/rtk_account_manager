@@ -154,6 +154,16 @@ back the token write. Repeated revocation retains its original timestamp and
 does not emit duplicate audit. Low-level fixture/bootstrap persistence is not
 included in the HTTP persistence interface and must not authorize human requests.
 
+Product create/update/disable reauthorize inside their mutation transaction with
+actor -> cloud -> Product locks. Existing Product edits require current Product
+admission and `registry_device.manage`; viewer ceilings still apply. Creating a
+new Product requires cloud-wide creation authority, not an assignment to some
+existing Product (the current admission model grants this to the cloud owner).
+The explicit platform-admin route rechecks current platform capability and cloud
+operational state; an ordinary cloud route cannot select that override. Product
+PATCH reads its current state under lock so concurrent disjoint patches do not
+overwrite one another. Product mutation, creator assignment and audit are atomic.
+
 After authenticated target acceptance, durable outbox/inbox messages prepare
 Billing and cost-producing resource services. Messages bind operation/cloud ID,
 ownership version, cutoff and reconciliation evidence. Drain/fence producers;

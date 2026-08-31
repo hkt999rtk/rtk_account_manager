@@ -160,8 +160,9 @@ func (s *Server) createDeviceItemProfile(c *gin.Context) {
 	if !ok {
 		return
 	}
-	profile, err := s.store.CreateDeviceItemProfile(c.Request.Context(), store.DeviceItemProfileCreateInput{
+	profile, err := s.store.CreateDeviceItemProfileAsUser(c.Request.Context(), store.DeviceItemProfileCreateInput{
 		ActorUserID:        stringPtr(currentUserID(c)),
+		PlatformOverride:   strings.HasPrefix(c.FullPath(), "/v1/admin/"),
 		BrandCloudID:       profileBrandCloudID(c),
 		ProfileKey:         req.ProfileKey,
 		DisplayName:        req.DisplayName,
@@ -265,8 +266,9 @@ func (s *Server) updateDeviceItemProfile(c *gin.Context) {
 	if strings.TrimSpace(req.IssuerProfile) != "" {
 		issuerProfile = &req.IssuerProfile
 	}
-	profile, err := s.store.UpdateDeviceItemProfile(c.Request.Context(), store.DeviceItemProfileUpdateInput{
+	profile, err := s.store.UpdateDeviceItemProfileAsUser(c.Request.Context(), store.DeviceItemProfileUpdateInput{
 		ActorUserID:        stringPtr(currentUserID(c)),
+		PlatformOverride:   strings.HasPrefix(c.FullPath(), "/v1/admin/"),
 		BrandCloudID:       profileBrandCloudID(c),
 		ProfileID:          c.Param("profileId"),
 		DisplayName:        displayName,
@@ -290,7 +292,7 @@ func (s *Server) updateDeviceItemProfile(c *gin.Context) {
 }
 
 func (s *Server) disableDeviceItemProfile(c *gin.Context) {
-	profile, err := s.store.DisableDeviceItemProfile(c.Request.Context(), profileBrandCloudID(c), c.Param("profileId"), stringPtr(currentUserID(c)))
+	profile, err := s.store.DisableDeviceItemProfileAsUser(c.Request.Context(), profileBrandCloudID(c), c.Param("profileId"), currentUserID(c), strings.HasPrefix(c.FullPath(), "/v1/admin/"))
 	if err != nil {
 		writeStoreError(c, err)
 		return

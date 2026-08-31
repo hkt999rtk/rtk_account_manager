@@ -996,3 +996,28 @@ No base ref was supplied, so differential/default pre-PR and CI are still gates.
 Product create/update/disable still need transaction-local authority and a
 consistent actor/cloud/Product lock order; this checkpoint does not certify
 those writers, production participants/collectors or staging acceptance.
+
+## Transactional Product administration — 2026-09-01
+
+Human Product create/update/disable now use reauthorizing store entrypoints,
+locking actor -> cloud -> Product. Ordinary routes check current Product scope
+and the existing `registry_device.manage` permission; a broad ACL or an existing
+Product assignment cannot create admission to another/new Product. New Product
+creation uses the current cloud-wide authority (cloud owner). Explicit platform
+routes recheck the global platform actor and active cloud/handoff fence; the
+override is chosen by the registered server route, not request JSON. Low-level
+bootstrap methods are no longer present in the HTTP persistence interface.
+
+PATCH loads current Product fields under lock and keeps unrelated concurrent
+patch fields. Mutations, creator assignments and audit remain atomic. Focused
+store/API race tests pass (14.630s/12.542s), including approved/unapproved
+Products, stale broad ACL/viewer ceilings, pending owners, preparing/canceling
+handoff fences, audit/deferred-commit rollback and retry, concurrent disjoint
+PATCH, and six HTTP writes revoked after middleware/binding admission. The
+initial scope fixture required an explicit text cast for a UUID parameter;
+fixing that fixture did not change permissions. Existing Product/store/API
+regressions also pass (2.650s/19.155s). Logs:
+`/tmp/rtk-product-writes-final-race.log`, `/tmp/rtk-product-writes-regression.log`.
+Vet/build/diff checks pass. Full governed verification follows separately;
+production-run admission, other resource families, queued-work draining,
+collector/participant wiring, full CI, migration and staging remain incomplete.

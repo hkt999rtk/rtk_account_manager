@@ -14,6 +14,7 @@ import (
 
 type DeviceItemProfileCreateInput struct {
 	ActorUserID        *string
+	PlatformOverride   bool
 	BrandCloudID       string
 	ProfileKey         string
 	DisplayName        string
@@ -32,6 +33,7 @@ type DeviceItemProfileCreateInput struct {
 
 type DeviceItemProfileUpdateInput struct {
 	ActorUserID        *string
+	PlatformOverride   bool
 	BrandCloudID       string
 	ProfileID          string
 	DisplayName        *string
@@ -58,11 +60,25 @@ type DeviceItemProfileListFilter struct {
 	Offset           int
 }
 
+// Low-level bootstrap/fixture persistence; HTTP uses the AsUser entrypoints.
 func (s *Store) CreateDeviceItemProfile(ctx context.Context, in DeviceItemProfileCreateInput) (model.DeviceItemProfile, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return model.DeviceItemProfile{}, err
+	}
+	defer tx.Rollback(ctx)
+	profile, err := createDeviceItemProfileTx(ctx, tx, in)
+	if err != nil {
+		return model.DeviceItemProfile{}, err
+	}
+	return profile, tx.Commit(ctx)
+}
+
+func createDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, in DeviceItemProfileCreateInput) (model.DeviceItemProfile, error) {
 	if err := validateDeviceItemProfileCreate(in); err != nil {
 		return model.DeviceItemProfile{}, err
 	}
-	if err := ensureBrandCloud(ctx, s.db, in.BrandCloudID); err != nil {
+	if err := ensureBrandCloud(ctx, tx, in.BrandCloudID); err != nil {
 		return model.DeviceItemProfile{}, err
 	}
 
@@ -90,12 +106,6 @@ func (s *Store) CreateDeviceItemProfile(ctx context.Context, in DeviceItemProfil
 	if err != nil {
 		return model.DeviceItemProfile{}, err
 	}
-
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return model.DeviceItemProfile{}, err
-	}
-	defer tx.Rollback(ctx)
 
 	profile, err := scanDeviceItemProfile(tx.QueryRow(ctx, `
 		INSERT INTO device_item_profiles (
@@ -137,9 +147,6 @@ func (s *Store) CreateDeviceItemProfile(ctx context.Context, in DeviceItemProfil
 		if err != nil {
 			return model.DeviceItemProfile{}, err
 		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return model.DeviceItemProfile{}, err
 	}
 	return profile, nil
 }
@@ -215,21 +222,43 @@ func (s *Store) ListDeviceItemProfiles(ctx context.Context, in DeviceItemProfile
 }
 
 func (s *Store) GetDeviceItemProfile(ctx context.Context, brandCloudID, profileID string) (model.DeviceItemProfile, error) {
-	profile, err := scanDeviceItemProfile(s.db.QueryRow(ctx, `
+	return getDeviceItemProfile(ctx, s.db, brandCloudID, profileID, false)
+}
+
+func getDeviceItemProfile(ctx context.Context, q rowQuerier, brandCloudID, profileID string, lock bool) (model.DeviceItemProfile, error) {
+	suffix := ""
+	if lock {
+		suffix = " FOR UPDATE"
+	}
+	profile, err := scanDeviceItemProfile(q.QueryRow(ctx, `
 		SELECT id::text, brand_cloud_id::text, profile_key, display_name, status, category,
 			manufacturer, model, metadata_defaults, metadata_schema, ca_profile, issuer_profile,
 			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at
 		FROM device_item_profiles
 		WHERE brand_cloud_id = $1 AND id = $2
-	`, brandCloudID, profileID))
+	`+suffix, brandCloudID, profileID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.DeviceItemProfile{}, ErrNotFound
 	}
 	return profile, err
 }
 
+// Low-level bootstrap/fixture persistence; HTTP uses the AsUser entrypoints.
 func (s *Store) UpdateDeviceItemProfile(ctx context.Context, in DeviceItemProfileUpdateInput) (model.DeviceItemProfile, error) {
-	current, err := s.GetDeviceItemProfile(ctx, in.BrandCloudID, in.ProfileID)
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return model.DeviceItemProfile{}, err
+	}
+	defer tx.Rollback(ctx)
+	profile, err := updateDeviceItemProfileTx(ctx, tx, in)
+	if err != nil {
+		return model.DeviceItemProfile{}, err
+	}
+	return profile, tx.Commit(ctx)
+}
+
+func updateDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, in DeviceItemProfileUpdateInput) (model.DeviceItemProfile, error) {
+	current, err := getDeviceItemProfile(ctx, tx, in.BrandCloudID, in.ProfileID, true)
 	if err != nil {
 		return model.DeviceItemProfile{}, err
 	}
@@ -298,12 +327,6 @@ func (s *Store) UpdateDeviceItemProfile(ctx context.Context, in DeviceItemProfil
 		return model.DeviceItemProfile{}, err
 	}
 
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return model.DeviceItemProfile{}, err
-	}
-	defer tx.Rollback(ctx)
-
 	disabledAt := current.DisabledAt
 	if current.Status == model.DeviceItemProfileStatusDisabled && disabledAt == nil {
 		disabledAt = &now
@@ -354,20 +377,25 @@ func (s *Store) UpdateDeviceItemProfile(ctx context.Context, in DeviceItemProfil
 	}); err != nil {
 		return model.DeviceItemProfile{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return model.DeviceItemProfile{}, err
-	}
 	return updated, nil
 }
 
+// Low-level bootstrap/fixture persistence; HTTP uses the AsUser entrypoints.
 func (s *Store) DisableDeviceItemProfile(ctx context.Context, brandCloudID, profileID string, actorUserID *string) (model.DeviceItemProfile, error) {
-	now := time.Now().UTC()
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return model.DeviceItemProfile{}, err
 	}
 	defer tx.Rollback(ctx)
+	profile, err := disableDeviceItemProfileTx(ctx, tx, brandCloudID, profileID, actorUserID)
+	if err != nil {
+		return model.DeviceItemProfile{}, err
+	}
+	return profile, tx.Commit(ctx)
+}
 
+func disableDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, brandCloudID, profileID string, actorUserID *string) (model.DeviceItemProfile, error) {
+	now := time.Now().UTC()
 	disabled, err := scanDeviceItemProfile(tx.QueryRow(ctx, `
 		UPDATE device_item_profiles
 		SET status = 'disabled',
@@ -396,9 +424,6 @@ func (s *Store) DisableDeviceItemProfile(ctx context.Context, brandCloudID, prof
 			"status":         disabled.Status,
 		},
 	}); err != nil {
-		return model.DeviceItemProfile{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
 		return model.DeviceItemProfile{}, err
 	}
 	return disabled, nil
