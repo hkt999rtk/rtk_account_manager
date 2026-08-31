@@ -37,6 +37,7 @@ var (
 	ErrOIDCStateInvalid            = errors.New("oidc login state is invalid")
 	ErrOIDCStateExpired            = errors.New("oidc login state is expired")
 	ErrDeveloperCloudLimitExceeded = errors.New("developer brand cloud limit exceeded")
+	ErrAccountNotActivated         = errors.New("account must complete email activation")
 )
 
 type Store struct {
@@ -1276,6 +1277,7 @@ func (s *Store) GetOrganization(ctx context.Context, orgID, userID string) (mode
 		FROM organizations o
 		JOIN organization_members m ON m.organization_id = o.id
 		WHERE o.id = $1 AND m.user_id = $2
+		  AND user_can_access_brand_cloud(m.user_id::text, o.id::text)
 	`, orgID, userID).Scan(&org.ID, &org.Name, &org.TenantSlug, &org.Role, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &rawMetadata, &org.CreatedAt, &org.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Organization{}, ErrNotFound

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,25 +58,35 @@ func developerBrandCloudManager(c *gin.Context, s *Server) (model.Member, bool) 
 }
 
 func (s *Server) listDeveloperBrandClouds(c *gin.Context) {
-	limit, offset := pagination(c)
-	page, err := s.store.ListDeveloperBrandClouds(c.Request.Context(), currentUserID(c), limit, offset)
+	limit, limitErr := strconv.Atoi(c.DefaultQuery("limit", "25"))
+	offset, offsetErr := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if limitErr != nil || offsetErr != nil || limit < 1 || limit > 100 || offset < 0 {
+		writeError(c, http.StatusBadRequest, "invalid_pagination", "limit must be 1..100 and offset nonnegative")
+		return
+	}
+	view := strings.TrimSpace(c.DefaultQuery("view", "all"))
+	if view != "all" && view != "owned" && view != "shared" {
+		writeError(c, http.StatusBadRequest, "invalid_cloud_view", "view must be all, owned or shared")
+		return
+	}
+	page, err := s.store.ListManagedBrandClouds(c.Request.Context(), currentUserID(c), view, limit, offset)
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	for i := range page.Organizations {
-		page.Organizations[i].Capabilities, err = s.developerCapabilitiesForUser(c.Request.Context(), currentUserID(c), page.Organizations[i].ID, page.Organizations[i].Role)
+	for i := range page.BrandClouds {
+		if !page.BrandClouds[i].Operational {
+			continue
+		}
+		page.BrandClouds[i].Capabilities, err = s.developerCapabilitiesForUser(c.Request.Context(), currentUserID(c), page.BrandClouds[i].ID, page.BrandClouds[i].Role)
 		if err != nil {
 			writeStoreError(c, err)
 			return
 		}
 	}
-	user, err := s.store.GetUser(c.Request.Context(), currentUserID(c))
-	if err != nil {
-		writeStoreError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"brand_clouds": page.Organizations, "pagination": page.Page, "developer_cloud_limit": user.DeveloperCloudLimit})
+	c.JSON(http.StatusOK, gin.H{"brand_clouds": page.BrandClouds, "total": page.Total, "limit": page.Limit, "offset": page.Offset,
+		"owned_count": page.OwnedCount, "owned_limit": page.OwnedLimit,
+		"pagination": page.Page, "developer_cloud_limit": page.OwnedLimit})
 }
 
 func (s *Server) createDeveloperBrandCloud(c *gin.Context) {

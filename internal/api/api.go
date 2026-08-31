@@ -1935,6 +1935,8 @@ func trimPtr(value *string) *string {
 
 func writeStoreError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, store.ErrAccountNotActivated):
+		writeError(c, http.StatusForbidden, "account_activation_required", "Complete email activation before creating a cloud")
 	case errors.Is(err, store.ErrNotFound):
 		writeError(c, http.StatusNotFound, "not_found", "Resource not found")
 	case errors.Is(err, store.ErrLastOwner):

@@ -209,6 +209,7 @@ func (s *Store) GetDeveloperBrandCloudMember(ctx context.Context, brandCloudID, 
 		  AND o.organization_kind = 'brand_cloud'
 		  AND m.disabled_at IS NULL
 		  AND u.disabled_at IS NULL
+		  AND user_can_access_brand_cloud(m.user_id::text, m.organization_id::text)
 	`, brandCloudID, userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Member{}, ErrNotFound
@@ -458,6 +459,9 @@ func createDeveloperBrandCloudTx(ctx context.Context, tx pgx.Tx, userID string, 
 		return model.Organization{}, err
 	}
 	if enforceLimit {
+		if !user.EmailVerified || user.SignupPendingVerification {
+			return model.Organization{}, ErrAccountNotActivated
+		}
 		count, err := countDeveloperBrandCloudsTx(ctx, tx, user.ID)
 		if err != nil {
 			return model.Organization{}, err
@@ -519,6 +523,7 @@ func countDeveloperBrandCloudsTx(ctx context.Context, q rowQuerier, userID strin
 		WHERE m.user_id = $1
 		  AND m.role = 'owner'
 		  AND o.organization_kind = 'brand_cloud'
+		  AND o.deleted_at IS NULL
 	`, userID).Scan(&total)
 	return total, err
 }
