@@ -1,5 +1,20 @@
 # Test Report
 
+## 2026-09-01 handoff worker dependency failures
+
+New table-driven worker tests verify preparing/canceling/finalizing remain fenced
+with missing adapters, unavailable producers, cross-scope replies and invalid
+receipt digests. Billing prepare/settlement outages, negative balances, unsettled
+usage, mismatched operations/currencies/cutoffs and old snapshots cannot create
+a Billing preparation acknowledgment or change the unique owner.
+
+Focused tests passed with race detection (3.264s), and store vet passed. Log:
+`/tmp/rtk-worker-failures.log`. These use synthetic dependency adapters and the
+owned loopback database. Combining this focused profile with the previous
+unchanged-production profile gives diagnostic store coverage 79.24%; it is not
+a new authoritative suite result and remains below 80%. The full PR-profile gate
+below therefore remains FAIL pending more implementation/verification work.
+
 ## 2026-09-01 governed recheck at 2187425
 
 The PR-profile service run `local-am-deletion-recovery` completed all functional
