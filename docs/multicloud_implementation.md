@@ -5,6 +5,34 @@ Status: design-first target, not deployed acceptance. Canonical behavior is
 [contracts PR #131](https://github.com/hkt999rtk/rtk_cloud_contracts_doc/pull/131).
 Runtime work follows reviewed/merged docs-only PRs.
 
+## Factory participant transport
+
+`internal/factoryhandoff.Client` implements `store.HandoffParticipant` under the
+explicit participant name `factory`. The transport follows Video Cloud's
+`docs/factory-handoff-openapi.yaml`: HTTPS for remote origins (literal loopback
+HTTP allowed for isolated tests), no redirects, a dedicated lifecycle token of
+at least 32 bytes, 25-second request timeout and a 16-KiB response limit. This
+credential is the factory `FACTORY_ENROLL_RECOVERY_TOKEN`, not the AM admission
+credential or any user's JWT. It is never supplied by a browser request.
+
+Prepare accepts only the exact cloud/operation/source/target/ownership-version/
+cutoff response in prepared phase, with nonnegative present terminal counts and
+matching durable hold/drain hashes. Abort and release validate decision ID,
+digest, timestamp, phase and committed version. Release requires old version + 1
+and drain evidence; aborted tombstones need not have drained work. After verifying
+the authenticated response, terminal acknowledgment digests bind its decision.
+Transport success without the complete record, 404, malformed responses and
+timeouts all retain the operation fence. No local receipt calculation substitutes
+for authenticated durable state.
+
+The adapter is available to the reviewed coordinator composition, but is not
+automatically registered by `cmd/server` and does not reduce the persisted
+participant inventory to only factory. Billing collection and every other
+producer must be implemented and explicitly configured before transfer can be
+enabled. Factory proof covers enrollment journal drainage only, not rated usage,
+all Video Cloud writes, or financial eligibility. The settled balance >= 0 rule
+and all other reviewed Billing blockers remain unchanged.
+
 ## Persistence and concurrency
 
 Keep users, organizations and organization_members as the authoritative identity,

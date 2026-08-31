@@ -12,6 +12,10 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"rtk_account_manager/internal/billinghandoff"
+	"rtk_account_manager/internal/factoryhandoff"
+	"rtk_account_manager/internal/store"
 )
 
 // The child is go test -c from Video Cloud's factoryenrollapp package. It runs
@@ -134,7 +138,10 @@ func TestIntegrationFactoryApplicationAcrossRealServices(t *testing.T) {
 	if err := encoder.Encode(map[string]string{"Action": "restart"}); err != nil {
 		t.Fatal(err)
 	}
-	var restarted struct{ Ready bool }
+	var restarted struct {
+		Ready      bool
+		FactoryURL string
+	}
 	if err := decoder.Decode(&restarted); err != nil || !restarted.Ready {
 		t.Fatal("factory restart failed")
 	}
@@ -195,5 +202,44 @@ func TestIntegrationFactoryApplicationAcrossRealServices(t *testing.T) {
 	var cancellationAudits int
 	if err := env.db.QueryRow(ctx, `SELECT issued_quantity,(SELECT count(*) FROM factory_enrollment_reservations WHERE production_run_id=r.id),(SELECT count(*) FROM audit_events WHERE subject_id=$2) FROM factory_production_runs r WHERE id=$1`, body["production_run_id"], intent.ReservationID).Scan(&issued, &reservations, &cancellationAudits); err != nil || issued != 1 || reservations != 2 || cancellationAudits != 2 {
 		t.Fatalf("cancellation changed accounting: %d %d %d %v", issued, reservations, cancellationAudits, err)
+	}
+	// Exercise the real AM participant transport against the independent factory
+	// process, which calls back to the real AM ledger while draining. This is a
+	// trusted protocol fixture, not an AM/Billing ownership-commit acceptance test.
+	participant, err := factoryhandoff.New(factoryhandoff.Config{BaseURL: restarted.FactoryURL, Token: "isolated-factory-recovery-control-credential"})
+	if err != nil {
+		t.Fatal("factory participant fixture", err)
+	}
+	var operationID, targetID, cancellationID string
+	if err := env.db.QueryRow(ctx, `SELECT gen_random_uuid()::text,gen_random_uuid()::text,gen_random_uuid()::text`).Scan(&operationID, &targetID, &cancellationID); err != nil {
+		t.Fatal(err)
+	}
+	binding := billinghandoff.Binding{CloudID: body["brand_cloud_id"].(string), OperationID: operationID, SourceUserID: owner, TargetUserID: targetID, OwnershipVersion: 1, Cutoff: time.Now().UTC().Truncate(time.Microsecond)}
+	// The earlier quota-rejected extra request still has a pending consumer
+	// intent. Its trusted cancellation must survive another lost AM reply.
+	loseCompletionReply.Store(true)
+	if _, err := participant.Prepare(ctx, binding); err == nil {
+		t.Fatal("lost drain result accepted")
+	}
+	ack, err := participant.Prepare(ctx, binding)
+	if err != nil || ack.Participant != factoryhandoff.Participant || ack.CloudID != binding.CloudID || ack.DrainCheckpointSHA256 == "" {
+		t.Fatal("real factory prepare", err)
+	}
+	if replay, err := participant.Prepare(ctx, binding); err != nil || replay != ack {
+		t.Fatal("factory checkpoint replay changed", err)
+	}
+	cancelDecision := store.HandoffCanceledDecision{Binding: binding, CancellationID: cancellationID, DecisionSHA256: strings.Repeat("d", 64), CanceledAt: binding.Cutoff.Add(time.Second)}
+	aborted, err := participant.Abort(ctx, cancelDecision)
+	if err != nil || aborted.ReceiptSHA256 == "" {
+		t.Fatal("real factory abort", err)
+	}
+	if replay, err := participant.Abort(ctx, cancelDecision); err != nil || replay != aborted {
+		t.Fatal("factory abort replay changed", err)
+	}
+	if _, err := participant.Prepare(ctx, binding); err == nil {
+		t.Fatal("delayed prepare reacquired canceled hold")
+	}
+	if err := env.db.QueryRow(ctx, `SELECT issued_quantity,(SELECT count(*) FROM factory_enrollment_reservations WHERE production_run_id=r.id AND status IN ('reserved','cancel_requested')) FROM factory_production_runs r WHERE id=$1`, body["production_run_id"]).Scan(&issued, &reservations); err != nil || issued != 1 || reservations != 0 {
+		t.Fatal("factory drain left pending AM work or reissued", err)
 	}
 }

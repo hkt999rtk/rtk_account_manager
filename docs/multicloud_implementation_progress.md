@@ -2,6 +2,23 @@
 
 This is implementation progress, not release acceptance or a replacement contract.
 
+## Factory participant transport checkpoint — 2026-09-01
+
+The new `factoryhandoff` adapter validates bounded authenticated producer
+responses before returning prepare/abort/release acknowledgments to the durable
+coordinator. Focused race tests pass with 94.3% adapter statement coverage.
+The independent real factory application test now also invokes this AM adapter:
+it freezes the cloud, cancels a quota-rejected consumer intent through the real
+AM ledger/mTLS issuer, retains the hold after a lost completion response, retries
+the same checkpoint, and persists/replays an abort tombstone that rejects late
+prepare. The focused real-service race case passes in 4.07s (package 5.923s).
+
+These are trusted protocol fixture decisions, not a full AM/Billing ownership
+commit or staging deployment. Production composition still requires the complete
+reviewed participant inventory and Billing cutoff collector; no factory-only
+inventory, guessed unknown-signature outcome or zero-count financial receipt is
+installed. Full CI, restore rehearsal, UI and staging acceptance remain required.
+
 ## Durable factory cancellation recovery checkpoint — 2026-09-01
 
 AM runtime `1fde494` adds migration 065 and the dedicated service-only cancellation
