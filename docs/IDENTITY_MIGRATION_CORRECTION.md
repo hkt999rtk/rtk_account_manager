@@ -147,7 +147,8 @@ rejoining a Brand Cloud from which an administrator removed access.
   membership action resolves ambiguity, and do not remove legacy evidence
   while these cases remain unresolved.
 - Preflight also inventories in-flight global email provisioning, not only
-  legacy migration rows. For a pending user, an unchanged newly provisioned
+  legacy migration rows. For an unverified global user, regardless of
+  `signup_pending_verification`, an unchanged newly provisioned
   membership is eligible for a `provisioning` hold only when its `created_at`,
   `disabled_at` and `updated_at` all match a recorded
   `brand_cloud_account_created`/`brand_cloud_account_assigned` audit event for
@@ -160,7 +161,13 @@ rejoining a Brand Cloud from which an administrator removed access.
   verification behavior switches. Pause verification during this preflight;
   do not consume a pending token while its expected membership recovery is
   unresolved. Backfill is idempotent and never creates a hold for an already
-  enabled membership or a non-pending account.
+  enabled membership or an already-verified account. In particular, the
+  pre-upgrade `/v1/auth/register` flow can create an unverified, non-pending
+  global user whose later email provisioning legitimately suspended a new
+  membership. Do not exclude that state. Token-status and activation UI checks
+  must allow its corroborated global email-verification token while preserving
+  expiry, consumption and disabled-user checks. This recovery rule does not
+  decide the future public-register compatibility contract.
 - Password reset remains separate from email verification. A pending account
   must complete global email activation before its activation holds can be
   released; resetting its password alone must not grant membership access.
@@ -184,7 +191,9 @@ Required isolated PostgreSQL evidence includes:
   existing-global users, role changes, stale holds and activation-token replay.
 - In-flight pre-upgrade provisioning: corroborated unchanged suspension is
   backfilled and activates; administrative/edited/ambiguous membership does
-  not gain access; expired-token resend and idempotent backfill are covered.
+  not gain access; unverified pending and unverified non-pending globals,
+  token-status/UI eligibility, expired-token resend and idempotent backfill
+  are covered.
 - An otherwise valid pre-correction global JWT, refresh grant and certificate
   cannot bypass the pending state; direct role/ACL checks cannot bypass a
   disabled membership; platform-only and App end-user boundaries remain valid.
