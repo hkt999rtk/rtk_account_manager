@@ -119,7 +119,7 @@ func TestUserDeviceMutationsWaitForOwnershipChangeThenDenyFormerOwner(t *testing
 	for _, write := range deviceUserWrites(env.store, ctx, source.User.ID, source.BrandCloud.ID, d.ID) {
 		go func(write func() error) { results <- write() }(write)
 	}
-	awaitBlockedConnections(t, ctx, env.db, blockerPID, 1, results)
+	awaitBlockedConnections(t, ctx, tx, blockerPID, 1, results)
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}

@@ -207,7 +207,7 @@ func TestClaimOverridesLockOppositeCloudMovesInTheSameOrder(t *testing.T) {
 		_, err := invokeClaimOverride(env.store, ctx, "reclaim", second.User.ID, first.Organization.ID, b)
 		results <- err
 	}()
-	awaitBlockedConnections(t, ctx, env.db, blockerPID, 2, results)
+	awaitBlockedConnections(t, ctx, tx, blockerPID, 2, results)
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}

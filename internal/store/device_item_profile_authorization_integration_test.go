@@ -189,7 +189,7 @@ func TestConcurrentProductPatchesPreserveDisjointFields(t *testing.T) {
 		_, err := env.store.UpdateDeviceItemProfileAsUser(ctx, DeviceItemProfileUpdateInput{ActorUserID: &operator.User.ID, PlatformOverride: true, BrandCloudID: owner.BrandCloud.ID, ProfileID: p.ID, Model: &modelName})
 		result <- err
 	}()
-	awaitBlockedConnections(t, ctx, env.db, blockerPID, 2, result)
+	awaitBlockedConnections(t, ctx, tx, blockerPID, 2, result)
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}

@@ -32,13 +32,17 @@ func transactionBackendPID(t *testing.T, ctx context.Context, tx pgx.Tx) uint32 
 	return pid
 }
 
-func awaitBlockedConnections(t *testing.T, ctx context.Context, db *pgxpool.Pool, blockerPID uint32, expected int, escaped <-chan error) {
+type blockedConnectionObserver interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func awaitBlockedConnections(t *testing.T, ctx context.Context, observer blockedConnectionObserver, blockerPID uint32, expected int, escaped <-chan error) {
 	t.Helper()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		var waiting int
-		if err := db.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity a WHERE a.datname=current_database() AND $1=ANY(pg_blocking_pids(a.pid))`, blockerPID).Scan(&waiting); err != nil {
+		if err := observer.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity a WHERE a.datname=current_database() AND $1=ANY(pg_blocking_pids(a.pid))`, blockerPID).Scan(&waiting); err != nil {
 			t.Fatal(err)
 		}
 		if waiting >= expected {
@@ -49,7 +53,7 @@ func awaitBlockedConnections(t *testing.T, ctx context.Context, db *pgxpool.Pool
 			t.Fatalf("operation escaped transaction lock: %v", err)
 		case <-ctx.Done():
 			var activity string
-			_ = db.QueryRow(context.Background(), `SELECT COALESCE(string_agg(format('pid=%s wait=%s/%s query=%s',pid,wait_event_type,wait_event,left(query,120)), E'\n'),'none') FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()`).Scan(&activity)
+			_ = observer.QueryRow(context.Background(), `SELECT COALESCE(string_agg(format('pid=%s wait=%s/%s query=%s',pid,wait_event_type,wait_event,left(query,120)), E'\n'),'none') FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()`).Scan(&activity)
 			t.Fatalf("waiting for %d connections blocked by pid %d: %v\n%s", expected, blockerPID, ctx.Err(), activity)
 		case <-ticker.C:
 		}
