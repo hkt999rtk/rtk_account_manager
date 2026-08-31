@@ -103,6 +103,7 @@ type devicePersistence interface {
 	FleetSummaryForBrandCloudUser(ctx context.Context, orgID, brandCloudUserID string) (store.FleetSummary, error)
 	GetDevice(ctx context.Context, orgID, deviceID string) (model.Device, error)
 	UpdateDevice(ctx context.Context, orgID, deviceID string, in store.DeviceInput) (model.Device, error)
+	PatchProductDeviceDisplay(ctx context.Context, actor, cloud, product, device string, in store.DeviceDisplayPatch) (model.Device, error)
 	DeleteDevice(ctx context.Context, orgID, deviceID string) error
 	UpdateDeviceStatus(ctx context.Context, orgID, deviceID string, status model.DeviceStatus, lastSeenAt *time.Time) (model.Device, error)
 }

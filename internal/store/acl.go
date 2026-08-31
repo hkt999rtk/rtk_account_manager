@@ -188,8 +188,12 @@ func (s *Store) HasUserPermissionAnyResource(ctx context.Context, userID, orgID,
 }
 
 func (s *Store) HasUserDevicePermission(ctx context.Context, userID, orgID, permission, deviceID string) (bool, error) {
+	return hasUserDevicePermission(ctx, s.db, userID, orgID, permission, deviceID)
+}
+
+func hasUserDevicePermission(ctx context.Context, q rowQuerier, userID, orgID, permission, deviceID string) (bool, error) {
 	var allowed bool
-	err := s.db.QueryRow(ctx, `SELECT EXISTS (
+	err := q.QueryRow(ctx, `SELECT EXISTS (
 		SELECT 1 FROM devices d JOIN role_assignments ra ON ra.actor_type='user' AND ra.actor_id=$1 AND ra.organization_id=d.organization_id AND ra.disabled_at IS NULL
 		JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL JOIN role_permissions rp ON rp.role_id=r.id
 		JOIN permissions p ON p.id=rp.permission_id AND p.name=$3 JOIN users u ON u.id::text=ra.actor_id AND u.disabled_at IS NULL

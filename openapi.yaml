@@ -4113,6 +4113,40 @@ paths:
           $ref: "#/components/responses/Error"
         "503":
           $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/device-item-profiles/{profileId}/devices/{deviceId}/display:
+    patch:
+      operationId: patchProductDeviceDisplay
+      tags: [Devices]
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
+      security:
+        - bearerAuth: []
+      summary: Update a Brand Cloud Product device's display fields without replacing operational data
+      description: Serializes on user, cloud and device, rechecks current device authority and Product binding, and audits in the same transaction. Omitted fields are preserved. Viewer/activation/handoff/deletion ceilings apply. This does not modify legacy customer organizations or hardware identity.
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name: { type: string, minLength: 1, maxLength: 255 }
+                model: { type: string, maxLength: 255, description: Empty string explicitly clears this display field. }
+      responses:
+        '200':
+          description: Updated device. Retrying the same assignment returns current state rather than a frozen historical response.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceResponse' }
+        default: { $ref: '#/components/responses/Error' }
+
   /v1/orgs/{orgId}/devices/{deviceId}:
     get:
       tags:

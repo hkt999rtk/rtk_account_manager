@@ -47,6 +47,26 @@ contract/PR CI, real cross-service producer/Billing adapters, coordinated
 backup/restore/maintenance, and staging activation/device/certificate/MQTT.
 Legacy identity tables/evidence are not cleaned up by this checkpoint.
 
+## 2026-08-31 local Product-device display checkpoint
+
+The scoped display endpoint/store/API-contract tests passed on the isolated
+`multicloud_device_display_20260831` PostgreSQL database at loopback port 63229.
+Tests prove exact cloud/Product binding, current authority/viewer/activation
+ceilings, concurrent independent display edits, explicit model clearing,
+preserved hardware identity/operational metadata and transactional audit.
+
+Full uncached `go test ./... -count=1` PASS with the isolated database configured:
+API 85.215s, database 39.817s, store 137.074s. Targeted store/API race cases passed
+twice; `go vet ./...` PASS. Logs: `/tmp/rtk-device-display-am-full.log` and
+`/tmp/rtk-device-display-am-race.log`. AM OpenAPI and HTTP response-contract
+validation PASS. These results do not replace whole-project coverage/hosted CI.
+
+A read-only inventory overlay of all current AM/Billing/Admin implementations
+found 21 blocking operation mappings and stale workspace traceability. This is
+more complete evidence than the earlier Admin-only inventory; it is **not green**.
+The release gates listed above remain outstanding. No shared database, staging
+deployment, real email, payment, certificate or MQTT operation was performed.
+
 ## Historical generated CI report
 
 Generated: ci-candidate

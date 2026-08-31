@@ -703,3 +703,43 @@ untouched. No staging deployment or shared database migration has been performed
 
 No implementation PR is merged or deployed at this checkpoint. Neither passing
 API tests nor the isolated financial predicate means the overall plan is complete.
+
+## Product device display integration — 2026-08-31
+
+Added `PATCH /v1/orgs/{orgId}/device-item-profiles/{profileId}/devices/{deviceId}/display`
+for the cloud-scoped console. Only name/model strings are accepted. Omitted
+fields remain unchanged; an empty model explicitly clears that display field.
+Duplicate/unknown/null fields are rejected. The API is documented in OpenAPI and
+covered by HTTP response-contract validation.
+
+The store serializes users, cloud and device, checks the exact Product binding
+and current device permission inside that transaction, updates only the two
+display columns and records `device.display.updated` atomically. Existing
+serial/MAC/manufacturer, status, claim material, operational metadata and Product
+binding are not rewritten. The same ACL query is reused by normal reads and the
+transactional check. The endpoint only handles Brand Clouds, not legacy customer
+organizations. Cloud eligibility/viewer ceilings apply through that query.
+
+This avoids using the legacy full-record device update from a display-only form:
+the old update replaces omitted hardware/metadata columns. It does not assert that
+all legacy producers, update endpoints or lifecycle operations are now fenced.
+The old Admin provision helper also sends an empty request, while current AM
+provision requires resolved activation inputs; the scoped UI does not offer a
+nonfunctional replacement button. Claim/provision/deactivation orchestration is
+still a separate integration gate.
+
+Targeted store/API tests passed on the newly created loopback-only database
+`multicloud_device_display_20260831` (port 63229), including concurrent independent
+name/model updates, explicit model clearing, exact cloud/Product denial, unchanged
+hardware/metadata, audit counts, stale admin ACL under viewer membership and
+activation-hold denial. No migration, shared database or staging state changed.
+Logs: `/tmp/rtk-device-display-am.log`; full-suite/race outcomes are recorded in
+`TEST_REPORT.md` after execution. Current AM and Admin OpenAPI validation passes.
+
+A new read-only inventory overlay includes **all three current implementation
+worktrees**, not only Admin. It exposes 21 blocking AM/Billing operation mappings
+(19 inline-list parsing cases and two cross-feature requirement assignments),
+plus stale workspace traceability. Diagnostic:
+`/tmp/rtk-device-scope-inventory.4o3gdW/local-inventory/spec-inventory.json`.
+These must be reconciled with the actual normative requirements before CI/release;
+the earlier Admin-only zero-blocker inventory was not cross-service acceptance.

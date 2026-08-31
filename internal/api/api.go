@@ -342,6 +342,7 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/orgs/:orgId/devices/:deviceId/deactivate", s.requirePermission("lifecycle_operation.deactivate"), s.deactivateDevice)
 	protected.POST("/orgs/:orgId/devices/:deviceId/unprovision", s.requirePermission("device.unprovision"), s.unprovisionDevice)
 	protected.PATCH("/orgs/:orgId/devices/:deviceId", s.requirePermission("registry_device.manage"), s.updateDevice)
+	protected.PATCH("/orgs/:orgId/device-item-profiles/:profileId/devices/:deviceId/display", s.requirePermission("registry_device.manage"), s.patchProductDeviceDisplay)
 	protected.DELETE("/orgs/:orgId/devices/:deviceId", s.requirePermission("registry_device.manage"), s.deleteDevice)
 	protected.PATCH("/orgs/:orgId/devices/:deviceId/status", s.requirePermission("registry_device.manage"), s.updateDeviceStatus)
 
