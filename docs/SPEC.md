@@ -297,10 +297,11 @@ An organization represents an account boundary. Devices belong to organizations,
 
 Organizations have an explicit kind:
 
-- `customer_org`: legacy/internal account boundaries created by
-  `/v1/auth/register` and organization APIs.
+- `customer_org`: legacy records and internal organization APIs only; historical
+  register-created records retain their kind, but current public register does not
+  create new customer organizations.
 - `brand_cloud`: second-layer brand cloud under the Realtek platform root,
-  created by developer signup, developer self-service APIs, platform-admin
+  created by public signup/register, developer self-service APIs, platform-admin
   bootstrap, or platform-admin operations.
 
 Account Manager is the source of truth for brand cloud state, membership, and
@@ -1700,15 +1701,15 @@ All endpoints are versioned under `/v1`.
 
 | Method | Path | Auth | Role | Description |
 | --- | --- | --- | --- | --- |
-| `GET` | `/v1/orgs/:orgId/device-groups` | Yes | `owner`, `admin`, `member` | List organization device groups. |
+| `GET` | `/v1/orgs/:orgId/device-groups` | Yes | `owner`, `admin`, `member`, scoped `viewer` | List authorized Product device groups only. |
 | `POST` | `/v1/orgs/:orgId/device-groups` | Yes | `owner`, `admin` | Create a device group. |
-| `GET` | `/v1/orgs/:orgId/device-groups/:groupId` | Yes | `owner`, `admin`, `member` | Get a device group. |
+| `GET` | `/v1/orgs/:orgId/device-groups/:groupId` | Yes | `owner`, `admin`, `member`, scoped `viewer` | Get an authorized Product device group. |
 | `PATCH` | `/v1/orgs/:orgId/device-groups/:groupId` | Yes | `owner`, `admin` | Update a device group. |
 | `DELETE` | `/v1/orgs/:orgId/device-groups/:groupId` | Yes | `owner`, `admin` | Delete a device group and its assignments. |
-| `GET` | `/v1/orgs/:orgId/device-groups/:groupId/devices` | Yes | `owner`, `admin`, `member` | List devices assigned to a group. |
+| `GET` | `/v1/orgs/:orgId/device-groups/:groupId/devices` | Yes | `owner`, `admin`, `member`, scoped `viewer` | List authorized Product devices assigned to a group. |
 | `PUT` | `/v1/orgs/:orgId/device-groups/:groupId/devices/:deviceId` | Yes | `owner`, `admin` | Add a device to a group; repeated assignment is idempotent. |
 | `DELETE` | `/v1/orgs/:orgId/device-groups/:groupId/devices/:deviceId` | Yes | `owner`, `admin` | Remove a device from a group; repeated removal is idempotent when both resources exist. |
-| `GET` | `/v1/orgs/:orgId/devices/:deviceId/tags` | Yes | `owner`, `admin`, `member` | List tags for a device. |
+| `GET` | `/v1/orgs/:orgId/devices/:deviceId/tags` | Yes | `owner`, `admin`, `member`, scoped `viewer` | List tags for an authorized Product device. |
 | `PUT` | `/v1/orgs/:orgId/devices/:deviceId/tags/:tag` | Yes | `owner`, `admin` | Add a tag to a device; repeated assignment is idempotent. |
 | `DELETE` | `/v1/orgs/:orgId/devices/:deviceId/tags/:tag` | Yes | `owner`, `admin` | Remove a device tag; repeated removal is idempotent when the device exists. |
 
@@ -1725,7 +1726,7 @@ Fleet registry APIs are selection primitives only. Account manager owns group, t
 | Method | Path | Auth | Role | Description |
 | --- | --- | --- | --- | --- |
 | `POST` | `/v1/orgs/:orgId/devices/:deviceId/provision` | Yes | `owner`, `admin`, `member` | Create or reuse a provisioning operation and enqueue `DeviceProvisionRequested`. |
-| `GET` | `/v1/orgs/:orgId/devices/:deviceId/provisioning` | Yes | `owner`, `admin`, `member` | Return latest provisioning operation, account-side readiness projection, and projected video metadata. |
+| `GET` | `/v1/orgs/:orgId/devices/:deviceId/provisioning` | Yes | `owner`, `admin`, `member`, scoped `viewer` | Return authorized Product provisioning/readiness metadata without secrets or playback permission. |
 | `POST` | `/v1/orgs/:orgId/devices/:deviceId/deactivate` | Yes | `owner`, `admin`, `member` | Create or reuse a deactivation operation and enqueue `DeviceDeactivateRequested`. |
 | `POST` | `/v1/orgs/:orgId/devices/:deviceId/unprovision` | Yes | `owner`, `admin`, `member` | User-facing release of a normal device from the current user/org binding for resale or re-onboarding. |
 | `POST` | `/v1/orgs/:orgId/devices/claim/resolve` | Yes | `owner`, `admin`, `member` | Resolve an opaque Claim Token into an organization-owned registry device and provisioning input. |
@@ -2157,7 +2158,7 @@ Unified product-readiness source ownership:
 
 | Source fact | Owning service | Account-manager responsibility |
 | --- | --- | --- |
-| Organization membership and role authorization | `rtk_account_manager` | Authorize org-scoped readiness reads for `owner`, `admin`, and `member`. |
+| Organization membership and role authorization | `rtk_account_manager` | Authorize readiness reads for `owner`, `admin`, `member` and scoped `viewer`, with current cloud eligibility and approved Product filtering. |
 | Registry existence, disabled state, category, serial, groups, and tags | `rtk_account_manager` | Return current account registry facts and preserve account-side soft-delete semantics. |
 | Claim Token resolution and account/device binding | `rtk_account_manager` | Return claim/bind result facts, reject already-claimed normal resolve, and require explicit platform-admin workflow for transfer/reclaim. |
 | Provision/deactivate operation state | `rtk_account_manager` | Return operation status, idempotency id, failure attribution, retryability, and timestamps from durable operation rows. |
@@ -2213,8 +2214,9 @@ response shape should be explicit about unknown and externally owned facts:
 
 Unified readiness authorization rules:
 
-- `owner`, `admin`, and `member` may read readiness for devices in their
-  organization.
+- `owner`, `admin`, `member` and `viewer` may read readiness only for authorized
+  Products/devices in an operational cloud. Viewer scope is its explicit read
+  grant; readiness never confers provisioning writes, secrets or playback access.
 - Platform-admin may read cross-organization readiness only through an explicit
   admin endpoint or support workflow, not by bypassing org-scoped handlers.
 - Cross-organization access must return `404 Not Found` or equivalent
@@ -2572,16 +2574,19 @@ The Keycloak/OIDC authentication implementation is acceptable when:
 
 The unified human identity implementation is acceptable when:
 
-- A preflight report maps every legacy Brand Cloud user and rejects any Brand
-  Cloud that would have no enabled owner.
+- Preflight maps every legacy Brand Cloud user and rejects zero/multiple
+  designated owners per non-deleted cloud. Pending/disabled sole owners remain
+  designated, but all tenant operations on their cloud are denied until owner
+  eligibility is restored; cutover separately proves this operational guard.
 - The migration deterministically merges normalized emails, preserves existing
   global credentials, forces activation/reset on credential conflicts, remaps
   memberships and ACL assignments, and writes an auditable id mapping.
 - Public signup atomically creates the pending global user, default Brand Cloud,
   and `owner` membership.
-- Platform-admin provisioning returns global `{user, member}` resources;
-  production owners activate by email and immediate bulk provisioning is
-  staging-only for admin/member.
+- Generic platform-admin provisioning returns global `{user, member}` resources
+  only for non-owner membership and cannot mutate existing ownership. Initial
+  owners are assigned atomically during cloud creation and activate by email
+  when pending; immediate bulk provisioning is staging-only for admin/member.
 - `/v1/auth/*` is the only human authentication surface, `/v1/me` exposes all
   memberships/capabilities, and `/v1/brand-clouds/:tenantSlug/auth/*` returns
   `404`.

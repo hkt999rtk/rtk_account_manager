@@ -32,6 +32,12 @@ Product roles. Migrate existing admin/member scope only from explicit Product
 grants, never from membership alone; report ambiguous access for approval.
 Accepted viewer scope itself grants reads and requires no Product assignment.
 It is authoritative for viewer read projection, not a second ownership source.
+Pending invitation replay compares cloud, target, role and the complete normalized
+viewer scope (kind and selected Product UUID set, ignoring order). Changed scope
+conflicts without changing the pending invite or sending mail; cancel/recreate is
+required. Resend rotates only the token, preserving scope. Acceptance uses the
+persisted scope. Test equivalent reordered IDs, changed Product sets, all-to-selected
+conflict and cancel/recreate; old tokens must fail and only the new scope is granted.
 PATCH /v1/developer/brand-clouds/{cloudId}/members/{userId} with access_scope
 atomically replaces the current viewer's whole scope under the cloud lock.
 Selected IDs are nonempty, unique and belong to the cloud. All-to-selected or
@@ -46,8 +52,11 @@ activation holds under the identity correction design.
 
 ## API and operations
 
-Extend the existing developer namespace with filtered list, owner-only create,
-name/description PATCH, deletion-preflight, DELETE and operation status. Name
+Extend the existing developer namespace with filtered list and creation for any
+eligible enabled/verified global developer, including one with no memberships
+or only shared-cloud memberships. Creation is quota-checked, not gated on already
+being an owner somewhere. Name/description PATCH, deletion-preflight, DELETE and
+cloud management remain owner-only. Add operation status. Name
 changes never mutate cloud UUID/slug. Generic membership/platform provisioning
 cannot assign owner except atomic new-cloud creation; transfers use only the
 handoff commit. Register invokes exactly the signup service/request/202 response,
