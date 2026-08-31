@@ -49,7 +49,9 @@ tracks rollout history and verification status.
 
 The multi-cloud target behavior and implementation boundaries are specified in
 [MULTICLOUD_IMPLEMENTATION.md](MULTICLOUD_IMPLEMENTATION.md) and canonical
-`MULTICLOUD_OWNERSHIP.md`. Runtime delivery follows the reviewed docs-only gate.
+[MULTICLOUD_OWNERSHIP.md](rtk_cloud_contracts_doc/MULTICLOUD_OWNERSHIP.md)
+in the contracts repository ([canonical design PR](https://github.com/hkt999rtk/rtk_cloud_contracts_doc/pull/131)).
+Runtime delivery follows the reviewed docs-only gate.
 - Owner-managed organization profile updates.
 - Organization-owned devices.
 - Organization-scoped device groups and device tags for fleet selection.
@@ -325,7 +327,9 @@ users are developers too; bootstrap ensures the root admin owns the initial
 A developer is a global human identity stored in `users`. Developer membership
 in a brand cloud is represented by `organization_members` where
 `organizations.organization_kind='brand_cloud'`. Each brand cloud has exactly
-one active owner. A tenant slug identifies request scope only after login.
+one designated owner, including pending or disabled owners. Operational access
+separately requires an enabled, verified, non-pending owner. A tenant slug
+identifies request scope only after login.
 `brand_cloud_users`, `brand_cloud_memberships`, tenant refresh tokens, and
 `/v1/brand-clouds/:tenantSlug/auth/*` are migration inputs removed by the
 coordinated identity cutover.
@@ -866,8 +870,11 @@ The migration normalizes email and records every old-to-new id decision in
   audit records retain their original actor identifiers
 
 Preflight and post-migration checks require equal source mapping counts, no
-unmapped ACL subject, no duplicate global email or membership, and at least one
-enabled owner for every existing Brand Cloud. Cutover revokes tenant refresh and
+unmapped ACL subject, no duplicate global email or membership, and exactly one
+designated owner for every non-deleted Brand Cloud. Report owner eligibility
+separately: pending/disabled owners retain ownership but their clouds remain
+non-operational. Unresolved zero/multiple-owner conflicts block cutover.
+Cutover revokes tenant refresh and
 activation tokens plus legacy `app-brand-cloud-user` certificates. Rollback is
 the pre-cutover PostgreSQL backup plus the previous service release; mixed old
 and new identity writes are not supported.
@@ -984,7 +991,7 @@ used only by the deterministic migration described in
 [REQ-AM-BRAND-USER-BOUNDARY-001] and are dropped after all cutover assertions
 pass.
 
-### [REQ-AM-MEMBERSHIP-INVARIANT-001] Every customer organization retains an active owner and denies inactive membership access
+### [REQ-AM-MEMBERSHIP-INVARIANT-001] Brand Clouds retain one designated owner and deny inactive access; legacy customer organizations retain active-owner protection
 
 <!-- rtk-requirement
 {"acceptance_layer":"integration","operation_model":"workflow","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
@@ -1009,8 +1016,12 @@ Constraints:
 - Public signup creates its Brand Cloud and owner membership in the same
   transaction.
 - Platform provisioning may create a Brand Cloud with a pending emailed owner,
-  but it is not operational until activation commits the owner membership.
-- The database must reject deleting or downgrading the final `owner` membership for an organization.
+  but the owner membership exists before activation; activation makes the
+  designated owner eligible without creating a second membership.
+- Brand Cloud ownership mutations serialize on the cloud and deferred database
+  constraints validate exactly one designated owner at commit. Only coordinated
+  transfer or cloud deletion can remove that ownership. Legacy `customer_org`
+  retains its existing last-active-owner protection separately.
 - A user must not access organization resources without an active membership.
 
 Brand Cloud owner/admin/member assignments reference global `users.id` through
@@ -1332,7 +1343,7 @@ Constraints:
   updates the password, and revokes all active refresh tokens for the user.
 - `PATCH /v1/me/password` lets the authenticated current user change their password after presenting the current password and a new password of at least 8 characters.
 - Password change revokes all active refresh tokens for the user. Existing access tokens remain valid until their normal expiry.
-- `DELETE /v1/me` lets the authenticated current user disable their own account. The operation revokes active refresh tokens and refuses to disable the user while they are the last active owner of any organization.
+- `DELETE /v1/me` lets the authenticated current user disable their own account and revokes active refresh tokens. It refuses while they own any non-deleted Brand Cloud, even if pending/disabled, until transfer or cloud deletion completes. Legacy `customer_org` retains its last-active-owner protection.
 - Self-service account deletion is account-manager user lifecycle only. It preserves organization memberships and registry/device records, and it does not imply product-level device deletion or deactivation.
 - Verification, login activation, and password reset tokens expire after 30 minutes, are stored
   hashed, become one-time-use after consumption, and are throttled to five
@@ -1503,16 +1514,17 @@ repository's evaluation-tier behavior.
 
 ## 6. Authorization
 
-Authorization is permission based and scope aware. `owner`, `admin`, and
-`member` memberships drive membership lifecycle, while
+Authorization is permission based and scope aware. `owner`, `admin`, `member`,
+and `viewer` memberships drive membership lifecycle, while
 route authorization is evaluated through persisted role assignments and
 permission bindings.
 
 | Role | Permissions |
 | --- | --- |
-| `owner` | Manage organization, manage members, manage devices, view all organization resources. |
+| `owner` | Manage cloud, approved collaborator scope, devices and sole-owner Billing; ownership changes only through coordinated transfer. |
 | `admin` | Manage devices, view organization members, view organization resources. |
-| `member` | View organization resources and devices. |
+| `member` | Read resources and use existing claim/provision/deactivate/unprovision lifecycle permissions within explicit approved Product scope; not a read-only role. |
+| `viewer` | Read only owner-approved Products or all Products including future Products; no writes, Billing, payment data, secrets or media playback. |
 | `tenant_admin`, `fleet_manager`, `installer`, `firmware_operator`, `read_only_observer`, `device_agent` | Seeded organization-scoped system roles from the product authorization catalog. |
 | `platform_admin`, `support_operator`, `service_integration` | Seeded platform-scoped system roles from the product authorization catalog. |
 
@@ -1521,33 +1533,47 @@ Rules:
 - `platform_admin` is a global platform scope for Realtek operators. It does not
   make the platform user a brand-cloud owner or admin unless the platform user is
   explicitly acting through platform-admin delegation.
-- Brand Cloud `owner`, `admin`, and `member` roles are scoped assignments of a
+- Brand Cloud `owner`, `admin`, `member`, and `viewer` roles are scoped assignments of a
   global `user`. APP end-user device roles are stored in
   `device_user_bindings` instead. Neither kind implies `platform_admin`.
 - Runtime route checks use permission names such as `registry_device.manage`,
   `claim.resolve`, and `lifecycle_operation.inspect`.
-- `organization_members.role` is not the new authorization source of truth; it
-  is mirrored into role assignments for compatibility until membership role
-  updates are fully deprecated.
+- `organization_members.role` is authoritative for sole ownership and membership.
+  Mirrored ACL assignments drive scoped route permissions but cannot create a
+  competing owner or bypass membership, approved Product scope or lifecycle fences.
 - Global-user Brand Cloud access follows the membership and assignment boundary
   in [REQ-AM-BRAND-USER-BOUNDARY-001].
 - Platform admin is global/platform scope. Brand-cloud owner/admin/member are
   brand-cloud scope and do not imply `platform_admin`.
 - Only `owner` may invite/add members, remove members, or change member roles.
-- Only `owner` may disable or enable member user accounts.
-- Only `owner` may remove another `owner`.
-- The active-owner protection defined by
-  [REQ-AM-MEMBERSHIP-INVARIANT-001] rejects removal, downgrade, or disablement
-  of the last active `owner`; disabled owner memberships do not satisfy the
-  invariant.
-- Disabling a member user sets `users.disabled_at`, revokes that user's active refresh tokens, and prevents login, refresh, and protected API access.
-- Enabling a member user clears `users.disabled_at`.
+- A cloud owner may suspend/re-enable non-owner memberships only within that
+  cloud, never disable the collaborator's global account or other clouds.
+- Generic member/ACL APIs cannot assign, remove, downgrade or disable the cloud
+  owner. Transfer removes the old owner's access rather than demoting to admin.
+- [REQ-AM-MEMBERSHIP-INVARIANT-001] counts pending/disabled designated owners.
+  Authorized platform account suspension preserves ownership but blocks cloud
+  operational access. Global account enable/disable is a separate platform or
+  self-service operation, not a cloud-owner privilege; legacy `customer_org`
+  last-active-owner protection remains unchanged.
 - `owner` and `admin` may create, update, disable, delete, and update status for devices.
 - `owner` and `admin` may create, update, delete, and assign device groups and tags.
 - `owner` and `admin` may initiate provisioning and deactivation operations for devices.
-- `member` may list and read devices but may not modify them.
+- `member` retains existing claim/provision/deactivate/unprovision permissions
+  within explicitly approved Product scope; it does not imply general device CRUD.
 - `member` may list groups, group devices, and tags but may not modify them.
-- `member` may read provisioning state but may not initiate provisioning or deactivation.
+- Seed `viewer` with `organization.read`, `membership.read`,
+  `registry_device.read`, `device_group.read`, `device_tag.read`, and
+  `lifecycle_operation.inspect`. Organization/membership reads expose only
+  authorized cloud metadata; resource reads are intersected with approved scope.
+  A selected-Product viewer receives only Product-scoped read bindings; whole-cloud
+  viewer scope is evaluated for current and future Products without write grants.
+- Viewer UI read capabilities (`fleet.read`, `product.read`,
+  `firmware.release.read`, `ota.plan.read`, `reports.read`, `team.read`,
+  `provisioning.read`) are filtered by the same server-side scope and safe data
+  projection. No permission union or non-member fallback may elevate a viewer;
+  unknown roles fail closed. Existing `member` lifecycle grants remain intact.
+- Viewer download/export, counts and background reads use the same scope and
+  exclusions; read access never grants private keys, payment data or playback.
 - No user may access an organization without an active membership.
 - No endpoint may allow cross-organization device access.
 - Platform-admin ACL APIs can list the permission catalog, manage roles, bind
@@ -1603,8 +1629,8 @@ All endpoints are versioned under `/v1`.
 | `GET` | `/v1/orgs/:orgId/members` | Yes | List organization members. |
 | `POST` | `/v1/orgs/:orgId/members` | Yes | Add a user to the organization. |
 | `PATCH` | `/v1/orgs/:orgId/members/:userId` | Yes | Update member role. |
-| `PATCH` | `/v1/orgs/:orgId/members/:userId/disable` | Yes | Disable a member user account and revoke active refresh tokens. |
-| `PATCH` | `/v1/orgs/:orgId/members/:userId/enable` | Yes | Re-enable a disabled member user account. |
+| `PATCH` | `/v1/orgs/:orgId/members/:userId/disable` | Yes | For Brand Clouds, suspend a non-owner membership and its scoped access without disabling the global user. Legacy customer-organization behavior is unchanged. |
+| `PATCH` | `/v1/orgs/:orgId/members/:userId/enable` | Yes | For Brand Clouds, re-enable an eligible non-owner membership, not a global account. Legacy customer-organization behavior is unchanged. |
 | `DELETE` | `/v1/orgs/:orgId/members/:userId` | Yes | Remove member from organization. |
 
 ### Platform Admin
@@ -2427,15 +2453,15 @@ Test coverage areas:
 - Organization members can only access organizations they belong to.
 - `owner` can manage members and devices.
 - `admin` can manage devices but cannot manage members.
-- `member` can read devices but cannot modify them.
+- `member` retains scoped claim/provision/deactivate/unprovision without general device CRUD; `viewer` cannot perform any write.
 - Cross-organization device access is rejected.
 - Duplicate device `serial_number` in the same organization is rejected.
 - Same `serial_number` may be used in different organizations.
 - Device status can be updated by `owner` or `admin`.
-- Last active organization `owner` cannot be removed, downgraded, or disabled.
-- Self-service account deletion is refused while the current user is the last active `owner` of any organization.
-- Owner can disable and enable member users.
-- Admin and member cannot disable or enable users.
+- A non-deleted Brand Cloud has exactly one designated owner, including pending/disabled cases; generic member APIs cannot mutate that ownership. Legacy customer organizations retain last-active-owner protection.
+- Self-service account deletion is refused while owning any non-deleted Brand Cloud, or while the last active owner of a legacy customer organization.
+- Owner can suspend/re-enable only non-owner memberships in their own cloud, not global users; other clouds remain unaffected.
+- Admin/member/viewer cannot manage cloud membership or global accounts; viewer permission unions, downloads, counts and jobs cannot bypass approved read-only scope.
 - Refresh token rotation rejects previously used refresh tokens.
 - Logout revokes refresh tokens.
 - Identity migration tests cover existing global users, one legacy tenant user,
