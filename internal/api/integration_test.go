@@ -1884,6 +1884,8 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 
 func TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession(t *testing.T) {
 	env := newIntegrationEnv(t)
+	configureAPIHandoffFixture(t, env)
+	contract := newResponseContract(t)
 	source := verifiedDeveloperForTest(t, env, "source-transfer@example.com")
 	target := verifiedDeveloperForTest(t, env, "target-transfer@example.com")
 
@@ -1957,10 +1959,11 @@ func TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession(t 
 	acceptRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-cloud-owner-transfers/accept", map[string]any{
 		"token": token,
 	}, target.AccessToken)
-	if acceptRes.Code != http.StatusOK {
-		t.Fatalf("expected target accept 200, got %d: %s", acceptRes.Code, acceptRes.Body.String())
+	if acceptRes.Code != http.StatusAccepted {
+		t.Fatalf("expected target accept 202, got %d: %s", acceptRes.Code, acceptRes.Body.String())
 	}
 	accepted := decodeBody[brandCloudOwnerTransferBody](t, acceptRes)
+	contract.validate(t, http.MethodPost, "/v1/developer/brand-cloud-owner-transfers/accept", acceptRes)
 	if accepted.OwnerTransfer.Status != "accepted" || accepted.OwnerTransfer.AcceptedAt == nil {
 		t.Fatalf("expected accepted transfer, got %+v", accepted.OwnerTransfer)
 	}
@@ -1969,12 +1972,22 @@ func TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession(t 
 	targetCloudsRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds", nil, target.AccessToken)
 	sourceClouds := decodeBody[brandCloudsBody](t, sourceCloudsRes)
 	targetClouds := decodeBody[brandCloudsBody](t, targetCloudsRes)
-	if !brandCloudListHasRole(sourceClouds, source.BrandCloudID, "admin") {
-		t.Fatalf("expected source to become admin, got %+v", sourceClouds)
+	if !brandCloudListHasRole(sourceClouds, source.BrandCloudID, "owner") {
+		t.Fatalf("source must remain owner during preparation, got %+v", sourceClouds)
 	}
-	if !brandCloudListHasRole(targetClouds, source.BrandCloudID, "owner") {
-		t.Fatalf("expected target to become owner, got %+v", targetClouds)
+	if brandCloudListHasRole(targetClouds, source.BrandCloudID, "owner") {
+		t.Fatalf("target gained premature ownership, got %+v", targetClouds)
 	}
+	statusRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer/"+transfer.OwnerTransfer.ID, nil, target.AccessToken)
+	if statusRes.Code != http.StatusOK || !strings.Contains(statusRes.Body.String(), `"operation_phase":"preparing"`) {
+		t.Fatalf("target cannot view own operation: %d %s", statusRes.Code, statusRes.Body.String())
+	}
+	contract.validate(t, http.MethodGet, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer/"+transfer.OwnerTransfer.ID, statusRes)
+	postCancel := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer/"+transfer.OwnerTransfer.ID+"/cancel", map[string]any{}, source.AccessToken)
+	if postCancel.Code != http.StatusOK || !strings.Contains(postCancel.Body.String(), `"operation_phase":"canceling"`) {
+		t.Fatalf("fenced source cannot cancel: %d %s", postCancel.Code, postCancel.Body.String())
+	}
+	contract.validate(t, http.MethodPost, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer/"+transfer.OwnerTransfer.ID+"/cancel", postCancel)
 }
 
 func TestIntegrationAdminMetricsReportsEmptySnapshot(t *testing.T) {

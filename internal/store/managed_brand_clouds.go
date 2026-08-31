@@ -23,8 +23,9 @@ type ManagedBrandCloud struct {
 type ManagedBrandCloudPage struct {
 	BrandClouds []ManagedBrandCloud `json:"brand_clouds"`
 	Page
-	OwnedCount int `json:"owned_count"`
-	OwnedLimit int `json:"owned_limit"`
+	OwnedCount    int `json:"owned_count"`
+	OwnedLimit    int `json:"owned_limit"`
+	ReservedCount int `json:"reserved_count"`
 }
 
 // Quota is independent from the selected view and includes pending/disabled
@@ -55,6 +56,10 @@ func (s *Store) ListManagedBrandClouds(ctx context.Context, userID, view string,
 		return ManagedBrandCloudPage{}, err
 	}
 	page.OwnedCount, err = countDeveloperBrandCloudsTx(ctx, tx, userID)
+	if err != nil {
+		return ManagedBrandCloudPage{}, err
+	}
+	page.ReservedCount, err = countReservedCloudsTx(ctx, tx, userID)
 	if err != nil {
 		return ManagedBrandCloudPage{}, err
 	}

@@ -472,6 +472,8 @@ type BrandCloudMember struct {
 }
 
 type BrandCloudOwnerTransfer struct {
+	OperationPhase    string     `json:"operation_phase,omitempty"`
+	OwnershipVersion  int64      `json:"ownership_version,omitempty"`
 	ID                string     `json:"id"`
 	BrandCloudID      string     `json:"brand_cloud_id"`
 	RequestedByUserID string     `json:"requested_by_user_id"`

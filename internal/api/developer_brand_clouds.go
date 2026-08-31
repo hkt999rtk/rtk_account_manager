@@ -90,7 +90,8 @@ func (s *Server) listDeveloperBrandClouds(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"brand_clouds": page.BrandClouds, "total": page.Total, "limit": page.Limit, "offset": page.Offset,
 		"owned_count": page.OwnedCount, "owned_limit": page.OwnedLimit,
-		"pagination": page.Page, "developer_cloud_limit": page.OwnedLimit})
+		"reserved_count": page.ReservedCount,
+		"pagination":     page.Page, "developer_cloud_limit": page.OwnedLimit})
 }
 
 func (s *Server) createDeveloperBrandCloud(c *gin.Context) {
@@ -459,13 +460,12 @@ func (s *Server) acceptBrandCloudOwnerTransfer(c *gin.Context) {
 		writeStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, brandCloudOwnerTransferResponse{OwnerTransfer: transfer})
+	c.JSON(http.StatusAccepted, brandCloudOwnerTransferResponse{OwnerTransfer: transfer})
 }
 
 func (s *Server) getBrandCloudOwnerTransfer(c *gin.Context) {
-	if _, ok := developerBrandCloudManager(c, s); !ok {
-		return
-	}
+	// The target is a participant, not a member. The store checks this global
+	// session against the exact operation's source/target even while cloud-fenced.
 	transfer, err := s.store.GetBrandCloudOwnerTransfer(c.Request.Context(), store.BrandCloudOwnerTransferQuery{BrandCloudID: c.Param("brandCloudId"), TransferID: c.Param("transferId"), RequesterID: currentUserID(c)}, time.Now().UTC())
 	if err != nil {
 		writeStoreError(c, err)
@@ -475,9 +475,6 @@ func (s *Server) getBrandCloudOwnerTransfer(c *gin.Context) {
 }
 
 func (s *Server) cancelBrandCloudOwnerTransfer(c *gin.Context) {
-	if _, ok := developerBrandCloudManager(c, s); !ok {
-		return
-	}
 	transfer, err := s.store.CancelBrandCloudOwnerTransfer(c.Request.Context(), store.BrandCloudOwnerTransferQuery{BrandCloudID: c.Param("brandCloudId"), TransferID: c.Param("transferId"), RequesterID: currentUserID(c)}, time.Now().UTC())
 	if err != nil {
 		writeStoreError(c, err)

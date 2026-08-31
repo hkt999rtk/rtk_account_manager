@@ -381,6 +381,7 @@ func TestBrandCloudMemberInvitationLifecycleAndConflicts(t *testing.T) {
 
 func TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
+	configureTestHandoff(t, env)
 	ctx := context.Background()
 
 	source, err := env.store.SignupDeveloper(ctx, DeveloperSignupInput{
@@ -395,6 +396,9 @@ func TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeve
 		PasswordHash: "hash",
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified=true,signup_pending_verification=false WHERE id IN ($1,$2)`, source.User.ID, target.User.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -493,18 +497,14 @@ func TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeve
 		t.Fatalf("expected accepted transfer, got %+v", accepted)
 	}
 
-	sourceMember, err := env.store.GetDeveloperBrandCloudMember(ctx, source.BrandCloud.ID, source.User.ID)
-	if err != nil {
-		t.Fatal(err)
+	var owner string
+	if err := env.db.QueryRow(ctx, `SELECT user_id::text FROM organization_members WHERE organization_id=$1 AND role='owner'`, source.BrandCloud.ID).Scan(&owner); err != nil || owner != source.User.ID {
+		t.Fatalf("accept prematurely changed owner: %s %v", owner, err)
 	}
-	targetMember, err := env.store.GetDeveloperBrandCloudMember(ctx, source.BrandCloud.ID, target.User.ID)
-	if err != nil {
-		t.Fatal(err)
+	if accepted.OperationPhase != "preparing" {
+		t.Fatalf("accept omitted durable preparation: %+v", accepted)
 	}
-	if sourceMember.Role != model.RoleAdmin || targetMember.Role != model.RoleOwner {
-		t.Fatalf("expected source admin and target owner after transfer, source=%+v target=%+v", sourceMember, targetMember)
-	}
-	if _, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, target.User.ID, "transfer-token-hash-2", time.Now()); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("accepted transfer token must reject replay, got %v", err)
+	if replay, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, target.User.ID, "transfer-token-hash-2", time.Now()); err != nil || replay.ID != accepted.ID {
+		t.Fatalf("accepted retry must return same operation: %+v %v", replay, err)
 	}
 }

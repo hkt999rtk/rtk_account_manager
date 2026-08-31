@@ -57,10 +57,39 @@ untouched. No staging deployment or shared database migration has been performed
 - The generic organization member-create API rejects Brand Clouds, requiring the
   invitation workflow. Generic Brand Cloud role updates use the owner-checked
   transactional member mutation and reject direct owner assignment.
-- Billing has a tested financial eligibility predicate: settled credit >= 0 for
-  transfer; exactly 0 for closure; missing evidence and pending monetary/setup
-  work remain independent blockers. This predicate is not yet connected to a
-  durable handoff or an HTTP endpoint.
+- Billing's separate implementation branch now has durable preparation,
+  confirmations/commit/finalize/abort, responsibility/privacy and predecessor
+  reversal store logic through `ed9c4b6`. Its production AM/collector/transport
+  integration is still outstanding; see Billing's own checkpoint for evidence.
+- Forward migration 055 and the AM acceptance store replace the immediate
+  owner/admin role swap with a durable `preparing` operation. Request and acceptance
+  separately require bound, fresh trusted Billing eligibility; nonnegative credit
+  (including zero) never masks incomplete evidence or other financial blockers.
+  A negative balance is reported as `balance_negative`. Missing Billing adapter or
+  explicit producer inventory fails closed with HTTP 503, without issuing a transfer
+  email or changing ownership. No production adapter is configured yet.
+- The external eligibility check runs before local locks, then stable ordered
+  user/cloud locks recheck source ownership/version, target eligibility, recipient
+  email and proof freshness. Acceptance reserves a target quota slot and atomically
+  records the operation, immutable participant inventory, prepare outbox and audit.
+  Owned counts remain actual ownership; separate `reserved_count` accounts for
+  incoming operations. Concurrent creation/acceptance share the target user lock.
+  Acceptance returns HTTP 202 and grants no target membership or owner role.
+- Accepted preparation adds a cloud eligibility fence; source/target can still
+  inspect the operation through their authenticated global session. Other users
+  and disabled/unverified participants cannot. Repeated target acceptance returns
+  the same operation, including concurrent retries; legacy accepted requests with
+  no durable operation cannot masquerade as new handoffs. Old pending requests
+  without an ownership version are not silently adopted.
+- Precommit cancellation persists `canceling` and abort commands. It retains the
+  cloud fence and quota until Billing and every persisted participant return matching
+  authenticated release evidence. A timeout, invitation expiry, duplicate HTTP
+  delivery or one participant alone cannot release it. Replay is idempotent;
+  changed receipts and unknown participants are rejected. Source membership and
+  all balances remain unchanged. The internal ack method has no public route.
+- Service OpenAPI describes the asynchronous acceptance and participant-only
+  status, nonnegative/unknown financial errors and reserved quota. Its cancellation
+  route now matches the actual `/owner-transfer/{transferId}/cancel` path.
 
 ## Verification at this checkpoint
 
@@ -71,10 +100,11 @@ untouched. No staging deployment or shared database migration has been performed
   Covers current signup/register parity, encrypted email rollback, activation,
   global login, owner-only member listing, platform creation, device profiles,
   factory JWTs and App end-user multi-cloud binding.
-- The last complete Account Manager suite is not green. Its sole remaining failure
-  is `TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper`.
-  The old immediate transfer/old-owner-admin flow must be replaced by the approved
-  Billing handoff, not preserved merely to pass tests. The full run is recorded at
+- The earlier complete Account Manager suite was not green: its remaining failure
+  was `TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper`.
+  That immediate-transfer expectation has now been replaced with verified durable
+  preparation/no-owner-swap assertions; see the newer handoff evidence below.
+  The earlier full run is recorded at
   `/tmp/rtk-multicloud-product-suite-20260831-r2.jsonl`.
 - Product admission/delegation/revocation/concurrent-acceptance tests passed three
   consecutive isolated runs. Fresh-database migration tests verify backfill,
@@ -101,6 +131,35 @@ untouched. No staging deployment or shared database migration has been performed
 - Runtime default pre-PR/coverage gates, service CI and staging evidence are still
   outstanding. The successful documentation CI does not validate these runtime changes.
 
+### AM handoff acceptance checkpoint
+
+- Fresh isolated PostgreSQL `multicloud_am_handoff_test` on loopback port 63229
+  applied all migrations through 055. Released 049 was not edited; the unpublished
+  identity correction remains reserved for forward 051 integration. No shared or
+  staging data was migrated.
+- Full uncached `go test ./... -count=1` passed, including API 60.713s and store
+  69.386s. The old transfer test now verifies that acceptance preserves source
+  ownership and starts preparation, rather than expecting source-to-admin demotion.
+  Final targeted race runs passed (store 4.231s, API 17.867s); the initial handoff
+  suite passed three repeated runs (store 12.806s, API 7.046s). Durations are not
+  performance benchmarks; integration fixtures serialize on a database advisory lock.
+- Coverage includes -1/0/+1, positive balance with unresolved usage, stale/wrong-bound
+  evidence, missing adapter, request-to-accept balance changes, target disable while
+  the external check is in flight, same-request concurrency, competing target quota
+  reservations, immutable outbox/receipts, audit rollback, post-expiry cancellation,
+  partial/duplicate/changed/unknown release acknowledgments and no early membership.
+  Participant status remains usable without cloud membership and while fenced.
+- HTTP acceptance, participant status, real cancellation path and fail-closed
+  financial/unavailable errors are validated against service OpenAPI. `go vet ./...`
+  and `git diff --check` passed. Logs: `/tmp/rtk-am-handoff-suite-final-20260831.log`,
+  `/tmp/rtk-am-handoff-race-final-20260831.log`,
+  `/tmp/rtk-am-handoff-repeated-20260831.log`.
+- These tests supply **synthetic Billing eligibility and resource acknowledgments**.
+  They prove local persistence, reservations, admission fencing, replay and cancel
+  semantics, not actual Billing HTTP delivery, complete producer settlement, owner
+  commit, consent revocation or end-to-end staging acceptance. No runtime PR has
+  been opened, merged or deployed for this implementation branch.
+
 ## Required next work
 
 1. Complete cross-service authorization, downloads/background work and cache
@@ -108,12 +167,20 @@ untouched. No staging deployment or shared database migration has been performed
    generic provisioning/role APIs, activation holds and all resource-mutation fences.
    Retire legacy human
    identity fallbacks, retaining only the required migration evidence.
-2. Implement cloud idempotent CRUD/deletion lifecycle and durable AM/Billing
-   prepare/commit/finalize/abort, quota reservations and resource fences. Replace
-   immediate transfer/old-owner-admin behavior; remove all old-owner grants.
-3. Implement Billing responsibility history/privacy projection, source/target
-   amount confirmations, consent/setup fencing, profile reset, late compensation
-   isolation, dedicated credentials and crash/replay recovery.
+2. Complete cloud idempotent CRUD/deletion and the AM handoff coordinator beyond
+   acceptance/cancel preparation. Add production Billing eligibility/command adapters,
+   dedicated credentials, outbox delivery/retries, producer prepare acknowledgments,
+   durable settlement snapshots and both participant confirmations. Then commit
+   the sole-owner swap, consume the reservation, transfer Product-owner duties and
+   remove every old-owner membership/delegated grant atomically with the committed
+   outbox event. Keep access fenced until Billing finalize acknowledgment; after a
+   known commit only forward retry is legal. Current 055 deliberately has no
+   successful owner-commit path; acceptance is not transfer completion.
+3. Integrate Billing's implemented store protocol/privacy with real AM decisions,
+   evidence collectors, provider adapters and audited operations. A configured test
+   producer list is not proof of complete production inventory. AM's eligibility
+   fence is not proof of remote producer drain or protection for every already-in-flight
+   resource mutation; transactional producer guards and cutoff evidence remain gates.
 4. Implement the scoped My Clouds/Product UI and BFF, including request/cache/tab
    isolation and hosted-return binding.
 5. Reconcile the preserved unpublished identity correction as forward migration

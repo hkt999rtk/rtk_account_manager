@@ -38,6 +38,9 @@ var (
 	ErrOIDCStateExpired            = errors.New("oidc login state is expired")
 	ErrDeveloperCloudLimitExceeded = errors.New("developer brand cloud limit exceeded")
 	ErrAccountNotActivated         = errors.New("account must complete email activation")
+	ErrHandoffUnavailable          = errors.New("trusted ownership handoff evidence unavailable")
+	ErrHandoffFinancialBlocked     = errors.New("ownership handoff financial conditions not satisfied")
+	ErrHandoffBalanceNegative      = fmt.Errorf("balance_negative: %w", ErrHandoffFinancialBlocked)
 )
 
 type Store struct {
@@ -46,6 +49,7 @@ type Store struct {
 	authTokenRateLimitMax    int
 	authTokenRateLimitWindow time.Duration
 	emailOutboxCipher        *emaildelivery.Cipher
+	ownershipHandoff         *OwnershipHandoffOptions
 }
 
 func (s *Store) ConfigureEmailOutboxCipher(cipher *emaildelivery.Cipher) {

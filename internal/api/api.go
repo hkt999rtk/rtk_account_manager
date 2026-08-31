@@ -1910,6 +1910,12 @@ func writeStoreError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, model.ErrInvalidCloudViewerScope):
 		writeError(c, http.StatusBadRequest, "invalid_access_scope", err.Error())
+	case errors.Is(err, store.ErrHandoffUnavailable):
+		writeError(c, http.StatusServiceUnavailable, "ownership_handoff_unavailable", "Trusted Billing evidence and the producer inventory are required")
+	case errors.Is(err, store.ErrHandoffBalanceNegative):
+		writeError(c, http.StatusConflict, "balance_negative", "Settle Billing to a nonnegative cloud balance before transfer")
+	case errors.Is(err, store.ErrHandoffFinancialBlocked):
+		writeError(c, http.StatusConflict, "ownership_handoff_financial_blocked", "Settle outstanding Billing and leave a nonnegative cloud balance before transfer")
 	case errors.Is(err, store.ErrAccountNotActivated):
 		writeError(c, http.StatusForbidden, "account_activation_required", "Complete email activation before creating a cloud")
 	case errors.Is(err, store.ErrNotFound):
