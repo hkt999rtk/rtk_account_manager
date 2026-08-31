@@ -834,3 +834,23 @@ proofs, conflicting release replays and canceled requests preserving owner and
 worker lease state. Two race-enabled runs and store vet pass; the full governed
 gate and production producer/Billing integration remain required. Financial
 policy is unchanged: deletion requires zero balance; transfer permits >= 0.
+
+## Billing advisory eligibility transport — 2026-09-01
+
+The real Billing HTTP client now implements the store's eligibility interface;
+the store and transport share the explicit request/response DTO. Requests bind
+cloud, current owner/version, target, action and (at acceptance) transfer ID.
+Required fields, receipt/digest, no-store, freshness, blocker codes and balance
+consistency are validated before store admission. Unknown outcomes fail closed.
+No production producer inventory, collector or adapter was inferred or enabled.
+
+Focused transport race tests passed (1.718s), including -1/0/+1, missing/null
+amounts, stale/mismatched evidence and HTTP failures. Actual independently
+compiled AM client/Billing router tests also passed for all three balances at
+request and acceptance, using only disposable loopback PostgreSQL. AM handoff
+and deletion store race regressions passed (51.273s); `go vet ./...` and
+`go build ./...` passed. Logs: `/tmp/rtk-am-eligibility-client.log`,
+`/tmp/rtk-am-eligibility-store-regression.log` and
+`/tmp/rtk-billing-eligibility-cross-service.log`.
+This is protocol/admission evidence, not full ownership transfer, the governed
+coverage gate, production collector completeness or staging acceptance.

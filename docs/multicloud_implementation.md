@@ -97,6 +97,17 @@ commit. Complete precommit cancellation/remote hold release before allowing the
 original owner to settle/top up normally and start a new transfer. No ownership
 or target quota consumption commits while any financial condition is unsatisfied.
 
+The dedicated Billing client implements the advisory eligibility boundary through
+`POST /v1/internal/billing/clouds/{orgId}/ownership-eligibility`. It binds the
+current owner/version, target account, request/accept action and transfer ID to
+fresh independently collected evidence. Missing, malformed, stale or mismatched
+responses fail closed; this query neither reserves funds nor authorizes commit.
+The response uses an explicit snake_case JSON contract, also used for newly
+recorded request/acceptance audit snapshots. Existing immutable snapshots are
+not rewritten and are not used to bypass live revalidation. Installing this
+client alone does not enable admission: the reviewed producer inventory and
+authenticated preparation/release adapters remain mandatory.
+
 After authenticated target acceptance, durable outbox/inbox messages prepare
 Billing and cost-producing resource services. Messages bind operation/cloud ID,
 ownership version, cutoff and reconciliation evidence. Drain/fence producers;

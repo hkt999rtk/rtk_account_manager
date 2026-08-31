@@ -9,26 +9,20 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"rtk_account_manager/internal/billinghandoff"
 	"rtk_account_manager/internal/model"
 )
 
 // This boundary is implemented by a trusted Billing client, never browser input.
 // Eligibility is advisory; it does not authorize ownership commit or settlement.
-type HandoffEligibilityRequest struct {
-	CloudID, SourceUserID, TargetUserID, TransferID, Action string
-	OwnershipVersion                                        int64
-}
-type HandoffEligibility struct {
-	Request                             HandoffEligibilityRequest
-	ReceiptID, EvidenceSHA256, Currency string
-	BalanceMinor                        int64
-	Complete                            bool
-	Blockers                            []string
-	ObservedAt, ExpiresAt               time.Time
-}
+type HandoffEligibilityRequest = billinghandoff.OwnershipEligibilityRequest
+type HandoffEligibility = billinghandoff.OwnershipEligibility
 type HandoffEligibilityProvider interface {
 	CheckOwnershipEligibility(context.Context, HandoffEligibilityRequest) (HandoffEligibility, error)
 }
+
+var _ HandoffEligibilityProvider = (*billinghandoff.Client)(nil)
+
 type OwnershipHandoffOptions struct {
 	Eligibility HandoffEligibilityProvider
 	// Explicit reviewed producer inventory; no silent default that omits producers.
