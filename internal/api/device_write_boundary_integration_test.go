@@ -143,31 +143,43 @@ func TestIntegrationPlatformUnprovisionRechecksRevokedPrivilege(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	target, err := env.store.CreateOrganization(ctx, operator.UserID, "Legacy support recovery")
+	if err != nil {
+		t.Fatal(err)
+	}
 	release := make(chan struct{})
-	body := &admittedDeviceRequestBody{ctx: ctx, ready: make(chan struct{}), release: release, reader: strings.NewReader(`{"reason":"support verified","evidence":{"ticket":"isolated-test"}}`)}
-	req := httptest.NewRequest(http.MethodPost, "/v1/admin/devices/"+claimed.Device.ID+"/unprovision", body).WithContext(ctx)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+operator.AccessToken)
-	result := make(chan *httptest.ResponseRecorder, 1)
-	go func() { r := httptest.NewRecorder(); env.router.ServeHTTP(r, req); result <- r }()
-	select {
-	case <-body.ready:
-	case r := <-result:
-		t.Fatalf("request failed before admission: %d %s", r.Code, r.Body)
-	case <-ctx.Done():
-		t.Fatal(ctx.Err())
+	result := make(chan *httptest.ResponseRecorder, 3)
+	for _, tc := range []struct{ path, body string }{
+		{"/v1/admin/devices/" + claimed.Device.ID + "/unprovision", `{"reason":"support verified","evidence":{"ticket":"isolated-test"}}`},
+		{"/v1/admin/device-claims/" + claimed.Claim.ID + "/transfer", `{"target_organization_id":"` + target.ID + `","reason":"support verified","evidence":{"ticket":"isolated-test"}}`},
+		{"/v1/admin/device-claim-tokens/" + claimed.Claim.TokenID + "/reclaim", `{"target_organization_id":"` + target.ID + `","reason":"support verified","evidence":{"ticket":"isolated-test"}}`},
+	} {
+		body := &admittedDeviceRequestBody{ctx: ctx, ready: make(chan struct{}), release: release, reader: strings.NewReader(tc.body)}
+		req := httptest.NewRequest(http.MethodPost, tc.path, body).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+operator.AccessToken)
+		go func() { r := httptest.NewRecorder(); env.router.ServeHTTP(r, req); result <- r }()
+		select {
+		case <-body.ready:
+		case r := <-result:
+			t.Fatalf("request failed before admission: %d %s", r.Code, r.Body)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
 	}
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin=false WHERE id=$1`, operator.UserID); err != nil {
 		t.Fatal(err)
 	}
 	close(release)
-	select {
-	case r := <-result:
-		if r.Code != http.StatusNotFound {
-			t.Fatalf("revoked platform authority mutated: %d %s", r.Code, r.Body)
+	for range 3 {
+		select {
+		case r := <-result:
+			if r.Code != http.StatusNotFound {
+				t.Fatalf("revoked platform authority mutated: %d %s", r.Code, r.Body)
+			}
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
 		}
-	case <-ctx.Done():
-		t.Fatal(ctx.Err())
 	}
 	if _, err := env.store.GetDevice(ctx, owner.BrandCloudID, claimed.Device.ID); err != nil {
 		t.Fatal("revoked operator removed device", err)
@@ -175,5 +187,9 @@ func TestIntegrationPlatformUnprovisionRechecksRevokedPrivilege(t *testing.T) {
 	var queued int
 	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM device_operations WHERE organization_id=$1`, owner.BrandCloudID).Scan(&queued); err != nil || queued != 0 {
 		t.Fatalf("revoked operator queued work: %d %v", queued, err)
+	}
+	var claimCloud, tokenCloud, status string
+	if err := env.db.QueryRow(ctx, `SELECT c.organization_id::text,t.organization_id::text,c.status FROM device_claims c JOIN device_claim_tokens t ON t.id=c.claim_token_id WHERE c.id=$1`, claimed.Claim.ID).Scan(&claimCloud, &tokenCloud, &status); err != nil || claimCloud != owner.BrandCloudID || tokenCloud != owner.BrandCloudID || status != "resolved" {
+		t.Fatalf("revoked operator changed claim: %s/%s/%s %v", claimCloud, tokenCloud, status, err)
 	}
 }

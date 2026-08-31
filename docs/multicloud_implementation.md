@@ -131,6 +131,17 @@ global human membership. Its claim consumption, Brand link, device binding and
 App-actor audit commit in one transaction. A disabled end-user or inactive/fenced
 cloud cannot consume a token; link/binding failure must leave the token retryable.
 
+Privileged claim transfer/reclaim must recheck the active global platform actor
+inside the mutation transaction. Resolve the source without taking resource
+locks, lock source/target clouds in sorted order, then lock and revalidate the
+device, claim and token. Both Brand Clouds must be operational (including no
+pending handoff/deletion), and any Brand Cloud destination must own the retained
+Product. The operation does not move or infer a Product, create a second owner,
+or bypass Billing handoff. Legacy customer manufacturer-profile semantics stay
+unchanged. A changed source or mismatched claim/device/token scope is a conflict,
+not permission to act on a cloud that was not locked. Audit failure rolls back
+the entire device/token/claim mutation.
+
 After authenticated target acceptance, durable outbox/inbox messages prepare
 Billing and cost-producing resource services. Messages bind operation/cloud ID,
 ownership version, cutoff and reconciliation evidence. Drain/fence producers;

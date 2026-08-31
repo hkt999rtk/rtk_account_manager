@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -468,22 +469,42 @@ func (s *Store) overrideDeviceClaim(ctx context.Context, in claimOverrideInput) 
 		return DeviceClaimOverrideResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockPlatformActorTx(ctx, tx, in.ActorUserID); err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
+	observed, err := getClaimForOverrideTx(ctx, tx, in.ClaimID, in.TokenID, false)
+	if err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
+	clouds := []string{observed.OrganizationID, in.TargetOrganizationID}
+	slices.Sort(clouds)
+	for i, cloud := range clouds {
+		if i > 0 && cloud == clouds[i-1] {
+			continue
+		}
+		if err := lockOperationalCloudTx(ctx, tx, cloud); err != nil {
+			return DeviceClaimOverrideResult{}, err
+		}
+	}
+	device, err := getDeviceForUpdateTx(ctx, tx, observed.OrganizationID, observed.DeviceID)
+	if err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
 
 	now := in.Now
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
 
-	if err := lockOrganization(ctx, tx, in.TargetOrganizationID); err != nil {
-		return DeviceClaimOverrideResult{}, err
-	}
-
-	claim, err := getClaimForOverrideTx(ctx, tx, in.ClaimID, in.TokenID)
+	claim, err := getClaimForOverrideTx(ctx, tx, in.ClaimID, in.TokenID, true)
 	if err != nil {
 		return DeviceClaimOverrideResult{}, err
 	}
 	if claim.Status != "resolved" {
 		return DeviceClaimOverrideResult{}, ErrClaimInvalidState
+	}
+	if claim.ID != observed.ID || claim.OrganizationID != observed.OrganizationID || claim.DeviceID != device.ID || claim.TokenID != observed.TokenID {
+		return DeviceClaimOverrideResult{}, ErrConflict
 	}
 
 	token, err := getClaimTokenForUpdateTx(ctx, tx, claim.TokenID)
@@ -496,10 +517,16 @@ func (s *Store) overrideDeviceClaim(ctx context.Context, in claimOverrideInput) 
 	if token.RevokedAt != nil {
 		return DeviceClaimOverrideResult{}, ErrClaimRevoked
 	}
-
-	device, err := getDeviceByIDForUpdateTx(ctx, tx, claim.DeviceID)
-	if err != nil {
+	if token.OrganizationID != nil && *token.OrganizationID != claim.OrganizationID || stringValue(token.DeviceItemProfileID) != stringValue(device.DeviceItemProfileID) {
+		return DeviceClaimOverrideResult{}, ErrConflict
+	}
+	var productAllowed bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM organizations o WHERE o.id::text=$1 AND
+		(o.organization_kind<>'brand_cloud' OR EXISTS(SELECT 1 FROM device_item_profiles p WHERE p.id::text=$2 AND p.brand_cloud_id=o.id)))`, in.TargetOrganizationID, device.DeviceItemProfileID).Scan(&productAllowed); err != nil {
 		return DeviceClaimOverrideResult{}, err
+	}
+	if !productAllowed {
+		return DeviceClaimOverrideResult{}, ErrConflict
 	}
 
 	updatedDevice, err := scanDevice(tx.QueryRow(ctx, `
@@ -577,21 +604,11 @@ func (s *Store) overrideDeviceClaim(ctx context.Context, in claimOverrideInput) 
 	return DeviceClaimOverrideResult{Claim: updatedClaim, Token: updatedToken, Device: updatedDevice}, nil
 }
 
-func lockOrganization(ctx context.Context, tx pgx.Tx, orgID string) error {
-	var id string
-	err := tx.QueryRow(ctx, `SELECT id::text FROM organizations WHERE id = $1 FOR UPDATE`, orgID).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	}
-	return err
-}
-
-func getClaimForOverrideTx(ctx context.Context, tx pgx.Tx, claimID, tokenID string) (model.DeviceClaim, error) {
+func getClaimForOverrideTx(ctx context.Context, tx pgx.Tx, claimID, tokenID string, lock bool) (model.DeviceClaim, error) {
 	query := `
 		SELECT id::text, claim_token_id::text, organization_id::text, device_id::text, claimed_by::text, status, provision_input, created_at, updated_at
 		FROM device_claims
 		WHERE id = $1
-		FOR UPDATE
 	`
 	arg := claimID
 	if strings.TrimSpace(claimID) == "" {
@@ -599,9 +616,11 @@ func getClaimForOverrideTx(ctx context.Context, tx pgx.Tx, claimID, tokenID stri
 			SELECT id::text, claim_token_id::text, organization_id::text, device_id::text, claimed_by::text, status, provision_input, created_at, updated_at
 			FROM device_claims
 			WHERE claim_token_id = $1
-			FOR UPDATE
 		`
 		arg = tokenID
+	}
+	if lock {
+		query += " FOR UPDATE"
 	}
 	claim, err := scanDeviceClaim(tx.QueryRow(ctx, query, arg))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -621,19 +640,6 @@ func getClaimTokenForUpdateTx(ctx context.Context, tx pgx.Tx, tokenID string) (m
 		return model.DeviceClaimToken{}, ErrNotFound
 	}
 	return token, err
-}
-
-func getDeviceByIDForUpdateTx(ctx context.Context, tx pgx.Tx, deviceID string) (model.Device, error) {
-	device, err := scanDevice(tx.QueryRow(ctx, `
-		SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
-		FROM devices
-		WHERE id = $1
-		FOR UPDATE
-	`, deviceID))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return model.Device{}, ErrNotFound
-	}
-	return device, err
 }
 
 func getClaimedDeviceByVideoDevidTx(ctx context.Context, tx pgx.Tx, orgID, videoCloudDevid string) (model.Device, error) {

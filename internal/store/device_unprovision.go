@@ -183,17 +183,11 @@ func (s *Store) UnprovisionDevice(ctx context.Context, in DeviceUnprovisionInput
 // Lock actor -> cloud -> device, matching ordinary writes and ownership commit.
 // The first device lookup only resolves scope; the caller rechecks it under lock.
 func authorizePlatformDeviceUnprovisionTx(ctx context.Context, tx pgx.Tx, actor, device string) (string, error) {
-	var admin bool
-	err := tx.QueryRow(ctx, `SELECT COALESCE(platform_admin,false) FROM users
-		WHERE id::text=$1 AND disabled_at IS NULL AND NOT signup_pending_verification FOR UPDATE`, actor).Scan(&admin)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !admin) {
-		return "", ErrNotFound
-	}
-	if err != nil {
+	if err := lockPlatformActorTx(ctx, tx, actor); err != nil {
 		return "", err
 	}
 	var cloud string
-	err = tx.QueryRow(ctx, `SELECT organization_id::text FROM devices WHERE id::text=$1`, device).Scan(&cloud)
+	err := tx.QueryRow(ctx, `SELECT organization_id::text FROM devices WHERE id::text=$1`, device).Scan(&cloud)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
 	}
@@ -201,6 +195,19 @@ func authorizePlatformDeviceUnprovisionTx(ctx context.Context, tx pgx.Tx, actor,
 		return "", err
 	}
 	return cloud, lockOperationalCloudTx(ctx, tx, cloud)
+}
+
+func lockPlatformActorTx(ctx context.Context, tx pgx.Tx, actor string) error {
+	var admin bool
+	err := tx.QueryRow(ctx, `SELECT COALESCE(platform_admin,false) FROM users
+		WHERE id::text=$1 AND disabled_at IS NULL AND NOT signup_pending_verification FOR UPDATE`, actor).Scan(&admin)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !admin) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // Used by independently authenticated platform/App actors, not a human

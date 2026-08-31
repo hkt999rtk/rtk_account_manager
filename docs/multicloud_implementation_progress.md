@@ -923,3 +923,25 @@ gate remains FAIL on store coverage only (79.49% versus 80%; overall 81.39%;
 redaction PASS, 189.604s). Vet/build, OpenAPI and the 240-case catalog/inventory
 checks pass. Exact run identity and remaining scope are recorded in
 `test_report.md`; this is not default pre-PR/CI, deployment or staging acceptance.
+
+## Privileged claim override admission — 2026-09-01
+
+Claim transfer/reclaim now revalidate the global platform actor in their mutation
+transaction and lock both clouds in deterministic order before device/claim/token
+locks. Inactive or handoff-fenced Brand Clouds are denied; a Brand Cloud target
+must own the retained Product. Legacy customer manufacturer-profile behavior is
+preserved. A changed source or inconsistent claim/token/device scope cannot be
+used to mutate an unlocked cloud. The shared platform actor lock also protects
+the existing privileged unprovision path.
+
+Focused race tests pass for store (13.646s) and API (10.395s), covering both
+override actions, source/target activation and cancellation fences, reverse
+concurrent legacy moves, six write/commit rollback-and-retry cases, and platform
+authority revoked after middleware admission for all three privileged requests.
+The initial HTTP expansion supplied an unsupported field to unprovision and
+failed at strict request decoding; per-endpoint payloads fixed the test without
+changing validation. Final log: `/tmp/rtk-claim-override-final-race-v2.log`.
+`go vet ./...`, `go build ./...` and diff whitespace checks pass. Fresh governed
+coverage follows separately; this is not producer draining, complete runtime
+handoff wiring, CI or staging evidence. Transfer balance remains >= 0 with the
+independent settlement checks unchanged.
