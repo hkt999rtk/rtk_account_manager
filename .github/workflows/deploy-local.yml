@@ -327,6 +327,6 @@ jobs:
           VERIFY_RESULT: ${{ job.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          OUTPUT=.artifacts/report-candidates/docs/READINESS_TEST_REPORT.md \
+          OUTPUT=.artifacts/report-candidates/docs/readiness_test_report.md \
             EVIDENCE_DIR=deployment-evidence \
             ./scripts/generate-readiness-report-candidate.sh

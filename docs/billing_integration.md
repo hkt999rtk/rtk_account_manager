@@ -13,6 +13,6 @@ The billing permission migrations in this repository intentionally remain here
 because RBAC is an Account Manager responsibility. Monetary migrations and
 runtime packages belong only to `rtk_billing`.
 
-Canonical behavior is defined by `BILLING_SERVICE.md`,
-`PAYMENTS_AND_BALANCE.md`, `PRICING_AND_INVOICING.md`, and
-`BILLING_ACTIVITY.md` in the contracts repository.
+Canonical behavior is defined by `billing_service.md`,
+`payments_and_balance.md`, `pricing_and_invoicing.md`, and
+`billing_activity.md` in the contracts repository.

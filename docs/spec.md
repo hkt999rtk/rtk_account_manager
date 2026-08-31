@@ -22,9 +22,9 @@ and provisioning intent.
 
 Provisioning and account/video event-channel integration are the v2 surface
 implemented by this repository. The normative product boundary lives in
-`docs/rtk_cloud_contracts_doc/PROVISION.md` and
-`docs/rtk_cloud_contracts_doc/CROSS_SERVICE_CHANNEL.md`;
-[PROVISIONING_AND_EVENT_CHANNEL_PLAN.md](PROVISIONING_AND_EVENT_CHANNEL_PLAN.md)
+`docs/rtk_cloud_contracts_doc/provision.md` and
+`docs/rtk_cloud_contracts_doc/cross_service_channel.md`;
+[provisioning_and_event_channel_plan.md](provisioning_and_event_channel_plan.md)
 tracks rollout history and verification status.
 
 ## 2. V1 Scope
@@ -44,12 +44,17 @@ tracks rollout history and verification status.
   `organizations.organization_kind=brand_cloud` and global users linked through
   `organization_members`; Brand Clouds are authorization scopes, not identity
   namespaces.
+- Platform Admin bootstrap and lifecycle, and the separation between Account
+  Manager authority and PKI Root key custody, conform to canonical
+  [platform_pki.md](rtk_cloud_contracts_doc/platform_pki.md). Account Manager
+  owns the administrator identity and immutable Brand/Product selection facts;
+  it never owns or returns CA private keys.
 - Multiple users per organization.
 - Role-based access control with `owner`, `admin`, `member`, and read-only `viewer`.
 
 The multi-cloud target behavior and implementation boundaries are specified in
-[MULTICLOUD_IMPLEMENTATION.md](MULTICLOUD_IMPLEMENTATION.md) and canonical
-[MULTICLOUD_OWNERSHIP.md](rtk_cloud_contracts_doc/MULTICLOUD_OWNERSHIP.md)
+[multicloud_implementation.md](multicloud_implementation.md) and canonical
+[multicloud_ownership.md](rtk_cloud_contracts_doc/multicloud_ownership.md)
 in the contracts repository ([canonical design PR](https://github.com/hkt999rtk/rtk_cloud_contracts_doc/pull/131)).
 Runtime delivery follows the reviewed docs-only gate.
 - Owner-managed organization profile updates.
@@ -161,7 +166,7 @@ authoritative owner of local users, organization memberships, roles, device
 authorization, refresh tokens, and API JWT issuance.
 
 The detailed normative specification for this capability is
-[KEYCLOAK_OIDC_SSO.md](KEYCLOAK_OIDC_SSO.md). This section summarizes the
+[keycloak_oidc_sso.md](keycloak_oidc_sso.md). This section summarizes the
 top-level product decisions so the main SPEC remains readable.
 
 First implementation decisions:
@@ -452,7 +457,7 @@ whose immutable `brand_cloud_id`, `device_item_profile_id`, and
 The factory enrollment JWT is not a user/session token. It is secret bearer
 material for the factory path and must not be logged. CSR fields, tenant slugs,
 URL names, and request-body selector overrides must not select the cloud CA or
-Product CA. See `docs/FACTORY_PRODUCTION_RUNS.md`.
+Product CA. See `docs/factory_production_runs.md`.
 
 ### Device Group
 
@@ -1161,7 +1166,7 @@ a prior `valid` status response must still be rejected atomically.
 ### Keycloak/OIDC Tables
 
 The SSO data model is defined in
-[KEYCLOAK_OIDC_SSO.md](KEYCLOAK_OIDC_SSO.md). It includes:
+[keycloak_oidc_sso.md](keycloak_oidc_sso.md). It includes:
 
 - `identity_providers` for configured external OIDC provider metadata.
 - `user_identities` for local-user to OIDC issuer/subject links.
@@ -1170,7 +1175,7 @@ The SSO data model is defined in
 ### Product ACL Tables
 
 Product authorization state is persisted in Account Manager and follows
-`docs/rtk_cloud_contracts_doc/AUTHORIZATION.md`.
+`docs/rtk_cloud_contracts_doc/authorization.md`.
 
 - `permissions` stores stable `<domain>.<action>` permission names.
 - `roles` stores system and custom product roles.
@@ -1363,7 +1368,7 @@ Constraints:
 
 The implementation and operational design for correcting credential trust and
 duplicate membership handling during cutover is in
-[IDENTITY_MIGRATION_CORRECTION.md](IDENTITY_MIGRATION_CORRECTION.md). It
+[identity_migration_correction.md](identity_migration_correction.md). It
 distinguishes fresh cutovers from forward correction of an already-applied
 migration and retains the owner/refusal and matched-backup rollback boundaries.
 
@@ -1408,7 +1413,7 @@ migration and retains the owner/refusal and matched-backup rollback boundaries.
 The Keycloak integration treats account manager as an OIDC client and
 Keycloak as an external identity provider. Detailed callback, linking, token,
 security, and test requirements are defined in
-[KEYCLOAK_OIDC_SSO.md](KEYCLOAK_OIDC_SSO.md).
+[keycloak_oidc_sso.md](keycloak_oidc_sso.md).
 
 ### Developer Signup and Brand Cloud Ownership
 
@@ -2612,7 +2617,7 @@ Current external dependency:
 
 Current verified behavior:
 
-- Claim Token persistence and `POST /v1/orgs/:orgId/devices/claim/resolve` are implemented and covered by `openapi.yaml`, `docs/TESTING.md`, and `docs/TEST_REPORT.md`.
+- Claim Token persistence and `POST /v1/orgs/:orgId/devices/claim/resolve` are implemented and covered by `openapi.yaml`, `docs/testing.md`, and `docs/test_report.md`.
 - Platform-admin Claim Token issuance/import/list/show/revoke is implemented and covered by OpenAPI and the maintained test report.
 - Claim resolve error responses include machine-readable retryability hints.
 - `GET /provisioning` returns registry-only readiness for an existing device with no provisioning operation.
@@ -2642,7 +2647,7 @@ Remaining post-v2 follow-up items:
 Account Manager is the authoritative persistence and normalization boundary for
 the platform ChipSet and SDK resource catalog. The normative manifest,
 lifecycle, security, API, and error contract is
-`rtk_cloud_contracts_doc/CHIPSET_SDK_INFORMATION_PROVIDER.md`.
+`rtk_cloud_contracts_doc/chipset_sdk_information_provider.md`.
 
 - Platform providers are stored as `draft`, `published`, or `unpublished`.
 - Publishing synchronously fetches and validates a version-1 HTTPS manifest;

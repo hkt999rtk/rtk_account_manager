@@ -3,11 +3,11 @@
 ## Source Of Truth
 
 This document is the detailed specification for Keycloak/OIDC SSO in account
-manager. `SPEC.md` remains the top-level product and API specification and
+manager. `spec.md` remains the top-level product and API specification and
 links here for the OIDC details.
 
 The local development flow for validating this integration against Keycloak is
-documented in [KEYCLOAK_LOCAL_RUNBOOK.md](KEYCLOAK_LOCAL_RUNBOOK.md).
+documented in [keycloak_local_runbook.md](keycloak_local_runbook.md).
 
 ## Goal
 

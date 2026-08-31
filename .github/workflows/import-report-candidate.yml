@@ -16,9 +16,9 @@ on:
         required: true
         type: choice
         options:
-          - docs/TEST_REPORT.md
-          - docs/RELEASE_TEST_REPORT.md
-          - docs/READINESS_TEST_REPORT.md
+          - docs/test_report.md
+          - docs/release_test_report.md
+          - docs/readiness_test_report.md
       pr_branch:
         description: "Pull request branch to update."
         required: true

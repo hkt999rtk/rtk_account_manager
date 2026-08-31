@@ -6,12 +6,12 @@ Living milestone tracker for the v2 provisioning and event-channel rollout.
 
 This plan is derived from:
 
-- `docs/rtk_cloud_contracts_doc/PROVISION.md`
-- `docs/rtk_cloud_contracts_doc/CROSS_SERVICE_CHANNEL.md`
-- `docs/rtk_cloud_contracts_doc/CONTRACT_OVERVIEW.md`
-- `docs/rtk_cloud_contracts_doc/PRODUCT_ONBOARDING.md`
-- `docs/rtk_cloud_contracts_doc/PRODUCT_READINESS.md`
-- `docs/SPEC.md`
+- `docs/rtk_cloud_contracts_doc/provision.md`
+- `docs/rtk_cloud_contracts_doc/cross_service_channel.md`
+- `docs/rtk_cloud_contracts_doc/contract_overview.md`
+- `docs/rtk_cloud_contracts_doc/product_onboarding.md`
+- `docs/rtk_cloud_contracts_doc/product_readiness.md`
+- `docs/spec.md`
 
 As of May 2026, `origin/main` includes the merged persistence, API, worker, broker, test-report, runbook, pending-metadata, lifecycle-admin, delete-policy, readiness-contract, private-cloud readiness, Claim Token resolution, registry-only readiness, and corresponding test-report slices for the v2 lifecycle milestone. The video-side lifecycle hardening previously tracked in `hkt999rtk/rtk_video_cloud#128`, `hkt999rtk/rtk_video_cloud#129`, `hkt999rtk/rtk_video_cloud#131`, and PR `hkt999rtk/rtk_video_cloud#146` is closed or merged.
 
@@ -41,7 +41,7 @@ Verified contract follow-up closure for this milestone snapshot:
 - Claim resolve retryability hints are implemented.
 - `GET /provisioning` returns registry-only readiness for existing devices before a provisioning operation exists.
 - Failed provisioning and deactivation states return `readiness.failure` attribution.
-- `make test-report`, `docs/TESTING.md`, and `docs/TEST_REPORT.md` cover Claim Token, registry-only readiness, failure-attribution, admin visibility, OpenAPI, and correctness-gate behavior.
+- `make test-report`, `docs/testing.md`, and `docs/test_report.md` cover Claim Token, registry-only readiness, failure-attribution, admin visibility, OpenAPI, and correctness-gate behavior.
 
 Remaining post-v2 contract follow-up gaps for this milestone snapshot:
 
@@ -57,7 +57,7 @@ Milestone: `v2-provisioning-event-channel`
 
 | Issue | Priority | Labels | Depends on | Status | Evidence on `main` | Deliverable |
 | --- | --- | --- | --- | --- | --- | --- |
-| #1 `[Docs] Align SPEC with provisioning/event-channel v2 scope` | P0 | `docs`, `v2` | None | verified | `docs/SPEC.md`, `docs/TESTING.md` | `docs/SPEC.md` describes v2 APIs, data model, streams, statuses, metadata keys, and acceptance criteria. |
+| #1 `[Docs] Align SPEC with provisioning/event-channel v2 scope` | P0 | `docs`, `v2` | None | verified | `docs/spec.md`, `docs/testing.md` | `docs/spec.md` describes v2 APIs, data model, streams, statuses, metadata keys, and acceptance criteria. |
 | #2 `[Docs] Add v2 implementation checklist and issue map` | P0 | `docs`, `v2` | None | in_progress | This tracker refresh | This document contains the issue map, dependency order, and status tracking. |
 | #3 `[DB] Add device operations, outbox, and inbox persistence` | P1 | `database`, `backend`, `v2` | #1, #2 | implemented | PR #13 | Migrations and store methods for operation tracking, outbox publication state, and inbox dedupe. |
 | #4 `[Domain] Add cross-service message envelope and payload validation` | P1 | `backend`, `v2` | #1, #2 | implemented | PR #12 | Envelope and payload types validate contract-required fields, stream/message types, schema version, and partition key. |
@@ -66,7 +66,7 @@ Milestone: `v2-provisioning-event-channel`
 | #7 `[Worker] Implement outbox publisher with local broker adapter` | P1 | `worker`, `backend`, `v2` | #3, #4 | implemented | PRs #18, #21, #24, #26 | Independent worker publishes pending command messages and records retry/dead-letter state. |
 | #8 `[Worker] Implement inbox consumer and account projection` | P1 | `worker`, `backend`, `v2` | #3, #4, #5 | implemented | PRs #19, #20 | Independent worker deduplicates events and projects provisioning, deactivation, online, and metadata state. |
 | #9 `[Broker] Add Azure Event Hubs adapter and runtime config` | P2 | `worker`, `backend`, `v2` | #7, #8 | implemented | PR #22 | Event Hubs adapter and configuration without making local tests depend on Azure. |
-| #10 `[Testing] Extend automated test report for v2` | P2 | `testing`, `v2` | #6, #7, #8 | verified | PR #23, `docs/TEST_REPORT.md` | `make test-report` includes v2 behavior evidence and keeps coverage at or above 80%. |
+| #10 `[Testing] Extend automated test report for v2` | P2 | `testing`, `v2` | #6, #7, #8 | verified | PR #23, `docs/test_report.md` | `make test-report` includes v2 behavior evidence and keeps coverage at or above 80%. |
 | #11 `[Docs] Add local runbook for provisioning/event workers` | P2 | `docs`, `v2` | #6, #7, #8, #9 | verified | PR #25, `README.md` | Local runbook for Postgres, API server, outbox worker, inbox worker, and local broker flow. |
 
 ## Contract Follow-Up Closure Map
@@ -75,17 +75,17 @@ These issues were follow-ups to the merged account-manager v2 implementation. Th
 
 | Issue | Status | Evidence | Deliverable |
 | --- | --- | --- | --- |
-| `#87 [API/DB] Add Claim Token resolve persistence and policy model` | verified | PR #92, `openapi.yaml`, `docs/TEST_REPORT.md` | Hashed Claim Token persistence, claim/bind policy state, registry-device create/match behavior, and provisioning input projection. |
-| `#88 [API] Implement POST /v1/orgs/:orgId/devices/claim/resolve` | verified | PR #93, `openapi.yaml`, `docs/SPEC.md` | App-facing Claim Token resolve endpoint defined by `docs/rtk_cloud_contracts_doc/PROVISION.md` and `docs/rtk_cloud_contracts_doc/PRODUCT_ONBOARDING.md`. |
-| `#89 [API] Return registry-only readiness from GET /provisioning` | verified | PR #94, `docs/TEST_REPORT.md` | Account-side readiness for existing registry devices that have no provisioning operation yet. |
-| `#90 [Testing] Extend report for Claim Token and readiness gaps` | verified | PR #95, `make test-report`, `docs/TESTING.md`, `docs/TEST_REPORT.md` | Maintained evidence for Claim Token and registry-only readiness correctness. |
-| `#97 [API/DB] Add platform-admin Claim Token issuance/import workflow` | verified | PR #104, `openapi.yaml`, `docs/TEST_REPORT.md` | Platform-admin token create/import/list/show/revoke workflow with hashed token storage and raw generated token one-time return. |
-| `#98 [API] Add retryability details to Claim Token resolve errors` | verified | PR #106, `openapi.yaml`, `docs/TEST_REPORT.md` | Claim resolve failures include machine-readable `retryable` and `resolution_action` hints. |
-| `#99 [API] Add product-readiness failure attribution to GET /provisioning` | verified | PR #107, `openapi.yaml`, `docs/TEST_REPORT.md` | Failed provisioning/deactivation readiness responses expose `readiness.failure` attribution. |
-| `#100 [Docs/Policy] Define claim transfer, reclaim, and factory-reset policy` | verified | PR #105, `docs/SPEC.md` | Claim transfer/reclaim/factory-reset policy baseline for platform-admin override work. |
-| `#101 [API/Admin] Add platform-admin quota request and audit visibility` | verified | PR #108, `openapi.yaml`, `docs/TEST_REPORT.md` | Platform-admin quota request list/show and audit-event list endpoints. |
-| `#102 [Testing] Extend report for post-v2 admin/readiness gaps` | verified | PR #109, `make test-report`, `docs/TESTING.md`, `docs/TEST_REPORT.md` | Maintained evidence for post-v2 admin/readiness behavior. |
-| `#131 [API/Admin] Add Claim Token transfer and reclaim workflows` | verified | PR #139, `openapi.yaml`, `docs/TEST_REPORT.md` | Platform-admin transfer/reclaim override endpoints with required reason/evidence and audit events. |
+| `#87 [API/DB] Add Claim Token resolve persistence and policy model` | verified | PR #92, `openapi.yaml`, `docs/test_report.md` | Hashed Claim Token persistence, claim/bind policy state, registry-device create/match behavior, and provisioning input projection. |
+| `#88 [API] Implement POST /v1/orgs/:orgId/devices/claim/resolve` | verified | PR #93, `openapi.yaml`, `docs/spec.md` | App-facing Claim Token resolve endpoint defined by `docs/rtk_cloud_contracts_doc/provision.md` and `docs/rtk_cloud_contracts_doc/product_onboarding.md`. |
+| `#89 [API] Return registry-only readiness from GET /provisioning` | verified | PR #94, `docs/test_report.md` | Account-side readiness for existing registry devices that have no provisioning operation yet. |
+| `#90 [Testing] Extend report for Claim Token and readiness gaps` | verified | PR #95, `make test-report`, `docs/testing.md`, `docs/test_report.md` | Maintained evidence for Claim Token and registry-only readiness correctness. |
+| `#97 [API/DB] Add platform-admin Claim Token issuance/import workflow` | verified | PR #104, `openapi.yaml`, `docs/test_report.md` | Platform-admin token create/import/list/show/revoke workflow with hashed token storage and raw generated token one-time return. |
+| `#98 [API] Add retryability details to Claim Token resolve errors` | verified | PR #106, `openapi.yaml`, `docs/test_report.md` | Claim resolve failures include machine-readable `retryable` and `resolution_action` hints. |
+| `#99 [API] Add product-readiness failure attribution to GET /provisioning` | verified | PR #107, `openapi.yaml`, `docs/test_report.md` | Failed provisioning/deactivation readiness responses expose `readiness.failure` attribution. |
+| `#100 [Docs/Policy] Define claim transfer, reclaim, and factory-reset policy` | verified | PR #105, `docs/spec.md` | Claim transfer/reclaim/factory-reset policy baseline for platform-admin override work. |
+| `#101 [API/Admin] Add platform-admin quota request and audit visibility` | verified | PR #108, `openapi.yaml`, `docs/test_report.md` | Platform-admin quota request list/show and audit-event list endpoints. |
+| `#102 [Testing] Extend report for post-v2 admin/readiness gaps` | verified | PR #109, `make test-report`, `docs/testing.md`, `docs/test_report.md` | Maintained evidence for post-v2 admin/readiness behavior. |
+| `#131 [API/Admin] Add Claim Token transfer and reclaim workflows` | verified | PR #139, `openapi.yaml`, `docs/test_report.md` | Platform-admin transfer/reclaim override endpoints with required reason/evidence and audit events. |
 
 Status values:
 
@@ -96,7 +96,7 @@ Status values:
 
 Documentation-first rule:
 
-- The first change set updates `docs/SPEC.md`, this plan, and `docs/TESTING.md`.
+- The first change set updates `docs/spec.md`, this plan, and `docs/testing.md`.
 - `openapi.yaml` is updated with the provisioning API implementation so the contract matches live handler behavior.
 - README/runbook updates happen after worker commands and runtime configuration exist.
 - After the initial rollout, subsequent milestone updates should refresh this tracker whenever merged scope changes on `main`.
@@ -128,7 +128,7 @@ Implementation rules:
 
 Update source-of-truth documents before implementation:
 
-- Extend `docs/SPEC.md` with v2 provisioning/event-channel scope.
+- Extend `docs/spec.md` with v2 provisioning/event-channel scope.
 - Keep v1 registry-only behavior documented as the current implemented baseline.
 - Define account-manager-owned metadata keys:
   - `video_cloud_devid`
@@ -156,9 +156,9 @@ Update source-of-truth documents before implementation:
 
 Deliverables:
 
-- Updated `docs/SPEC.md`.
+- Updated `docs/spec.md`.
 - Updated `openapi.yaml` only when new HTTP APIs are implemented.
-- Updated test plan in `docs/TESTING.md`.
+- Updated test plan in `docs/testing.md`.
 
 ## Phase 2: Database Model
 
@@ -555,7 +555,7 @@ Required tests:
 - Invalid schema version is rejected or dead-lettered.
 - OpenAPI contract tests cover new endpoints.
 
-Coverage threshold remains 80% minimum, but correctness assertions and behavior evidence in `docs/TEST_REPORT.md` must be updated with provisioning and event-channel behavior groups.
+Coverage threshold remains 80% minimum, but correctness assertions and behavior evidence in `docs/test_report.md` must be updated with provisioning and event-channel behavior groups.
 
 ## Phase 11: Rollout Order
 
