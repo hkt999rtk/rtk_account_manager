@@ -80,7 +80,12 @@ are true:
   unchanged correction candidates. Report them separately for credential
   remediation through the approved global flows, preserving SSO access and
   memberships. Do not mark an adopted SSO identity pending automatically or
-  silently count its unsupported password as repaired.
+  silently count its unsupported password as repaired. An adopted account
+  whose unsafe inherited local hash is still active is a **blocking preflight
+  condition**, not an allowed exclusion: complete approved password reset or
+  explicitly disable only that local credential before retrying. Neither the
+  forward migration nor account-traffic resumption proceeds with such a hash
+  still usable. SSO verification state and memberships remain unchanged.
 
 For those exact candidates, atomically set the reset-required account state,
 replace the unusable hash with a non-authenticating marker, disable affected
@@ -210,7 +215,10 @@ Required isolated PostgreSQL evidence includes:
   existing global user and a migrated user whose password has since changed;
   correction audit, refresh revocation, owner refusal and idempotent replay.
 - OIDC adoption with unchanged password/verification fields is excluded from
-  automatic repair; verified-but-pending sole owners fail both owner checks.
+  automatic account-state repair and blocks cutover while its unsafe local
+  credential remains active. After approved local-credential remediation,
+  cutover preserves SSO state/memberships. Verified-but-pending sole owners
+  fail both owner checks.
 
 Before shared staging execution, freeze account writes and make a fresh
 recoverable database backup. Run preflight on a restored copy, compare counts
