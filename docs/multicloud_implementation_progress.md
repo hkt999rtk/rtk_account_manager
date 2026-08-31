@@ -1057,3 +1057,10 @@ without current Account Manager run/cloud authority lookup. Consumption-side
 quota/current-state authorization, fencing in-flight enrollments and all
 producer drain/cutoff receipts remain required before ownership handoff can be
 enabled. No shared DB, live factory issuance, real payment or deployment changed.
+
+Fresh complete PR-profile verification at `fe464c6` passes in 196.153s: all
+executed functional tests, package ratchets and artifact redaction pass.
+Overall coverage is 81.91%; store 80.42% (5014/6235). OpenAPI and the 244-case
+catalog/spec inventory pass. This command did not execute differential/default
+pre-PR, CI or staging. Exact report identities and remaining consumer/runtime
+requirements are recorded in `test_report.md`.

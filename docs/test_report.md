@@ -1,5 +1,37 @@
 # Test Report
 
+## 2026-09-01 transactional production-run issuance qualification
+
+Runtime `fe464c6` passes the complete Account Manager PR-profile run
+`local-am-production-issuance` in 196.153s. All executed functional tests pass;
+overall coverage is **81.91%**, store **5014/6235 = 80.42%** against 80%.
+Other configured package ratchets and artifact redaction pass. No base ref was
+supplied: differential coverage, the default pre-PR gate and CI are not proven
+by the report's generic success assessment.
+
+Store race tests pass (5.440s), HTTP failure/admission race tests pass (21.719s),
+and existing production/JWT/Product regressions pass (store 11.268s/API 15.616s).
+The tests cover Product scope, viewer ceilings, platform and owner revocation,
+pending owners, handoff fences, disabled Products, missing/failed/empty signing,
+write/audit/deferred-commit failures, sanitized errors and no token delivery on
+failed commit. The existing HTTP test verifies real HMAC JWT claim binding.
+Vet/build, four OpenAPI checks and the 244-case catalog/spec inventory pass
+(391 requirements, 656 operations, zero blocking findings).
+
+Report: `.artifacts/test-runs/local-am-production-issuance/coverage/test_report.md`
+in the unpublished qualification checkout rooted at workspace `d128eab`.
+Coverage SHA-256: `7049575390af3af9709bec895ea4f5c9682cda2872c0fb094ff82b90caf7233f`.
+Logs: `/tmp/rtk-production-issue-race.log`,
+`/tmp/rtk-production-issue-http-race.log`,
+`/tmp/rtk-am-production-issuance-governed.log`.
+
+Only owned loopback infrastructure was used. Factory JWT consumers still need
+current run/cloud/ownership and quantity enforcement, in-flight enrollment
+fences and cutoff evidence; issuance tests do not prove these. Remaining release
+gates include other resource-family protection, producer/collector adapters,
+full UI/CI, migration/restore and staging activation/device/certificate/MQTT.
+No live factory issuance, shared database mutation or deployment occurred.
+
 ## 2026-09-01 transactional Product administration qualification
 
 Runtime `c683286` passes the complete Account Manager PR-profile run
