@@ -1334,6 +1334,12 @@ Constraints:
   enabled through environment or platform-admin provider configuration.
 - Expired or revoked refresh tokens may be removed by an explicit maintenance command.
 
+The implementation and operational design for correcting credential trust and
+duplicate membership handling during cutover is in
+[IDENTITY_MIGRATION_CORRECTION.md](IDENTITY_MIGRATION_CORRECTION.md). It
+distinguishes fresh cutovers from forward correction of an already-applied
+migration and retains the owner/refusal and matched-backup rollback boundaries.
+
 ### Brand Cloud Selection After Authentication
 
 - `GET /v1/me` returns the global user, global capabilities, and all active
