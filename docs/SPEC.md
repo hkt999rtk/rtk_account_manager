@@ -45,7 +45,11 @@ tracks rollout history and verification status.
   `organization_members`; Brand Clouds are authorization scopes, not identity
   namespaces.
 - Multiple users per organization.
-- Role-based access control with `owner`, `admin`, and `member`.
+- Role-based access control with `owner`, `admin`, `member`, and read-only `viewer`.
+
+The multi-cloud target behavior and implementation boundaries are specified in
+[MULTICLOUD_IMPLEMENTATION.md](MULTICLOUD_IMPLEMENTATION.md) and canonical
+`MULTICLOUD_OWNERSHIP.md`. Runtime delivery follows the reviewed docs-only gate.
 - Owner-managed organization profile updates.
 - Organization-owned devices.
 - Organization-scoped device groups and device tags for fleet selection.
@@ -373,7 +377,9 @@ privileges. Owner transfer is a pending transaction: the current owner requests
 transfer to an existing developer email, the system emails a tokenized link to
 that developer, and acceptance requires both the token and the target
 developer's authenticated session. When accepted, the target becomes `owner`
-and the previous owner becomes `admin`.
+and the previous owner loses cloud and Product access. Acceptance first completes
+the versioned Billing handoff and balance confirmation; it is not an immediate
+role swap. Positive balance stays with the cloud, but payment consent does not.
 
 ### [REQ-AM-DEVICE-IDENTITY-001] Registry UUID remains canonical over optional external device identifiers
 
@@ -411,9 +417,10 @@ governance override, it does not make every Product visible. Global users retain
 their Brand Cloud operational roles through memberships. Product creation is limited
 to the Brand Cloud owner and atomically creates one `product_owner` assignment.
 
-An owner may invite a registered developer as `product_editor` or `product_viewer`.
-Acceptance creates a minimal Brand Cloud membership when necessary and the
-requested Product assignment in one transaction. Editors can operate Product-scoped
+An owner may invite a registered developer as `product_editor` or `product_viewer`
+only within cloud-owner-approved membership and Product scope. Acceptance cannot
+auto-create or re-enable that membership. An explicit whole-cloud viewer grant
+includes current and future Products read-only. Editors can operate Product-scoped
 device, firmware, OTA, provisioning, batch, and reporting workflows but cannot
 manage collaborators or ownership. Viewers are read-only. Every Product has exactly
 one transferable explicit owner; transfer promotes an active collaborator and
@@ -987,15 +994,16 @@ pass.
 | --- | --- | --- | --- |
 | `organization_id` | UUID | Yes | References `organizations.id`. |
 | `user_id` | UUID | Yes | References `users.id`. |
-| `role` | Text | Yes | One of `owner`, `admin`, `member`. |
+| `role` | Text | Yes | One of `owner`, `admin`, `member`, `viewer`; viewer is read-only. |
 | `created_at` | Timestamp | Yes | Membership creation timestamp. |
 | `updated_at` | Timestamp | Yes | Last update timestamp. |
 
 Constraints:
 
 - `(organization_id, user_id)` is unique.
-- Every active `brand_cloud` must have at least one enabled, verified,
-  non-pending global `owner` before cutover completes. Older `customer_org`
+- Every non-deleted `brand_cloud` must have exactly one designated global owner;
+  operational access also requires that owner to be enabled, verified and
+  non-pending. Zero/multiple owners block cutover. Older `customer_org`
   records are audited separately; this cutover does not authorize unrelated
   customer-organization data repairs.
 - Public signup creates its Brand Cloud and owner membership in the same
@@ -1430,8 +1438,9 @@ Lifecycle invariants:
 - Issuing a replacement token invalidates prior unconsumed verification tokens;
   only the newest active token can complete verification.
 
-- The existing `POST /v1/auth/register` endpoint remains the internal-use path
-  for customer organization creation that is not part of developer signup.
+- `POST /v1/auth/register` is the public compatibility alias of signup, with the
+  same request, atomic sole-owner default Brand Cloud, email activation and 202
+  pending response. It is not an internal customer-organization creation bypass.
 - Developers can create additional brand clouds through
   `/v1/developer/brand-clouds` until they reach `users.developer_cloud_limit`,
   which defaults to `8`.
@@ -1454,16 +1463,16 @@ Developer dashboard membership contract:
   and manage members; admins and members retain team read access only. The
   matching invited Developer accepts under their own authenticated session.
 - The implemented target eligibility is an existing enabled global Developer
-  with verified email. Invitation roles are `admin` and `member`; `owner`
+  with verified email. Invitation roles are `admin`, `member` and `viewer`; `owner`
   remains part of owner transfer.
 - Pending invitation tokens are stored only as hashes, expire after 30 minutes,
   and require a matching authenticated target Developer session to accept.
   Acceptance atomically creates the `organization_members` row and its ACL
   projection. Resend rotates the token; cancel, expiry, and replay make the old
   token unusable.
-- Cloud Admin uses one global developer session with a runtime active-cloud
-  switch. Browser `brand_cloud_id` is never an authorization input to fleet
-  routes; active membership is resolved server-side.
+- Cloud Admin uses one global developer session and explicit per-request cloud
+  scope. Browser `brand_cloud_id` is untrusted scope input validated against
+  current membership, never authority; one tab cannot override another's cloud.
 - Role names are display labels. Authorization is based on capabilities and
   resource scope.
 
