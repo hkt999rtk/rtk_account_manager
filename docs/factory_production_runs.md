@@ -133,6 +133,9 @@ quota update; exact retries do not count twice. Timeouts, lost responses, worker
 crashes and token expiry are unknown outcomes, not evidence of non-issuance.
 They never release capacity automatically. Do not send JWTs, CSRs, private keys
 or certificate bodies to this ledger or its audit payloads.
+Factory persistence is part of the required API store interface. The production
+user-cache wrapper forwards reserve, lookup and completion directly to the
+durable store; it must never cache authority or factory reconciliation results.
 `not_issued` requires an issuer-side durable terminal rejection/cancellation
 that also rejects delayed copies of the original request. A missing issuer row,
 a transport error or an elapsed lease is not that proof. After local admission,

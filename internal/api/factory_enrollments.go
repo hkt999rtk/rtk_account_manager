@@ -40,8 +40,7 @@ type factoryEnrollmentResponse struct {
 
 func (s *Server) factoryEnrollmentStore(c *gin.Context) (factoryEnrollmentPersistence, bool) {
 	c.Header("Cache-Control", "no-store")
-	p, ok := s.store.(factoryEnrollmentPersistence)
-	if !ok || s.factoryEnrollmentToken == "" {
+	if s.store == nil || s.factoryEnrollmentToken == "" {
 		writeError(c, http.StatusServiceUnavailable, "factory_enrollment_unavailable", "factory enrollment coordination is unavailable")
 		return nil, false
 	}
@@ -50,7 +49,7 @@ func (s *Server) factoryEnrollmentStore(c *gin.Context) (factoryEnrollmentPersis
 		return nil, false
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 32<<10)
-	return p, true
+	return s.store, true
 }
 
 func factoryEnrollmentReply(c *gin.Context, in factoryEnrollmentScope, r store.FactoryEnrollmentReservation) {

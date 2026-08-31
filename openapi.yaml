@@ -41,6 +41,8 @@ tags:
     description: Platform-admin claim token lifecycle operations.
   - name: Provisioning
     description: Provision, deactivation, unprovision, and readiness operations.
+  - name: Factory Enrollment
+    description: Service-only factory issuance admission and durable result reconciliation.
   - name: Quota
     description: Evaluation quota raise request workflows.
   - name: Admin Metrics
@@ -67,6 +69,7 @@ paths:
   /v1/internal/factory-enrollments/reserve:
     post:
       operationId: reserveFactoryEnrollment
+      tags: [Factory Enrollment]
       x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
       x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001, REQ-MULTICLOUD-SHARING-001]
       summary: Reserve factory capacity under current production-run authority.
@@ -93,6 +96,7 @@ paths:
   /v1/internal/factory-enrollments/lookup:
     post:
       operationId: lookupFactoryEnrollment
+      tags: [Factory Enrollment]
       x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
       x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001]
       summary: Reconcile an existing factory reservation by its complete binding.
@@ -112,6 +116,7 @@ paths:
   /v1/internal/factory-enrollments/{reservationId}/result:
     post:
       operationId: completeFactoryEnrollment
+      tags: [Factory Enrollment]
       x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
       x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001]
       summary: Persist a trusted reconciled issuer outcome exactly once.

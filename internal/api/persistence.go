@@ -27,6 +27,7 @@ type Store interface {
 	auditPersistence
 	chipsetProviderPersistence
 	productCollaborationPersistence
+	factoryEnrollmentPersistence
 }
 
 type productCollaborationPersistence interface {
