@@ -1,5 +1,37 @@
 # Test Report
 
+## 2026-09-01 claim/unprovision and independent App claim recheck
+
+Runtime commit `f6c29c8` completes transactional human claim/unprovision admission
+and independent atomic App claim/binding. Focused store/API race tests passed
+(13.148s/18.905s); the legacy customer/profile and App Product-boundary regression
+passed with race detection (4.928s). All-package vet/build and the four workspace
+OpenAPI validations passed. The candidate catalog contains 240 cases and its
+spec inventory has 391 requirements, 656 operations and zero blocking findings.
+
+The first full run at `a5e9c29` failed one legacy customer profile claim. The fix
+preserves manufacturer profiles for legacy customer organizations while enforcing
+Product/cloud equality for Brand Clouds. The subsequent complete PR-profile run
+`local-am-claim-admission-v2` passed all executed functional tests, including
+`TestDeviceItemProfileBacksClaimTokenSnapshotAndResolve`,
+`TestIntegrationAppEndUserClaimCreatesMultiBrandBindings` and
+`TestEndUserClaimKeepsIdentitySeparateAndRollsBackBindingFailure`.
+
+The gate still **FAILS**: overall 81.39%, store **79.49% (4833/6080), required
+80%**. Other configured package ratchets and artifact redaction passed. Duration
+189.604s. Report:
+`.artifacts/test-runs/local-am-claim-admission-v2/coverage/test_report.md` in the
+unpublished qualification checkout rooted at workspace `d128eab`. No base ref
+was supplied, so this is not differential coverage or the default pre-PR gate.
+Logs: `/tmp/rtk-claim-admission-final-race.log`,
+`/tmp/rtk-claim-legacy-boundary-race.log`,
+`/tmp/rtk-am-claim-admission-governed-v2.log`.
+
+Only owned loopback databases were used. No shared database, migration marker,
+real email/payment, staging deployment or production handoff enablement changed.
+Privileged claim transfer/reclaim and producer write/drain integration, trusted
+Billing collectors, full CI, migration rehearsal and staging acceptance remain.
+
 ## 2026-09-01 Billing eligibility and lifecycle admission
 
 At runtime commit `d7f5c21`, full uncached `go test ./...` passed against the

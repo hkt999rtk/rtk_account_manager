@@ -916,3 +916,10 @@ Brand Cloud's Product still cannot be claimed or consume the token. These scope
 tests and the existing profile snapshot regression pass with race detection
 (4.928s; `/tmp/rtk-claim-legacy-boundary-race.log`). The initial full run remains
 recorded as failed; fresh complete qualification is required after this fix.
+
+The fresh complete run at `f6c29c8` now passes all executed functional tests,
+including the legacy profile and App multi-Brand regressions. The PR-profile
+gate remains FAIL on store coverage only (79.49% versus 80%; overall 81.39%;
+redaction PASS, 189.604s). Vet/build, OpenAPI and the 240-case catalog/inventory
+checks pass. Exact run identity and remaining scope are recorded in
+`test_report.md`; this is not default pre-PR/CI, deployment or staging acceptance.
