@@ -113,9 +113,39 @@ Production runs are stored in `factory_production_runs`. Creation emits a
 `factory_production_run_created` audit event with the brand cloud, profile,
 factory, batch, quantity, and validity window.
 
-`issued_quantity` is reserved for quota enforcement. The current implementation
-creates the run and signs a bounded JWT; the next enforcement step is a consume
-operation called by factory enrollment after each successful certificate issue.
+Issuance records the current ownership version and whether authority came from
+the explicit platform route. Existing runs without this provenance are not
+silently authorized: an eligible operator must issue a new run. Consumption
+rechecks that version, the original operator's current authority, cloud/Product
+state and run validity under the same actor/cloud/Product/run lock order.
+
+Quota must be reserved **before** contacting the certificate issuer. The Account
+Manager admission ledger binds `(run_id, request_id)` to the device and a SHA-256
+digest of the complete canonical enrollment request. Issued quantity plus pending
+reservations cannot exceed the run limit. Same-key/same-payload retries return
+the existing reservation; changed payloads conflict. A reservation is not a
+permission to repeat an issuer call: the consumer must durably serialize its
+request journal and the issuer must replay the same idempotent issuance result.
+
+Only trusted reconciliation of a definite `issued` or `not_issued` outcome can
+close a reservation. Persist its evidence digest and audit atomically with the
+quota update; exact retries do not count twice. Timeouts, lost responses, worker
+crashes and token expiry are unknown outcomes, not evidence of non-issuance.
+They never release capacity automatically. Do not send JWTs, CSRs, private keys
+or certificate bodies to this ledger or its audit payloads.
+
+An accepted handoff fences new reservations. Already admitted work may report a
+terminal result while fenced, without acquiring new authority to issue. Pending
+reservations independently block preparation readiness, balance confirmation
+and owner commit even if a remote participant incorrectly reports itself drained.
+Closing the local ledger is necessary, not sufficient: the actual factory/issuer
+participant still proves its durable drain and usage cutoff. Deletion retains
+the existing nonempty-Product/resource and financial blockers.
+
+The local store boundary is the first implementation slice. Production factory
+transport, durable consumer journal, issuer idempotency/reconciliation and real
+participant cutoff evidence must be integrated and tested before enabling it.
+This document does not claim the current factory daemon enforces this ledger.
 
 ## Configuration
 

@@ -2,6 +2,25 @@
 
 This is implementation progress, not release acceptance or a replacement contract.
 
+## Factory admission ledger checkpoint — 2026-09-01
+
+Forward migration 064 preserves old runs without inventing authorization
+provenance. New issuance records ownership version and the explicit platform
+authority mode. Trusted store admission rechecks operator/cloud/Product/run
+authority and reserves quantity before external issuance. The durable ledger
+binds request/device/digest and retains terminal evidence and audit. Exact
+replays do not count twice; unknown outcomes/expiry never free capacity.
+Pending local reservations independently block handoff readiness, preview and
+commit, even with all synthetic participant receipts present. Result reconciliation
+can close previously admitted work under the fence without new issuance authority.
+
+Focused isolated PostgreSQL race tests pass (12.144s): 12-way quota admission,
+10-way result replay, scope/provenance/authority/validity rejection, changed run
+state while blocked on the cloud lock, seven persistence rollback cases and
+handoff readiness after definite reconciliation. Vet passes. Complete governed
+qualification follows separately. No production consumer transport/journal or
+real issuer/participant integration is claimed, and no staging action occurred.
+
 ## Approved baseline
 
 Contracts #131, Account Manager #298, Billing #7 and Cloud Admin #314 are merged.

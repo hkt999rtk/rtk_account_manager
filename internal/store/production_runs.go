@@ -123,13 +123,15 @@ func createProductionRunTx(ctx context.Context, tx pgx.Tx, in ProductionRunCreat
 	run, err := scanProductionRun(tx.QueryRow(ctx, `
 		INSERT INTO factory_production_runs (
 			brand_cloud_id, device_item_profile_id, factory_id, batch_id,
-			status, allowed_quantity, valid_from, valid_until, created_by, created_at, updated_at
+			status, allowed_quantity, valid_from, valid_until, created_by, created_at, updated_at,
+			authorization_ownership_version, authorization_platform_override
 		)
-		VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $9)
+		VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $9,
+			(SELECT ownership_version FROM organizations WHERE id=$1), $10)
 		RETURNING id::text, brand_cloud_id::text, device_item_profile_id::text, factory_id, batch_id,
 			status, allowed_quantity, issued_quantity, valid_from, valid_until, created_by::text, created_at, updated_at
 	`, in.BrandCloudID, in.DeviceItemProfileID, strings.TrimSpace(in.FactoryID), strings.TrimSpace(in.BatchID),
-		in.AllowedQuantity, in.ValidFrom.UTC(), in.ValidUntil.UTC(), in.ActorUserID, now))
+		in.AllowedQuantity, in.ValidFrom.UTC(), in.ValidUntil.UTC(), in.ActorUserID, now, in.PlatformOverride))
 	if err != nil {
 		return model.ProductionRun{}, model.DeviceItemProfile{}, err
 	}

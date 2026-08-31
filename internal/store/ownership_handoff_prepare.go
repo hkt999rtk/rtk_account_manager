@@ -22,12 +22,13 @@ type HandoffPrepareAck struct {
 // AllParticipantsPrepared is only the preparation evidence gate. It does not
 // imply eligible accounts, a confirmable amount, a commit grant or an owner swap.
 type CloudHandoffPreparation struct {
-	OperationID             string
-	OwnershipVersion        int64
-	Cutoff                  time.Time
-	Phase                   string
-	MissingParticipants     []string
-	AllParticipantsPrepared bool
+	OperationID               string
+	OwnershipVersion          int64
+	Cutoff                    time.Time
+	Phase                     string
+	MissingParticipants       []string
+	PendingFactoryEnrollments int
+	AllParticipantsPrepared   bool
 }
 
 func handoffPreparation(ctx context.Context, q handoffQuerier, id string) (CloudHandoffPreparation, error) {
@@ -38,13 +39,15 @@ func handoffPreparation(ctx context.Context, q handoffQuerier, id string) (Cloud
 			WHERE p.operation_id=h.id AND NOT EXISTS(SELECT 1 FROM cloud_handoff_prepare_acknowledgments a
 				WHERE a.operation_id=p.operation_id AND a.participant=p.participant) ORDER BY p.participant),
 		EXISTS(SELECT 1 FROM cloud_handoff_participants WHERE operation_id=h.id AND participant='billing')
-		AND EXISTS(SELECT 1 FROM cloud_handoff_participants WHERE operation_id=h.id AND participant<>'billing')
+		AND EXISTS(SELECT 1 FROM cloud_handoff_participants WHERE operation_id=h.id AND participant<>'billing'),
+		(SELECT count(*) FROM factory_enrollment_reservations e JOIN factory_production_runs r ON r.id=e.production_run_id
+		 WHERE r.brand_cloud_id=h.brand_cloud_id AND e.status='reserved')
 		FROM cloud_ownership_handoffs h WHERE h.id::text=$1`, id).
-		Scan(&out.OperationID, &out.OwnershipVersion, &out.Cutoff, &out.Phase, &out.MissingParticipants, &hasInventory)
+		Scan(&out.OperationID, &out.OwnershipVersion, &out.Cutoff, &out.Phase, &out.MissingParticipants, &hasInventory, &out.PendingFactoryEnrollments)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, ErrNotFound
 	}
-	out.AllParticipantsPrepared = err == nil && hasInventory && len(out.MissingParticipants) == 0 && (out.Phase == "preparing" || out.Phase == "committing")
+	out.AllParticipantsPrepared = err == nil && hasInventory && len(out.MissingParticipants) == 0 && out.PendingFactoryEnrollments == 0 && (out.Phase == "preparing" || out.Phase == "committing")
 	return out, err
 }
 

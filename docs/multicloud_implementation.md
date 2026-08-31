@@ -174,6 +174,18 @@ successful commit can publish the token response. This issuance fence is not
 proof of factory consumption authorization: consumers must still enforce current
 run/cloud/ownership authority and handoff cutoffs for previously issued tokens.
 
+The local factory admission ledger now reserves run capacity before remote
+issuance, binding a request/device/digest to the run's persisted operator and
+ownership version. It rechecks current authority, active scope and validity
+under the admission locks. Legacy runs without provenance fail closed. Exact
+reservation/result retries do not allocate or count twice; mismatches conflict.
+Only reconciled terminal issuer evidence closes a reservation; expiry, crashes
+and unknown responses do not. Pending reservations independently block handoff
+preparation, preview and commit. Closing previously admitted work remains possible
+under a fence without granting new authority. See `factory_production_runs.md`.
+This is a trusted store interface only: factory transport, durable consumer
+journal, issuer idempotency and real cutoff/usage adapters remain release gates.
+
 After authenticated target acceptance, durable outbox/inbox messages prepare
 Billing and cost-producing resource services. Messages bind operation/cloud ID,
 ownership version, cutoff and reconciliation evidence. Drain/fence producers;
