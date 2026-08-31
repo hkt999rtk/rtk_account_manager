@@ -153,6 +153,9 @@ func TestBrandCloudMemberInvitationLifecycleAndConflicts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified=true,signup_pending_verification=false WHERE id=$1`, owner.User.ID); err != nil {
+		t.Fatal(err)
+	}
 	target, err := env.store.SignupDeveloper(ctx, DeveloperSignupInput{
 		Email:        "invitation-target@example.com",
 		PasswordHash: "hash",

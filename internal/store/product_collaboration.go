@@ -113,7 +113,7 @@ func (s *Store) CreateProductCollaboratorInvitation(ctx context.Context, in Prod
 		}
 		return model.ProductCollaboratorInvitation{}, false, err
 	}
-	if err := lockProductCollaborationTx(ctx, tx, in.BrandCloudID, in.InvitedByUserID, targetID); err != nil {
+	if err := lockBrandCloudCollaborationTx(ctx, tx, in.BrandCloudID, in.InvitedByUserID, targetID); err != nil {
 		return model.ProductCollaboratorInvitation{}, false, err
 	}
 	if err := requireProductManagerTx(ctx, tx, in.InvitedByUserID, in.BrandCloudID, in.ProductID); err != nil {
@@ -270,7 +270,7 @@ func (s *Store) AcceptProductCollaboratorInvitation(ctx context.Context, targetU
 		}
 		return model.ProductCollaboratorInvitation{}, err
 	}
-	if err := lockProductCollaborationTx(ctx, tx, cloudID, inviterID, targetUserID); err != nil {
+	if err := lockBrandCloudCollaborationTx(ctx, tx, cloudID, inviterID, targetUserID); err != nil {
 		return model.ProductCollaboratorInvitation{}, err
 	}
 	invitation, err := scanProductCollaboratorInvitation(tx.QueryRow(ctx, `SELECT i.id::text, i.brand_cloud_id::text, i.product_id::text,
@@ -344,7 +344,7 @@ func (s *Store) UpdateProductCollaborator(ctx context.Context, actorUserID, bran
 		return model.ProductCollaborator{}, err
 	}
 	defer tx.Rollback(ctx)
-	if err := lockProductCollaborationTx(ctx, tx, brandCloudID, actorUserID, targetUserID); err != nil {
+	if err := lockBrandCloudCollaborationTx(ctx, tx, brandCloudID, actorUserID, targetUserID); err != nil {
 		return model.ProductCollaborator{}, err
 	}
 	if err := requireProductManagerTx(ctx, tx, actorUserID, brandCloudID, productID); err != nil {
@@ -396,7 +396,7 @@ func (s *Store) RemoveProductCollaborator(ctx context.Context, actorUserID, bran
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if err := lockProductCollaborationTx(ctx, tx, brandCloudID, actorUserID, targetUserID); err != nil {
+	if err := lockBrandCloudCollaborationTx(ctx, tx, brandCloudID, actorUserID, targetUserID); err != nil {
 		return err
 	}
 	if err := requireProductManagerTx(ctx, tx, actorUserID, brandCloudID, productID); err != nil {
@@ -453,7 +453,7 @@ func (s *Store) TransferProductOwnership(ctx context.Context, actorUserID, brand
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if err := lockProductCollaborationTx(ctx, tx, brandCloudID, actorUserID, targetUserID); err != nil {
+	if err := lockBrandCloudCollaborationTx(ctx, tx, brandCloudID, actorUserID, targetUserID); err != nil {
 		return err
 	}
 	if err := requireProductManagerTx(ctx, tx, actorUserID, brandCloudID, productID); err != nil {

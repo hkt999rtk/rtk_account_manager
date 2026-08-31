@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -19,13 +20,33 @@ func requireBrandCloudOwnerTx(ctx context.Context, tx pgx.Tx, brandCloudID, user
 		JOIN users u ON u.id = m.user_id
 		WHERE m.organization_id = $1 AND m.user_id = $2
 		  AND o.organization_kind = 'brand_cloud'
-		  AND m.disabled_at IS NULL AND u.disabled_at IS NULL
-		FOR UPDATE
+		  AND user_can_access_brand_cloud(u.id::text,o.id::text)
 	`, brandCloudID, userID).Scan(&role)
-	if errors.Is(err, pgx.ErrNoRows) || role != model.RoleOwner {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	if role != model.RoleOwner {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func lockCloudInvitationMutationTx(ctx context.Context, tx pgx.Tx, in BrandCloudMemberInvitationMutation) error {
+	var target string
+	err := tx.QueryRow(ctx, `SELECT target_user_id::text FROM brand_cloud_member_invitations WHERE id::text=$1 AND brand_cloud_id::text=$2`, in.InvitationID, in.BrandCloudID).Scan(&target)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrConflict
+	}
+	if err != nil {
+		return err
+	}
+	if err := lockBrandCloudCollaborationTx(ctx, tx, in.BrandCloudID, in.ActorUserID, target); err != nil {
+		return err
+	}
+	return requireBrandCloudOwnerTx(ctx, tx, in.BrandCloudID, in.ActorUserID)
 }
 
 func expireBrandCloudMemberInvitationsTx(ctx context.Context, tx pgx.Tx, brandCloudID string, now time.Time) (int64, error) {
@@ -50,6 +71,16 @@ func (s *Store) CreateBrandCloudMemberInvitation(ctx context.Context, in BrandCl
 	}
 	defer tx.Rollback(ctx)
 
+	var targetID string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM users WHERE email=$1`, strings.ToLower(strings.TrimSpace(in.TargetEmail))).Scan(&targetID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = ErrNotFound
+		}
+		return model.BrandCloudMemberInvitation{}, false, err
+	}
+	if err := lockBrandCloudCollaborationTx(ctx, tx, in.BrandCloudID, in.InvitedByUserID, targetID); err != nil {
+		return model.BrandCloudMemberInvitation{}, false, err
+	}
 	if err := requireBrandCloudOwnerTx(ctx, tx, in.BrandCloudID, in.InvitedByUserID); err != nil {
 		return model.BrandCloudMemberInvitation{}, false, err
 	}
@@ -129,6 +160,9 @@ func (s *Store) ListBrandCloudMemberInvitations(ctx context.Context, brandCloudI
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockBrandCloudCollaborationTx(ctx, tx, brandCloudID, actorUserID); err != nil {
+		return nil, err
+	}
 	if err := requireBrandCloudOwnerTx(ctx, tx, brandCloudID, actorUserID); err != nil {
 		return nil, err
 	}
@@ -174,7 +208,7 @@ func (s *Store) ResendBrandCloudMemberInvitation(ctx context.Context, in BrandCl
 		return model.BrandCloudMemberInvitation{}, err
 	}
 	defer tx.Rollback(ctx)
-	if err := requireBrandCloudOwnerTx(ctx, tx, in.BrandCloudID, in.ActorUserID); err != nil {
+	if err := lockCloudInvitationMutationTx(ctx, tx, in); err != nil {
 		return model.BrandCloudMemberInvitation{}, err
 	}
 	invitation, err := scanBrandCloudMemberInvitation(tx.QueryRow(ctx, `
@@ -212,7 +246,7 @@ func (s *Store) CancelBrandCloudMemberInvitation(ctx context.Context, in BrandCl
 		return model.BrandCloudMemberInvitation{}, err
 	}
 	defer tx.Rollback(ctx)
-	if err := requireBrandCloudOwnerTx(ctx, tx, in.BrandCloudID, in.ActorUserID); err != nil {
+	if err := lockCloudInvitationMutationTx(ctx, tx, in); err != nil {
 		return model.BrandCloudMemberInvitation{}, err
 	}
 	invitation, err := scanBrandCloudMemberInvitation(tx.QueryRow(ctx, `
@@ -243,6 +277,19 @@ func (s *Store) AcceptBrandCloudMemberInvitation(ctx context.Context, targetUser
 		return model.BrandCloudMemberInvitation{}, model.Member{}, err
 	}
 	defer tx.Rollback(ctx)
+	var cloudID, inviterID string
+	if err := tx.QueryRow(ctx, `SELECT brand_cloud_id::text,invited_by_user_id::text FROM brand_cloud_member_invitations WHERE token_hash=$1 AND target_user_id::text=$2 AND status='pending'`, tokenHash, targetUserID).Scan(&cloudID, &inviterID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = ErrNotFound
+		}
+		return model.BrandCloudMemberInvitation{}, model.Member{}, err
+	}
+	if err := lockBrandCloudCollaborationTx(ctx, tx, cloudID, inviterID, targetUserID); err != nil {
+		return model.BrandCloudMemberInvitation{}, model.Member{}, err
+	}
+	if err := requireBrandCloudOwnerTx(ctx, tx, cloudID, inviterID); err != nil {
+		return model.BrandCloudMemberInvitation{}, model.Member{}, err
+	}
 	invitation, err := scanBrandCloudMemberInvitation(tx.QueryRow(ctx, `
 		SELECT i.id::text, i.brand_cloud_id::text, i.invited_by_user_id::text, i.target_user_id::text,
 		       i.target_email, i.role, i.status, i.expires_at, i.accepted_at, i.canceled_at, i.created_at, i.updated_at

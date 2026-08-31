@@ -36,6 +36,10 @@ untouched. No staging deployment or shared database migration has been performed
   transactionally. Cloud owners retain management after Product-only delegation.
   Product/device/fleet reads and video-device eligibility intersect Product scope.
   This is not yet complete viewer, download, job or cache authorization coverage.
+- Cloud membership invitations use the same stable users-then-cloud lock order.
+  Acceptance revalidates the inviter's current ownership and operational eligibility;
+  a former owner retained as a member cannot admit invitees. Concurrent acceptance
+  admits exactly once. This does not replace the pending Billing handoff work.
 - Billing has a tested financial eligibility predicate: settled credit >= 0 for
   transfer; exactly 0 for closure; missing evidence and pending monetary/setup
   work remain independent blockers. This predicate is not yet connected to a
@@ -59,6 +63,9 @@ untouched. No staging deployment or shared database migration has been performed
   consecutive isolated runs. Fresh-database migration tests verify backfill,
   provenance, cross-cloud rejection and no revival on marker replay. Injected
   audit failures roll back role changes, removal and Product ownership transfer.
+- Cloud invitation owner-eligibility and concurrent-acceptance tests passed three
+  repeated runs. The full API package passed again after invitation locking changes
+  (`/tmp/rtk-multicloud-invitation-api-20260831.log`); `go vet ./...` passed.
 - Billing full suite passed with a separate isolated PostgreSQL database. Its
   new eligibility tests cover -1/0/+1, int64 extremes, independent blockers,
   malformed/unknown evidence, and transfer-versus-deletion rules.

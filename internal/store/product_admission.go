@@ -7,10 +7,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// All Product collaboration mutations serialize on the cloud. User locks come
+// Cloud and Product collaboration mutations serialize on the cloud. User locks come
 // first, matching ownership/quota writes. Membership revocation takes the same
 // cloud lock via the membership trigger, so admission cannot race removal.
-func lockProductCollaborationTx(ctx context.Context, tx pgx.Tx, cloudID string, userIDs ...string) error {
+func lockBrandCloudCollaborationTx(ctx context.Context, tx pgx.Tx, cloudID string, userIDs ...string) error {
 	rows, err := tx.Query(ctx, `SELECT id FROM users WHERE id::text=ANY($1::text[]) ORDER BY id FOR UPDATE`, userIDs)
 	if err != nil {
 		return err
@@ -62,7 +62,7 @@ func lockProductInvitationMutationTx(ctx context.Context, tx pgx.Tx, in ProductC
 	if err != nil {
 		return "", err
 	}
-	if err := lockProductCollaborationTx(ctx, tx, in.BrandCloudID, in.ActorUserID, target); err != nil {
+	if err := lockBrandCloudCollaborationTx(ctx, tx, in.BrandCloudID, in.ActorUserID, target); err != nil {
 		return "", err
 	}
 	if err := requireProductManagerTx(ctx, tx, in.ActorUserID, in.BrandCloudID, in.ProductID); err != nil {
