@@ -5517,8 +5517,15 @@ func TestIntegrationAdminDeviceClaimOverrideWorkflow(t *testing.T) {
 		t.Fatalf("expected audit list 200, got %d: %s", auditRes.Code, auditRes.Body.String())
 	}
 	audit := decodeBody[auditEventsBody](t, auditRes)
-	if audit.Pagination.Total != 2 {
-		t.Fatalf("expected transfer and reclaim audit events, got %+v", audit)
+	if audit.Pagination.Total != 4 {
+		t.Fatalf("expected two claim resolutions plus transfer and reclaim audit events, got %+v", audit)
+	}
+	counts := map[string]int{}
+	for _, event := range audit.AuditEvents {
+		counts[event.EventType]++
+	}
+	if counts["device_claim_resolved"] != 2 || counts["device_claim_transferred"] != 1 || counts["device_claim_reclaimed"] != 1 {
+		t.Fatalf("unexpected claim audit kinds: %v", counts)
 	}
 }
 

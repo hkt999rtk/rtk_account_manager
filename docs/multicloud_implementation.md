@@ -117,6 +117,20 @@ authority. Successful new operations have an atomic audit event; idempotent
 replays do not emit another event. This admission fence does not certify draining
 previously admitted work: producer consumption/cutoff acknowledgments are separate.
 
+Claim resolution uses the same actor/cloud lock order before locking a claim
+token, rechecks `claim.resolve`, and enforces the token's Product within the
+owner-approved collaboration scope. It atomically audits the claim without
+recording the token or provisioning secrets. Unprovision rechecks
+`device.unprovision` before locking the device/claim and enqueueing removal.
+The separately audited platform override must revalidate current global platform
+authority under lock; it cannot bypass an inactive or lifecycle-fenced Brand
+Cloud. All paths resolve and recheck the device's cloud under the cloud/device
+locks. Retained legacy identity rows cannot authorize these human operations.
+App end-user claim remains a separate admission path against `end_users`, never
+global human membership. Its claim consumption, Brand link, device binding and
+App-actor audit commit in one transaction. A disabled end-user or inactive/fenced
+cloud cannot consume a token; link/binding failure must leave the token retryable.
+
 After authenticated target acceptance, durable outbox/inbox messages prepare
 Billing and cost-producing resource services. Messages bind operation/cloud ID,
 ownership version, cutoff and reconciliation evidence. Drain/fence producers;

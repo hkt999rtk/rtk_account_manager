@@ -232,23 +232,54 @@ func (s *Store) ResolveDeviceClaimToken(ctx context.Context, in DeviceClaimResol
 		return DeviceClaimResolveResult{}, err
 	}
 	defer tx.Rollback(ctx)
-
-	now := in.Now
-	if now.IsZero() {
-		now = time.Now().UTC()
+	if err := authorizeDeviceUserMutationTx(ctx, tx, in.RequestedBy, in.OrganizationID, "", "claim.resolve"); err != nil {
+		return DeviceClaimResolveResult{}, err
 	}
 
+	token, err := getClaimTokenByHashForUpdateTx(ctx, tx, in.TokenHash)
+	if err != nil {
+		return DeviceClaimResolveResult{}, err
+	}
+	var productAllowed bool
+	if err := tx.QueryRow(ctx, `SELECT user_can_access_brand_cloud_product($1,$2,$3)`, in.RequestedBy, in.OrganizationID, token.DeviceItemProfileID).Scan(&productAllowed); err != nil {
+		return DeviceClaimResolveResult{}, err
+	}
+	if !productAllowed {
+		return DeviceClaimResolveResult{}, ErrNotFound
+	}
+	result, err := resolveLockedDeviceClaimTokenTx(ctx, tx, in, token)
+	if err != nil {
+		return DeviceClaimResolveResult{}, err
+	}
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{
+		EventType: "device_claim_resolved", ActorUserID: &in.RequestedBy,
+		OrganizationID: &in.OrganizationID, SubjectType: "device_claim", SubjectID: result.Claim.ID,
+		Payload: map[string]any{"device_id": result.Device.ID},
+	}); err != nil {
+		return DeviceClaimResolveResult{}, err
+	}
+	return result, tx.Commit(ctx)
+}
+
+func getClaimTokenByHashForUpdateTx(ctx context.Context, tx pgx.Tx, hash string) (model.DeviceClaimToken, error) {
 	token, err := scanDeviceClaimToken(tx.QueryRow(ctx, `
 		SELECT id::text, organization_id::text, created_by::text, device_item_profile_id::text, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
 		FROM device_claim_tokens
 		WHERE token_hash = $1
 		FOR UPDATE
-	`, in.TokenHash))
+	`, hash))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return DeviceClaimResolveResult{}, ErrNotFound
+		return model.DeviceClaimToken{}, ErrNotFound
 	}
-	if err != nil {
-		return DeviceClaimResolveResult{}, err
+	return token, err
+}
+
+// Callers authenticate their distinct human/end-user identity and lock its cloud
+// before the token. They commit the claim with their own audit/binding writes.
+func resolveLockedDeviceClaimTokenTx(ctx context.Context, tx pgx.Tx, in DeviceClaimResolveInput, token model.DeviceClaimToken) (DeviceClaimResolveResult, error) {
+	now := in.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
 	}
 	if token.ClaimedAt != nil {
 		return DeviceClaimResolveResult{}, ErrClaimAlreadyClaimed
@@ -261,6 +292,15 @@ func (s *Store) ResolveDeviceClaimToken(ctx context.Context, in DeviceClaimResol
 	}
 	if token.OrganizationID != nil && *token.OrganizationID != in.OrganizationID {
 		return DeviceClaimResolveResult{}, ErrClaimCrossOrganization
+	}
+	if token.DeviceItemProfileID != nil {
+		var sameCloud bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM device_item_profiles WHERE id::text=$1 AND brand_cloud_id::text=$2)`, *token.DeviceItemProfileID, in.OrganizationID).Scan(&sameCloud); err != nil {
+			return DeviceClaimResolveResult{}, err
+		}
+		if !sameCloud {
+			return DeviceClaimResolveResult{}, ErrNotFound
+		}
 	}
 	if token.Category != model.DeviceCategoryIPCamera &&
 		token.Category != model.DeviceCategoryMQTT &&
@@ -323,11 +363,6 @@ func (s *Store) ResolveDeviceClaimToken(ctx context.Context, in DeviceClaimResol
 	`, token.ID, now); err != nil {
 		return DeviceClaimResolveResult{}, err
 	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return DeviceClaimResolveResult{}, err
-	}
-
 	return DeviceClaimResolveResult{
 		Claim:  claim,
 		Device: device,

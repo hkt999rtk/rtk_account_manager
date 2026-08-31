@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -59,12 +60,20 @@ func TestUnprovisionDeviceRetainsClaimHistoryAndAllowsReplacementClaim(t *testin
 		t.Fatal(err)
 	}
 
-	result, err := env.store.UnprovisionDevice(ctx, DeviceUnprovisionInput{
+	if _, err := env.store.UnprovisionDevice(ctx, DeviceUnprovisionInput{
 		OrganizationID: registered.Organization.ID,
 		DeviceID:       resolved.Device.ID,
 		ActorUserID:    tenantActorID,
 		Reason:         "owner resale",
 		Now:            now.Add(2 * time.Minute),
+	}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("retired tenant identity authorized unprovision: %v", err)
+	}
+	result, err := env.store.UnprovisionDevice(ctx, DeviceUnprovisionInput{
+		OrganizationID: registered.Organization.ID,
+		DeviceID:       resolved.Device.ID,
+		ActorUserID:    registered.User.ID,
+		Reason:         "owner resale", Now: now.Add(2 * time.Minute),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +98,7 @@ func TestUnprovisionDeviceRetainsClaimHistoryAndAllowsReplacementClaim(t *testin
 	if err := env.db.QueryRow(ctx, `SELECT count(*)::int FROM device_message_outbox WHERE operation_id = $1`, result.Operation.OperationID).Scan(&outbox); err != nil {
 		t.Fatal(err)
 	}
-	if err := env.db.QueryRow(ctx, `SELECT count(*)::int FROM audit_events WHERE event_type = 'device_unprovisioned' AND subject_id = $1 AND actor_user_id = $2`, resolved.Device.ID, tenantActorID).Scan(&audits); err != nil {
+	if err := env.db.QueryRow(ctx, `SELECT count(*)::int FROM audit_events WHERE event_type = 'device_unprovisioned' AND subject_id = $1 AND actor_user_id = $2`, resolved.Device.ID, registered.User.ID).Scan(&audits); err != nil {
 		t.Fatal(err)
 	}
 	if devices != 0 || claims != 1 || operations != 1 || outbox != 1 || audits != 1 {

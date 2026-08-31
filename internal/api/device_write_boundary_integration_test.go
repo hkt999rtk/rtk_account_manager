@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/model"
 	"rtk_account_manager/internal/store"
 )
@@ -38,19 +39,32 @@ func TestIntegrationDeviceWritesReauthorizeAfterMiddlewareAdmission(t *testing.T
 	defer cancel()
 	owner := verifiedDeveloperForTest(t, env, "device-http-owner@example.test")
 	target := verifiedDeveloperForTest(t, env, "device-http-target@example.test")
-	d, err := env.store.CreateDevice(ctx, owner.BrandCloudID, store.DeviceInput{Name: "Original", Category: model.DeviceCategoryIPCamera, Metadata: map[string]any{"video_cloud_devid": "http-lifecycle-device"}})
+	for _, raw := range []string{"http-existing-claim", "http-late-claim"} {
+		if _, err := env.store.CreateDeviceClaimToken(ctx, store.DeviceClaimTokenCreateInput{
+			OrganizationID: &owner.BrandCloudID, TokenHash: auth.HashToken(raw), Category: model.DeviceCategoryIPCamera,
+			VideoCloudDevid: raw, ActivityID: "activity", ClipPublicKey: "key", ExpiresAt: time.Now().Add(time.Hour),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claimed, err := env.store.ResolveDeviceClaimToken(ctx, store.DeviceClaimResolveInput{
+		OrganizationID: owner.BrandCloudID, RequestedBy: owner.UserID, TokenHash: auth.HashToken("http-existing-claim"), DeviceName: "Original",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	d := claimed.Device
 	base := "/v1/orgs/" + owner.BrandCloudID + "/devices"
 	release := make(chan struct{})
-	results := make(chan *httptest.ResponseRecorder, 5)
+	results := make(chan *httptest.ResponseRecorder, 7)
 	for _, tc := range []struct{ method, path, body string }{
 		{http.MethodPost, base, `{"name":"Late creation","category":"ip_camera"}`},
 		{http.MethodPatch, base + "/" + d.ID, `{"name":"Late update","category":"ip_camera"}`},
 		{http.MethodPatch, base + "/" + d.ID + "/status", `{"status":"online"}`},
 		{http.MethodPost, base + "/" + d.ID + "/provision", `{"video_cloud_devid":"http-lifecycle-device","activity_id":"activity","clip_public_key":"key"}`},
 		{http.MethodPost, base + "/" + d.ID + "/deactivate", `{"reason":"user_request"}`},
+		{http.MethodPost, base + "/" + d.ID + "/unprovision", `{"reason":"user_request"}`},
+		{http.MethodPost, base + "/claim/resolve", `{"claim_token":"http-late-claim","device_name":"Late claimed device"}`},
 	} {
 		body := &admittedDeviceRequestBody{ctx: ctx, ready: make(chan struct{}), release: release, reader: strings.NewReader(tc.body)}
 		request := httptest.NewRequest(tc.method, tc.path, body).WithContext(ctx)
@@ -87,7 +101,7 @@ func TestIntegrationDeviceWritesReauthorizeAfterMiddlewareAdmission(t *testing.T
 		t.Fatal(err)
 	}
 	close(release)
-	for range 5 {
+	for range 7 {
 		select {
 		case response := <-results:
 			if response.Code != http.StatusNotFound {
@@ -107,5 +121,59 @@ func TestIntegrationDeviceWritesReauthorizeAfterMiddlewareAdmission(t *testing.T
 	}
 	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM device_operations WHERE organization_id=$1`, owner.BrandCloudID).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("stale request queued lifecycle work: %d %v", count, err)
+	}
+}
+
+func TestIntegrationPlatformUnprovisionRechecksRevokedPrivilege(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	owner := verifiedDeveloperForTest(t, env, "override-http-owner@example.test")
+	operator := verifiedDeveloperForTest(t, env, "override-http-operator@example.test")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin=true WHERE id=$1`, operator.UserID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.CreateDeviceClaimToken(ctx, store.DeviceClaimTokenCreateInput{
+		OrganizationID: &owner.BrandCloudID, TokenHash: auth.HashToken("override-http-claim"), Category: model.DeviceCategoryIPCamera,
+		VideoCloudDevid: "override-http-device", ActivityID: "activity", ClipPublicKey: "key", ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := env.store.ResolveDeviceClaimToken(ctx, store.DeviceClaimResolveInput{OrganizationID: owner.BrandCloudID, RequestedBy: owner.UserID, TokenHash: auth.HashToken("override-http-claim")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	body := &admittedDeviceRequestBody{ctx: ctx, ready: make(chan struct{}), release: release, reader: strings.NewReader(`{"reason":"support verified","evidence":{"ticket":"isolated-test"}}`)}
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/devices/"+claimed.Device.ID+"/unprovision", body).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+operator.AccessToken)
+	result := make(chan *httptest.ResponseRecorder, 1)
+	go func() { r := httptest.NewRecorder(); env.router.ServeHTTP(r, req); result <- r }()
+	select {
+	case <-body.ready:
+	case r := <-result:
+		t.Fatalf("request failed before admission: %d %s", r.Code, r.Body)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin=false WHERE id=$1`, operator.UserID); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	select {
+	case r := <-result:
+		if r.Code != http.StatusNotFound {
+			t.Fatalf("revoked platform authority mutated: %d %s", r.Code, r.Body)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if _, err := env.store.GetDevice(ctx, owner.BrandCloudID, claimed.Device.ID); err != nil {
+		t.Fatal("revoked operator removed device", err)
+	}
+	var queued int
+	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM device_operations WHERE organization_id=$1`, owner.BrandCloudID).Scan(&queued); err != nil || queued != 0 {
+		t.Fatalf("revoked operator queued work: %d %v", queued, err)
 	}
 }

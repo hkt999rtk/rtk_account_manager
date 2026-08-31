@@ -879,3 +879,31 @@ PR-profile package gate remains FAIL solely on store coverage (79.30% versus
 80%; overall 81.28%, artifact redaction PASS). See `test_report.md` for exact
 source/run identities and limitations. No default pre-PR pass, runtime service
 PR merge or deployment is claimed by this checkpoint.
+
+## Claim/unprovision admission and independent App claims — 2026-09-01
+
+Human claim resolution now locks and rechecks the global actor, cloud permission
+and token Product scope before consuming the token. Unprovision repeats its
+device permission within the transaction; its explicit platform override locks
+and rechecks the global platform actor and the cloud's operational state. Neither
+override nor ordinary admission bypasses an active handoff fence. Claim audit is
+atomic and excludes token/provisioning material. A retained tenant-identity fixture
+now explicitly proves rejection, followed by successful global-user unprovision.
+
+Regression testing exposed App claim's earlier reuse of the human entrypoint and
+two-transaction claim/binding write. App admission now independently locks an
+active `end_users` actor and uses the shared token mutation inside the same
+transaction as its Brand link, device binding and separately attributed audit.
+No global membership is invented. Binding failure leaves the token unconsumed.
+The App login/certificate identity boundary is unchanged.
+
+Focused store/API race tests passed (13.148s/18.905s), including approved versus
+unapproved Products, a viewer with a stale write ACL, revoked Product admission,
+platform suspension/revocation, handoff/cancellation fences, audit rollback,
+cross-identity denial, App binding rollback/retry and multi-Brand App claim.
+The HTTP test pauses seven human mutations after middleware admission, switches
+the owner and proves none may write; an additional HTTP test revokes platform
+authority after admission and proves unprovision is denied. Log:
+`/tmp/rtk-claim-admission-final-race.log`. Full suite/governed evidence follows
+separately. Privileged claim transfer/reclaim, other producers, queued-work drain,
+production collector/participant wiring, CI and staging remain release gates.
