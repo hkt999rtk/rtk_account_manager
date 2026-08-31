@@ -77,6 +77,7 @@ func TestIdentityCutoverMigratesExistingPlatformAuthTokensIntegration(t *testing
 	}
 
 	var platformUserID, brandCloudID, legacyUserID string
+	legacyHash := identityCaseHash(t, "fixture-legacy-password")
 	if err := db.QueryRow(ctx, `
 		INSERT INTO users (email,password_hash,email_verified,email_verified_at,signup_pending_verification)
 		VALUES ('platform-owner@example.com','platform-hash',true,now(),false)
@@ -93,9 +94,9 @@ func TestIdentityCutoverMigratesExistingPlatformAuthTokensIntegration(t *testing
 	}
 	if err := db.QueryRow(ctx, `
 		INSERT INTO brand_cloud_users (brand_cloud_id,email,password_hash,email_verified,email_verified_at,signup_pending_verification)
-		VALUES ($1,'legacy-owner@example.com','legacy-hash',true,now(),false)
+		VALUES ($1,'legacy-owner@example.com',$2,true,now(),false)
 		RETURNING id::text
-	`, brandCloudID).Scan(&legacyUserID); err != nil {
+	`, brandCloudID, legacyHash).Scan(&legacyUserID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `INSERT INTO brand_cloud_memberships (brand_cloud_id,brand_cloud_user_id,role) VALUES ($1,$2,'owner')`, brandCloudID, legacyUserID); err != nil {
@@ -141,20 +142,17 @@ func TestIdentityCutoverMigratesExistingPlatformAuthTokensIntegration(t *testing
 		t.Fatalf("cutover evidence mapping=%d owners=%d active_legacy_refresh=%d", mappingCount, ownerCount, activeLegacyRefresh)
 	}
 
-	migrationSQL, err := os.ReadFile(filepath.Join(migrationsDir, "049_unify_human_identity.sql"))
-	if err != nil {
+	var appliedAt time.Time
+	if err := db.QueryRow(ctx, `SELECT applied_at FROM schema_migrations WHERE version='049_unify_human_identity.sql'`).Scan(&appliedAt); err != nil {
 		t.Fatal(err)
 	}
-	tx, err := db.Begin(ctx)
-	if err != nil {
+	// A subsequent startup skips published SQL, never deletes/recreates its marker.
+	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(ctx, string(migrationSQL)); err != nil {
-		_ = tx.Rollback(ctx)
-		t.Fatalf("rerun identity cutover migration: %v", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatal(err)
+	var sameMarker bool
+	if err := db.QueryRow(ctx, `SELECT applied_at=$1 FROM schema_migrations WHERE version='049_unify_human_identity.sql'`, appliedAt).Scan(&sameMarker); err != nil || !sameMarker {
+		t.Fatalf("published migration marker changed: same=%t err=%v", sameMarker, err)
 	}
 
 	var migrationResult string

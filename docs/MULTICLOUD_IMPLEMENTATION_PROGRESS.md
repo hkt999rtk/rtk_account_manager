@@ -627,11 +627,52 @@ untouched. No staging deployment or shared database migration has been performed
   values, missing database selection and duration overflow rejection. Build, vet
   and whitespace checks passed. No runtime PR or deployment occurred.
 
+## Forward identity correction and activation checkpoint (051)
+
+- Reconciled the preserved unpublished correction into forward migration 051,
+  without changing published 049 or deleting any applied migration marker.
+  The original dirty identity-correction worktree remains untouched.
+- The correction now follows the approved multi-cloud invariant: exactly one
+  designated owner for every non-deleted Brand Cloud. A pending/disabled owner
+  retains ownership; their cloud is fenced for owner and collaborators until
+  approved activation restores eligibility. Zero/multiple-owner conflicts block.
+- Unsupported unchanged inherited credentials become reset/activation-required;
+  global refresh grants and app-user certificates are revoked. Existing/remediated
+  global credentials and SSO adoption remain protected. Mapping outcomes and
+  historical audit events are preserved; correction appends auditable evidence.
+- Activation restores only exact, unchanged recorded verification holds.
+  Administrative disable, role/scope edits, removal and global disable invalidate
+  holds. Email resend preserves an eligible hold, never invents provenance for an
+  administrative disable. Outbox failure rolls back the user/member/hold together.
+- Added current-state JWT/refresh/certificate and organization ACL checks, without
+  removing the newer Product/viewer/cloud-eligibility gates. Platform capabilities
+  remain independent of memberships and cannot impersonate a cloud-scoped grant.
+- Added rollback-only `migrate --identity-preflight`, including deferred constraint
+  validation, controlled blocking IDs and ineligible-owner cloud counts. It works
+  on restores through 050 and on prior implementation candidates with 052–063
+  already installed but 051 absent; no marker manipulation is needed.
+- Release limitation: a pre-049 legacy restore with duplicate membership targets
+  or a reset-required sole owner can still fail inside immutable published 049.
+  A regression explicitly reproduces the duplicate-target refusal and verifies
+  rollback preserves legacy evidence. Forward 051 cannot repair an earlier
+  aborted transaction. A reviewed pre-cutover path is still required; do not
+  bypass the failure, rewrite evidence or present this checkpoint as full cutover
+  completion. See `IDENTITY_CORRECTION_RUNBOOK.md`.
+- Targeted isolated PostgreSQL identity/membership/API tests passed through 063,
+  including correction/replay, provenance conflict resolution, owner eligibility,
+  OIDC adoption, stale JWT/refresh/certificate rejection, and full activation.
+  Full uncached suite passed (API 80.113s, database 39.063s, store 91.456s);
+  log: `/tmp/rtk-am-identity-suite-final-20260831.log`. Two targeted race runs
+  passed (database 109.350s, store 41.448s, API 22.754s);
+  log: `/tmp/rtk-am-identity-race-20260831.log`. Build, vet and whitespace
+  checks passed. No runtime PR, staging or shared database was modified.
+
 ## Required next work
 
 1. Complete cross-service authorization, downloads/background work and cache
    invalidation around the implemented Product admission/viewer scope. Reconcile
-   generic provisioning/role APIs, activation holds and all resource-mutation fences.
+   generic provisioning/role APIs and all resource-mutation fences. The 051
+   activation-hold correction is integrated above.
    Retire legacy human
    identity fallbacks, retaining only the required migration evidence.
 2. Complete cloud deletion/closure and production handoff integration.
@@ -653,10 +694,10 @@ untouched. No staging deployment or shared database migration has been performed
    producer list is not proof of complete production inventory. AM's eligibility
    fence is not proof of remote producer drain or protection for every already-in-flight
    resource mutation; transactional producer guards and cutoff evidence remain gates.
-4. Implement the scoped My Clouds/Product UI and BFF, including request/cache/tab
+4. Complete the scoped My Clouds/Product UI and BFF, including request/cache/tab
    isolation and hosted-return binding.
-5. Reconcile the preserved unpublished identity correction as forward migration
-   051 (do not edit released 049), then run full migration/coverage/CI, coordinated
+5. Finish the reviewed pre-049 legacy cutover path without editing released 049;
+   forward 051 is integrated. Run full migration/coverage/CI, coordinated
    backup/restore checks, and staging activation/device/certificate/MQTT acceptance.
    Legacy-table cleanup remains a separate post-acceptance operation.
 

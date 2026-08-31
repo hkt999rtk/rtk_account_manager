@@ -410,9 +410,40 @@ func (s *Store) ProvisionBrandCloudAccount(ctx context.Context, actorUserID, org
 	}
 
 	memberDisabled := in.ActivationMode == "email" && !user.EmailVerified
-	member, err := scanDeveloperMember(tx.QueryRow(ctx, `INSERT INTO organization_members (organization_id,user_id,role,disabled_at) VALUES ($1,$2,$3,CASE WHEN $4 THEN now() ELSE NULL END) ON CONFLICT (organization_id,user_id) DO UPDATE SET role=EXCLUDED.role,disabled_at=CASE WHEN $4 THEN organization_members.disabled_at ELSE NULL END,updated_at=now() RETURNING organization_id::text,user_id::text,$5::text,$6::text,role,created_at,updated_at,disabled_at,access_scope`, orgID, user.ID, in.Role, memberDisabled, user.Email, user.DisplayName))
+	member, err := scanDeveloperMember(tx.QueryRow(ctx, `INSERT INTO organization_members (organization_id,user_id,role,disabled_at)
+		VALUES ($1,$2,$3,CASE WHEN $4 THEN now() ELSE NULL END) ON CONFLICT DO NOTHING
+		RETURNING organization_id::text,user_id::text,$5::text,$6::text,role,created_at,updated_at,disabled_at,access_scope`, orgID, user.ID, in.Role, memberDisabled, user.Email, user.DisplayName))
+	holdEligible := err == nil && memberDisabled
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Lock the existing row before judging provenance. An earlier
+		// administrative disable must never be converted into an email hold.
+		member, err = scanDeveloperMember(tx.QueryRow(ctx, `SELECT organization_id::text,user_id::text,$3::text,$4::text,role,created_at,updated_at,disabled_at,access_scope
+			FROM organization_members WHERE organization_id=$1 AND user_id=$2 FOR UPDATE`, orgID, user.ID, user.Email, user.DisplayName))
+		if err != nil {
+			return BrandCloudAccountResult{}, err
+		}
+		if memberDisabled && member.Role == in.Role {
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM organization_member_activation_holds h
+				JOIN organization_members m USING(organization_id,user_id)
+				WHERE h.organization_id=$1 AND h.user_id=$2 AND h.disabled_at=m.disabled_at AND h.updated_at=m.updated_at)`, orgID, user.ID).Scan(&holdEligible); err != nil {
+				return BrandCloudAccountResult{}, err
+			}
+		}
+		member, err = scanDeveloperMember(tx.QueryRow(ctx, `UPDATE organization_members SET role=$3,
+			disabled_at=CASE WHEN $4 THEN disabled_at ELSE NULL END,updated_at=now()
+			WHERE organization_id=$1 AND user_id=$2
+			RETURNING organization_id::text,user_id::text,$5::text,$6::text,role,created_at,updated_at,disabled_at,access_scope`, orgID, user.ID, in.Role, memberDisabled, user.Email, user.DisplayName))
+	}
 	if err != nil {
 		return BrandCloudAccountResult{}, err
+	}
+	if holdEligible {
+		if _, err := tx.Exec(ctx, `INSERT INTO organization_member_activation_holds(organization_id,user_id,disabled_at,updated_at,source)
+			SELECT organization_id,user_id,disabled_at,updated_at,'provisioning' FROM organization_members
+			WHERE organization_id=$1 AND user_id=$2 AND disabled_at IS NOT NULL
+			ON CONFLICT(organization_id,user_id) DO UPDATE SET disabled_at=EXCLUDED.disabled_at,updated_at=EXCLUDED.updated_at,source=EXCLUDED.source`, orgID, user.ID); err != nil {
+			return BrandCloudAccountResult{}, err
+		}
 	}
 	if in.ActivationMode == "immediate" {
 		if _, err := tx.Exec(ctx, `INSERT INTO role_assignments (role_id,actor_type,actor_id,scope_type,scope_id,organization_id,created_by) SELECT id,'user',$1,'organization',$2,$3,$4 FROM roles WHERE name=$5 AND disabled_at IS NULL ON CONFLICT DO NOTHING`, user.ID, orgID, orgID, actorUserID, in.Role); err != nil {

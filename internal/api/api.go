@@ -1689,7 +1689,8 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 		if s.store != nil {
 			switch claims.SubjectType {
 			case "", auth.SubjectTypeUser:
-				if _, err := s.store.GetUser(c.Request.Context(), claims.UserID); err != nil {
+				user, err := s.store.GetUser(c.Request.Context(), claims.UserID)
+				if err != nil || user.SignupPendingVerification {
 					writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
 					c.Abort()
 					return

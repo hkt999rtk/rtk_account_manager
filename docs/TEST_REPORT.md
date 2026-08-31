@@ -1,5 +1,54 @@
 # Test Report
 
+## 2026-08-31 local forward-identity integration checkpoint
+
+This section records the implementation worktree, not a deployment or a new
+coverage/CI certification. The historical generated CI summary below is not
+evidence for these changes.
+
+- Forward 051 and activation-hold/current-state guards were integrated with the
+  multi-cloud schema through 063; published 049 and applied markers are unchanged.
+- Targeted isolated PostgreSQL migration, store and API tests passed. Cases include
+  unsafe inherited credentials, protected existing/remediated users, blocking SSO
+  adoption, explicit provenance resolutions, exact hold restoration, administrative
+  disable/role changes/removal, token replay and pending JWT/refresh/certificate
+  denial. OIDC/ACL tests now explicitly require membership before an organization
+  assignment becomes effective; a group mapping alone is not admission.
+- Multi-cloud cases prove exactly one designated owner is retained even when
+  credential correction suspends them. Both owner and collaborators are fenced;
+  approved email activation releases the fence. Zero/multiple owners block,
+  including disabled clouds. Applying 051 after an earlier candidate already
+  containing 052–063 is tested without deleting any migration marker.
+- Rollback-only preflight validates deferred constraints, reports controlled
+  blocker IDs and ineligible-owner cloud counts, and leaves no schema, audit,
+  credential, grant or authority-version changes behind.
+- Two targeted race-instrumented runs passed: database 109.350s, store 41.448s,
+  API 22.754s. Log: `/tmp/rtk-am-identity-race-20260831.log`.
+- Full uncached `go test -p 1 ./... -count=1` passed on the isolated database:
+  API 80.113s, database 39.063s, store 91.456s. Log:
+  `/tmp/rtk-am-identity-suite-final-20260831.log`. The first run found the old
+  OIDC test's no-membership assumption; that test now proves denial before
+  membership and success after admission. It was not fixed by relaxing authority.
+- Build, vet, formatting and whitespace checks passed. The migration executable
+  exposes `--identity-preflight` in its help output. The no-database Go run also
+  passed but is not counted as integration evidence.
+
+Test data is synthetic, in newly created databases
+`multicloud_identity_correction_20260831` and
+`multicloud_identity_correction_race_20260831`, only on loopback port 63229.
+Per-case migration databases are created separately and removed by test cleanup.
+No staging/shared database, real email recipient, provider or MQTT deployment was
+changed.
+
+Remaining release gates: a reviewed path for pre-049 duplicate-target and
+reset-required sole-owner cutovers (the expected duplicate refusal is reproduced
+and its rollback verified, not claimed repaired), full coverage/spec-inventory/
+contract/PR CI, real cross-service producer/Billing adapters, coordinated
+backup/restore/maintenance, and staging activation/device/certificate/MQTT.
+Legacy identity tables/evidence are not cleaned up by this checkpoint.
+
+## Historical generated CI report
+
 Generated: ci-candidate
 
 ## Summary

@@ -873,6 +873,12 @@ func TestIntegrationOIDCProviderLoginAndCallback(t *testing.T) {
 	if identityCount != 1 {
 		t.Fatalf("expected exactly one linked identity, got %d", identityCount)
 	}
+	if allowed, err := store.New(env.db).HasPermission(context.Background(), registered.User.ID, targetOrg.Organization.ID, "claim.resolve"); err != nil || allowed {
+		t.Fatalf("OIDC mapping without membership must not grant access: allowed=%t err=%v", allowed, err)
+	}
+	if _, err := env.db.Exec(context.Background(), `INSERT INTO organization_members(organization_id,user_id,role) VALUES($1,$2,'member')`, targetOrg.Organization.ID, registered.User.ID); err != nil {
+		t.Fatal(err)
+	}
 	canClaimMappedOrg, err := store.New(env.db).HasPermission(context.Background(), registered.User.ID, targetOrg.Organization.ID, "claim.resolve")
 	if err != nil {
 		t.Fatal(err)

@@ -133,6 +133,7 @@ func (s *Store) HasPermission(ctx context.Context, userID, orgID, permission str
 			JOIN permissions p ON p.id = rp.permission_id
 			JOIN users u ON u.id::text = ra.actor_id AND u.disabled_at IS NULL
 			WHERE ra.actor_type = 'user'
+			  AND u.signup_pending_verification = false
 			  AND ra.actor_id = $1
 			  AND ra.disabled_at IS NULL
 			  AND p.name = $2
@@ -141,7 +142,9 @@ func (s *Store) HasPermission(ctx context.Context, userID, orgID, permission str
 			  AND (
 			      (ra.scope_type = 'platform' AND $3 = '')
 			      OR
-			      (ra.scope_type = 'organization' AND ra.scope_id = $3)
+			      (ra.scope_type = 'organization' AND ra.scope_id = $3
+			      AND EXISTS (SELECT 1 FROM organization_members m
+			                  WHERE m.user_id=u.id AND m.organization_id::text=$3 AND m.disabled_at IS NULL))
 			  )
 		)
 	`, userID, permission, orgID).Scan(&allowed)
@@ -158,7 +161,9 @@ func (s *Store) HasUserPermissionForResource(ctx context.Context, userID, orgID,
 		JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL
 		JOIN role_permissions rp ON rp.role_id=r.id JOIN permissions p ON p.id=rp.permission_id
 		JOIN users u ON u.id::text=ra.actor_id AND u.disabled_at IS NULL
+		JOIN organization_members m ON m.user_id=u.id AND m.organization_id=ra.organization_id AND m.disabled_at IS NULL
 		WHERE ra.actor_type='user' AND ra.actor_id=$1 AND p.name=$2 AND ra.organization_id::text=$3
+		  AND u.signup_pending_verification=false
 		  AND ra.disabled_at IS NULL AND (ra.scope_type='organization' OR (ra.scope_type=$4 AND ra.scope_id=$5))
 		  AND user_can_access_brand_cloud($1, $3)
 		  AND ($4 <> 'product' OR user_can_access_brand_cloud_product($1,$3,$5))
@@ -173,7 +178,9 @@ func (s *Store) HasUserPermissionAnyResource(ctx context.Context, userID, orgID,
 		SELECT 1 FROM role_assignments ra JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL
 		JOIN role_permissions rp ON rp.role_id=r.id JOIN permissions p ON p.id=rp.permission_id
 		JOIN users u ON u.id::text=ra.actor_id AND u.disabled_at IS NULL
+		JOIN organization_members m ON m.user_id=u.id AND m.organization_id=ra.organization_id AND m.disabled_at IS NULL
 		WHERE ra.actor_type='user' AND ra.actor_id=$1 AND p.name=$2 AND ra.organization_id::text=$3 AND ra.disabled_at IS NULL
+		  AND u.signup_pending_verification=false
 		  AND user_can_access_brand_cloud($1, $3)
 		  AND brand_cloud_permission_allowed($1,$3,$2)
 	)`, strings.TrimSpace(userID), strings.TrimSpace(permission), strings.TrimSpace(orgID)).Scan(&allowed)
@@ -186,7 +193,9 @@ func (s *Store) HasUserDevicePermission(ctx context.Context, userID, orgID, perm
 		SELECT 1 FROM devices d JOIN role_assignments ra ON ra.actor_type='user' AND ra.actor_id=$1 AND ra.organization_id=d.organization_id AND ra.disabled_at IS NULL
 		JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL JOIN role_permissions rp ON rp.role_id=r.id
 		JOIN permissions p ON p.id=rp.permission_id AND p.name=$3 JOIN users u ON u.id::text=ra.actor_id AND u.disabled_at IS NULL
+		JOIN organization_members m ON m.user_id=u.id AND m.organization_id=d.organization_id AND m.disabled_at IS NULL
 		WHERE d.id::text=$2 AND d.organization_id::text=$4 AND user_can_access_brand_cloud_product($1, $4, d.device_item_profile_id::text)
+		AND u.signup_pending_verification=false
 		AND brand_cloud_permission_allowed($1,$4,$3) AND (ra.scope_type='organization'
 		 OR (ra.scope_type='product' AND ra.scope_id=d.device_item_profile_id::text)
 		 OR (ra.scope_type='region' AND ra.scope_id=COALESCE(NULLIF(d.metadata->>'region',''),'未設定'))
@@ -206,6 +215,7 @@ func (s *Store) ListUserPlatformPermissions(ctx context.Context, userID string) 
 		JOIN users u ON u.id::text = ra.actor_id AND u.disabled_at IS NULL
 		WHERE ra.actor_type = 'user' AND ra.actor_id = $1
 		  AND ra.scope_type = 'platform' AND ra.disabled_at IS NULL
+		  AND u.signup_pending_verification = false
 		ORDER BY p.name
 	`, strings.TrimSpace(userID))
 	if err != nil {
@@ -233,6 +243,9 @@ func (s *Store) ListUserOrganizationPermissions(ctx context.Context, userID, org
 		JOIN users u ON u.id::text = ra.actor_id AND u.disabled_at IS NULL
 		WHERE ra.actor_type = 'user' AND ra.actor_id = $1
 		  AND ra.organization_id::text = $2 AND ra.disabled_at IS NULL
+		  AND u.signup_pending_verification = false
+		  AND EXISTS (SELECT 1 FROM organization_members m WHERE m.user_id=u.id
+		              AND m.organization_id=ra.organization_id AND m.disabled_at IS NULL)
 		  AND user_can_access_brand_cloud($1, $2)
 		  AND brand_cloud_permission_allowed($1,$2,p.name)
 		ORDER BY p.name

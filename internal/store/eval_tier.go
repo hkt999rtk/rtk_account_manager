@@ -40,7 +40,7 @@ func (s *Store) IsPlatformAdmin(ctx context.Context, userID string) (bool, error
 	err := s.db.QueryRow(ctx, `
 		SELECT COALESCE(platform_admin, false)
 		FROM users
-		WHERE id = $1 AND disabled_at IS NULL
+		WHERE id = $1 AND disabled_at IS NULL AND signup_pending_verification = false
 	`, userID).Scan(&platformAdmin)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, ErrNotFound

@@ -855,9 +855,15 @@ func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash, passwordHash st
 		return model.User{}, err
 	}
 	if _, err := tx.Exec(ctx, `
-		UPDATE organization_members
+		WITH consumed_holds AS (
+		    DELETE FROM organization_member_activation_holds WHERE user_id = $1
+		    RETURNING organization_id, user_id, disabled_at, updated_at
+		)
+		UPDATE organization_members m
 		SET disabled_at = NULL, updated_at = now()
-		WHERE user_id = $1 AND disabled_at IS NOT NULL
+		FROM consumed_holds h
+		WHERE m.organization_id = h.organization_id AND m.user_id = h.user_id
+		  AND m.disabled_at = h.disabled_at AND m.updated_at = h.updated_at
 	`, userID); err != nil {
 		return model.User{}, err
 	}
@@ -885,13 +891,14 @@ func (s *Store) EmailVerificationTokenStatus(ctx context.Context, tokenHash stri
 		SELECT CASE
 			WHEN at.consumed_at IS NOT NULL THEN 'invalid'
 			WHEN at.expires_at <= now() THEN 'expired'
-			WHEN u.email_verified OR NOT u.signup_pending_verification THEN 'invalid'
+			WHEN u.email_verified THEN 'invalid'
 			ELSE 'valid'
 		END
 		FROM auth_tokens at
 		JOIN users u ON u.id = at.user_id
 		WHERE at.token_hash = $1
 		  AND at.purpose = 'email_verification'
+		  AND at.subject_type = 'user' AND at.subject_id = u.id
 		  AND at.scope = ''
 		  AND u.disabled_at IS NULL
 	`, tokenHash).Scan(&status)
@@ -999,6 +1006,7 @@ func consumeAuthTokenTx(ctx context.Context, tx pgx.Tx, tokenHash, purpose, scop
 		JOIN users u ON u.id = at.user_id
 		WHERE at.token_hash = $1
 		  AND at.purpose = $2
+		  AND at.subject_type = 'user' AND at.subject_id = u.id
 		  AND at.scope = $3
 		  AND at.consumed_at IS NULL
 		  AND at.expires_at > now()
@@ -1139,6 +1147,7 @@ func (s *Store) RotateRefreshToken(ctx context.Context, oldTokenHash, newTokenHa
 		  AND rt.revoked_at IS NULL
 		  AND rt.expires_at > now()
 		  AND u.disabled_at IS NULL
+		  AND u.signup_pending_verification = false
 		FOR UPDATE
 	`, oldTokenHash).Scan(&activeUserID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1177,6 +1186,7 @@ func (s *Store) RefreshTokenActive(ctx context.Context, tokenHash string) (strin
 		  AND rt.revoked_at IS NULL
 		  AND rt.expires_at > now()
 		  AND u.disabled_at IS NULL
+		  AND u.signup_pending_verification = false
 	`, tokenHash).Scan(&userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
@@ -1338,7 +1348,10 @@ func (s *Store) GetRole(ctx context.Context, orgID, userID string) (model.Role, 
 		JOIN users u ON u.id = m.user_id
 		WHERE m.organization_id = $1
 		  AND m.user_id = $2
+		  AND m.disabled_at IS NULL
 		  AND u.disabled_at IS NULL
+		  AND u.signup_pending_verification = false
+		  AND user_can_access_brand_cloud(m.user_id::text, m.organization_id::text)
 	`, orgID, userID).Scan(&role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound

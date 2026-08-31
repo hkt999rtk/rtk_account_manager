@@ -139,6 +139,12 @@ func TestACLRoleAssignmentsAuthorizeInsideScopeOnly(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if allowed, err := env.store.HasPermission(ctx, first.User.ID, second.Organization.ID, "registry_device.read"); err != nil || allowed {
+		t.Fatalf("assignment without membership must not grant access: allowed=%t err=%v", allowed, err)
+	}
+	if _, err := env.db.Exec(ctx, `INSERT INTO organization_members(organization_id,user_id,role) VALUES($1,$2,'member')`, second.Organization.ID, first.User.ID); err != nil {
+		t.Fatal(err)
+	}
 	canReadOther, err := env.store.HasPermission(ctx, first.User.ID, second.Organization.ID, "registry_device.read")
 	if err != nil {
 		t.Fatal(err)
@@ -250,6 +256,12 @@ func TestACLExternalGroupMappingCreatesScopedAssignment(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := env.store.ApplyExternalGroupMappings(ctx, observer.User.ID, "keycloak", []string{"/installers"}, now); err != nil {
+		t.Fatal(err)
+	}
+	if allowed, err := env.store.HasPermission(ctx, observer.User.ID, registered.Organization.ID, "claim.resolve"); err != nil || allowed {
+		t.Fatalf("group mapping without membership must not grant access: allowed=%t err=%v", allowed, err)
+	}
+	if _, err := env.db.Exec(ctx, `INSERT INTO organization_members(organization_id,user_id,role) VALUES($1,$2,'member')`, registered.Organization.ID, observer.User.ID); err != nil {
 		t.Fatal(err)
 	}
 	canClaimMapped, err := env.store.HasPermission(ctx, observer.User.ID, registered.Organization.ID, "claim.resolve")
