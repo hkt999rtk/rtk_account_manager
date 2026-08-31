@@ -46,6 +46,13 @@ func TestDeveloperSignupCreatesDefaultBrandCloudAndEnforcesCloudLimit(t *testing
 	if err := env.store.SetDeveloperCloudLimit(ctx, result.User.ID, 2); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := env.store.CreateDeveloperBrandCloud(ctx, result.User.ID, BrandCloudInput{Name: "Pending must fail"}); !errors.Is(err, ErrAccountNotActivated) {
+		t.Fatalf("pending cloud creation err=%v", err)
+	}
+	// This store fixture represents completed activation; API/email evidence is separate.
+	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified=true,signup_pending_verification=false WHERE id=$1`, result.User.ID); err != nil {
+		t.Fatal(err)
+	}
 	second, err := env.store.CreateDeveloperBrandCloud(ctx, result.User.ID, BrandCloudInput{Name: "Second Cloud", TenantSlug: "second-cloud"})
 	if err != nil {
 		t.Fatal(err)
@@ -80,6 +87,9 @@ func TestDeveloperBrandCloudErrorPaths(t *testing.T) {
 		PasswordHash: "hash",
 	}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("expected duplicate developer signup conflict, got %v", err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified=true,signup_pending_verification=false WHERE id=$1`, result.User.ID); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := env.store.CreateDeveloperBrandCloud(ctx, result.User.ID, BrandCloudInput{
 		Name:       "Invalid Slug",

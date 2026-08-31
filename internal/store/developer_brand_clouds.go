@@ -149,38 +149,15 @@ func (s *Store) CreateDeveloperBrandCloud(ctx context.Context, userID string, in
 }
 
 func (s *Store) ListDeveloperBrandClouds(ctx context.Context, userID string, limit, offset int) (OrganizationPage, error) {
-	total, err := s.countDeveloperBrandClouds(ctx, userID)
+	page, err := s.ListManagedBrandClouds(ctx, userID, "all", limit, offset)
 	if err != nil {
 		return OrganizationPage{}, err
 	}
-	rows, err := s.db.Query(ctx, `
-		SELECT o.id::text, o.name, o.tenant_slug, m.role, o.organization_kind, o.status, o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at
-		FROM organizations o
-		JOIN organization_members m ON m.organization_id = o.id
-		JOIN users u ON u.id = m.user_id
-		WHERE m.user_id = $1
-		  AND o.organization_kind = 'brand_cloud'
-		  AND u.disabled_at IS NULL
-		ORDER BY o.created_at ASC
-		LIMIT $2 OFFSET $3
-	`, userID, limit, offset)
-	if err != nil {
-		return OrganizationPage{}, err
+	orgs := make([]model.Organization, 0, len(page.BrandClouds))
+	for _, cloud := range page.BrandClouds {
+		orgs = append(orgs, cloud.Organization)
 	}
-	defer rows.Close()
-
-	orgs := []model.Organization{}
-	for rows.Next() {
-		org, err := scanOrganization(rows)
-		if err != nil {
-			return OrganizationPage{}, err
-		}
-		orgs = append(orgs, org)
-	}
-	if err := rows.Err(); err != nil {
-		return OrganizationPage{}, err
-	}
-	return OrganizationPage{Organizations: orgs, Page: Page{Limit: limit, Offset: offset, Total: total}}, nil
+	return OrganizationPage{Organizations: orgs, Page: page.Page}, nil
 }
 
 func (s *Store) SetDeveloperCloudLimit(ctx context.Context, userID string, limit int) error {
