@@ -400,6 +400,45 @@ untouched. No staging deployment or shared database migration has been performed
   and `git diff --check`; Billing's OpenAPI importer test passed. These are local
   correctness results, not runtime PR CI, scale benchmarks or deployment evidence.
 
+## Managed cloud create/read/update checkpoint (060)
+
+- Added forward migration 060 with immutable, actor/operation/cloud-scoped write
+  receipts. Creation and PATCH persist the result, receipt and audit in the same
+  transaction. Creation locks the eligible global user before checking ownership
+  quota, so concurrent retries generate one cloud/owner and consume one slot.
+- Developer POST now accepts only name/description with a required 1–200 printable
+  character Idempotency-Key. PATCH supports partial name/description changes and
+  explicit description clearing; UUID, slug and ownership cannot be supplied.
+  Both enforce bounds in the store as well as strict, bounded API JSON parsing.
+  Duplicate/unknown keys, null fields, trailing JSON and nonhuman sessions fail.
+- PATCH serializes with ownership/collaboration mutations, checks the current
+  owner and respects the active handoff fence. Replays check current eligibility,
+  membership, lifecycle and ownership version; an old receipt is not an access
+  grant. A replay returns the prior result without reapplying an older rename.
+- Detail and list share the managed-cloud projection: derived sole owner, caller
+  role, description, status and ownership version. Nonoperational clouds have no
+  capabilities. Detail now uses the canonical `brand_cloud` envelope rather than
+  requiring the legacy separate `membership` field. Active owners receive the
+  implemented `cloud.update` capability. No delete capability is advertised yet.
+- Store/API tests cover concurrent retry, quota, restart replay, actor isolation,
+  tombstones, an eligible user with no remaining clouds, Unicode length bounds,
+  immutable identity fields, audit rollback, role/scope rejection and handoff
+  fencing. Local OpenAPI definitions reflect the implemented surfaces. Production
+  activation, producer drain and staging acceptance are not asserted by these tests.
+- Fresh isolated `multicloud_am_crud_test` applied through 060. The full uncached
+  Go suite passed (API 87.660s, store 109.636s); targeted API/store race tests passed
+  three runs (22.370s / 32.723s), including concurrent quota checks. Logs are
+  `/tmp/rtk-am-managed-cloud-suite-20260831.log` and
+  `/tmp/rtk-am-managed-cloud-race-20260831.log`. `go vet ./...`, diff whitespace
+  checks and all 11 email-signup helper unit tests passed. These tests ran against
+  loopback port 63229, not a shared database. Workspace-wide inventory, PR CI and
+  coordinated staging acceptance remain release gates.
+- This is not a complete CRUD release: deletion preflight, durable resource/Billing
+  closure, DELETE/operation APIs and My Clouds BFF/UI remain pending. The stricter
+  create payload/idempotency requirement and detail response must be coordinated
+  with BFF/CLI callers before deployment. No shared database or runtime deployment
+  has been changed.
+
 ## Required next work
 
 1. Complete cross-service authorization, downloads/background work and cache
@@ -407,7 +446,9 @@ untouched. No staging deployment or shared database migration has been performed
    generic provisioning/role APIs, activation holds and all resource-mutation fences.
    Retire legacy human
    identity fallbacks, retaining only the required migration evidence.
-2. Complete cloud idempotent CRUD/deletion and production handoff integration.
+2. Complete cloud deletion/preflight/closure and production handoff integration.
+   Idempotent managed-cloud creation/PATCH and shared detail/list projection are
+   implemented through 060; finish BFF/CLI compatibility before release.
    The automatic lease/retry coordinator is implemented through 059; wire
    production Billing eligibility, dedicated runtime credentials and actual
    producer hold/drain/release adapters. Deliver the committed ownership

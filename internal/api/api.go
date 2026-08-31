@@ -262,6 +262,7 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/developer/brand-clouds", s.listDeveloperBrandClouds)
 	protected.GET("/developer/brand-clouds/:brandCloudId", s.getDeveloperBrandCloud)
 	protected.POST("/developer/brand-clouds", s.createDeveloperBrandCloud)
+	protected.PATCH("/developer/brand-clouds/:brandCloudId", s.updateDeveloperBrandCloud)
 	protected.GET("/developer/brand-clouds/:brandCloudId/members", s.listDeveloperBrandCloudMembers)
 	protected.GET("/developer/brand-clouds/:brandCloudId/members/invitations", s.listDeveloperBrandCloudMemberInvitations)
 	protected.POST("/developer/brand-clouds/:brandCloudId/members/invitations", s.inviteDeveloperBrandCloudMember)
@@ -1910,6 +1911,8 @@ func trimPtr(value *string) *string {
 
 func writeStoreError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, store.ErrInvalidManagedCloudWrite):
+		writeError(c, http.StatusBadRequest, "invalid_request", "Cloud name must be 1-255 characters, description at most 2000, and a valid Idempotency-Key is required")
 	case errors.Is(err, model.ErrInvalidCloudViewerScope):
 		writeError(c, http.StatusBadRequest, "invalid_access_scope", err.Error())
 	case errors.Is(err, store.ErrHandoffUnavailable):

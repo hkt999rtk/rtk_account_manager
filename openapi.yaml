@@ -427,6 +427,9 @@ paths:
         - bearerAuth: []
       summary: List brand clouds visible to the current developer.
       parameters:
+        - in: query
+          name: view
+          schema: { type: string, enum: [all, owned, shared], default: all }
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Offset"
       responses:
@@ -435,7 +438,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BrandCloudsResponse"
+                $ref: "#/components/schemas/ManagedCloudListResponse"
         "401":
           $ref: "#/components/responses/Error"
     post:
@@ -447,20 +450,22 @@ paths:
         - REQ-UI-CA-CLOUD-005
       security:
         - bearerAuth: []
-      summary: Create a brand cloud owned by the current developer.
+      summary: Atomically create a cloud with the current global user as sole owner.
+      parameters:
+        - $ref: '#/components/parameters/ManagedCloudIdempotencyKey'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/BrandCloudRequest"
+              $ref: "#/components/schemas/ManagedCloudWrite"
       responses:
         "201":
           description: Developer brand cloud created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BrandCloudResponse"
+                $ref: "#/components/schemas/ManagedCloudResponse"
         "400":
           $ref: "#/components/responses/Error"
         "401":
@@ -474,24 +479,53 @@ paths:
       x-rtk-feature-id: FEAT-CA-BRAND-001
       x-rtk-requirement-ids:
         - REQ-UI-CA-CLOUD-005
-      summary: Get a Brand Cloud and the current developer membership.
+      summary: Read an accessible cloud with derived owner, caller role and capabilities.
       security:
         - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/BrandCloudId"
       responses:
         "200":
-          description: Developer Brand Cloud detail and current membership.
+          description: Developer Brand Cloud detail; nonoperational clouds have no capabilities.
           content:
             application/json:
               schema:
-                type: object
-                required: [brand_cloud, membership]
-                properties:
-                  brand_cloud: { $ref: "#/components/schemas/Organization" }
-                  membership: { $ref: "#/components/schemas/Member" }
+                $ref: '#/components/schemas/ManagedCloudResponse'
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [Developer Brand Clouds]
+      operationId: updateDeveloperBrandCloud
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-LIFECYCLE-001]
+      summary: Owner-only name/description update; UUID and slug never change.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/BrandCloudId'
+        - $ref: '#/components/parameters/ManagedCloudIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 255 }
+                description: { type: string, maxLength: 2000 }
+      responses:
+        '200':
+          description: Cloud updated; exact retry replays the stored result subject to current authorization.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManagedCloudResponse' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
   /v1/developer/brand-clouds/{brandCloudId}/members:
     get:
       tags: [Developer Brand Clouds]
@@ -4434,6 +4468,12 @@ components:
       scheme: bearer
       bearerFormat: JWT
   parameters:
+    ManagedCloudIdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 200 }
+      description: Actor, operation and cloud scoped. Exact retries replay the stored result subject to current authorization; changed payload conflicts.
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -5854,6 +5894,42 @@ components:
       properties:
         brand_cloud:
           $ref: "#/components/schemas/Organization"
+    ManagedCloudWrite:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 255 }
+        description: { type: string, maxLength: 2000, default: '' }
+    ManagedBrandCloud:
+      type: object
+      required: [id, name, description, tenant_slug, owner_user_id, my_role, status, ownership_version, capabilities]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        tenant_slug: { type: string }
+        owner_user_id: { type: string, format: uuid }
+        my_role: { type: string, enum: [owner, admin, member, viewer] }
+        status: { type: string, enum: [pending_activation, active, disabled, deleted] }
+        ownership_version: { type: integer, minimum: 1 }
+        capabilities: { type: array, uniqueItems: true, items: { type: string } }
+    ManagedCloudResponse:
+      type: object
+      required: [brand_cloud]
+      properties:
+        brand_cloud: { $ref: '#/components/schemas/ManagedBrandCloud' }
+    ManagedCloudListResponse:
+      type: object
+      required: [brand_clouds, total, limit, offset, owned_count, owned_limit, reserved_count]
+      properties:
+        brand_clouds: { type: array, items: { $ref: '#/components/schemas/ManagedBrandCloud' } }
+        total: { type: integer, minimum: 0 }
+        limit: { type: integer, minimum: 1, maximum: 100 }
+        offset: { type: integer, minimum: 0 }
+        owned_count: { type: integer, minimum: 0 }
+        owned_limit: { type: integer, minimum: 0 }
+        reserved_count: { type: integer, minimum: 0 }
     BrandCloudAccountProvisionResponse:
       type: object
       required: [action, user, member]

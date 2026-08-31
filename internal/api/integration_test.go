@@ -1703,10 +1703,9 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 		t.Fatalf("expected default cloud in list, got %+v", list)
 	}
 
-	createRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds", map[string]any{
-		"name":        "Second Developer Cloud",
-		"tenant_slug": "second-developer-cloud",
-	}, login.Tokens.AccessToken)
+	createRes := managedCloudHTTP(t, env.router, http.MethodPost, "/v1/developer/brand-clouds", login.Tokens.AccessToken, "second-developer-cloud", map[string]any{
+		"name": "Second Developer Cloud",
+	})
 	if createRes.Code != http.StatusCreated {
 		t.Fatalf("expected developer brand cloud create 201, got %d: %s", createRes.Code, createRes.Body.String())
 	}
@@ -1889,12 +1888,12 @@ func TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession(t 
 	source := verifiedDeveloperForTest(t, env, "source-transfer@example.com")
 	target := verifiedDeveloperForTest(t, env, "target-transfer@example.com")
 
-	invalidCreateRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds", map[string]any{
+	invalidCreateRes := managedCloudHTTP(t, env.router, http.MethodPost, "/v1/developer/brand-clouds", source.AccessToken, "invalid-create", map[string]any{
 		"name":        "Invalid Slug Cloud",
 		"tenant_slug": "!!!",
-	}, source.AccessToken)
-	if invalidCreateRes.Code != http.StatusConflict {
-		t.Fatalf("expected invalid developer cloud slug 409, got %d: %s", invalidCreateRes.Code, invalidCreateRes.Body.String())
+	})
+	if invalidCreateRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected caller-selected developer cloud slug rejected 400, got %d: %s", invalidCreateRes.Code, invalidCreateRes.Body.String())
 	}
 
 	invalidTransferRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer", map[string]any{}, source.AccessToken)

@@ -62,6 +62,10 @@ func developerBrandCloudManager(c *gin.Context, s *Server) (model.Member, bool) 
 }
 
 func (s *Server) listDeveloperBrandClouds(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	if !requireManagedCloudSession(c) {
+		return
+	}
 	limit, limitErr := strconv.Atoi(c.DefaultQuery("limit", "25"))
 	offset, offsetErr := strconv.Atoi(c.DefaultQuery("offset", "0"))
 	if limitErr != nil || offsetErr != nil || limit < 1 || limit > 100 || offset < 0 {
@@ -95,45 +99,33 @@ func (s *Server) listDeveloperBrandClouds(c *gin.Context) {
 }
 
 func (s *Server) createDeveloperBrandCloud(c *gin.Context) {
-	var req brandCloudRequest
-	if !bind(c, &req) {
+	c.Header("Cache-Control", "no-store")
+	if !requireManagedCloudSession(c) {
 		return
 	}
-	if !requireNonBlank(c, "name", req.Name) {
+	req, ok := bindManagedCloudWrite(c)
+	if !ok {
 		return
 	}
-	org, err := s.store.CreateDeveloperBrandCloud(c.Request.Context(), currentUserID(c), store.BrandCloudInput{
-		Name:       strings.TrimSpace(req.Name),
-		TenantSlug: strings.TrimSpace(req.TenantSlug),
-		Metadata:   req.Metadata,
-	})
+	org, err := s.store.CreateManagedBrandCloud(c.Request.Context(), currentUserID(c), c.GetHeader("Idempotency-Key"), req)
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"brand_cloud": org})
+	s.writeManagedCloudResponse(c, http.StatusCreated, org)
 }
 
 func (s *Server) getDeveloperBrandCloud(c *gin.Context) {
-	org, err := s.store.GetOrganization(c.Request.Context(), c.Param("brandCloudId"), currentUserID(c))
-	if err != nil || org.OrganizationKind != model.OrganizationKindBrandCloud {
-		if err == nil {
-			err = store.ErrNotFound
-		}
-		writeStoreError(c, err)
+	c.Header("Cache-Control", "no-store")
+	if !requireManagedCloudSession(c) {
 		return
 	}
-	member, err := s.store.GetDeveloperBrandCloudMember(c.Request.Context(), org.ID, currentUserID(c))
+	org, err := s.store.GetManagedBrandCloud(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"))
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	org.Capabilities, err = s.developerCapabilitiesForUser(c.Request.Context(), currentUserID(c), org.ID, member.Role)
-	if err != nil {
-		writeStoreError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"brand_cloud": org, "membership": member})
+	s.writeManagedCloudResponse(c, http.StatusOK, org)
 }
 
 func developerCapabilitiesForRole(role model.Role) []string {
@@ -146,7 +138,7 @@ func developerCapabilitiesForRole(role model.Role) []string {
 	}
 	capabilities := append(read, "fleet.device.manage", "fleet.batch.manage", "product.manage", "product.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "provisioning.create", "pki.test.issue")
 	if role == model.RoleOwner {
-		capabilities = append(capabilities, "team.manage")
+		capabilities = append(capabilities, "team.manage", "cloud.update")
 	}
 	return capabilities
 }
