@@ -16,7 +16,7 @@ operator-owned location such as `/etc/rtk-account-manager/account-manager.env`,
 fill values from a secret manager, and set file mode `0600`.
 
 The full operations runbook is in
-[`docs/PRIVATE_CLOUD_DEPLOYMENT_RUNBOOK.md`](../docs/PRIVATE_CLOUD_DEPLOYMENT_RUNBOOK.md).
+[`docs/private_cloud_deployment_runbook.md`](../docs/private_cloud_deployment_runbook.md).
 
 Staging CD deploys immutable release tarballs to `video-cloud-cd.local` using
 the `account-manager-cd` self-hosted runner label. Runtime secrets must stay in

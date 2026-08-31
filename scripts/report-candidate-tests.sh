@@ -23,14 +23,14 @@ assert_rejects() {
 	fi
 }
 
-valid_report="$tmp_dir/docs/TEST_REPORT.md"
+valid_report="$tmp_dir/docs/test_report.md"
 mkdir -p "$(dirname "$valid_report")"
 cat >"$valid_report" <<'EOF'
 # Test Report
 
 Generated: test
 EOF
-"$repo_root/scripts/validate-report-candidate.sh" docs/TEST_REPORT.md "$valid_report" >/dev/null
+"$repo_root/scripts/validate-report-candidate.sh" docs/test_report.md "$valid_report" >/dev/null
 
 assert_rejects "invalid target path" "$repo_root/scripts/validate-report-candidate.sh" docs/UNKNOWN.md "$valid_report"
 
@@ -40,7 +40,7 @@ cat >"$dsn_report" <<'EOF'
 
 DATABASE_URL=postgres://user:password@localhost/db
 EOF
-assert_rejects "raw DSN with credentials" "$repo_root/scripts/validate-report-candidate.sh" docs/TEST_REPORT.md "$dsn_report"
+assert_rejects "raw DSN with credentials" "$repo_root/scripts/validate-report-candidate.sh" docs/test_report.md "$dsn_report"
 
 secret_report="$tmp_dir/secret.md"
 cat >"$secret_report" <<'EOF'
@@ -48,7 +48,7 @@ cat >"$secret_report" <<'EOF'
 
 JWT_ACCESS_SECRET=not-redacted
 EOF
-assert_rejects "secret env assignment" "$repo_root/scripts/validate-report-candidate.sh" docs/TEST_REPORT.md "$secret_report"
+assert_rejects "secret env assignment" "$repo_root/scripts/validate-report-candidate.sh" docs/test_report.md "$secret_report"
 
 jwt_report="$tmp_dir/jwt.md"
 cat >"$jwt_report" <<'EOF'
@@ -56,7 +56,7 @@ cat >"$jwt_report" <<'EOF'
 
 token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature
 EOF
-assert_rejects "JWT-looking value" "$repo_root/scripts/validate-report-candidate.sh" docs/TEST_REPORT.md "$jwt_report"
+assert_rejects "JWT-looking value" "$repo_root/scripts/validate-report-candidate.sh" docs/test_report.md "$jwt_report"
 
 key_report="$tmp_dir/key.md"
 cat >"$key_report" <<'EOF'
@@ -64,7 +64,7 @@ cat >"$key_report" <<'EOF'
 
 -----BEGIN PRIVATE KEY-----
 EOF
-assert_rejects "private key material" "$repo_root/scripts/validate-report-candidate.sh" docs/TEST_REPORT.md "$key_report"
+assert_rejects "private key material" "$repo_root/scripts/validate-report-candidate.sh" docs/test_report.md "$key_report"
 
 release_dir="$tmp_dir/rtk_account_manager-vtest"
 mkdir -p "$release_dir/bin" "$release_dir/deploy/systemd" "$release_dir/migrations"
@@ -104,7 +104,7 @@ VERSION="vtest" \
 	OUTPUT_DIR="$object_output" \
 	"$repo_root/scripts/prepare-linode-release-objects.sh" >/dev/null
 "$repo_root/scripts/verify-linode-release-objects.sh" vtest "$object_output" >/dev/null
-release_output="$tmp_dir/candidates/docs/RELEASE_TEST_REPORT.md"
+release_output="$tmp_dir/candidates/docs/release_test_report.md"
 OUTPUT="$release_output" \
 	VERSION="vtest" \
 	SOURCE_COMMIT="abc123" \
@@ -158,7 +158,7 @@ cat >"$evidence/redacted-env-keys.txt" <<'EOF'
 DATABASE_URL=<redacted>
 JWT_ACCESS_SECRET=<redacted>
 EOF
-readiness_output="$tmp_dir/candidates/docs/READINESS_TEST_REPORT.md"
+readiness_output="$tmp_dir/candidates/docs/readiness_test_report.md"
 OUTPUT="$readiness_output" \
 	EVIDENCE_DIR="$evidence" \
 	VERIFY_RESULT="success" \
@@ -179,12 +179,12 @@ assert_contains "$readiness_output" "- \`JWT_ACCESS_SECRET=<redacted>\`"
 
 import_root="$tmp_dir/imported/artifact/docs"
 mkdir -p "$import_root"
-cp "$release_output" "$import_root/RELEASE_TEST_REPORT.md"
+cp "$release_output" "$import_root/RELEASE_test_report.md"
 (
 	cd "$tmp_dir"
 	assert_rejects "invalid import target" "$repo_root/scripts/import-report-candidate.sh" docs/NOT_ALLOWED.md
-	TARGET_REPORT=docs/RELEASE_TEST_REPORT.md IMPORT_DIR="$tmp_dir/imported" "$repo_root/scripts/import-report-candidate.sh" >/dev/null
-	test -f docs/RELEASE_TEST_REPORT.md
+	TARGET_REPORT=docs/release_test_report.md IMPORT_DIR="$tmp_dir/imported" "$repo_root/scripts/import-report-candidate.sh" >/dev/null
+	test -f docs/release_test_report.md
 )
 
 echo "report candidate script tests passed"

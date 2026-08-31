@@ -13,9 +13,9 @@ Source inputs:
 - `rtk_cloud_workspace/docs/private-cloud-deployment.md`
 - `rtk_cloud_workspace/docs/implementation-gap-backlog.md`
 - `rtk_cloud_workspace/docs/core-platform-gap-roadmap.md`
-- `docs/SPEC.md`
-- `docs/rtk_cloud_contracts_doc/PROVISION.md`
-- `docs/rtk_cloud_contracts_doc/CROSS_SERVICE_CHANNEL.md`
+- `docs/spec.md`
+- `docs/rtk_cloud_contracts_doc/provision.md`
+- `docs/rtk_cloud_contracts_doc/cross_service_channel.md`
 
 ## Deployment Profiles
 
@@ -524,13 +524,24 @@ the HTTP status and reason.
 
 Platform-admin API access is controlled by `users.platform_admin=true`.
 
+The authoritative Platform Admin bootstrap/lifecycle and its separation from
+PKI Root key custody are defined in
+[`platform_pki.md`](rtk_cloud_contracts_doc/platform_pki.md). The environment
+variables and SQL example below document the current compatibility mechanism;
+they are not the target production bootstrap contract. In particular, leaving
+the bootstrap variables configured causes startup to ensure, reset, verify,
+re-enable, and grant Platform Admin authority to the matching account.
+
 Bootstrap rules:
 
 - Grant the flag only to named operator accounts.
-- Prefer deployment bootstrap through
+- For local/staging compatibility, use deployment bootstrap through
   `ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL` and
   `ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD` when creating the first
   root account for a private cloud.
+- For production, use the one-time, two-person-approved, sealed and audited
+  bootstrap required by `platform_pki.md`; remove the bootstrap credential and
+  workload configuration after first-login rotation and recovery enrollment.
 - Use an audited SQL migration or controlled DBA procedure only when env-based
   bootstrap is unavailable.
 - Record who approved the bootstrap and when.

@@ -8,7 +8,7 @@ The backend uses these test layers:
 | --- | --- | --- |
 | Unit tests | `make test` | Fast package-level checks that do not require Postgres unless `TEST_DATABASE_URL` is set. |
 | Integration tests | `make integration-test` | Runs the API, store, migrations, auth, authorization, and device lifecycle tests against Postgres. |
-| Full report | `make test-report` | Runs formatting, integration-aware tests, coverage, build validation, and writes `docs/TEST_REPORT.md`. |
+| Full report | `make test-report` | Runs formatting, integration-aware tests, coverage, build validation, and writes `docs/test_report.md`. |
 | Race tests | `make test-race` | Runs Go's race detector against packages that do not need the shared integration database. |
 | Repeatability smoke | `make test-repeat` | Runs selected unit packages with `-shuffle=on -count=3` to catch order coupling and flakes. |
 | Fuzz smoke | `make fuzz-smoke` | Runs short seeded fuzz checks for strict JSON and contract parser behavior. |
@@ -18,7 +18,7 @@ The backend uses these test layers:
 
 `make integration-test` and `make test-report` expect Postgres to be reachable at `TEST_DATABASE_URL`.
 For the default local setup, start it first with `make db-up`.
-`make test-report` now fails fast with that prerequisite message instead of overwriting `docs/TEST_REPORT.md` with a misleading low-coverage report.
+`make test-report` now fails fast with that prerequisite message instead of overwriting `docs/test_report.md` with a misleading low-coverage report.
 
 Integration tests share one Postgres database and use an advisory lock through
 `internal/testutil.LockIntegrationDatabase`. Do not make these tests parallel
@@ -66,7 +66,7 @@ Update tests whenever changing:
 
 | Path | Purpose |
 | --- | --- |
-| `docs/TEST_REPORT.md` | Human-readable current test report. |
+| `docs/test_report.md` | Human-readable current test report. |
 | `reports/test-events.json` | Machine-readable Go test event stream. |
 | `reports/coverage.out` | Go coverage profile. |
 | `reports/coverage.txt` | Function-level coverage summary. |
@@ -79,7 +79,7 @@ Update tests whenever changing:
 | `reports/test-race.txt` | `make test-race` output when that target runs. |
 | `reports/fuzz-smoke-*.txt` | `make fuzz-smoke` output when that target runs. |
 
-`reports/` is ignored by git. Commit `docs/TEST_REPORT.md` when intentionally refreshing the maintained report.
+`reports/` is ignored by git. Commit `docs/test_report.md` when intentionally refreshing the maintained report.
 
 ## Readiness Smoke Artifact
 
@@ -117,7 +117,7 @@ in normal PR CI or point it at a shared deployment.
 
 ## Correctness Versus Coverage
 
-Coverage only proves that statements executed. Correctness comes from assertions that check externally visible behavior and database state. The maintained report includes correctness gates and a correctness validation section that map tests back to behavior groups from `docs/SPEC.md`.
+Coverage only proves that statements executed. Correctness comes from assertions that check externally visible behavior and database state. The maintained report includes correctness gates and a correctness validation section that map tests back to behavior groups from `docs/spec.md`.
 
 When adding a feature, do not rely on line coverage alone. Add assertions for:
 

@@ -5,13 +5,13 @@ target=${1:-}
 candidate=${2:-}
 
 case "$target" in
-  docs/TEST_REPORT.md)
+  docs/test_report.md)
     expected_heading="# Test Report"
     ;;
-  docs/RELEASE_TEST_REPORT.md)
+  docs/release_test_report.md)
     expected_heading="# Release Test Report"
     ;;
-  docs/READINESS_TEST_REPORT.md)
+  docs/readiness_test_report.md)
     expected_heading="# Readiness Test Report"
     ;;
   *)

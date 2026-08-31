@@ -56,19 +56,19 @@ jobs:
 
       - name: Run tests and generate report
         run: |
-          REPORT_FILE=.artifacts/report-candidates/docs/TEST_REPORT.md \
+          REPORT_FILE=.artifacts/report-candidates/docs/test_report.md \
             REPORT_GENERATED_AT=ci-candidate \
             REPORT_CANONICAL=true \
             make test-report
           ./scripts/validate-report-candidate.sh \
-            docs/TEST_REPORT.md \
-            .artifacts/report-candidates/docs/TEST_REPORT.md
+            docs/test_report.md \
+            .artifacts/report-candidates/docs/test_report.md
 
       - name: Check committed test report drift
         run: |
-          if ! diff -u docs/TEST_REPORT.md .artifacts/report-candidates/docs/TEST_REPORT.md; then
+          if ! diff -u docs/test_report.md .artifacts/report-candidates/docs/test_report.md; then
             cat >&2 <<'MSG'
-          docs/TEST_REPORT.md is stale.
+          docs/test_report.md is stale.
 
           Import the generated test-report-candidate artifact into the PR branch
           with the "Import Report Candidate" workflow, or regenerate and commit the

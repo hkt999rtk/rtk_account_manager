@@ -1,10 +1,10 @@
 # Unified identity migration correction design
 
 This service design refines the existing unified-human-identity requirements in
-`SPEC.md` and the canonical `AUTH.md` / `AUTHORIZATION.md`. It does not add a
+`spec.md` and the canonical `auth.md` / `authorization.md`. It does not add a
 tenant login, change public signup, or authorize a staging migration by itself.
 Implementation and deployment follow review of this design.
-The multi-cloud target in [MULTICLOUD_IMPLEMENTATION.md](MULTICLOUD_IMPLEMENTATION.md)
+The multi-cloud target in [multicloud_implementation.md](multicloud_implementation.md)
 supersedes this document's former active-owner cutover gate. Historical findings
 below describe the published migration, not the new designated-owner invariant.
 

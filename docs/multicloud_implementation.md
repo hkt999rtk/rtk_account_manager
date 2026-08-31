@@ -1,7 +1,7 @@
 # Multi-cloud Account Manager implementation design
 
 Status: design-first target, not deployed acceptance. Canonical behavior is
-[MULTICLOUD_OWNERSHIP.md](https://github.com/hkt999rtk/rtk_cloud_contracts_doc/blob/codex/multicloud-owner-design/MULTICLOUD_OWNERSHIP.md) in
+[multicloud_ownership.md](https://github.com/hkt999rtk/rtk_cloud_contracts_doc/blob/codex/multicloud-owner-design/multicloud_ownership.md) in
 [contracts PR #131](https://github.com/hkt999rtk/rtk_cloud_contracts_doc/pull/131).
 Runtime work follows reviewed/merged docs-only PRs.
 
