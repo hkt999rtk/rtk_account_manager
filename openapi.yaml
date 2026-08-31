@@ -6363,7 +6363,7 @@ components:
         target_confirmed: { type: boolean }
         operation: { $ref: "#/components/schemas/CloudHandoffOperation" }
         ownership_version: { type: integer, format: int64, minimum: 1 }
-        operation_phase: { type: string, enum: [preparing, canceling, canceled] }
+        operation_phase: { type: string, enum: [preparing, committing, finalizing, succeeded, canceling, canceled] }
         id:
           type: string
           format: uuid

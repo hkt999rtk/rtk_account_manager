@@ -250,4 +250,63 @@ func TestLiveOwnerHandoffPublicAPIWithBilling(t *testing.T) {
 		t.Fatalf("Billing fixture setup failed: %d", res.StatusCode)
 	}
 	exercisePublicHandoffConfirmation(t, f)
+	if os.Getenv("TEST_HANDOFF_MODE") == "commit" {
+		exerciseLiveHandoffCommit(t, f)
+	}
+}
+
+func exerciseLiveHandoffCommit(t *testing.T, f publicHandoffFixture) {
+	t.Helper()
+	ctx := context.Background()
+	decision, err := f.env.store.CommitOwnerHandoff(ctx, f.binding.CloudID, f.binding.OperationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := newResponseContract(t)
+	for _, actor := range []verifiedDeveloperFixture{f.source, f.target} {
+		res := performJSON(f.env.router, http.MethodGet, f.path, nil, actor.AccessToken)
+		if res.Code != http.StatusOK {
+			t.Fatalf("participant status after commit: %d %s", res.Code, res.Body.String())
+		}
+		contract.validate(t, http.MethodGet, f.path, res)
+		view := decodeBody[brandCloudOwnerTransferResponse](t, res).OwnerTransfer
+		if view.Phase != "finalizing" || !*view.SourceConfirmed || !*view.TargetConfirmed {
+			t.Fatalf("invalid committed status: %+v", view)
+		}
+		var allowed bool
+		if err := f.env.db.QueryRow(ctx, `SELECT user_can_access_brand_cloud($1,$2)`, actor.UserID, f.binding.CloudID).Scan(&allowed); err != nil || allowed {
+			t.Fatal("commit released access before finalize", err)
+		}
+	}
+	res := performJSON(f.env.router, http.MethodPost, f.path+"/cancel", nil, f.source.AccessToken)
+	if res.Code != http.StatusConflict {
+		t.Fatalf("postcommit cancellation: %d %s", res.Code, res.Body.String())
+	}
+	for i := 0; i < 2; i++ {
+		if phase, err := f.env.store.FinalizeOwnerHandoff(ctx, f.binding.CloudID, f.binding.OperationID); err != nil || phase != "finalizing" {
+			t.Fatalf("real Billing finalize: %s %v", phase, err)
+		}
+	}
+	// Synthetic resource release only; real production adapters remain required.
+	if phase, err := f.env.store.RecordHandoffFinalizationAck(ctx, store.HandoffFinalizationAck{CloudID: f.binding.CloudID, OperationID: f.binding.OperationID,
+		OwnershipVersion: f.binding.OwnershipVersion, DecisionSHA256: decision.DecisionSHA256, Participant: "test_resources", ReceiptSHA256: strings.Repeat("d", 64)}); err != nil || phase != "succeeded" {
+		t.Fatalf("release: %s %v", phase, err)
+	}
+	res = performJSON(f.env.router, http.MethodGet, f.path, nil, f.target.AccessToken)
+	contract.validate(t, http.MethodGet, f.path, res)
+	view := decodeBody[brandCloudOwnerTransferResponse](t, res).OwnerTransfer
+	if view.Phase != "succeeded" {
+		t.Fatalf("handoff not complete: %+v", view)
+	}
+	var owner string
+	var version int64
+	if err := f.env.db.QueryRow(ctx, `SELECT m.user_id::text,o.ownership_version FROM organizations o JOIN organization_members m ON m.organization_id=o.id AND m.role='owner' WHERE o.id=$1`, f.binding.CloudID).Scan(&owner, &version); err != nil || owner != f.target.UserID || version != 2 {
+		t.Fatalf("owner not committed: %s %d %v", owner, version, err)
+	}
+	for _, actor := range []verifiedDeveloperFixture{f.source, f.target} {
+		var allowed bool
+		if err := f.env.db.QueryRow(ctx, `SELECT user_can_access_brand_cloud($1,$2)`, actor.UserID, f.binding.CloudID).Scan(&allowed); err != nil || allowed != (actor.UserID == f.target.UserID) {
+			t.Fatalf("final access: %s %t %v", actor.UserID, allowed, err)
+		}
+	}
 }

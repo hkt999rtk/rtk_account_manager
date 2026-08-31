@@ -52,7 +52,13 @@ func projectHandoffStatus(view model.BrandCloudOwnerTransfer) model.BrandCloudOw
 		phase = "awaiting_acceptance"
 	case "accepted":
 		phase = "preparing"
-		if view.OperationPhase == "canceling" {
+		if view.OperationPhase == "committing" || view.OperationPhase == "finalizing" || view.OperationPhase == "succeeded" {
+			phase = view.OperationPhase
+			if view.HasSettledSnapshot && (phase == "finalizing" || phase == "succeeded") {
+				source, target := true, true
+				view.SourceConfirmed, view.TargetConfirmed = &source, &target
+			}
+		} else if view.OperationPhase == "canceling" {
 			phase = "blocked"
 			blockers = handoffBlockers("lifecycle_conflict")
 		} else if view.OperationPhase == "canceled" {
@@ -84,6 +90,9 @@ func handoffView(view model.BrandCloudOwnerTransfer, phase string, blockers []mo
 		}
 		if phase == "canceled" {
 			view.Operation.State = "canceled"
+		}
+		if phase == "succeeded" {
+			view.Operation.State = "succeeded"
 		}
 		if view.OperationPhase == "canceling" {
 			view.Operation.Phase = "canceling"

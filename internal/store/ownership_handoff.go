@@ -102,7 +102,7 @@ func handoffVersion(ctx context.Context, q handoffQuerier, cloud, source, target
 }
 func countReservedCloudsTx(ctx context.Context, q handoffQuerier, user string) (int, error) {
 	var count int
-	err := q.QueryRow(ctx, `SELECT count(*) FROM cloud_ownership_handoffs WHERE target_user_id::text=$1 AND phase<>'canceled'`, user).Scan(&count)
+	err := q.QueryRow(ctx, `SELECT count(*) FROM cloud_ownership_handoffs WHERE target_user_id::text=$1 AND phase IN ('preparing','committing','canceling')`, user).Scan(&count)
 	return count, err
 }
 func countCloudQuotaUsageTx(ctx context.Context, q handoffQuerier, user string) (int, error) {

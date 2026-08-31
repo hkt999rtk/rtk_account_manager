@@ -48,7 +48,7 @@ func (s *Store) cancelOwnerHandoff(ctx context.Context, in BrandCloudOwnerTransf
 		if err != nil {
 			return model.BrandCloudOwnerTransfer{}, err
 		}
-	case transfer.Status == "accepted" && transfer.OperationPhase == "preparing":
+	case transfer.Status == "accepted" && (transfer.OperationPhase == "preparing" || transfer.OperationPhase == "committing"):
 		if _, err := tx.Exec(ctx, `UPDATE cloud_ownership_handoffs SET phase='canceling',version=version+1,updated_at=now() WHERE id=$1`, in.TransferID); err != nil {
 			return model.BrandCloudOwnerTransfer{}, err
 		}

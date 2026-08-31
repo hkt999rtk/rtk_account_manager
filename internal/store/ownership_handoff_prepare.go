@@ -44,7 +44,7 @@ func handoffPreparation(ctx context.Context, q handoffQuerier, id string) (Cloud
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, ErrNotFound
 	}
-	out.AllParticipantsPrepared = err == nil && hasInventory && len(out.MissingParticipants) == 0 && out.Phase == "preparing"
+	out.AllParticipantsPrepared = err == nil && hasInventory && len(out.MissingParticipants) == 0 && (out.Phase == "preparing" || out.Phase == "committing")
 	return out, err
 }
 

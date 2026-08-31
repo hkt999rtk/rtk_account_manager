@@ -284,6 +284,64 @@ untouched. No staging deployment or shared database migration has been performed
   Log: `/tmp/rtk-am-public-handoff-race-20260831.log`. Cross-service fixture
   implementation and Billing evidence are committed locally at `07e9fa2`.
 
+### Durable AM owner commit and finalization checkpoint — 2026-08-31
+
+- Forward migration 058 adds immutable authorization requests, committed AM
+  decisions and finalization acknowledgments. It extends the transition graph
+  through committing/finalizing/succeeded without editing older migration files.
+  Active-cloud uniqueness excludes completed history; incoming quota reservations
+  are consumed at owner commit, not counted again during finalization.
+- The trusted coordinator method persists a stable Billing authorization ID and
+  snapshot version, command outbox and audit before calling Billing. Both locally
+  acknowledged participant consents, all preparation receipts, current eligible
+  users/source ownership/version, invitation expiry and target quota are rechecked
+  under ordered user/cloud locks. Billing grants only its current settled snapshot.
+  HTTP calls do not hold AM database locks. Lost grant replies retry the same ID.
+- After the grant, one AM transaction records the irreversible decision, promotes
+  target to the sole owner, increments ownership version, consumes quota, transfers
+  source's active Product-owner duties, removes source membership/admission/ACLs,
+  cancels its pending Product/cloud invitations and revokes source-created service
+  account grants and unused claim tokens in this cloud. Other collaborators and
+  unrelated global/cloud permissions are retained. Audit and finalize outbox commit
+  with that decision; injected audit failure rolls back the entire owner swap.
+- A deferred constraint rejects committed decisions without the matching owner
+  transaction. Phase guards require preparation/consent and matching revocation;
+  canceled/succeeded history is immutable. Cancellation may win before commit,
+  including while grant delivery is in flight, but never after a committed decision.
+  The persisted authorization ID must be used when reconciling precommit abort.
+- Finalization uses the immutable AM decision, not current source access. Disabled
+  source or lost response does not permit rollback. Billing acknowledgment queues
+  release commands for the captured producer inventory. AM remains fenced until
+  all participants acknowledge finalization/release; a timeout or Billing alone
+  cannot mark success. Duplicate receipts are idempotent; changed receipts conflict.
+- Participant status now exposes committing/finalizing/succeeded and retains
+  committed consent history. No public endpoint accepts commit grants or release
+  receipts. These are trusted coordinator/adapter methods; automatic delivery and
+  real producer acknowledgment authentication remain required before rollout.
+- Fresh isolated `multicloud_am_commit_test` applied through 058. Focused tests
+  cover simultaneous commits, lost grant/finalize responses, owner-audit rollback,
+  cancellation/disable/expiry/quota changes during grant I/O, Product/service/claim
+  revocation, retained collaborators, quota conversion and gated finalization.
+- The cross-repository public-API fixture now has consent-only and commit variants.
+  The latter consumes the real Billing grant, commits AM's actual unique owner,
+  posts that actual decision to Billing, validates two responsibility periods and
+  the new current owner/version, then verifies public status and source/target
+  access. Initial eligibility, producer preparation/release and settlement
+  checkpoints remain synthetic; no real provider settlement, running producer
+  drain, background worker, browser or staging acceptance is implied.
+- Full uncached AM `go test ./... -count=1` passed (API 72.341s, store 105.925s).
+  The final commit/finalization/related balance tests then passed three race runs
+  (store 21.491s), including the added missing-consent, negative-after-consent,
+  finalization-audit rollback and unrelated-cloud preservation checks. Logs:
+  `/tmp/rtk-am-owner-commit-suite-20260831.log` and
+  `/tmp/rtk-am-owner-commit-race-20260831.log`. Both-repository `go vet ./...` and
+  `git diff --check` passed. The real-commit Billing fixture passed three repeated
+  Billing-side race runs (23.104s). Durations are not performance benchmarks.
+  The additional deferred-constraint test passed three race runs (2.883s): a
+  direct SQL committed-decision insert without the matching owner transaction is
+  rejected and leaves source ownership unchanged. Billing's actual-AM integration
+  checkpoint is committed locally at `31aef1c`.
+
 ## Required next work
 
 1. Complete cross-service authorization, downloads/background work and cache
@@ -291,17 +349,13 @@ untouched. No staging deployment or shared database migration has been performed
    generic provisioning/role APIs, activation holds and all resource-mutation fences.
    Retire legacy human
    identity fallbacks, retaining only the required migration evidence.
-2. Complete cloud idempotent CRUD/deletion and the AM handoff coordinator beyond
-   acceptance/cancel preparation and balance consent. Wire the remaining Billing commands and
-   add the production Billing eligibility provider,
-   dedicated credentials, outbox delivery/retries and actual producer hold/drain
-   adapters for the persisted preparation acknowledgments. Consume the implemented
-   versioned previews and participant confirmations in the coordinator. Then commit
-   the sole-owner swap, consume the reservation, transfer Product-owner duties and
-   remove every old-owner membership/delegated grant atomically with the committed
-   outbox event. Keep access fenced until Billing finalize acknowledgment; after a
-   known commit only forward retry is legal. Current 055–057 deliberately have no
-   successful owner-commit path; acceptance is not transfer completion.
+2. Complete cloud idempotent CRUD/deletion and the automatic AM handoff coordinator.
+   The explicit commit/finalize store protocol is implemented through 058; wire
+   production Billing eligibility, dedicated credentials, outbox delivery/retries
+   and actual producer hold/drain/release adapters. Deliver the committed ownership
+   and authorization changes to resource services and queued work. Keep access
+   fenced through every finalization acknowledgment; known commits only retry
+   forward. Acceptance or two confirmations alone still do not complete transfer.
 3. Integrate Billing's implemented store protocol/privacy with real AM decisions,
    evidence collectors, provider adapters and audited operations. A configured test
    producer list is not proof of complete production inventory. AM's eligibility

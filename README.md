@@ -117,7 +117,8 @@ characters, not reused from other service credentials). The origin must use HTTP
 literal loopback HTTP is permitted for isolated tests only. Leave both unset to
 keep unavailable financial evidence fail-closed. Configuring this adapter does
 **not** enable complete transfers: trusted initial eligibility, producer hold/drain
-workers, owner commit and finalization delivery are still required. See
+workers and automatic delivery of the implemented owner commit/finalization
+protocol are still required. See
 `docs/MULTICLOUD_IMPLEMENTATION_PROGRESS.md` before enabling any runtime rollout.
 
 Set `CROSS_SERVICE_BROKER=azure_eventhubs` plus `AZURE_EVENTHUB_CONNECTION_STRING` to run the workers against Azure Event Hubs instead of the local `log` adapter. The inbox worker persists Azure consumer checkpoints at `.state/azure_eventhubs/<stream>__<consumer-group>.json` by default; set `AZURE_EVENTHUB_CHECKPOINT_FILE` to override that path.
