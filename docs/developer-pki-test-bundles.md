@@ -3,7 +3,7 @@
 Account Manager owns target authorization, subject selection, certificate
 metadata persistence, idempotency, and audit for the Developer Console app
 certificate test path. The canonical bundle shape is defined by
-[`docs/rtk_cloud_contracts_doc/CERTIFICATE_BUNDLE.md`](rtk_cloud_contracts_doc/CERTIFICATE_BUNDLE.md).
+[`docs/rtk_cloud_contracts_doc/certificate_bundle.md`](rtk_cloud_contracts_doc/certificate_bundle.md).
 
 > `POST /v1/developer/brand-clouds/{brandCloudId}/pki/test-app-certificates`
 > is a local/staging SDK smoke-test utility. It is not the production app

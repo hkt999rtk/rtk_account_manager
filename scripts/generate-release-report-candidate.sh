@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OUTPUT="${OUTPUT:-.artifacts/report-candidates/docs/RELEASE_TEST_REPORT.md}"
+OUTPUT="${OUTPUT:-.artifacts/report-candidates/docs/release_test_report.md}"
 VERSION="${VERSION:-}"
 SOURCE_COMMIT="${SOURCE_COMMIT:-${GITHUB_SHA:-}}"
 RELEASE_ASSET="${RELEASE_ASSET:-}"
@@ -73,5 +73,5 @@ Generated: $GENERATED_AT
 This sanitized release report is generated as a workflow artifact. It is not committed automatically. Import it into a pull request branch only through the report import workflow after reviewing the artifact.
 EOF
 
-"$(dirname "$0")/validate-report-candidate.sh" docs/RELEASE_TEST_REPORT.md "$OUTPUT" >/dev/null
+"$(dirname "$0")/validate-report-candidate.sh" docs/release_test_report.md "$OUTPUT" >/dev/null
 echo "generated release report candidate: $OUTPUT"

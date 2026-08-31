@@ -5,7 +5,7 @@ TARGET_REPORT="${TARGET_REPORT:-${1:-}}"
 IMPORT_DIR="${IMPORT_DIR:-.artifacts/imported}"
 
 case "$TARGET_REPORT" in
-	docs/TEST_REPORT.md | docs/RELEASE_TEST_REPORT.md | docs/READINESS_TEST_REPORT.md)
+	docs/test_report.md | docs/release_test_report.md | docs/readiness_test_report.md)
 		;;
 	*)
 		echo "unsupported target report: $TARGET_REPORT" >&2

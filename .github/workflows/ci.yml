@@ -11,7 +11,8 @@ on:
 
 jobs:
   test:
-    runs-on: [self-hosted, Linux, X64]
+    # PR validation uses a fresh VM; retain existing runners for other events.
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["self-hosted", "Linux", "X64"]') }}
     timeout-minutes: 20
 
     services:
@@ -40,9 +41,16 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
+      - name: Set up Go for PR validation
+        if: github.event_name == 'pull_request'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+
       - name: Configure job-local PostgreSQL endpoint
         run: |
-          database_url="postgres://rtk:rtk_password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/rtk_account_manager?sslmode=disable"
+          database_url="postgres://rtk:rtk_password@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/rtk_account_manager?sslmode=disable"
           printf 'DATABASE_URL=%s\nTEST_DATABASE_URL=%s\n' "$database_url" "$database_url" >> "$GITHUB_ENV"
 
       - name: Download dependencies
@@ -56,19 +64,19 @@ jobs:
 
       - name: Run tests and generate report
         run: |
-          REPORT_FILE=.artifacts/report-candidates/docs/TEST_REPORT.md \
+          REPORT_FILE=.artifacts/report-candidates/docs/test_report.md \
             REPORT_GENERATED_AT=ci-candidate \
             REPORT_CANONICAL=true \
             make test-report
           ./scripts/validate-report-candidate.sh \
-            docs/TEST_REPORT.md \
-            .artifacts/report-candidates/docs/TEST_REPORT.md
+            docs/test_report.md \
+            .artifacts/report-candidates/docs/test_report.md
 
       - name: Check committed test report drift
         run: |
-          if ! diff -u docs/TEST_REPORT.md .artifacts/report-candidates/docs/TEST_REPORT.md; then
+          if ! diff -u docs/test_report.md .artifacts/report-candidates/docs/test_report.md; then
             cat >&2 <<'MSG'
-          docs/TEST_REPORT.md is stale.
+          docs/test_report.md is stale.
 
           Import the generated test-report-candidate artifact into the PR branch
           with the "Import Report Candidate" workflow, or regenerate and commit the

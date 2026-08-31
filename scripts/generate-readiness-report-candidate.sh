@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OUTPUT="${OUTPUT:-.artifacts/report-candidates/docs/READINESS_TEST_REPORT.md}"
+OUTPUT="${OUTPUT:-.artifacts/report-candidates/docs/readiness_test_report.md}"
 EVIDENCE_DIR="${EVIDENCE_DIR:-deployment-evidence}"
 VERSION="${VERSION:-}"
 VERIFY_RESULT="${VERIFY_RESULT:-unknown}"
@@ -126,5 +126,5 @@ cat >>"$OUTPUT" <<'EOF'
 This sanitized readiness report contains only concise deployment evidence. Full systemd output, readiness JSON, logs, and diagnostics remain artifact-only.
 EOF
 
-"$(dirname "$0")/validate-report-candidate.sh" docs/READINESS_TEST_REPORT.md "$OUTPUT" >/dev/null
+"$(dirname "$0")/validate-report-candidate.sh" docs/readiness_test_report.md "$OUTPUT" >/dev/null
 echo "generated readiness report candidate: $OUTPUT"

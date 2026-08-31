@@ -113,7 +113,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           contracts_commit="$(git ls-tree HEAD contracts 2>/dev/null | awk '{print $3}' || true)"
-          OUTPUT=.artifacts/report-candidates/docs/RELEASE_TEST_REPORT.md \
+          OUTPUT=.artifacts/report-candidates/docs/release_test_report.md \
             CONTRACTS_COMMIT="$contracts_commit" \
             ./scripts/generate-release-report-candidate.sh
 
