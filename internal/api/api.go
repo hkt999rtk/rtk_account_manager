@@ -420,9 +420,10 @@ func (s *Server) register(c *gin.Context) {
 }
 
 type loginRequest struct {
-	Email     string `json:"email" binding:"required,email"`
-	Password  string `json:"password" binding:"required"`
-	AppCSRPem string `json:"app_csr_pem,omitempty"`
+	Email                string `json:"email" binding:"required,email"`
+	Password             string `json:"password" binding:"required"`
+	AppCSRPem            string `json:"app_csr_pem,omitempty"`
+	RotateAppCertificate bool   `json:"rotate_app_certificate,omitempty"`
 }
 
 func (s *Server) login(c *gin.Context) {
@@ -443,12 +444,18 @@ func (s *Server) login(c *gin.Context) {
 		writeError(c, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
 		return
 	}
+	if req.RotateAppCertificate {
+		if _, err := validateAppCSRSubject(req.AppCSRPem, "app-user:"+user.ID); err != nil {
+			writeAppCertificateError(c, err)
+			return
+		}
+	}
 	tokens, err := s.issueTokens(c, user.ID)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
 		return
 	}
-	response, err := s.loginResponse(c.Request.Context(), user, tokens, req.AppCSRPem)
+	response, err := s.loginResponse(c.Request.Context(), user, tokens, req.AppCSRPem, req.RotateAppCertificate)
 	if err != nil {
 		writeAppCertificateError(c, err)
 		return
@@ -492,7 +499,7 @@ func (s *Server) activateLogin(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
 		return
 	}
-	response, err := s.loginResponse(c.Request.Context(), user, tokens, req.AppCSRPem)
+	response, err := s.loginResponse(c.Request.Context(), user, tokens, req.AppCSRPem, false)
 	if err != nil {
 		writeAppCertificateError(c, err)
 		return
@@ -601,7 +608,7 @@ func (s *Server) handleOIDCCallback(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
 		return
 	}
-	response, err := s.loginResponse(c.Request.Context(), user, tokens, "")
+	response, err := s.loginResponse(c.Request.Context(), user, tokens, "", false)
 	if err != nil {
 		writeAppCertificateError(c, err)
 		return
@@ -910,7 +917,7 @@ func (s *Server) verifyEmail(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
 		return
 	}
-	response, err := s.loginResponse(c.Request.Context(), user, tokens, "")
+	response, err := s.loginResponse(c.Request.Context(), user, tokens, "", false)
 	if err != nil {
 		writeAppCertificateError(c, err)
 		return
