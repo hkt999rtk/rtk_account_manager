@@ -291,10 +291,13 @@ func LoadCloudDeletionWorker() (Config, error) {
 	if strings.TrimSpace(os.Getenv("DATABASE_URL")) == "" {
 		return Config{}, fmt.Errorf("cloud deletion worker requires explicit DATABASE_URL")
 	}
-	if cfg.BillingHandoffBaseURL == "" || cfg.BillingHandoffToken == "" {
-		return Config{}, fmt.Errorf("cloud deletion worker requires dedicated Billing transport configuration")
+	if cfg.BillingHandoffBaseURL == "" || cfg.BillingHandoffToken == "" || cfg.VideoControlPlaneHandoffBaseURL == "" || cfg.VideoControlPlaneHandoffToken == "" {
+		return Config{}, fmt.Errorf("cloud deletion worker requires dedicated Billing and Video Control Plane transport configuration")
 	}
 	if err := validateHandoffBillingConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	if err := validateResourceHandoffConfig(cfg); err != nil {
 		return Config{}, err
 	}
 	// The generic loaders use defaults for malformed values. Recovery startup must

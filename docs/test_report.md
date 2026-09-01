@@ -946,6 +946,16 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/factoryhandoff`: `TestReviewedResourceParticipantsUseFixedRoutesAndDigestDomains/mqtt_usage`
 - `rtk_account_manager/internal/factoryhandoff`: `TestReviewedResourceParticipantsUseFixedRoutesAndDigestDomains/video_control_plane`
 - `rtk_account_manager/internal/factoryhandoff`: `TestReviewedResourceParticipantsUseFixedRoutesAndDigestDomains`
+- `rtk_account_manager/internal/factoryhandoff`: `TestVideoControlPlaneDeletionObserverBindsScopeAndEvidence`
+- `rtk_account_manager/internal/factoryhandoff`: `TestVideoControlPlaneDeletionObserverRejectsUntrustedEvidence/blocker`
+- `rtk_account_manager/internal/factoryhandoff`: `TestVideoControlPlaneDeletionObserverRejectsUntrustedEvidence/cache`
+- `rtk_account_manager/internal/factoryhandoff`: `TestVideoControlPlaneDeletionObserverRejectsUntrustedEvidence/digest`
+- `rtk_account_manager/internal/factoryhandoff`: `TestVideoControlPlaneDeletionObserverRejectsUntrustedEvidence/extra`
+- `rtk_account_manager/internal/factoryhandoff`: `TestVideoControlPlaneDeletionObserverRejectsUntrustedEvidence/scope`
+- `rtk_account_manager/internal/factoryhandoff`: `TestVideoControlPlaneDeletionObserverRejectsUntrustedEvidence/status`
+- `rtk_account_manager/internal/factoryhandoff`: `TestVideoControlPlaneDeletionObserverRejectsUntrustedEvidence/unknown`
+- `rtk_account_manager/internal/factoryhandoff`: `TestVideoControlPlaneDeletionObserverRejectsUntrustedEvidence`
+- `rtk_account_manager/internal/factoryhandoff`: `TestVideoControlPlaneDeletionProducerHoldsAndCancelsExactBinding`
 - `rtk_account_manager/internal/lifecyclehttp`: `TestNewPublisherRejectsUnsafeConfiguration/credential_URL`
 - `rtk_account_manager/internal/lifecyclehttp`: `TestNewPublisherRejectsUnsafeConfiguration/missing_token`
 - `rtk_account_manager/internal/lifecyclehttp`: `TestNewPublisherRejectsUnsafeConfiguration/path_URL`

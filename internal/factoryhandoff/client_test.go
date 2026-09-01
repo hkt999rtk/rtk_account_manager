@@ -60,6 +60,128 @@ func TestReviewedResourceParticipantsUseFixedRoutesAndDigestDomains(t *testing.T
 	}
 }
 
+func TestVideoControlPlaneDeletionObserverBindsScopeAndEvidence(t *testing.T) {
+	scope := store.CloudDeletionResourceScope{CloudDeletionScope: billinghandoff.CloudDeletionScope{CloudID: fixtureBinding().CloudID, OwnerUserID: fixtureBinding().SourceUserID, OwnershipVersion: 2}, AuthorizationVersion: 9}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path != "/v1/internal/video-control-plane-handoffs/deletion-preflight" || req.Header.Get("Authorization") != "Bearer "+testToken {
+			t.Fatalf("unexpected authenticated route %s", req.URL.Path)
+		}
+		var got deletionScope
+		if json.NewDecoder(req.Body).Decode(&got) != nil || got.CloudID != scope.CloudID || got.AuthorizationVersion != scope.AuthorizationVersion {
+			t.Fatal("wrong deletion scope")
+		}
+		now := time.Now().UTC().Truncate(time.Microsecond)
+		evidence := deletionEvidence{deletionScope: got, Complete: true, ReceiptID: "55555555-5555-4555-8555-555555555555", Blockers: []string{"jobs_running"}, ObservedAt: now, ExpiresAt: now.Add(time.Minute)}
+		evidence.EvidenceSHA256 = evidence.digest()
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(evidence)
+	}))
+	defer server.Close()
+	client, err := NewParticipant(ParticipantVideoControlPlane, Config{BaseURL: server.URL, Token: testToken})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := client.ObserveCloudDeletion(context.Background(), scope)
+	if err != nil || evidence.Scope != scope || len(evidence.Blockers) != 1 || evidence.Blockers[0] != "jobs_running" {
+		t.Fatalf("evidence %+v: %v", evidence, err)
+	}
+	client.participant = ParticipantMQTTUsage
+	if _, err := client.ObserveCloudDeletion(context.Background(), scope); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unreviewed observer accepted: %v", err)
+	}
+}
+
+func TestVideoControlPlaneDeletionObserverRejectsUntrustedEvidence(t *testing.T) {
+	scope := store.CloudDeletionResourceScope{CloudDeletionScope: billinghandoff.CloudDeletionScope{CloudID: fixtureBinding().CloudID, OwnerUserID: fixtureBinding().SourceUserID, OwnershipVersion: 2}, AuthorizationVersion: 9}
+	for _, fault := range []string{"status", "cache", "scope", "digest", "blocker", "unknown", "extra"} {
+		t.Run(fault, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				var got deletionScope
+				_ = json.NewDecoder(req.Body).Decode(&got)
+				now := time.Now().UTC().Truncate(time.Microsecond)
+				evidence := deletionEvidence{deletionScope: got, Complete: true, ReceiptID: "55555555-5555-4555-8555-555555555555", Blockers: []string{}, ObservedAt: now, ExpiresAt: now.Add(time.Minute)}
+				if fault == "scope" {
+					evidence.AuthorizationVersion++
+				}
+				if fault == "blocker" {
+					evidence.Blockers = []string{"unknown"}
+				}
+				evidence.EvidenceSHA256 = evidence.digest()
+				if fault == "digest" {
+					evidence.EvidenceSHA256 = strings.Repeat("f", 64)
+				}
+				if fault != "cache" {
+					w.Header().Set("Cache-Control", "no-store")
+				}
+				if fault == "status" {
+					w.WriteHeader(http.StatusServiceUnavailable)
+				}
+				raw, _ := json.Marshal(evidence)
+				if fault == "unknown" {
+					var object map[string]any
+					_ = json.Unmarshal(raw, &object)
+					object["private"] = true
+					raw, _ = json.Marshal(object)
+				}
+				_, _ = w.Write(raw)
+				if fault == "extra" {
+					_, _ = w.Write([]byte(` {}`))
+				}
+			}))
+			defer server.Close()
+			client, err := NewParticipant(ParticipantVideoControlPlane, Config{BaseURL: server.URL, Token: testToken})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = client.ObserveCloudDeletion(context.Background(), scope); !errors.Is(err, ErrUnavailable) {
+				t.Fatalf("untrusted evidence accepted: %v", err)
+			}
+		})
+	}
+}
+
+func TestVideoControlPlaneDeletionProducerHoldsAndCancelsExactBinding(t *testing.T) {
+	in := billinghandoff.ClosureBinding{CloudDeletionScope: billinghandoff.CloudDeletionScope{CloudID: fixtureBinding().CloudID, OwnerUserID: fixtureBinding().SourceUserID, OwnershipVersion: 2}, OperationID: fixtureBinding().OperationID, Cutoff: fixtureBinding().Cutoff}
+	const authorizationVersion = int64(10)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		switch req.URL.Path {
+		case "/v1/internal/video-control-plane-handoffs/deletion-hold":
+			var binding deletionBinding
+			if json.NewDecoder(req.Body).Decode(&binding) != nil {
+				t.Fatal("invalid hold body")
+			}
+			_ = json.NewEncoder(w).Encode(deletionHold{deletionBinding: binding, Participant: ParticipantVideoControlPlane, Phase: "holding", Held: true, Empty: true, ReceiptSHA256: binding.digest("holding", "true")})
+		case "/v1/internal/video-control-plane-handoffs/deletion-cancel":
+			var decision struct {
+				deletionBinding
+				CancellationID     string `json:"cancellation_id"`
+				CancellationSHA256 string `json:"cancellation_sha256"`
+			}
+			if json.NewDecoder(req.Body).Decode(&decision) != nil {
+				t.Fatal("invalid cancellation body")
+			}
+			_ = json.NewEncoder(w).Encode(deletionHold{deletionBinding: decision.deletionBinding, Participant: ParticipantVideoControlPlane, Phase: "canceled", ReceiptSHA256: decision.digest("canceled", decision.CancellationID, decision.CancellationSHA256), CancellationID: decision.CancellationID})
+		default:
+			t.Fatalf("unexpected route %s", req.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client, err := NewParticipant(ParticipantVideoControlPlane, Config{BaseURL: server.URL, Token: testToken})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hold, err := client.PrepareCloudDeletion(context.Background(), in, authorizationVersion)
+	if err != nil || !hold.Held || !hold.Empty || hold.AuthorizationVersion != authorizationVersion {
+		t.Fatalf("hold = %+v, %v", hold, err)
+	}
+	cancellationID, cancellationSHA := "77777777-7777-4777-8777-777777777777", strings.Repeat("d", 64)
+	release, err := client.CancelCloudDeletion(context.Background(), in, authorizationVersion, cancellationID, cancellationSHA)
+	if err != nil || !release.Released || release.CancellationID != cancellationID || release.Participant != ParticipantVideoControlPlane {
+		t.Fatalf("release = %+v, %v", release, err)
+	}
+}
+
 func TestFactoryHandoffClientValidatesConfigurationAndExactReceipts(t *testing.T) {
 	for _, base := range []string{"", "http://cloud.example", "http://localhost:123", "ftp://127.0.0.1", "https://user:secret@example.com", "https://example.com/path", "https://example.com?", "https://example.com?q=1", "https://example.com#fragment", "https://example.com/%2f"} {
 		if _, err := New(Config{BaseURL: base, Token: testToken}); !errors.Is(err, ErrInvalid) {

@@ -640,11 +640,18 @@ untouched. No staging deployment or shared database migration has been performed
   binding, response fields, integer balance, known blocker codes, no-store and
   freshness. Zero balance does not suppress debt, pending payment/refund/dispute
   or missing usage/invoice/provider evidence. Transfer's >=0 rule is unchanged.
-- Server startup wires the existing dedicated Billing transport if configured.
-  Production resource observers are **not implemented/installed**. Missing or
-  incomplete reviewed observer inventory blocks readiness, even if Billing says
-  clear. Adapter interfaces and positive readiness are currently exercised only
-  with explicit synthetic resource checkpoints. No no-op adapter is installed.
+- Server startup wires the existing dedicated Billing transport and, when its
+  paired configuration is present, the reviewed Video Control Plane deletion
+  observer. The observer uses the dedicated handoff transport and validates an
+  exact, fresh, no-store scope-bound receipt. Missing or incomplete configuration
+  still blocks readiness; no no-op adapter is installed. Factory activity already
+  blocks through Account Manager's authoritative production-run inventory, while
+  unsettled MQTT usage remains Billing's authoritative responsibility.
+- The same participant implements the durable deletion producer and cancellation
+  interface. Server startup installs it for both advisory evidence and DELETE,
+  so production admission cannot proceed with a synthetic or observer-only
+  participant. Video Cloud persists the resource hold before attesting emptiness
+  and releases it only after an exact durable cancellation decision.
 - Tests cover disabled resources, unresolved jobs, no preflight side effects,
   nonowner access, missing/expired/misbound evidence, dependency errors, new
   resources during I/O, owner disable and handoff acceptance during observation.

@@ -14,6 +14,7 @@ import (
 	"rtk_account_manager/internal/config"
 	"rtk_account_manager/internal/database"
 	"rtk_account_manager/internal/emaildelivery"
+	"rtk_account_manager/internal/factoryhandoff"
 	"rtk_account_manager/internal/logging"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/usercache"
@@ -68,10 +69,25 @@ func main() {
 		if err := accountStore.ConfigureOwnershipHandoff(store.OwnershipHandoffOptions{Eligibility: client, Producers: store.RequiredHandoffProducers()}); err != nil {
 			fatal(logger, "configure exact ownership handoff inventory failed", err)
 		}
-		// Resource observers are installed separately once their reviewed service
-		// inventory is implemented. Until then, deletion preflight fails closed.
-		if err := accountStore.ConfigureCloudDeletionPreflight(store.CloudDeletionPreflightOptions{Billing: client}); err != nil {
+		resources := map[string]store.CloudDeletionResourceObserver{}
+		if cfg.VideoControlPlaneHandoffBaseURL != "" {
+			observer, observerErr := factoryhandoff.NewParticipant(factoryhandoff.ParticipantVideoControlPlane, factoryhandoff.Config{BaseURL: cfg.VideoControlPlaneHandoffBaseURL, Token: cfg.VideoControlPlaneHandoffToken})
+			if observerErr != nil {
+				fatal(logger, "configure Video Cloud deletion evidence transport failed", observerErr)
+			}
+			resources[factoryhandoff.ParticipantVideoControlPlane] = observer
+		}
+		if err := accountStore.ConfigureCloudDeletionPreflight(store.CloudDeletionPreflightOptions{Billing: client, Resources: resources}); err != nil {
 			fatal(logger, "configure Billing deletion preflight failed", err)
+		}
+		if observer := resources[factoryhandoff.ParticipantVideoControlPlane]; observer != nil {
+			producer, ok := observer.(store.CloudDeletionProducer)
+			if !ok {
+				fatal(logger, "configure Video Cloud deletion producer failed", nil)
+			}
+			if err := accountStore.ConfigureCloudDeletion(store.CloudDeletionOptions{Billing: client, Producers: map[string]store.CloudDeletionProducer{factoryhandoff.ParticipantVideoControlPlane: producer}}); err != nil {
+				fatal(logger, "configure durable cloud deletion failed", err)
+			}
 		}
 	}
 	accountStore.ConfigureAuthTokenRateLimit(cfg.AuthTokenRateLimitMax, cfg.AuthTokenRateLimitWindow)

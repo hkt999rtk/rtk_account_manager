@@ -46,6 +46,9 @@ type Client struct {
 }
 
 var _ store.HandoffParticipant = (*Client)(nil)
+var _ store.CloudDeletionResourceObserver = (*Client)(nil)
+var _ store.CloudDeletionProducer = (*Client)(nil)
+var _ store.CloudDeletionCancelProducer = (*Client)(nil)
 
 func New(in Config) (*Client, error) {
 	return NewParticipant(Participant, in)
@@ -189,6 +192,184 @@ func (c *Client) call(ctx context.Context, path string, b binding, body any) (re
 		return record{}, ErrUnavailable
 	}
 	return out, nil
+}
+
+type deletionScope struct {
+	CloudID              string `json:"cloud_id"`
+	OwnerUserID          string `json:"owner_user_id"`
+	OwnershipVersion     int64  `json:"ownership_version"`
+	AuthorizationVersion int64  `json:"authorization_version"`
+}
+
+type deletionEvidence struct {
+	deletionScope
+	Complete       bool      `json:"complete"`
+	ReceiptID      string    `json:"receipt_id"`
+	EvidenceSHA256 string    `json:"evidence_sha256"`
+	Blockers       []string  `json:"blockers"`
+	ObservedAt     time.Time `json:"observed_at"`
+	ExpiresAt      time.Time `json:"expires_at"`
+}
+
+func (e deletionEvidence) digest() string {
+	fields := []string{"video-control-plane-cloud-deletion-v1", e.CloudID, e.OwnerUserID, strconv.FormatInt(e.OwnershipVersion, 10), strconv.FormatInt(e.AuthorizationVersion, 10),
+		strconv.FormatBool(e.Complete), e.ReceiptID, e.ObservedAt.UTC().Format(time.RFC3339Nano), e.ExpiresAt.UTC().Format(time.RFC3339Nano)}
+	fields = append(fields, e.Blockers...)
+	h := sha256.New()
+	for _, field := range fields {
+		var size [4]byte
+		binary.BigEndian.PutUint32(size[:], uint32(len(field)))
+		_, _ = h.Write(size[:])
+		_, _ = h.Write([]byte(field))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func (c *Client) ObserveCloudDeletion(ctx context.Context, in store.CloudDeletionResourceScope) (store.CloudDeletionResourceEvidence, error) {
+	scope := deletionScope{CloudID: in.CloudID, OwnerUserID: in.OwnerUserID, OwnershipVersion: in.OwnershipVersion, AuthorizationVersion: in.AuthorizationVersion}
+	if c == nil || c.http == nil || c.participant != ParticipantVideoControlPlane || !validUUID(scope.CloudID) || !validUUID(scope.OwnerUserID) || scope.OwnershipVersion <= 0 || scope.AuthorizationVersion <= 0 {
+		return store.CloudDeletionResourceEvidence{}, ErrInvalid
+	}
+	raw, err := json.Marshal(scope)
+	if err != nil {
+		return store.CloudDeletionResourceEvidence{}, ErrInvalid
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+c.endpoint+"deletion-preflight", bytes.NewReader(raw))
+	if err != nil {
+		return store.CloudDeletionResourceEvidence{}, ErrInvalid
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return store.CloudDeletionResourceEvidence{}, ErrUnavailable
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Cache-Control") != "no-store" {
+		return store.CloudDeletionResourceEvidence{}, ErrUnavailable
+	}
+	raw, err = io.ReadAll(io.LimitReader(resp.Body, (16<<10)+1))
+	if err != nil || len(raw) > 16<<10 {
+		return store.CloudDeletionResourceEvidence{}, ErrUnavailable
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var evidence deletionEvidence
+	if decoder.Decode(&evidence) != nil || decoder.Decode(new(any)) != io.EOF || evidence.deletionScope != scope || !evidence.Complete || !validUUID(evidence.ReceiptID) || evidence.Blockers == nil || evidence.EvidenceSHA256 != evidence.digest() {
+		return store.CloudDeletionResourceEvidence{}, ErrUnavailable
+	}
+	for _, blocker := range evidence.Blockers {
+		switch blocker {
+		case "products_present", "devices_present", "jobs_running", "lifecycle_conflict":
+		default:
+			return store.CloudDeletionResourceEvidence{}, ErrUnavailable
+		}
+	}
+	return store.CloudDeletionResourceEvidence{Scope: in, Complete: true, ReceiptID: evidence.ReceiptID, EvidenceSHA256: evidence.EvidenceSHA256, Blockers: evidence.Blockers, ObservedAt: evidence.ObservedAt, ExpiresAt: evidence.ExpiresAt}, nil
+}
+
+type deletionBinding struct {
+	deletionScope
+	OperationID string    `json:"operation_id"`
+	Cutoff      time.Time `json:"cutoff"`
+}
+
+func wireDeletionBinding(in billinghandoff.ClosureBinding, authorizationVersion int64) deletionBinding {
+	return deletionBinding{deletionScope: deletionScope{CloudID: in.CloudID, OwnerUserID: in.OwnerUserID, OwnershipVersion: in.OwnershipVersion, AuthorizationVersion: authorizationVersion}, OperationID: in.OperationID, Cutoff: in.Cutoff}
+}
+
+func (b deletionBinding) valid() bool {
+	return validUUID(b.CloudID) && validUUID(b.OwnerUserID) && validUUID(b.OperationID) && b.OwnershipVersion > 0 && b.AuthorizationVersion > 0 && !b.Cutoff.IsZero() && b.Cutoff.Equal(b.Cutoff.Truncate(time.Microsecond))
+}
+
+func (b deletionBinding) digest(tag string, extra ...string) string {
+	fields := []string{"video-control-plane-cloud-deletion-hold-v1", tag, b.CloudID, b.OwnerUserID, b.OperationID, strconv.FormatInt(b.OwnershipVersion, 10), strconv.FormatInt(b.AuthorizationVersion, 10), b.Cutoff.UTC().Format(time.RFC3339Nano)}
+	fields = append(fields, extra...)
+	h := sha256.New()
+	for _, field := range fields {
+		var size [4]byte
+		binary.BigEndian.PutUint32(size[:], uint32(len(field)))
+		_, _ = h.Write(size[:])
+		_, _ = h.Write([]byte(field))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+type deletionHold struct {
+	deletionBinding
+	Participant    string `json:"participant"`
+	Phase          string `json:"phase"`
+	Held           bool   `json:"held"`
+	Empty          bool   `json:"empty"`
+	ReceiptSHA256  string `json:"receipt_sha256"`
+	CancellationID string `json:"cancellation_id,omitempty"`
+}
+
+func (c *Client) callDeletion(ctx context.Context, path string, body any, binding deletionBinding) (deletionHold, error) {
+	if c == nil || c.http == nil || c.participant != ParticipantVideoControlPlane || !binding.valid() {
+		return deletionHold{}, ErrInvalid
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return deletionHold{}, ErrInvalid
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+c.endpoint+path, bytes.NewReader(raw))
+	if err != nil {
+		return deletionHold{}, ErrInvalid
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return deletionHold{}, ErrUnavailable
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Cache-Control") != "no-store" {
+		return deletionHold{}, ErrUnavailable
+	}
+	raw, err = io.ReadAll(io.LimitReader(resp.Body, (16<<10)+1))
+	if err != nil || len(raw) > 16<<10 {
+		return deletionHold{}, ErrUnavailable
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var out deletionHold
+	if decoder.Decode(&out) != nil || decoder.Decode(new(any)) != io.EOF || out.deletionBinding != binding || out.Participant != ParticipantVideoControlPlane || !validDigest(out.ReceiptSHA256) {
+		return deletionHold{}, ErrUnavailable
+	}
+	return out, nil
+}
+
+func (c *Client) PrepareCloudDeletion(ctx context.Context, in billinghandoff.ClosureBinding, authorizationVersion int64) (store.CloudDeletionHold, error) {
+	binding := wireDeletionBinding(in, authorizationVersion)
+	out, err := c.callDeletion(ctx, "deletion-hold", binding, binding)
+	if err != nil {
+		return store.CloudDeletionHold{}, err
+	}
+	if out.Phase != "holding" || !out.Held || out.CancellationID != "" || out.ReceiptSHA256 != binding.digest("holding", strconv.FormatBool(out.Empty)) {
+		return store.CloudDeletionHold{}, ErrUnavailable
+	}
+	return store.CloudDeletionHold{Binding: in, AuthorizationVersion: authorizationVersion, Participant: out.Participant, Held: true, Empty: out.Empty, ReceiptSHA256: out.ReceiptSHA256}, nil
+}
+
+func (c *Client) CancelCloudDeletion(ctx context.Context, in billinghandoff.ClosureBinding, authorizationVersion int64, cancellationID, cancellationSHA string) (store.CloudDeletionRelease, error) {
+	binding := wireDeletionBinding(in, authorizationVersion)
+	body := struct {
+		deletionBinding
+		CancellationID     string `json:"cancellation_id"`
+		CancellationSHA256 string `json:"cancellation_sha256"`
+	}{binding, cancellationID, cancellationSHA}
+	if !validUUID(cancellationID) || !validDigest(cancellationSHA) {
+		return store.CloudDeletionRelease{}, ErrInvalid
+	}
+	out, err := c.callDeletion(ctx, "deletion-cancel", body, binding)
+	if err != nil {
+		return store.CloudDeletionRelease{}, err
+	}
+	if out.Phase != "canceled" || out.Held || out.Empty || out.CancellationID != cancellationID || out.ReceiptSHA256 != binding.digest("canceled", cancellationID, cancellationSHA) {
+		return store.CloudDeletionRelease{}, ErrUnavailable
+	}
+	return store.CloudDeletionRelease{Binding: in, CancellationID: cancellationID, Participant: out.Participant, ReceiptSHA256: out.ReceiptSHA256, Released: true}, nil
 }
 
 func (c *Client) Prepare(ctx context.Context, in billinghandoff.Binding) (store.HandoffPrepareAck, error) {
