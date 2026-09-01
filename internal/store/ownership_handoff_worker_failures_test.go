@@ -87,12 +87,15 @@ func TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses(t *testing.T)
 			}
 			for _, failure := range []string{"missing adapter", "unavailable", "wrong scope", "invalid receipt"} {
 				t.Run(failure, func(t *testing.T) {
-					adapters := map[string]HandoffParticipant{}
-					if failure != "missing adapter" {
-						adapters["test_resources"] = workerFailureParticipant{workerTestParticipant: workerTestParticipant{billing: remote, badScope: failure == "wrong scope"}, failure: failure}
-					}
-					if err := env.store.ConfigureHandoffParticipants(adapters); err != nil {
-						t.Fatal(err)
+					adapters := workerTestAdapters(remote, false)
+					if failure == "missing adapter" {
+						delete(adapters, HandoffParticipantFactory)
+						env.store.handoffParticipants = adapters
+					} else {
+						adapters[HandoffParticipantFactory] = workerFailureParticipant{workerTestParticipant: workerTestParticipant{billing: remote, participant: HandoffParticipantFactory, badScope: failure == "wrong scope"}, failure: failure}
+						if err := env.store.ConfigureHandoffParticipants(adapters); err != nil {
+							t.Fatal(err)
+						}
 					}
 					step := advanceOneHandoff(t, env.store)
 					want := "lifecycle_conflict"
@@ -162,9 +165,11 @@ func TestHandoffWorkerRejectsUnavailableOrUnboundSettlement(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()
 	ack, _ := preparedAckFixture(t, env)
-	ack.Participant = "test_resources"
-	if _, err := env.store.RecordCloudHandoffPrepareAck(ctx, ack); err != nil {
-		t.Fatal(err)
+	for _, participant := range RequiredHandoffProducers() {
+		ack.Participant = participant
+		if _, err := env.store.RecordCloudHandoffPrepareAck(ctx, ack); err != nil {
+			t.Fatal(err)
+		}
 	}
 	remote := &workerTestBilling{commitTestBilling: &commitTestBilling{balanceTestBilling: &balanceTestBilling{version: 2, confirmed: map[string]bool{}}}}
 	for _, failure := range []string{"prepare unavailable", "prepare wrong scope", "settlement unavailable", "negative balance", "unsettled usage", "wrong operation", "wrong currency", "wrong cutoff", "old snapshot"} {

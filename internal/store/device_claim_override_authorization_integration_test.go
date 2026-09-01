@@ -74,7 +74,7 @@ func TestClaimOverridesRequirePlatformAuthorityOperationalCloudsAndProduct(t *te
 					t.Fatal(err)
 				}
 				deny(ErrNotFound)
-				for _, participant := range []string{"billing", "test_resources"} {
+				for _, participant := range append([]string{"billing"}, RequiredHandoffProducers()...) {
 					if _, err := env.store.RecordCloudHandoffAbortAck(ctx, HandoffAbortAck{CloudID: from.BrandCloud.ID, OperationID: transfer.ID, OwnershipVersion: 1, Participant: participant, ReceiptSHA256: strings.Repeat("a", 64)}); err != nil {
 						t.Fatal(err)
 					}

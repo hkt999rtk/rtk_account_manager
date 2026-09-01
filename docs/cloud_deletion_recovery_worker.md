@@ -28,7 +28,7 @@ manager. No command here copies secrets or starts a staging service.
 | Setting | Requirement/default |
 | --- | --- |
 | `DATABASE_URL` | Explicit; no implicit localhost/shared-database fallback |
-| `BILLING_HANDOFF_BASE_URL` | Trusted credential-free HTTPS origin; literal loopback HTTP only for isolated tests |
+| `BILLING_HANDOFF_BASE_URL` | Trusted credential-free HTTPS origin; literal loopback or exact `.svc.cluster.local` HTTP is allowed for isolated/internal Kubernetes transport |
 | `BILLING_HANDOFF_TOKEN` | Dedicated credential, not a login or other service token |
 | `CLOUD_DELETION_WORKER_POLL_INTERVAL` | `5s`, positive and at most one minute |
 | `CLOUD_DELETION_WORKER_LEASE_DURATION` | `2m`, between 30 seconds and five minutes |

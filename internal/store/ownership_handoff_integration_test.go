@@ -25,7 +25,7 @@ func configureTestHandoff(t *testing.T, env storeIntegrationEnv) {
 	t.Helper()
 	if err := env.store.ConfigureOwnershipHandoff(OwnershipHandoffOptions{Eligibility: handoffEligibilityFunc(func(_ context.Context, in HandoffEligibilityRequest) (HandoffEligibility, error) {
 		return syntheticEligibility(in), nil
-	}), Producers: []string{"test_resources"}}); err != nil {
+	}), Producers: RequiredHandoffProducers()}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -101,7 +101,7 @@ func TestHandoffAcceptanceReservesQuotaAndCancellationWaitsForEveryHoldRelease(t
 	if replay, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, target.User.ID, "handoff-token", time.Now()); err != nil || replay.ID != accepted.ID {
 		t.Fatalf("accept replay: %+v %v", replay, err)
 	}
-	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM cloud_handoff_outbox WHERE operation_id=$1 AND action='prepare'`, request.ID).Scan(&commands); err != nil || commands != 2 {
+	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM cloud_handoff_outbox WHERE operation_id=$1 AND action='prepare'`, request.ID).Scan(&commands); err != nil || commands != 4 {
 		t.Fatalf("prepare commands=%d %v", commands, err)
 	}
 	if _, err := env.db.Exec(ctx, `UPDATE cloud_handoff_outbox SET payload='{}' WHERE operation_id=$1`, request.ID); err == nil {
@@ -131,9 +131,16 @@ func TestHandoffAcceptanceReservesQuotaAndCancellationWaitsForEveryHoldRelease(t
 	if _, err := env.store.RecordCloudHandoffAbortAck(ctx, ack); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown participant accepted: %v", err)
 	}
-	ack.Participant = "test_resources"
-	if phase, err := env.store.RecordCloudHandoffAbortAck(ctx, ack); err != nil || phase != "canceled" {
-		t.Fatalf("final ack=%s %v", phase, err)
+	for i, participant := range RequiredHandoffProducers() {
+		ack.Participant = participant
+		phase, err := env.store.RecordCloudHandoffAbortAck(ctx, ack)
+		want := "canceling"
+		if i == len(RequiredHandoffProducers())-1 {
+			want = "canceled"
+		}
+		if err != nil || phase != want {
+			t.Fatalf("participant %s ack=%s %v", participant, phase, err)
+		}
 	}
 	if err := env.db.QueryRow(ctx, `SELECT user_can_access_brand_cloud($1,$2)`, source.User.ID, source.BrandCloud.ID).Scan(&allowed); err != nil || !allowed {
 		t.Fatalf("hold never released: %v %v", allowed, err)
@@ -172,7 +179,7 @@ func TestHandoffFinancialEvidenceFailsClosedAtRequestAndAcceptance(t *testing.T)
 				}
 				return e, nil
 			})
-			if err := env.store.ConfigureOwnershipHandoff(OwnershipHandoffOptions{Eligibility: provider, Producers: []string{"test_resources"}}); err != nil {
+			if err := env.store.ConfigureOwnershipHandoff(OwnershipHandoffOptions{Eligibility: provider, Producers: RequiredHandoffProducers()}); err != nil {
 				t.Fatal(err)
 			}
 			for _, bad := range []string{"changed", "expired"} {
@@ -290,7 +297,7 @@ func TestHandoffConcurrentSameAcceptanceAndAuditRollback(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := env.db.QueryRow(ctx, `SELECT (SELECT count(*) FROM cloud_ownership_handoffs),(SELECT count(*) FROM cloud_handoff_outbox)`).Scan(&operations, &commands); err != nil || operations != 1 || commands != 2 {
+	if err := env.db.QueryRow(ctx, `SELECT (SELECT count(*) FROM cloud_ownership_handoffs),(SELECT count(*) FROM cloud_handoff_outbox)`).Scan(&operations, &commands); err != nil || operations != 1 || commands != 4 {
 		t.Fatalf("duplicate operation/outbox: %d/%d %v", operations, commands, err)
 	}
 	// The pre-existing Product eligibility function must use the new lifecycle gate.
@@ -313,7 +320,7 @@ func TestHandoffRechecksOwnerAndTargetAfterExternalPreflight(t *testing.T) {
 		_, err := env.db.Exec(ctx, `UPDATE users SET disabled_at=now() WHERE id=$1`, target.User.ID)
 		return syntheticEligibility(r), err
 	})
-	if err := env.store.ConfigureOwnershipHandoff(OwnershipHandoffOptions{Eligibility: provider, Producers: []string{"test_resources"}}); err != nil {
+	if err := env.store.ConfigureOwnershipHandoff(OwnershipHandoffOptions{Eligibility: provider, Producers: RequiredHandoffProducers()}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, target.User.ID, "stale-token", time.Now()); !errors.Is(err, ErrNotFound) {

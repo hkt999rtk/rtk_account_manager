@@ -15,98 +15,102 @@ import (
 )
 
 type Config struct {
-	DatabaseURL                    string
-	AccessSecret                   string
-	RefreshSecret                  string
-	JWTSignerProvider              string
-	JWTAccessPrivateKeyPath        string
-	JWTAccessPublicKeyPath         string
-	JWTRefreshPrivateKeyPath       string
-	JWTRefreshPublicKeyPath        string
-	JWTAccessPKCS11ModulePath      string
-	JWTAccessPKCS11TokenLabel      string
-	JWTAccessPKCS11SlotID          string
-	JWTAccessPKCS11PIN             string
-	JWTAccessPKCS11KeyLabel        string
-	JWTRefreshPKCS11ModulePath     string
-	JWTRefreshPKCS11TokenLabel     string
-	JWTRefreshPKCS11SlotID         string
-	JWTRefreshPKCS11PIN            string
-	JWTRefreshPKCS11KeyLabel       string
-	AccessTokenTTL                 time.Duration
-	RefreshTokenTTL                time.Duration
-	Port                           string
-	AuthTokenBaseURL               string
-	SendMailHTTPBaseURL            string
-	SendMailHTTPBearerToken        string
-	SendMailHTTPTimeout            time.Duration
-	EmailOutboxEncryptionKey       string
-	EmailOutboxPollInterval        time.Duration
-	EmailOutboxBatchSize           int
-	EmailOutboxMaxAttempts         int
-	EmailOutboxRetryBase           time.Duration
-	EmailOutboxRetryMax            time.Duration
-	CrossServiceBroker             string
-	AzureEventHubConnectionString  string
-	AzureEventHubCheckpointFile    string
-	AccountVideoCommandsStream     string
-	VideoAccountEventsStream       string
-	CrossServiceConsumerGroup      string
-	CrossServiceMaxAttempts        int
-	CrossServicePollInterval       time.Duration
-	VideoCloudLifecycleBaseURL     string
-	VideoCloudLifecycleToken       string
-	VideoCloudLifecycleTimeout     time.Duration
-	EmailVerificationTTL           time.Duration
-	PasswordResetTTL               time.Duration
-	OTPResendInterval              time.Duration
-	OTPMaxAttempts                 int
-	AuthTokenRateLimitMax          int
-	AuthTokenRateLimitWindow       time.Duration
-	OIDCEnabled                    bool
-	OIDCProviderID                 string
-	OIDCProviderName               string
-	OIDCIssuerURL                  string
-	OIDCClientID                   string
-	OIDCClientSecret               string
-	OIDCRedirectURL                string
-	OIDCScopes                     []string
-	OIDCAutoLinkEmail              bool
-	UserCacheEnabled               bool
-	UserCacheAddr                  string
-	UserCachePrefix                string
-	AppCertIssuerBaseURL           string
-	AppCertIssuerClientCert        string
-	AppCertIssuerClientKey         string
-	AppCertIssuerCAFile            string
-	AppCertIssuerTimeout           time.Duration
-	InternalAuthToken              string
-	BillingHandoffBaseURL          string
-	BillingHandoffToken            string
-	FactoryHandoffBaseURL          string
-	FactoryHandoffToken            string
-	BillingCloudCreationBaseURL    string
-	BillingCloudCreationToken      string
-	HandoffPollInterval            time.Duration
-	HandoffLeaseDuration           time.Duration
-	HandoffStepTimeout             time.Duration
-	HandoffBatchSize               int
-	CloudDeletionPollInterval      time.Duration
-	CloudDeletionLeaseDuration     time.Duration
-	CloudDeletionStepTimeout       time.Duration
-	CloudDeletionBatchSize         int
-	AllowImmediateBrandAccounts    bool
-	FactoryProductionJWTSecret     string
-	FactoryEnrollmentToken         string
-	FactoryProductionJWTAudience   string
-	BootstrapPlatformAdminEmail    string
-	BootstrapPlatformAdminPassword string
-	ChipsetProviderAllowedHosts    []string
-	ChipsetProviderRefreshInterval time.Duration
-	LogEnv                         string
-	LogVersion                     string
-	LogLevel                       string
-	LogDevelopment                 bool
+	DatabaseURL                     string
+	AccessSecret                    string
+	RefreshSecret                   string
+	JWTSignerProvider               string
+	JWTAccessPrivateKeyPath         string
+	JWTAccessPublicKeyPath          string
+	JWTRefreshPrivateKeyPath        string
+	JWTRefreshPublicKeyPath         string
+	JWTAccessPKCS11ModulePath       string
+	JWTAccessPKCS11TokenLabel       string
+	JWTAccessPKCS11SlotID           string
+	JWTAccessPKCS11PIN              string
+	JWTAccessPKCS11KeyLabel         string
+	JWTRefreshPKCS11ModulePath      string
+	JWTRefreshPKCS11TokenLabel      string
+	JWTRefreshPKCS11SlotID          string
+	JWTRefreshPKCS11PIN             string
+	JWTRefreshPKCS11KeyLabel        string
+	AccessTokenTTL                  time.Duration
+	RefreshTokenTTL                 time.Duration
+	Port                            string
+	AuthTokenBaseURL                string
+	SendMailHTTPBaseURL             string
+	SendMailHTTPBearerToken         string
+	SendMailHTTPTimeout             time.Duration
+	EmailOutboxEncryptionKey        string
+	EmailOutboxPollInterval         time.Duration
+	EmailOutboxBatchSize            int
+	EmailOutboxMaxAttempts          int
+	EmailOutboxRetryBase            time.Duration
+	EmailOutboxRetryMax             time.Duration
+	CrossServiceBroker              string
+	AzureEventHubConnectionString   string
+	AzureEventHubCheckpointFile     string
+	AccountVideoCommandsStream      string
+	VideoAccountEventsStream        string
+	CrossServiceConsumerGroup       string
+	CrossServiceMaxAttempts         int
+	CrossServicePollInterval        time.Duration
+	VideoCloudLifecycleBaseURL      string
+	VideoCloudLifecycleToken        string
+	VideoCloudLifecycleTimeout      time.Duration
+	EmailVerificationTTL            time.Duration
+	PasswordResetTTL                time.Duration
+	OTPResendInterval               time.Duration
+	OTPMaxAttempts                  int
+	AuthTokenRateLimitMax           int
+	AuthTokenRateLimitWindow        time.Duration
+	OIDCEnabled                     bool
+	OIDCProviderID                  string
+	OIDCProviderName                string
+	OIDCIssuerURL                   string
+	OIDCClientID                    string
+	OIDCClientSecret                string
+	OIDCRedirectURL                 string
+	OIDCScopes                      []string
+	OIDCAutoLinkEmail               bool
+	UserCacheEnabled                bool
+	UserCacheAddr                   string
+	UserCachePrefix                 string
+	AppCertIssuerBaseURL            string
+	AppCertIssuerClientCert         string
+	AppCertIssuerClientKey          string
+	AppCertIssuerCAFile             string
+	AppCertIssuerTimeout            time.Duration
+	InternalAuthToken               string
+	BillingHandoffBaseURL           string
+	BillingHandoffToken             string
+	FactoryHandoffBaseURL           string
+	FactoryHandoffToken             string
+	VideoControlPlaneHandoffBaseURL string
+	VideoControlPlaneHandoffToken   string
+	MQTTUsageHandoffBaseURL         string
+	MQTTUsageHandoffToken           string
+	BillingCloudCreationBaseURL     string
+	BillingCloudCreationToken       string
+	HandoffPollInterval             time.Duration
+	HandoffLeaseDuration            time.Duration
+	HandoffStepTimeout              time.Duration
+	HandoffBatchSize                int
+	CloudDeletionPollInterval       time.Duration
+	CloudDeletionLeaseDuration      time.Duration
+	CloudDeletionStepTimeout        time.Duration
+	CloudDeletionBatchSize          int
+	AllowImmediateBrandAccounts     bool
+	FactoryProductionJWTSecret      string
+	FactoryEnrollmentToken          string
+	FactoryProductionJWTAudience    string
+	BootstrapPlatformAdminEmail     string
+	BootstrapPlatformAdminPassword  string
+	ChipsetProviderAllowedHosts     []string
+	ChipsetProviderRefreshInterval  time.Duration
+	LogEnv                          string
+	LogVersion                      string
+	LogLevel                        string
+	LogDevelopment                  bool
 }
 
 func Load() (Config, error) {
@@ -148,6 +152,9 @@ func Load() (Config, error) {
 	if err := validateFactoryHandoffConfig(cfg); err != nil {
 		return Config{}, err
 	}
+	if err := validateResourceHandoffConfig(cfg); err != nil {
+		return Config{}, err
+	}
 	if err := validateBillingCloudCreationConfig(cfg); err != nil {
 		return Config{}, err
 	}
@@ -179,7 +186,7 @@ func validateHandoffBillingConfig(cfg Config) error {
 	if _, err := billinghandoff.New(billinghandoff.Config{BaseURL: cfg.BillingHandoffBaseURL, Token: cfg.BillingHandoffToken}); err != nil {
 		return fmt.Errorf("BILLING_HANDOFF_BASE_URL and a dedicated BILLING_HANDOFF_TOKEN must be configured together with a trusted origin")
 	}
-	for _, secret := range []string{cfg.AccessSecret, cfg.RefreshSecret, cfg.InternalAuthToken, cfg.SendMailHTTPBearerToken, cfg.VideoCloudLifecycleToken, cfg.EmailOutboxEncryptionKey, cfg.FactoryProductionJWTSecret, cfg.FactoryEnrollmentToken, cfg.FactoryHandoffToken, cfg.OIDCClientSecret, cfg.JWTAccessPKCS11PIN, cfg.JWTRefreshPKCS11PIN} {
+	for _, secret := range []string{cfg.AccessSecret, cfg.RefreshSecret, cfg.InternalAuthToken, cfg.SendMailHTTPBearerToken, cfg.VideoCloudLifecycleToken, cfg.EmailOutboxEncryptionKey, cfg.FactoryProductionJWTSecret, cfg.FactoryEnrollmentToken, cfg.FactoryHandoffToken, cfg.VideoControlPlaneHandoffToken, cfg.MQTTUsageHandoffToken, cfg.OIDCClientSecret, cfg.JWTAccessPKCS11PIN, cfg.JWTRefreshPKCS11PIN} {
 		if secret != "" && secret == cfg.BillingHandoffToken {
 			return fmt.Errorf("BILLING_HANDOFF_TOKEN must not reuse other service credentials")
 		}
@@ -194,10 +201,36 @@ func validateFactoryHandoffConfig(cfg Config) error {
 	if _, err := factoryhandoff.New(factoryhandoff.Config{BaseURL: cfg.FactoryHandoffBaseURL, Token: cfg.FactoryHandoffToken}); err != nil {
 		return fmt.Errorf("FACTORY_HANDOFF_BASE_URL and a dedicated FACTORY_HANDOFF_TOKEN must be configured together with a trusted origin")
 	}
-	for _, secret := range []string{cfg.AccessSecret, cfg.RefreshSecret, cfg.InternalAuthToken, cfg.SendMailHTTPBearerToken, cfg.VideoCloudLifecycleToken, cfg.EmailOutboxEncryptionKey, cfg.FactoryProductionJWTSecret, cfg.FactoryEnrollmentToken, cfg.BillingHandoffToken, cfg.OIDCClientSecret, cfg.JWTAccessPKCS11PIN, cfg.JWTRefreshPKCS11PIN} {
+	for _, secret := range []string{cfg.AccessSecret, cfg.RefreshSecret, cfg.InternalAuthToken, cfg.SendMailHTTPBearerToken, cfg.VideoCloudLifecycleToken, cfg.EmailOutboxEncryptionKey, cfg.FactoryProductionJWTSecret, cfg.FactoryEnrollmentToken, cfg.BillingHandoffToken, cfg.VideoControlPlaneHandoffToken, cfg.MQTTUsageHandoffToken, cfg.OIDCClientSecret, cfg.JWTAccessPKCS11PIN, cfg.JWTRefreshPKCS11PIN} {
 		if secret != "" && secret == cfg.FactoryHandoffToken {
 			return fmt.Errorf("FACTORY_HANDOFF_TOKEN must not reuse other service credentials")
 		}
+	}
+	return nil
+}
+
+func validateResourceHandoffConfig(cfg Config) error {
+	type resource struct {
+		name, baseURL, token, participant string
+	}
+	resources := []resource{
+		{"VIDEO_CONTROL_PLANE_HANDOFF", cfg.VideoControlPlaneHandoffBaseURL, cfg.VideoControlPlaneHandoffToken, factoryhandoff.ParticipantVideoControlPlane},
+		{"MQTT_USAGE_HANDOFF", cfg.MQTTUsageHandoffBaseURL, cfg.MQTTUsageHandoffToken, factoryhandoff.ParticipantMQTTUsage},
+	}
+	allSecrets := []string{cfg.AccessSecret, cfg.RefreshSecret, cfg.InternalAuthToken, cfg.SendMailHTTPBearerToken, cfg.VideoCloudLifecycleToken, cfg.EmailOutboxEncryptionKey, cfg.FactoryProductionJWTSecret, cfg.FactoryEnrollmentToken, cfg.BillingHandoffToken, cfg.FactoryHandoffToken, cfg.OIDCClientSecret, cfg.JWTAccessPKCS11PIN, cfg.JWTRefreshPKCS11PIN}
+	for _, current := range resources {
+		if current.baseURL == "" && current.token == "" {
+			continue
+		}
+		if _, err := factoryhandoff.NewParticipant(current.participant, factoryhandoff.Config{BaseURL: current.baseURL, Token: current.token}); err != nil {
+			return fmt.Errorf("%s_BASE_URL and a dedicated %s_TOKEN must be configured together with a trusted origin", current.name, current.name)
+		}
+		for _, secret := range allSecrets {
+			if secret != "" && secret == current.token {
+				return fmt.Errorf("%s_TOKEN must not reuse another service credential", current.name)
+			}
+		}
+		allSecrets = append(allSecrets, current.token)
 	}
 	return nil
 }
@@ -207,13 +240,17 @@ func LoadHandoffWorker() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if cfg.BillingHandoffBaseURL == "" || cfg.BillingHandoffToken == "" || cfg.FactoryHandoffBaseURL == "" || cfg.FactoryHandoffToken == "" {
-		return Config{}, fmt.Errorf("handoff worker requires dedicated Billing and factory transport configuration")
+	if cfg.BillingHandoffBaseURL == "" || cfg.BillingHandoffToken == "" || cfg.FactoryHandoffBaseURL == "" || cfg.FactoryHandoffToken == "" ||
+		cfg.VideoControlPlaneHandoffBaseURL == "" || cfg.VideoControlPlaneHandoffToken == "" || cfg.MQTTUsageHandoffBaseURL == "" || cfg.MQTTUsageHandoffToken == "" {
+		return Config{}, fmt.Errorf("handoff worker requires dedicated Billing and exact resource participant transport configuration")
 	}
 	if err := validateHandoffBillingConfig(cfg); err != nil {
 		return Config{}, err
 	}
 	if err := validateFactoryHandoffConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	if err := validateResourceHandoffConfig(cfg); err != nil {
 		return Config{}, err
 	}
 	if cfg.HandoffPollInterval <= 0 || cfg.HandoffPollInterval > time.Minute || cfg.HandoffLeaseDuration < 30*time.Second || cfg.HandoffLeaseDuration > 5*time.Minute || cfg.HandoffStepTimeout <= 0 || cfg.HandoffStepTimeout+5*time.Second >= cfg.HandoffLeaseDuration || cfg.HandoffBatchSize < 1 || cfg.HandoffBatchSize > 128 {
@@ -415,98 +452,102 @@ func load() (Config, error) {
 		return Config{}, err
 	}
 	cfg := Config{
-		DatabaseURL:                    getenv("DATABASE_URL", "postgres://rtk:rtk_password@localhost:5432/rtk_account_manager?sslmode=disable"),
-		AccessSecret:                   os.Getenv("JWT_ACCESS_SECRET"),
-		RefreshSecret:                  os.Getenv("JWT_REFRESH_SECRET"),
-		JWTSignerProvider:              getenv("JWT_SIGNER_PROVIDER", "hs256"),
-		JWTAccessPrivateKeyPath:        os.Getenv("JWT_ACCESS_PRIVATE_KEY_PATH"),
-		JWTAccessPublicKeyPath:         os.Getenv("JWT_ACCESS_PUBLIC_KEY_PATH"),
-		JWTRefreshPrivateKeyPath:       os.Getenv("JWT_REFRESH_PRIVATE_KEY_PATH"),
-		JWTRefreshPublicKeyPath:        os.Getenv("JWT_REFRESH_PUBLIC_KEY_PATH"),
-		JWTAccessPKCS11ModulePath:      os.Getenv("JWT_ACCESS_PKCS11_MODULE_PATH"),
-		JWTAccessPKCS11TokenLabel:      os.Getenv("JWT_ACCESS_PKCS11_TOKEN_LABEL"),
-		JWTAccessPKCS11SlotID:          os.Getenv("JWT_ACCESS_PKCS11_SLOT_ID"),
-		JWTAccessPKCS11PIN:             os.Getenv("JWT_ACCESS_PKCS11_PIN"),
-		JWTAccessPKCS11KeyLabel:        os.Getenv("JWT_ACCESS_PKCS11_KEY_LABEL"),
-		JWTRefreshPKCS11ModulePath:     os.Getenv("JWT_REFRESH_PKCS11_MODULE_PATH"),
-		JWTRefreshPKCS11TokenLabel:     os.Getenv("JWT_REFRESH_PKCS11_TOKEN_LABEL"),
-		JWTRefreshPKCS11SlotID:         os.Getenv("JWT_REFRESH_PKCS11_SLOT_ID"),
-		JWTRefreshPKCS11PIN:            os.Getenv("JWT_REFRESH_PKCS11_PIN"),
-		JWTRefreshPKCS11KeyLabel:       os.Getenv("JWT_REFRESH_PKCS11_KEY_LABEL"),
-		AccessTokenTTL:                 duration("ACCESS_TOKEN_TTL", 15*time.Minute),
-		RefreshTokenTTL:                duration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
-		Port:                           getenv("PORT", "8080"),
-		AuthTokenBaseURL:               getenv("AUTH_TOKEN_BASE_URL", ""),
-		SendMailHTTPBaseURL:            getenv("SENDMAIL_HTTP_BASE_URL", ""),
-		SendMailHTTPBearerToken:        getenv("SENDMAIL_HTTP_BEARER_TOKEN", ""),
-		SendMailHTTPTimeout:            duration("SENDMAIL_HTTP_TIMEOUT", 15*time.Second),
-		EmailOutboxEncryptionKey:       getenv("EMAIL_OUTBOX_ENCRYPTION_KEY", ""),
-		EmailOutboxPollInterval:        duration("EMAIL_OUTBOX_POLL_INTERVAL", 5*time.Second),
-		EmailOutboxBatchSize:           intValue("EMAIL_OUTBOX_BATCH_SIZE", 20),
-		EmailOutboxMaxAttempts:         intValue("EMAIL_OUTBOX_MAX_ATTEMPTS", 8),
-		EmailOutboxRetryBase:           duration("EMAIL_OUTBOX_RETRY_BASE", 30*time.Second),
-		EmailOutboxRetryMax:            duration("EMAIL_OUTBOX_RETRY_MAX", 30*time.Minute),
-		CrossServiceBroker:             getenv("CROSS_SERVICE_BROKER", "log"),
-		AzureEventHubConnectionString:  getenv("AZURE_EVENTHUB_CONNECTION_STRING", ""),
-		AzureEventHubCheckpointFile:    getenv("AZURE_EVENTHUB_CHECKPOINT_FILE", ""),
-		AccountVideoCommandsStream:     getenv("ACCOUNT_VIDEO_COMMANDS_STREAM", "account.video.commands"),
-		VideoAccountEventsStream:       getenv("VIDEO_ACCOUNT_EVENTS_STREAM", "video.account.events"),
-		CrossServiceConsumerGroup:      getenv("CROSS_SERVICE_CONSUMER_GROUP", "rtk_account_manager"),
-		CrossServiceMaxAttempts:        intValue("CROSS_SERVICE_MAX_ATTEMPTS", 5),
-		CrossServicePollInterval:       duration("CROSS_SERVICE_POLL_INTERVAL", 5*time.Second),
-		VideoCloudLifecycleBaseURL:     getenv("VIDEO_CLOUD_LIFECYCLE_BASE_URL", ""),
-		VideoCloudLifecycleToken:       os.Getenv("VIDEO_CLOUD_LIFECYCLE_TOKEN"),
-		VideoCloudLifecycleTimeout:     duration("VIDEO_CLOUD_LIFECYCLE_TIMEOUT", 10*time.Second),
-		EmailVerificationTTL:           duration("EMAIL_VERIFICATION_TTL", 30*time.Minute),
-		PasswordResetTTL:               duration("PASSWORD_RESET_TTL", 30*time.Minute),
-		OTPResendInterval:              duration("OTP_RESEND_INTERVAL", 60*time.Second),
-		OTPMaxAttempts:                 intValue("OTP_MAX_ATTEMPTS", 5),
-		AuthTokenRateLimitMax:          intValue("AUTH_TOKEN_RATE_LIMIT_MAX", 5),
-		AuthTokenRateLimitWindow:       duration("AUTH_TOKEN_RATE_LIMIT_WINDOW", time.Hour),
-		OIDCEnabled:                    boolValue("OIDC_ENABLED", false),
-		OIDCProviderID:                 getenv("OIDC_PROVIDER_ID", "keycloak"),
-		OIDCProviderName:               getenv("OIDC_PROVIDER_NAME", "Keycloak"),
-		OIDCIssuerURL:                  os.Getenv("OIDC_ISSUER_URL"),
-		OIDCClientID:                   os.Getenv("OIDC_CLIENT_ID"),
-		OIDCClientSecret:               os.Getenv("OIDC_CLIENT_SECRET"),
-		OIDCRedirectURL:                os.Getenv("OIDC_REDIRECT_URL"),
-		OIDCScopes:                     stringList("OIDC_SCOPES", []string{"openid", "email", "profile"}),
-		OIDCAutoLinkEmail:              boolValue("OIDC_AUTO_LINK_EMAIL", false),
-		UserCacheEnabled:               boolValue("ACCOUNT_MANAGER_USER_CACHE_ENABLED", false),
-		UserCacheAddr:                  getenv("ACCOUNT_MANAGER_USER_CACHE_ADDR", "127.0.0.1:6379"),
-		UserCachePrefix:                getenv("ACCOUNT_MANAGER_USER_CACHE_PREFIX", "account_manager:user"),
-		AppCertIssuerBaseURL:           os.Getenv("APP_CERT_ISSUER_BASE_URL"),
-		AppCertIssuerClientCert:        os.Getenv("APP_CERT_ISSUER_CLIENT_CERT"),
-		AppCertIssuerClientKey:         os.Getenv("APP_CERT_ISSUER_CLIENT_KEY"),
-		AppCertIssuerCAFile:            os.Getenv("APP_CERT_ISSUER_CA_FILE"),
-		AppCertIssuerTimeout:           duration("APP_CERT_ISSUER_TIMEOUT", 10*time.Second),
-		InternalAuthToken:              os.Getenv("ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN"),
-		BillingHandoffBaseURL:          strings.TrimSpace(os.Getenv("BILLING_HANDOFF_BASE_URL")),
-		BillingHandoffToken:            strings.TrimSpace(os.Getenv("BILLING_HANDOFF_TOKEN")),
-		FactoryHandoffBaseURL:          strings.TrimSpace(os.Getenv("FACTORY_HANDOFF_BASE_URL")),
-		FactoryHandoffToken:            strings.TrimSpace(os.Getenv("FACTORY_HANDOFF_TOKEN")),
-		BillingCloudCreationBaseURL:    strings.TrimSpace(os.Getenv("BILLING_CLOUD_CREATION_BASE_URL")),
-		BillingCloudCreationToken:      strings.TrimSpace(os.Getenv("BILLING_CLOUD_CREATION_TOKEN")),
-		HandoffPollInterval:            duration("HANDOFF_WORKER_POLL_INTERVAL", 5*time.Second),
-		HandoffLeaseDuration:           duration("HANDOFF_WORKER_LEASE_DURATION", 2*time.Minute),
-		HandoffStepTimeout:             duration("HANDOFF_WORKER_STEP_TIMEOUT", 45*time.Second),
-		HandoffBatchSize:               intValue("HANDOFF_WORKER_BATCH_SIZE", 10),
-		CloudDeletionPollInterval:      duration("CLOUD_DELETION_WORKER_POLL_INTERVAL", 5*time.Second),
-		CloudDeletionLeaseDuration:     duration("CLOUD_DELETION_WORKER_LEASE_DURATION", 2*time.Minute),
-		CloudDeletionStepTimeout:       duration("CLOUD_DELETION_WORKER_STEP_TIMEOUT", 45*time.Second),
-		CloudDeletionBatchSize:         intValue("CLOUD_DELETION_WORKER_BATCH_SIZE", 10),
-		AllowImmediateBrandAccounts:    strings.EqualFold(strings.TrimSpace(os.Getenv("ACCOUNT_MANAGER_ENV")), "staging") && boolValue("ACCOUNT_MANAGER_ALLOW_IMMEDIATE_BRAND_ACCOUNTS", false),
-		FactoryProductionJWTSecret:     os.Getenv("FACTORY_PRODUCTION_JWT_SECRET"),
-		FactoryEnrollmentToken:         os.Getenv("ACCOUNT_MANAGER_FACTORY_ENROLLMENT_TOKEN"),
-		FactoryProductionJWTAudience:   getenv("FACTORY_PRODUCTION_JWT_AUDIENCE", "factory-enroll"),
-		BootstrapPlatformAdminEmail:    os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL"),
-		BootstrapPlatformAdminPassword: os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD"),
-		ChipsetProviderAllowedHosts:    stringList("CHIPSET_PROVIDER_ALLOWED_HOSTS", nil),
-		ChipsetProviderRefreshInterval: duration("CHIPSET_PROVIDER_REFRESH_INTERVAL", time.Hour),
-		LogEnv:                         getenv("ACCOUNT_MANAGER_ENV", "local"),
-		LogVersion:                     getenv("ACCOUNT_MANAGER_VERSION", "dev"),
-		LogLevel:                       getenv("ACCOUNT_MANAGER_LOG_LEVEL", "info"),
-		LogDevelopment:                 boolValue("ACCOUNT_MANAGER_LOG_DEVELOPMENT", false),
+		DatabaseURL:                     getenv("DATABASE_URL", "postgres://rtk:rtk_password@localhost:5432/rtk_account_manager?sslmode=disable"),
+		AccessSecret:                    os.Getenv("JWT_ACCESS_SECRET"),
+		RefreshSecret:                   os.Getenv("JWT_REFRESH_SECRET"),
+		JWTSignerProvider:               getenv("JWT_SIGNER_PROVIDER", "hs256"),
+		JWTAccessPrivateKeyPath:         os.Getenv("JWT_ACCESS_PRIVATE_KEY_PATH"),
+		JWTAccessPublicKeyPath:          os.Getenv("JWT_ACCESS_PUBLIC_KEY_PATH"),
+		JWTRefreshPrivateKeyPath:        os.Getenv("JWT_REFRESH_PRIVATE_KEY_PATH"),
+		JWTRefreshPublicKeyPath:         os.Getenv("JWT_REFRESH_PUBLIC_KEY_PATH"),
+		JWTAccessPKCS11ModulePath:       os.Getenv("JWT_ACCESS_PKCS11_MODULE_PATH"),
+		JWTAccessPKCS11TokenLabel:       os.Getenv("JWT_ACCESS_PKCS11_TOKEN_LABEL"),
+		JWTAccessPKCS11SlotID:           os.Getenv("JWT_ACCESS_PKCS11_SLOT_ID"),
+		JWTAccessPKCS11PIN:              os.Getenv("JWT_ACCESS_PKCS11_PIN"),
+		JWTAccessPKCS11KeyLabel:         os.Getenv("JWT_ACCESS_PKCS11_KEY_LABEL"),
+		JWTRefreshPKCS11ModulePath:      os.Getenv("JWT_REFRESH_PKCS11_MODULE_PATH"),
+		JWTRefreshPKCS11TokenLabel:      os.Getenv("JWT_REFRESH_PKCS11_TOKEN_LABEL"),
+		JWTRefreshPKCS11SlotID:          os.Getenv("JWT_REFRESH_PKCS11_SLOT_ID"),
+		JWTRefreshPKCS11PIN:             os.Getenv("JWT_REFRESH_PKCS11_PIN"),
+		JWTRefreshPKCS11KeyLabel:        os.Getenv("JWT_REFRESH_PKCS11_KEY_LABEL"),
+		AccessTokenTTL:                  duration("ACCESS_TOKEN_TTL", 15*time.Minute),
+		RefreshTokenTTL:                 duration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
+		Port:                            getenv("PORT", "8080"),
+		AuthTokenBaseURL:                getenv("AUTH_TOKEN_BASE_URL", ""),
+		SendMailHTTPBaseURL:             getenv("SENDMAIL_HTTP_BASE_URL", ""),
+		SendMailHTTPBearerToken:         getenv("SENDMAIL_HTTP_BEARER_TOKEN", ""),
+		SendMailHTTPTimeout:             duration("SENDMAIL_HTTP_TIMEOUT", 15*time.Second),
+		EmailOutboxEncryptionKey:        getenv("EMAIL_OUTBOX_ENCRYPTION_KEY", ""),
+		EmailOutboxPollInterval:         duration("EMAIL_OUTBOX_POLL_INTERVAL", 5*time.Second),
+		EmailOutboxBatchSize:            intValue("EMAIL_OUTBOX_BATCH_SIZE", 20),
+		EmailOutboxMaxAttempts:          intValue("EMAIL_OUTBOX_MAX_ATTEMPTS", 8),
+		EmailOutboxRetryBase:            duration("EMAIL_OUTBOX_RETRY_BASE", 30*time.Second),
+		EmailOutboxRetryMax:             duration("EMAIL_OUTBOX_RETRY_MAX", 30*time.Minute),
+		CrossServiceBroker:              getenv("CROSS_SERVICE_BROKER", "log"),
+		AzureEventHubConnectionString:   getenv("AZURE_EVENTHUB_CONNECTION_STRING", ""),
+		AzureEventHubCheckpointFile:     getenv("AZURE_EVENTHUB_CHECKPOINT_FILE", ""),
+		AccountVideoCommandsStream:      getenv("ACCOUNT_VIDEO_COMMANDS_STREAM", "account.video.commands"),
+		VideoAccountEventsStream:        getenv("VIDEO_ACCOUNT_EVENTS_STREAM", "video.account.events"),
+		CrossServiceConsumerGroup:       getenv("CROSS_SERVICE_CONSUMER_GROUP", "rtk_account_manager"),
+		CrossServiceMaxAttempts:         intValue("CROSS_SERVICE_MAX_ATTEMPTS", 5),
+		CrossServicePollInterval:        duration("CROSS_SERVICE_POLL_INTERVAL", 5*time.Second),
+		VideoCloudLifecycleBaseURL:      getenv("VIDEO_CLOUD_LIFECYCLE_BASE_URL", ""),
+		VideoCloudLifecycleToken:        os.Getenv("VIDEO_CLOUD_LIFECYCLE_TOKEN"),
+		VideoCloudLifecycleTimeout:      duration("VIDEO_CLOUD_LIFECYCLE_TIMEOUT", 10*time.Second),
+		EmailVerificationTTL:            duration("EMAIL_VERIFICATION_TTL", 30*time.Minute),
+		PasswordResetTTL:                duration("PASSWORD_RESET_TTL", 30*time.Minute),
+		OTPResendInterval:               duration("OTP_RESEND_INTERVAL", 60*time.Second),
+		OTPMaxAttempts:                  intValue("OTP_MAX_ATTEMPTS", 5),
+		AuthTokenRateLimitMax:           intValue("AUTH_TOKEN_RATE_LIMIT_MAX", 5),
+		AuthTokenRateLimitWindow:        duration("AUTH_TOKEN_RATE_LIMIT_WINDOW", time.Hour),
+		OIDCEnabled:                     boolValue("OIDC_ENABLED", false),
+		OIDCProviderID:                  getenv("OIDC_PROVIDER_ID", "keycloak"),
+		OIDCProviderName:                getenv("OIDC_PROVIDER_NAME", "Keycloak"),
+		OIDCIssuerURL:                   os.Getenv("OIDC_ISSUER_URL"),
+		OIDCClientID:                    os.Getenv("OIDC_CLIENT_ID"),
+		OIDCClientSecret:                os.Getenv("OIDC_CLIENT_SECRET"),
+		OIDCRedirectURL:                 os.Getenv("OIDC_REDIRECT_URL"),
+		OIDCScopes:                      stringList("OIDC_SCOPES", []string{"openid", "email", "profile"}),
+		OIDCAutoLinkEmail:               boolValue("OIDC_AUTO_LINK_EMAIL", false),
+		UserCacheEnabled:                boolValue("ACCOUNT_MANAGER_USER_CACHE_ENABLED", false),
+		UserCacheAddr:                   getenv("ACCOUNT_MANAGER_USER_CACHE_ADDR", "127.0.0.1:6379"),
+		UserCachePrefix:                 getenv("ACCOUNT_MANAGER_USER_CACHE_PREFIX", "account_manager:user"),
+		AppCertIssuerBaseURL:            os.Getenv("APP_CERT_ISSUER_BASE_URL"),
+		AppCertIssuerClientCert:         os.Getenv("APP_CERT_ISSUER_CLIENT_CERT"),
+		AppCertIssuerClientKey:          os.Getenv("APP_CERT_ISSUER_CLIENT_KEY"),
+		AppCertIssuerCAFile:             os.Getenv("APP_CERT_ISSUER_CA_FILE"),
+		AppCertIssuerTimeout:            duration("APP_CERT_ISSUER_TIMEOUT", 10*time.Second),
+		InternalAuthToken:               os.Getenv("ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN"),
+		BillingHandoffBaseURL:           strings.TrimSpace(os.Getenv("BILLING_HANDOFF_BASE_URL")),
+		BillingHandoffToken:             strings.TrimSpace(os.Getenv("BILLING_HANDOFF_TOKEN")),
+		FactoryHandoffBaseURL:           strings.TrimSpace(os.Getenv("FACTORY_HANDOFF_BASE_URL")),
+		FactoryHandoffToken:             strings.TrimSpace(os.Getenv("FACTORY_HANDOFF_TOKEN")),
+		VideoControlPlaneHandoffBaseURL: strings.TrimSpace(os.Getenv("VIDEO_CONTROL_PLANE_HANDOFF_BASE_URL")),
+		VideoControlPlaneHandoffToken:   strings.TrimSpace(os.Getenv("VIDEO_CONTROL_PLANE_HANDOFF_TOKEN")),
+		MQTTUsageHandoffBaseURL:         strings.TrimSpace(os.Getenv("MQTT_USAGE_HANDOFF_BASE_URL")),
+		MQTTUsageHandoffToken:           strings.TrimSpace(os.Getenv("MQTT_USAGE_HANDOFF_TOKEN")),
+		BillingCloudCreationBaseURL:     strings.TrimSpace(os.Getenv("BILLING_CLOUD_CREATION_BASE_URL")),
+		BillingCloudCreationToken:       strings.TrimSpace(os.Getenv("BILLING_CLOUD_CREATION_TOKEN")),
+		HandoffPollInterval:             duration("HANDOFF_WORKER_POLL_INTERVAL", 5*time.Second),
+		HandoffLeaseDuration:            duration("HANDOFF_WORKER_LEASE_DURATION", 2*time.Minute),
+		HandoffStepTimeout:              duration("HANDOFF_WORKER_STEP_TIMEOUT", 45*time.Second),
+		HandoffBatchSize:                intValue("HANDOFF_WORKER_BATCH_SIZE", 10),
+		CloudDeletionPollInterval:       duration("CLOUD_DELETION_WORKER_POLL_INTERVAL", 5*time.Second),
+		CloudDeletionLeaseDuration:      duration("CLOUD_DELETION_WORKER_LEASE_DURATION", 2*time.Minute),
+		CloudDeletionStepTimeout:        duration("CLOUD_DELETION_WORKER_STEP_TIMEOUT", 45*time.Second),
+		CloudDeletionBatchSize:          intValue("CLOUD_DELETION_WORKER_BATCH_SIZE", 10),
+		AllowImmediateBrandAccounts:     strings.EqualFold(strings.TrimSpace(os.Getenv("ACCOUNT_MANAGER_ENV")), "staging") && boolValue("ACCOUNT_MANAGER_ALLOW_IMMEDIATE_BRAND_ACCOUNTS", false),
+		FactoryProductionJWTSecret:      os.Getenv("FACTORY_PRODUCTION_JWT_SECRET"),
+		FactoryEnrollmentToken:          os.Getenv("ACCOUNT_MANAGER_FACTORY_ENROLLMENT_TOKEN"),
+		FactoryProductionJWTAudience:    getenv("FACTORY_PRODUCTION_JWT_AUDIENCE", "factory-enroll"),
+		BootstrapPlatformAdminEmail:     os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL"),
+		BootstrapPlatformAdminPassword:  os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD"),
+		ChipsetProviderAllowedHosts:     stringList("CHIPSET_PROVIDER_ALLOWED_HOSTS", nil),
+		ChipsetProviderRefreshInterval:  duration("CHIPSET_PROVIDER_REFRESH_INTERVAL", time.Hour),
+		LogEnv:                          getenv("ACCOUNT_MANAGER_ENV", "local"),
+		LogVersion:                      getenv("ACCOUNT_MANAGER_VERSION", "dev"),
+		LogLevel:                        getenv("ACCOUNT_MANAGER_LOG_LEVEL", "info"),
+		LogDevelopment:                  boolValue("ACCOUNT_MANAGER_LOG_DEVELOPMENT", false),
 	}
 	return cfg, nil
 }

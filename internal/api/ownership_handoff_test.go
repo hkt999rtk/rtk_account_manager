@@ -21,7 +21,7 @@ func (provider apiHandoffEvidence) CheckOwnershipEligibility(_ context.Context, 
 }
 func configureAPIHandoffFixture(t *testing.T, env integrationEnv) {
 	t.Helper()
-	if err := env.store.ConfigureOwnershipHandoff(store.OwnershipHandoffOptions{Eligibility: apiHandoffEvidence{}, Producers: []string{"test_resources"}}); err != nil {
+	if err := env.store.ConfigureOwnershipHandoff(store.OwnershipHandoffOptions{Eligibility: apiHandoffEvidence{}, Producers: store.RequiredHandoffProducers()}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -51,7 +51,7 @@ func TestOwnerTransferFinancialBlockersHaveExplicitHTTPResults(t *testing.T) {
 		evidence apiHandoffEvidence
 		code     string
 	}{{apiHandoffEvidence{Balance: -1}, "balance_negative"}, {apiHandoffEvidence{Balance: 1, Blockers: []string{"usage_unsettled"}}, "ownership_handoff_financial_blocked"}} {
-		if err := env.store.ConfigureOwnershipHandoff(store.OwnershipHandoffOptions{Eligibility: tc.evidence, Producers: []string{"test_resources"}}); err != nil {
+		if err := env.store.ConfigureOwnershipHandoff(store.OwnershipHandoffOptions{Eligibility: tc.evidence, Producers: store.RequiredHandoffProducers()}); err != nil {
 			t.Fatal(err)
 		}
 		res := performJSON(env.router, http.MethodPost, path, map[string]any{"target_email": "financial-http-target@example.test"}, source.AccessToken)

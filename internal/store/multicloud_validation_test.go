@@ -29,22 +29,24 @@ func TestConfigureOwnershipHandoffValidatesAndCopiesInventory(t *testing.T) {
 		{Eligibility: provider},
 		{Producers: []string{"video"}},
 	} {
-		if err := New(nil).ConfigureOwnershipHandoff(tc); !errors.Is(err, ErrHandoffUnavailable) {
+		if err := New(nil).ConfigureOwnershipHandoff(tc); tc.Eligibility == nil && !errors.Is(err, ErrHandoffUnavailable) {
 			t.Fatalf("missing dependency accepted: %+v %v", tc, err)
+		} else if tc.Eligibility != nil && !errors.Is(err, ErrConflict) {
+			t.Fatalf("reduced inventory accepted: %+v %v", tc, err)
 		}
 	}
-	for _, producers := range [][]string{{"billing"}, {"Bad"}, {"video", "video"}, {"", "video"}} {
+	for _, producers := range [][]string{{"billing"}, {"Bad"}, {"factory", "mqtt_usage"}, {"factory", "mqtt_usage", "mqtt_usage"}, {"factory", "mqtt_usage", "video_control_plane", "extra"}} {
 		if err := New(nil).ConfigureOwnershipHandoff(OwnershipHandoffOptions{Eligibility: provider, Producers: producers}); !errors.Is(err, ErrConflict) {
 			t.Fatalf("invalid producers accepted: %q %v", producers, err)
 		}
 	}
-	input := []string{"video", "factory"}
+	input := []string{"video_control_plane", "factory", "mqtt_usage"}
 	s := New(nil)
 	if err := s.ConfigureOwnershipHandoff(OwnershipHandoffOptions{Eligibility: provider, Producers: input}); err != nil {
 		t.Fatal(err)
 	}
 	input[0] = "mutated"
-	if !reflect.DeepEqual(s.ownershipHandoff.Producers, []string{"factory", "video"}) {
+	if !reflect.DeepEqual(s.ownershipHandoff.Producers, RequiredHandoffProducers()) {
 		t.Fatalf("inventory was not sorted and copied: %v", s.ownershipHandoff.Producers)
 	}
 }
@@ -220,12 +222,16 @@ func TestHandoffAndDeletionAdapterConfiguration(t *testing.T) {
 			t.Fatalf("invalid participants accepted: %+v %v", adapters, err)
 		}
 	}
-	adapters := map[string]HandoffParticipant{"video": participant}
+	adapters := map[string]HandoffParticipant{
+		HandoffParticipantFactory:           participant,
+		HandoffParticipantMQTTUsage:         participant,
+		HandoffParticipantVideoControlPlane: participant,
+	}
 	if err := s.ConfigureHandoffParticipants(adapters); err != nil {
 		t.Fatal(err)
 	}
-	delete(adapters, "video")
-	if _, ok := s.handoffParticipants["video"]; !ok {
+	delete(adapters, HandoffParticipantFactory)
+	if _, ok := s.handoffParticipants[HandoffParticipantFactory]; !ok {
 		t.Fatal("participant inventory was not copied")
 	}
 	for _, tc := range []struct {

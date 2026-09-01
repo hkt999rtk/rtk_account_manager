@@ -1,9 +1,8 @@
 # Multi-cloud Account Manager implementation design
 
-Status: design-first target, not deployed acceptance. Canonical behavior is
-[multicloud_ownership.md](https://github.com/hkt999rtk/rtk_cloud_contracts_doc/blob/codex/multicloud-owner-design/multicloud_ownership.md) in
-[contracts PR #131](https://github.com/hkt999rtk/rtk_cloud_contracts_doc/pull/131).
-Runtime work follows reviewed/merged docs-only PRs.
+Status: implementation and deployment contract. Canonical behavior is
+[multicloud_ownership.md](https://github.com/hkt999rtk/rtk_cloud_contracts_doc/blob/main/multicloud_ownership.md).
+Runtime work follows the reviewed and merged canonical contracts.
 
 ## New-cloud Billing projection
 
@@ -47,6 +46,12 @@ at least 32 bytes, 25-second request timeout and a 16-KiB response limit. This
 credential is the factory `FACTORY_ENROLL_RECOVERY_TOKEN`, not the AM admission
 credential or any user's JWT. It is never supplied by a browser request.
 
+Kubernetes deployments may use plaintext only for a DNS name ending exactly in
+`.svc.cluster.local`. Those routes remain internal, require the same dedicated
+participant credential, and are restricted to the handoff worker by ingress
+NetworkPolicy. Arbitrary private IPs, short service names and suffix lookalikes
+remain invalid.
+
 Prepare accepts only the exact cloud/operation/source/target/ownership-version/
 cutoff response in prepared phase, with nonnegative present terminal counts and
 matching durable hold/drain hashes. Abort and release validate decision ID,
@@ -57,17 +62,27 @@ Transport success without the complete record, 404, malformed responses and
 timeouts all retain the operation fence. No local receipt calculation substitutes
 for authenticated durable state.
 
-`cmd/handoff-worker` requires paired `FACTORY_HANDOFF_BASE_URL` and
-`FACTORY_HANDOFF_TOKEN`, validates that the credential is isolated from every
-other configured secret, and registers this adapter under the exact `factory`
-name. `cmd/server` still does not enable new handoffs because the reviewed
-participant inventory is incomplete. The worker never reduces an operation's
-persisted inventory to only factory: unknown or unconfigured participants remain
-fenced across restart. Billing collection and every other producer must be
-implemented and explicitly configured before transfer can be enabled. Factory
-proof covers enrollment journal drainage only, not rated usage, all Video Cloud
-writes, or financial eligibility. The settled balance >= 0 rule
-and all other reviewed Billing blockers remain unchanged.
+`cmd/handoff-worker` requires dedicated transports for the exact reviewed
+`factory`, `video_control_plane`, and `mqtt_usage` set in addition to Billing.
+Startup rejects a missing, extra, duplicated, shared-credential, untrusted, or
+partially configured participant. `cmd/server` persists that compile-time set on
+every accepted operation; migration 067 adds a deferred database constraint so
+direct SQL and future call paths cannot commit a reduced inventory. Persisted
+unknown participants remain fenced across restart and cannot be rewritten by a
+changed deployment. Factory proof covers enrollment journal drainage only, not
+rated usage, all Video Cloud writes, or financial eligibility. The settled
+balance >= 0 rule and all other reviewed Billing blockers remain unchanged.
+
+The Video Cloud participant transports use fixed authenticated routes and digest
+domains rather than environment-provided participant names:
+
+- `VIDEO_CONTROL_PLANE_HANDOFF_BASE_URL` and
+  `VIDEO_CONTROL_PLANE_HANDOFF_TOKEN` call
+  `/v1/internal/video-control-plane-handoffs/{prepare,abort,release}`.
+- `MQTT_USAGE_HANDOFF_BASE_URL` and `MQTT_USAGE_HANDOFF_TOKEN` call
+  `/v1/internal/mqtt-usage-handoffs/{prepare,abort,release}`.
+
+An HTTP status without an exact durable response never advances the operation.
 
 ## Persistence and concurrency
 

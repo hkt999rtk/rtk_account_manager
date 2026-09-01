@@ -199,7 +199,7 @@ func TestPlatformUnprovisionRechecksPrivilegeAndCloudFence(t *testing.T) {
 		t.Fatal(err)
 	}
 	deny() // Canceling is still fenced until every participant releases its hold.
-	for _, participant := range []string{"billing", "test_resources"} {
+	for _, participant := range append([]string{"billing"}, RequiredHandoffProducers()...) {
 		if _, err := env.store.RecordCloudHandoffAbortAck(ctx, HandoffAbortAck{CloudID: owner.BrandCloud.ID, OperationID: transfer.ID, OwnershipVersion: 1, Participant: participant, ReceiptSHA256: strings.Repeat("a", 64)}); err != nil {
 			t.Fatal(err)
 		}

@@ -57,7 +57,7 @@ func (b balanceIntercept) Settlement(ctx context.Context, in billinghandoff.Bind
 func readyBalanceFixture(t *testing.T, env storeIntegrationEnv, amount int64) (*balanceTestBilling, HandoffPrepareAck, BrandCloudOwnerTransferQuery) {
 	t.Helper()
 	ack, query := preparedAckFixture(t, env)
-	for _, participant := range []string{"billing", "test_resources"} {
+	for _, participant := range append([]string{"billing"}, RequiredHandoffProducers()...) {
 		ack.Participant = participant
 		if _, err := env.store.RecordCloudHandoffPrepareAck(context.Background(), ack); err != nil {
 			t.Fatal(err)
@@ -92,7 +92,7 @@ func TestHandoffBalancePreviewRequiresAllPrepareEvidenceAndPreservesSnapshot(t *
 	if remote.reads != 0 {
 		t.Fatal("unprepared operation reached Billing")
 	}
-	for _, participant := range []string{"billing", "test_resources"} {
+	for _, participant := range append([]string{"billing"}, RequiredHandoffProducers()...) {
 		ack.Participant = participant
 		if _, err := env.store.RecordCloudHandoffPrepareAck(ctx, ack); err != nil {
 			t.Fatal(err)
@@ -134,7 +134,7 @@ func TestHandoffBalancePreviewRequiresAllPrepareEvidenceAndPreservesSnapshot(t *
 	if err != nil || view.OperationPhase != "canceling" || !view.HasSettledSnapshot || *view.SourceConfirmed || *view.TargetConfirmed {
 		t.Fatalf("cancel hid prior amount or kept confirmable consent: %+v %v", view, err)
 	}
-	for _, participant := range []string{"billing", "test_resources"} {
+	for _, participant := range append([]string{"billing"}, RequiredHandoffProducers()...) {
 		if _, err := restarted.RecordCloudHandoffAbortAck(ctx, HandoffAbortAck{CloudID: ack.CloudID, OperationID: ack.OperationID, OwnershipVersion: 1, Participant: participant, ReceiptSHA256: strings.Repeat("e", 64)}); err != nil {
 			t.Fatal(err)
 		}
@@ -344,7 +344,7 @@ func TestHandoffLatePreviewCannotUndoCancellationOrExpiry(t *testing.T) {
 					if _, err := env.store.CancelBrandCloudOwnerTransfer(ctx, source, time.Now()); err != nil {
 						t.Fatal(err)
 					}
-					for _, participant := range []string{"billing", "test_resources"} {
+					for _, participant := range append([]string{"billing"}, RequiredHandoffProducers()...) {
 						if _, err := env.store.RecordCloudHandoffAbortAck(ctx, HandoffAbortAck{CloudID: ack.CloudID, OperationID: ack.OperationID, OwnershipVersion: 1, Participant: participant, ReceiptSHA256: strings.Repeat("e", 64)}); err != nil {
 							t.Fatal(err)
 						}

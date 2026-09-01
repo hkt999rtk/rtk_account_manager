@@ -134,7 +134,7 @@ func TestPlatformClaimTokenAdministrationLocksManufacturerAndTargetClouds(t *tes
 			t.Fatalf("%s revocation escaped cloud fence: %v", phase, err)
 		}
 	}
-	for _, participant := range []string{"billing", "test_resources"} {
+	for _, participant := range append([]string{"billing"}, RequiredHandoffProducers()...) {
 		if _, err := env.store.RecordCloudHandoffAbortAck(ctx, HandoffAbortAck{CloudID: owner.BrandCloud.ID, OperationID: op.ID, OwnershipVersion: 1, Participant: participant, ReceiptSHA256: strings.Repeat("a", 64)}); err != nil {
 			t.Fatal(err)
 		}

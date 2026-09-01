@@ -111,15 +111,15 @@ message through the Send Mail HTTP API. Configure `AUTH_TOKEN_BASE_URL`,
 The workspace-level staging email E2E uses the same HTTP delivery path and IMAP
 only to verify the received message.
 
-The in-progress ownership-handoff preview/confirmation adapter uses paired
+The ownership-handoff coordinator uses paired
 `BILLING_HANDOFF_BASE_URL` and a dedicated `BILLING_HANDOFF_TOKEN` (at least 32
-characters, not reused from other service credentials). The origin must use HTTPS;
-literal loopback HTTP is permitted for isolated tests only. Leave both unset to
-keep unavailable financial evidence fail-closed. Configuring this adapter does
-**not** enable complete transfers: trusted initial eligibility, producer hold/drain
-workers and automatic delivery of the implemented owner commit/finalization
-protocol are still required. See
-`docs/multicloud_implementation_progress.md` before enabling any runtime rollout.
+characters, not reused from other service credentials). The origin must use
+HTTPS, except literal loopback and exact `.svc.cluster.local` HTTP endpoints.
+The Kubernetes exception also requires the dedicated handoff worker ingress
+NetworkPolicy. `cmd/handoff-worker` requires Billing plus the exact `factory`,
+`video_control_plane`, and `mqtt_usage` participant transports; missing evidence
+retains the operation fence. See `docs/multicloud_implementation.md` before a
+runtime rollout.
 
 `go run ./cmd/handoff-worker` runs the durable handoff recovery loop against an
 explicitly configured database (forward migration 059 required). It requires the
