@@ -16,6 +16,11 @@ func TestCloudDeletionWorkerConfiguration(t *testing.T) {
 	}
 	t.Setenv("BILLING_HANDOFF_BASE_URL", "https://billing.example")
 	t.Setenv("BILLING_HANDOFF_TOKEN", strings.Repeat("h", 32))
+	if _, err := LoadCloudDeletionWorker(); err == nil {
+		t.Fatal("missing resource producer accepted")
+	}
+	t.Setenv("VIDEO_CONTROL_PLANE_HANDOFF_BASE_URL", "https://video.example")
+	t.Setenv("VIDEO_CONTROL_PLANE_HANDOFF_TOKEN", strings.Repeat("v", 32))
 	if _, err := LoadCloudDeletionWorker(); err != nil {
 		t.Fatal(err)
 	}

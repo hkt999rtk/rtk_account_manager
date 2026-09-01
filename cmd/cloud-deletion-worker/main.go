@@ -10,6 +10,7 @@ import (
 	"rtk_account_manager/internal/billinghandoff"
 	"rtk_account_manager/internal/config"
 	"rtk_account_manager/internal/database"
+	"rtk_account_manager/internal/factoryhandoff"
 	"rtk_account_manager/internal/logging"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/worker/clouddeletion"
@@ -44,7 +45,11 @@ func main() {
 		fatal(logger, "configure cloud deletion Billing transport failed")
 	}
 	repo := store.New(db)
-	if err := repo.ConfigureCloudDeletionRecovery(store.CloudDeletionOptions{Billing: client}); err != nil {
+	producer, err := factoryhandoff.NewParticipant(factoryhandoff.ParticipantVideoControlPlane, factoryhandoff.Config{BaseURL: cfg.VideoControlPlaneHandoffBaseURL, Token: cfg.VideoControlPlaneHandoffToken})
+	if err != nil {
+		fatal(logger, "configure cloud deletion resource transport failed")
+	}
+	if err := repo.ConfigureCloudDeletionRecovery(store.CloudDeletionOptions{Billing: client, Producers: map[string]store.CloudDeletionProducer{factoryhandoff.ParticipantVideoControlPlane: producer}}); err != nil {
 		fatal(logger, "configure cloud deletion recovery failed")
 	}
 	service, err := clouddeletion.NewService(repo, clouddeletion.Options{PollInterval: cfg.CloudDeletionPollInterval, LeaseDuration: cfg.CloudDeletionLeaseDuration, StepTimeout: cfg.CloudDeletionStepTimeout, BatchSize: cfg.CloudDeletionBatchSize, Logger: logger})
@@ -52,8 +57,8 @@ func main() {
 		fatal(logger, "configure cloud deletion worker failed")
 	}
 	// No migrations, new DELETE admission, fake observers or no-op release.
-	// Missing persisted participants block at their proof/release stage.
-	logger.Warn("recovery only; resource adapters are not installed and missing evidence remains fenced")
+	// The exact persisted participant inventory remains authoritative.
+	logger.Info("recovery-only resource adapters configured")
 	logger.Info("starting cloud deletion recovery worker")
 	if err := service.Run(ctx); err != nil {
 		fatal(logger, "cloud deletion worker stopped")

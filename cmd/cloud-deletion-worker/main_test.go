@@ -52,7 +52,8 @@ func TestCloudDeletionWorkerProcessStartsAndStops(t *testing.T) {
 	defer billing.Close()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestCloudDeletionWorkerChild$")
 	secret := strings.Repeat("w", 32)
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "TEST_CLOUD_DELETION_WORKER_CHILD=1", "DATABASE_URL=" + dsn, "BILLING_HANDOFF_BASE_URL=" + billing.URL, "BILLING_HANDOFF_TOKEN=" + secret, "CLOUD_DELETION_WORKER_POLL_INTERVAL=5ms", "ACCOUNT_MANAGER_ENV=test", "ACCOUNT_MANAGER_LOG_LEVEL=info"}
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "TEST_CLOUD_DELETION_WORKER_CHILD=1", "DATABASE_URL=" + dsn, "BILLING_HANDOFF_BASE_URL=" + billing.URL, "BILLING_HANDOFF_TOKEN=" + secret,
+		"VIDEO_CONTROL_PLANE_HANDOFF_BASE_URL=" + billing.URL, "VIDEO_CONTROL_PLANE_HANDOFF_TOKEN=" + strings.Repeat("v", 32), "CLOUD_DELETION_WORKER_POLL_INTERVAL=5ms", "ACCOUNT_MANAGER_ENV=test", "ACCOUNT_MANAGER_LOG_LEVEL=info"}
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
