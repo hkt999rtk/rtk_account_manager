@@ -8,6 +8,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-email-worker ./cmd/email-worker
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-email-outbox-admin ./cmd/email-outbox-admin
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-outbox-worker ./cmd/outbox-worker
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-handoff-worker ./cmd/handoff-worker
 
 FROM debian:bookworm-slim
 
@@ -23,6 +24,7 @@ COPY --from=builder /out/rtk-account-manager-migrate /app/rtk-account-manager-mi
 COPY --from=builder /out/rtk-account-manager-email-worker /app/rtk-account-manager-email-worker
 COPY --from=builder /out/rtk-account-manager-email-outbox-admin /app/rtk-account-manager-email-outbox-admin
 COPY --from=builder /out/rtk-account-manager-outbox-worker /app/rtk-account-manager-outbox-worker
+COPY --from=builder /out/rtk-account-manager-handoff-worker /app/rtk-account-manager-handoff-worker
 COPY --from=builder /src/migrations /app/migrations
 
 USER app
