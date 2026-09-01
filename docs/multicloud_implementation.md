@@ -88,6 +88,10 @@ The deletion observer validates the exact cloud, owner, ownership and
 authorization versions plus a fresh no-store receipt and evidence digest. Video
 Control Plane reports its device projections, clip/firmware/OTA resources,
 active work and lifecycle fences; Billing continues to own usage settlement.
+DELETE also requires that participant's durable `deletion-hold`; cancellation
+requires its terminal `deletion-cancel` acknowledgment. The hold fences Video
+Cloud database writers under the cloud lock and remains after successful
+deletion; a cancellation tombstone releases it and rejects delayed preparation.
 
 ## Persistence and concurrency
 

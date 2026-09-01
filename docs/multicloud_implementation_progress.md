@@ -647,6 +647,11 @@ untouched. No staging deployment or shared database migration has been performed
   still blocks readiness; no no-op adapter is installed. Factory activity already
   blocks through Account Manager's authoritative production-run inventory, while
   unsettled MQTT usage remains Billing's authoritative responsibility.
+- The same participant implements the durable deletion producer and cancellation
+  interface. Server startup installs it for both advisory evidence and DELETE,
+  so production admission cannot proceed with a synthetic or observer-only
+  participant. Video Cloud persists the resource hold before attesting emptiness
+  and releases it only after an exact durable cancellation decision.
 - Tests cover disabled resources, unresolved jobs, no preflight side effects,
   nonowner access, missing/expired/misbound evidence, dependency errors, new
   resources during I/O, owner disable and handoff acceptance during observation.

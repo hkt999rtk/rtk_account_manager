@@ -80,6 +80,15 @@ func main() {
 		if err := accountStore.ConfigureCloudDeletionPreflight(store.CloudDeletionPreflightOptions{Billing: client, Resources: resources}); err != nil {
 			fatal(logger, "configure Billing deletion preflight failed", err)
 		}
+		if observer := resources[factoryhandoff.ParticipantVideoControlPlane]; observer != nil {
+			producer, ok := observer.(store.CloudDeletionProducer)
+			if !ok {
+				fatal(logger, "configure Video Cloud deletion producer failed", nil)
+			}
+			if err := accountStore.ConfigureCloudDeletion(store.CloudDeletionOptions{Billing: client, Producers: map[string]store.CloudDeletionProducer{factoryhandoff.ParticipantVideoControlPlane: producer}}); err != nil {
+				fatal(logger, "configure durable cloud deletion failed", err)
+			}
+		}
 	}
 	accountStore.ConfigureAuthTokenRateLimit(cfg.AuthTokenRateLimitMax, cfg.AuthTokenRateLimitWindow)
 	cipher, err := emaildelivery.NewCipher(cfg.EmailOutboxEncryptionKey)

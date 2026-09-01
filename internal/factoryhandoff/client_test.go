@@ -140,6 +140,48 @@ func TestVideoControlPlaneDeletionObserverRejectsUntrustedEvidence(t *testing.T)
 	}
 }
 
+func TestVideoControlPlaneDeletionProducerHoldsAndCancelsExactBinding(t *testing.T) {
+	in := billinghandoff.ClosureBinding{CloudDeletionScope: billinghandoff.CloudDeletionScope{CloudID: fixtureBinding().CloudID, OwnerUserID: fixtureBinding().SourceUserID, OwnershipVersion: 2}, OperationID: fixtureBinding().OperationID, Cutoff: fixtureBinding().Cutoff}
+	const authorizationVersion = int64(10)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		switch req.URL.Path {
+		case "/v1/internal/video-control-plane-handoffs/deletion-hold":
+			var binding deletionBinding
+			if json.NewDecoder(req.Body).Decode(&binding) != nil {
+				t.Fatal("invalid hold body")
+			}
+			_ = json.NewEncoder(w).Encode(deletionHold{deletionBinding: binding, Participant: ParticipantVideoControlPlane, Phase: "holding", Held: true, Empty: true, ReceiptSHA256: binding.digest("holding", "true")})
+		case "/v1/internal/video-control-plane-handoffs/deletion-cancel":
+			var decision struct {
+				deletionBinding
+				CancellationID     string `json:"cancellation_id"`
+				CancellationSHA256 string `json:"cancellation_sha256"`
+			}
+			if json.NewDecoder(req.Body).Decode(&decision) != nil {
+				t.Fatal("invalid cancellation body")
+			}
+			_ = json.NewEncoder(w).Encode(deletionHold{deletionBinding: decision.deletionBinding, Participant: ParticipantVideoControlPlane, Phase: "canceled", ReceiptSHA256: decision.digest("canceled", decision.CancellationID, decision.CancellationSHA256), CancellationID: decision.CancellationID})
+		default:
+			t.Fatalf("unexpected route %s", req.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client, err := NewParticipant(ParticipantVideoControlPlane, Config{BaseURL: server.URL, Token: testToken})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hold, err := client.PrepareCloudDeletion(context.Background(), in, authorizationVersion)
+	if err != nil || !hold.Held || !hold.Empty || hold.AuthorizationVersion != authorizationVersion {
+		t.Fatalf("hold = %+v, %v", hold, err)
+	}
+	cancellationID, cancellationSHA := "77777777-7777-4777-8777-777777777777", strings.Repeat("d", 64)
+	release, err := client.CancelCloudDeletion(context.Background(), in, authorizationVersion, cancellationID, cancellationSHA)
+	if err != nil || !release.Released || release.CancellationID != cancellationID || release.Participant != ParticipantVideoControlPlane {
+		t.Fatalf("release = %+v, %v", release, err)
+	}
+}
+
 func TestFactoryHandoffClientValidatesConfigurationAndExactReceipts(t *testing.T) {
 	for _, base := range []string{"", "http://cloud.example", "http://localhost:123", "ftp://127.0.0.1", "https://user:secret@example.com", "https://example.com/path", "https://example.com?", "https://example.com?q=1", "https://example.com#fragment", "https://example.com/%2f"} {
 		if _, err := New(Config{BaseURL: base, Token: testToken}); !errors.Is(err, ErrInvalid) {
