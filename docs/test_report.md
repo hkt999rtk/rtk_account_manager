@@ -586,6 +586,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapClientRequiresExactAuthenticatedCreationReceipt/version`
 - `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapClientRequiresExactAuthenticatedCreationReceipt`
 - `rtk_account_manager/internal/billingbootstrap`: `TestBillingBootstrapWorkerRetainsFailuresAndStopsOnCancellation`
+- `rtk_account_manager/internal/billinghandoff`: `TestClientAcceptsOnlyBoundedPlaintextOrigins`
 - `rtk_account_manager/internal/billinghandoff`: `TestClientNeverFollowsRedirectOrLeaksRemoteDiagnostics`
 - `rtk_account_manager/internal/billinghandoff`: `TestClientRejectsUnsafeConfiguration`
 - `rtk_account_manager/internal/billinghandoff`: `TestClientValidatesScopeSnapshotAndExactNonnegativeIntegers/0`
@@ -809,6 +810,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration/plaintext_production_URL`
 - `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration/zero_timeout`
 - `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration`
+- `rtk_account_manager/internal/config`: `TestResourceHandoffConfigurationIsPairedDistinctAndReviewed`
 - `rtk_account_manager/internal/database`: `TestBillingCreationMigrationDoesNotInferHistoricalResponsibility`
 - `rtk_account_manager/internal/database`: `TestConnectAppliesPoolTuningIntegration`
 - `rtk_account_manager/internal/database`: `TestConnectRejectsInvalidConfig`
@@ -938,6 +940,9 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof/version`
 - `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientRejectsIncompleteOrMismatchedProof`
 - `rtk_account_manager/internal/factoryhandoff`: `TestFactoryHandoffClientValidatesConfigurationAndExactReceipts`
+- `rtk_account_manager/internal/factoryhandoff`: `TestReviewedResourceParticipantsUseFixedRoutesAndDigestDomains/mqtt_usage`
+- `rtk_account_manager/internal/factoryhandoff`: `TestReviewedResourceParticipantsUseFixedRoutesAndDigestDomains/video_control_plane`
+- `rtk_account_manager/internal/factoryhandoff`: `TestReviewedResourceParticipantsUseFixedRoutesAndDigestDomains`
 - `rtk_account_manager/internal/lifecyclehttp`: `TestNewPublisherRejectsUnsafeConfiguration/credential_URL`
 - `rtk_account_manager/internal/lifecyclehttp`: `TestNewPublisherRejectsUnsafeConfiguration/missing_token`
 - `rtk_account_manager/internal/lifecyclehttp`: `TestNewPublisherRejectsUnsafeConfiguration/path_URL`

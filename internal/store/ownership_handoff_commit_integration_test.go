@@ -157,7 +157,7 @@ func TestHandoffCommitRevokesSourceAndFinalizationReleasesOnlyAfterAllAcks(t *te
 	if replay, err := restarted.CommitOwnerHandoff(ctx, ack.CloudID, ack.OperationID); err != nil || replay.DecisionSHA256 != decision.DecisionSHA256 {
 		t.Fatalf("durable replay: %+v %v", replay, err)
 	}
-	release := HandoffFinalizationAck{CloudID: ack.CloudID, OperationID: ack.OperationID, OwnershipVersion: 1, DecisionSHA256: decision.DecisionSHA256, Participant: "test_resources", ReceiptSHA256: strings.Repeat("c", 64)}
+	release := HandoffFinalizationAck{CloudID: ack.CloudID, OperationID: ack.OperationID, OwnershipVersion: 1, DecisionSHA256: decision.DecisionSHA256, Participant: HandoffParticipantFactory, ReceiptSHA256: strings.Repeat("c", 64)}
 	if _, err := restarted.RecordHandoffFinalizationAck(ctx, release); !errors.Is(err, ErrConflict) {
 		t.Fatalf("release before Billing: %v", err)
 	}
@@ -178,8 +178,16 @@ func TestHandoffCommitRevokesSourceAndFinalizationReleasesOnlyAfterAllAcks(t *te
 	if err := env.db.QueryRow(ctx, `SELECT user_can_access_brand_cloud($1,$2)`, ack.TargetUserID, ack.CloudID).Scan(&accessible); err != nil || accessible {
 		t.Fatal("Billing ack alone released producer fence", err)
 	}
-	if phase, err := restarted.RecordHandoffFinalizationAck(ctx, release); err != nil || phase != "succeeded" {
-		t.Fatalf("complete release: %s %v", phase, err)
+	for i, participant := range RequiredHandoffProducers() {
+		release.Participant = participant
+		phase, err := restarted.RecordHandoffFinalizationAck(ctx, release)
+		want := "finalizing"
+		if i == len(RequiredHandoffProducers())-1 {
+			want = "succeeded"
+		}
+		if err != nil || phase != want {
+			t.Fatalf("release %s: %s %v", participant, phase, err)
+		}
 	}
 	assertHandoffOwner(t, env, ack, ack.TargetUserID, "succeeded", 2)
 	if err := env.db.QueryRow(ctx, `SELECT user_can_access_brand_cloud($1,$2)`, ack.TargetUserID, ack.CloudID).Scan(&accessible); err != nil || !accessible {
@@ -381,7 +389,18 @@ func TestHandoffFinalizationAuditFailureRetainsFenceAndRetries(t *testing.T) {
 	if _, err := env.store.FinalizeOwnerHandoff(ctx, ack.CloudID, ack.OperationID); err != nil {
 		t.Fatal(err)
 	}
-	in := HandoffFinalizationAck{CloudID: ack.CloudID, OperationID: ack.OperationID, OwnershipVersion: 1, DecisionSHA256: decision.DecisionSHA256, Participant: "test_resources", ReceiptSHA256: strings.Repeat("e", 64)}
+	in := HandoffFinalizationAck{CloudID: ack.CloudID, OperationID: ack.OperationID, OwnershipVersion: 1, DecisionSHA256: decision.DecisionSHA256, ReceiptSHA256: strings.Repeat("e", 64)}
+	for i, participant := range RequiredHandoffProducers() {
+		in.Participant = participant
+		phase, err := env.store.RecordHandoffFinalizationAck(ctx, in)
+		want := "finalizing"
+		if i == len(RequiredHandoffProducers())-1 {
+			want = "succeeded"
+		}
+		if err != nil || phase != want {
+			t.Fatalf("release %s: %s %v", participant, phase, err)
+		}
+	}
 	for i := 0; i < 2; i++ {
 		if phase, err := env.store.RecordHandoffFinalizationAck(ctx, in); err != nil || phase != "succeeded" {
 			t.Fatalf("release retry: %s %v", phase, err)

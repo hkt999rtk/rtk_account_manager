@@ -52,7 +52,7 @@ func newPublicHandoffFixture(t *testing.T) publicHandoffFixture {
 	if err := env.db.QueryRow(context.Background(), `SELECT cutoff FROM cloud_ownership_handoffs WHERE id=$1`, view.ID).Scan(&binding.Cutoff); err != nil {
 		t.Fatal(err)
 	}
-	for _, participant := range []string{"billing", "test_resources"} {
+	for _, participant := range append([]string{"billing"}, store.RequiredHandoffProducers()...) {
 		if _, err := env.store.RecordCloudHandoffPrepareAck(context.Background(), store.HandoffPrepareAck{OperationID: view.ID, CloudID: source.BrandCloudID, SourceUserID: source.UserID,
 			TargetUserID: target.UserID, OwnershipVersion: 1, Cutoff: binding.Cutoff, Participant: participant, HoldReceiptSHA256: strings.Repeat("a", 64), DrainCheckpointSHA256: strings.Repeat("b", 64)}); err != nil {
 			t.Fatal(err)
@@ -259,7 +259,7 @@ func TestLiveOwnerHandoffPublicAPIWithBilling(t *testing.T) {
 	}
 }
 
-type liveFixtureParticipant struct{}
+type liveFixtureParticipant struct{ participant string }
 
 func (liveFixtureParticipant) Prepare(context.Context, billinghandoff.Binding) (store.HandoffPrepareAck, error) {
 	return store.HandoffPrepareAck{}, fmt.Errorf("fixture preparation must already exist")
@@ -267,21 +267,25 @@ func (liveFixtureParticipant) Prepare(context.Context, billinghandoff.Binding) (
 func (liveFixtureParticipant) Abort(context.Context, store.HandoffCanceledDecision) (store.HandoffAbortAck, error) {
 	return store.HandoffAbortAck{}, fmt.Errorf("unexpected fixture cancellation")
 }
-func (liveFixtureParticipant) Release(_ context.Context, d store.HandoffCommittedDecision) (store.HandoffFinalizationAck, error) {
-	return store.HandoffFinalizationAck{CloudID: d.Binding.CloudID, OperationID: d.Binding.OperationID, OwnershipVersion: d.Binding.OwnershipVersion, DecisionSHA256: d.DecisionSHA256, Participant: "test_resources", ReceiptSHA256: strings.Repeat("e", 64)}, nil
+func (p liveFixtureParticipant) Release(_ context.Context, d store.HandoffCommittedDecision) (store.HandoffFinalizationAck, error) {
+	return store.HandoffFinalizationAck{CloudID: d.Binding.CloudID, OperationID: d.Binding.OperationID, OwnershipVersion: d.Binding.OwnershipVersion, DecisionSHA256: d.DecisionSHA256, Participant: p.participant, ReceiptSHA256: strings.Repeat("e", 64)}, nil
 }
 
 func exerciseLiveHandoffWorker(t *testing.T, f publicHandoffFixture) {
 	t.Helper()
 	ctx := context.Background()
-	if err := f.env.store.ConfigureHandoffParticipants(map[string]store.HandoffParticipant{"test_resources": liveFixtureParticipant{}}); err != nil {
+	participants := map[string]store.HandoffParticipant{}
+	for _, participant := range store.RequiredHandoffProducers() {
+		participants[participant] = liveFixtureParticipant{participant: participant}
+	}
+	if err := f.env.store.ConfigureHandoffParticipants(participants); err != nil {
 		t.Fatal(err)
 	}
 	service, err := handoff.NewService(f.env.store, handoff.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 5; i++ {
 		stats, err := service.RunOnce(ctx)
 		if err != nil || stats.Progress != 1 || stats.Retrying != 0 {
 			t.Fatalf("worker step %d %+v %v", i, stats, err)
@@ -334,10 +338,17 @@ func exerciseLiveHandoffCommit(t *testing.T, f publicHandoffFixture) {
 			t.Fatalf("real Billing finalize: %s %v", phase, err)
 		}
 	}
-	// Synthetic resource release only; real production adapters remain required.
-	if phase, err := f.env.store.RecordHandoffFinalizationAck(ctx, store.HandoffFinalizationAck{CloudID: f.binding.CloudID, OperationID: f.binding.OperationID,
-		OwnershipVersion: f.binding.OwnershipVersion, DecisionSHA256: decision.DecisionSHA256, Participant: "test_resources", ReceiptSHA256: strings.Repeat("d", 64)}); err != nil || phase != "succeeded" {
-		t.Fatalf("release: %s %v", phase, err)
+	// Synthetic resource releases only; production requires authenticated adapters.
+	for i, participant := range store.RequiredHandoffProducers() {
+		phase, err := f.env.store.RecordHandoffFinalizationAck(ctx, store.HandoffFinalizationAck{CloudID: f.binding.CloudID, OperationID: f.binding.OperationID,
+			OwnershipVersion: f.binding.OwnershipVersion, DecisionSHA256: decision.DecisionSHA256, Participant: participant, ReceiptSHA256: strings.Repeat("d", 64)})
+		want := "finalizing"
+		if i == len(store.RequiredHandoffProducers())-1 {
+			want = "succeeded"
+		}
+		if err != nil || phase != want {
+			t.Fatalf("release %s: %s %v", participant, phase, err)
+		}
 	}
 	res = performJSON(f.env.router, http.MethodGet, f.path, nil, f.target.AccessToken)
 	contract.validate(t, http.MethodGet, f.path, res)

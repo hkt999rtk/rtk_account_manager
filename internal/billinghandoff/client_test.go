@@ -41,6 +41,28 @@ func TestClientRejectsUnsafeConfiguration(t *testing.T) {
 	}
 }
 
+func TestClientAcceptsOnlyBoundedPlaintextOrigins(t *testing.T) {
+	for _, base := range []string{
+		"http://127.0.0.1:8080",
+		"http://billing.stack-billing.svc.cluster.local:80",
+		"http://billing.stack-billing.svc.cluster.local.:80",
+	} {
+		if _, err := New(Config{BaseURL: base, Token: fixtureToken}); err != nil {
+			t.Fatalf("trusted internal URL rejected: %s: %v", base, err)
+		}
+	}
+	for _, base := range []string{
+		"http://localhost:8080",
+		"http://svc.cluster.local.attacker.example",
+		"http://billing.svc.cluster.local.attacker.example",
+		"http://10.0.0.1:8080",
+	} {
+		if _, err := New(Config{BaseURL: base, Token: fixtureToken}); err == nil {
+			t.Fatalf("untrusted plaintext URL accepted: %s", base)
+		}
+	}
+}
+
 func TestClientValidatesScopeSnapshotAndExactNonnegativeIntegers(t *testing.T) {
 	in := fixtureBinding()
 	for _, balance := range []int64{0, 1, math.MaxInt64} {

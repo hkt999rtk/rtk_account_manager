@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -25,6 +24,11 @@ import (
 
 const Participant = "factory"
 
+const (
+	ParticipantVideoControlPlane = "video_control_plane"
+	ParticipantMQTTUsage         = "mqtt_usage"
+)
+
 var (
 	ErrInvalid     = errors.New("invalid factory handoff configuration or binding")
 	ErrUnavailable = errors.New("factory handoff evidence unavailable; retain the operation fence")
@@ -35,23 +39,42 @@ type Config struct {
 	Transport      http.RoundTripper
 }
 type Client struct {
-	baseURL, token string
-	http           *http.Client
+	baseURL, token        string
+	participant, endpoint string
+	digestDomain          string
+	http                  *http.Client
 }
 
 var _ store.HandoffParticipant = (*Client)(nil)
 
 func New(in Config) (*Client, error) {
+	return NewParticipant(Participant, in)
+}
+
+// NewParticipant builds the same strict authenticated protocol adapter for one
+// of the reviewed Video Cloud resource boundaries. Endpoint names and digest
+// domains are fixed by participant identity and cannot be supplied by config.
+func NewParticipant(participant string, in Config) (*Client, error) {
+	endpoint, domain := "", ""
+	switch participant {
+	case Participant:
+		endpoint, domain = "/v1/internal/factory-handoffs/", "factory-cloud-handoff-v1"
+	case ParticipantVideoControlPlane:
+		endpoint, domain = "/v1/internal/video-control-plane-handoffs/", "video-control-plane-cloud-handoff-v1"
+	case ParticipantMQTTUsage:
+		endpoint, domain = "/v1/internal/mqtt-usage-handoffs/", "mqtt-usage-cloud-handoff-v1"
+	default:
+		return nil, ErrInvalid
+	}
 	u, err := url.Parse(in.BaseURL)
 	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.Path != "" && u.Path != "/") || u.RawPath != "" || len(in.Token) < 32 || strings.TrimSpace(in.Token) != in.Token || strings.ContainsAny(in.Token, " \t\r\n") {
 		return nil, ErrInvalid
 	}
-	ip := net.ParseIP(u.Hostname())
-	if u.Scheme != "https" && !(u.Scheme == "http" && ip != nil && ip.IsLoopback()) {
+	if !billinghandoff.TrustedTransportOrigin(u) {
 		return nil, ErrInvalid
 	}
 	u.Path = ""
-	return &Client{baseURL: u.String(), token: in.Token, http: &http.Client{Transport: in.Transport, Timeout: 25 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	return &Client{baseURL: u.String(), token: in.Token, participant: participant, endpoint: endpoint, digestDomain: domain, http: &http.Client{Transport: in.Transport, Timeout: 25 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 
 type binding struct {
@@ -88,7 +111,11 @@ func (b binding) equal(o binding) bool {
 	return b.CloudID == o.CloudID && b.OperationID == o.OperationID && b.SourceUserID == o.SourceUserID && b.TargetUserID == o.TargetUserID && b.OwnershipVersion == o.OwnershipVersion && b.Cutoff.Equal(o.Cutoff)
 }
 func (b binding) digest(tag string, extra ...string) string {
-	fields := []string{"factory-cloud-handoff-v1", tag, b.CloudID, b.OperationID, b.SourceUserID, b.TargetUserID, strconv.FormatInt(b.OwnershipVersion, 10), b.Cutoff.UTC().Format(time.RFC3339Nano)}
+	return b.domainDigest("factory-cloud-handoff-v1", tag, extra...)
+}
+
+func (b binding) domainDigest(domain, tag string, extra ...string) string {
+	fields := []string{domain, tag, b.CloudID, b.OperationID, b.SourceUserID, b.TargetUserID, strconv.FormatInt(b.OwnershipVersion, 10), b.Cutoff.UTC().Format(time.RFC3339Nano)}
 	h := sha256.New()
 	for _, field := range append(fields, extra...) {
 		var size [4]byte
@@ -119,11 +146,11 @@ type record struct {
 	CommittedVersion int64      `json:"committed_ownership_version,omitempty"`
 }
 
-func (r record) valid(b binding) bool {
-	if !r.binding.equal(b) || r.Hold != b.digest("hold") || r.Completed == nil || r.Canceled == nil || *r.Completed < 0 || *r.Canceled < 0 {
+func (r record) valid(b binding, domain string) bool {
+	if !r.binding.equal(b) || r.Hold != b.domainDigest(domain, "hold") || r.Completed == nil || r.Canceled == nil || *r.Completed < 0 || *r.Canceled < 0 {
 		return false
 	}
-	return r.Drain == "" || r.Drain == b.digest("drained", strconv.FormatInt(*r.Completed, 10), strconv.FormatInt(*r.Canceled, 10))
+	return r.Drain == "" || r.Drain == b.domainDigest(domain, "drained", strconv.FormatInt(*r.Completed, 10), strconv.FormatInt(*r.Canceled, 10))
 }
 
 func (c *Client) call(ctx context.Context, path string, b binding, body any) (record, error) {
@@ -137,7 +164,7 @@ func (c *Client) call(ctx context.Context, path string, b binding, body any) (re
 	if err != nil {
 		return record{}, ErrInvalid
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/internal/factory-handoffs/"+path, bytes.NewReader(raw))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+c.endpoint+path, bytes.NewReader(raw))
 	if err != nil {
 		return record{}, ErrInvalid
 	}
@@ -158,7 +185,7 @@ func (c *Client) call(ctx context.Context, path string, b binding, body any) (re
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	var out record
-	if decoder.Decode(&out) != nil || decoder.Decode(new(any)) != io.EOF || !out.valid(b) {
+	if decoder.Decode(&out) != nil || decoder.Decode(new(any)) != io.EOF || !out.valid(b, c.digestDomain) {
 		return record{}, ErrUnavailable
 	}
 	return out, nil
@@ -173,7 +200,7 @@ func (c *Client) Prepare(ctx context.Context, in billinghandoff.Binding) (store.
 	if r.Phase != "prepared" || r.Drain == "" || r.DecisionID != "" || r.DecisionSHA256 != "" || r.DecidedAt != nil || r.CommittedVersion != 0 {
 		return store.HandoffPrepareAck{}, ErrUnavailable
 	}
-	return store.HandoffPrepareAck{CloudID: b.CloudID, OperationID: b.OperationID, SourceUserID: b.SourceUserID, TargetUserID: b.TargetUserID, OwnershipVersion: b.OwnershipVersion, Cutoff: b.Cutoff, Participant: Participant, HoldReceiptSHA256: r.Hold, DrainCheckpointSHA256: r.Drain}, nil
+	return store.HandoffPrepareAck{CloudID: b.CloudID, OperationID: b.OperationID, SourceUserID: b.SourceUserID, TargetUserID: b.TargetUserID, OwnershipVersion: b.OwnershipVersion, Cutoff: b.Cutoff, Participant: c.participant, HoldReceiptSHA256: r.Hold, DrainCheckpointSHA256: r.Drain}, nil
 }
 
 func (c *Client) decide(ctx context.Context, path string, d decision) (string, error) {
@@ -195,7 +222,7 @@ func (c *Client) decide(ctx context.Context, path string, d decision) (string, e
 		return "", ErrUnavailable
 	}
 	// Bind the exact authenticated durable response, never just an HTTP status.
-	return d.binding.digest(phase, d.ID, d.SHA256, d.At.UTC().Format(time.RFC3339Nano), strconv.FormatInt(d.CommittedVersion, 10)), nil
+	return d.binding.domainDigest(c.digestDomain, phase, d.ID, d.SHA256, d.At.UTC().Format(time.RFC3339Nano), strconv.FormatInt(d.CommittedVersion, 10)), nil
 }
 func (c *Client) Abort(ctx context.Context, in store.HandoffCanceledDecision) (store.HandoffAbortAck, error) {
 	b := wireBinding(in.Binding)
@@ -203,7 +230,7 @@ func (c *Client) Abort(ctx context.Context, in store.HandoffCanceledDecision) (s
 	if err != nil {
 		return store.HandoffAbortAck{}, err
 	}
-	return store.HandoffAbortAck{CloudID: b.CloudID, OperationID: b.OperationID, OwnershipVersion: b.OwnershipVersion, Participant: Participant, ReceiptSHA256: proof}, nil
+	return store.HandoffAbortAck{CloudID: b.CloudID, OperationID: b.OperationID, OwnershipVersion: b.OwnershipVersion, Participant: c.participant, ReceiptSHA256: proof}, nil
 }
 func (c *Client) Release(ctx context.Context, in store.HandoffCommittedDecision) (store.HandoffFinalizationAck, error) {
 	b := wireBinding(in.Binding)
@@ -211,5 +238,5 @@ func (c *Client) Release(ctx context.Context, in store.HandoffCommittedDecision)
 	if err != nil {
 		return store.HandoffFinalizationAck{}, err
 	}
-	return store.HandoffFinalizationAck{CloudID: b.CloudID, OperationID: b.OperationID, OwnershipVersion: b.OwnershipVersion, DecisionSHA256: in.DecisionSHA256, Participant: Participant, ReceiptSHA256: proof}, nil
+	return store.HandoffFinalizationAck{CloudID: b.CloudID, OperationID: b.OperationID, OwnershipVersion: b.OwnershipVersion, DecisionSHA256: in.DecisionSHA256, Participant: c.participant, ReceiptSHA256: proof}, nil
 }

@@ -217,8 +217,8 @@ func TestFactoryEnrollmentPendingResultsBlockHandoffEvenWithAllReceipts(t *testi
 	ack := HandoffPrepareAck{OperationID: op.ID, CloudID: in.CloudID, SourceUserID: source.User.ID, TargetUserID: target.User.ID, OwnershipVersion: state.OwnershipVersion, Cutoff: state.Cutoff, HoldReceiptSHA256: strings.Repeat("c", 64), DrainCheckpointSHA256: strings.Repeat("d", 64)}
 	// Synthetic remote receipts deliberately lie about draining. This test proves
 	// the independent local guard, not a real factory participant integration.
-	for _, p := range []string{"billing", "test_resources"} {
-		ack.Participant = p
+	for _, participant := range append([]string{"billing"}, RequiredHandoffProducers()...) {
+		ack.Participant = participant
 		state, err = env.store.RecordCloudHandoffPrepareAck(ctx, ack)
 		if err != nil {
 			t.Fatal(err)

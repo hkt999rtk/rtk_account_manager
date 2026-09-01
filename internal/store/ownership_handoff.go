@@ -25,8 +25,36 @@ var _ HandoffEligibilityProvider = (*billinghandoff.Client)(nil)
 
 type OwnershipHandoffOptions struct {
 	Eligibility HandoffEligibilityProvider
-	// Explicit reviewed producer inventory; no silent default that omits producers.
+	// Explicit reviewed producer inventory. It must match the current release
+	// contract exactly; callers cannot opt a participant out.
 	Producers []string
+}
+
+const (
+	HandoffParticipantFactory           = "factory"
+	HandoffParticipantMQTTUsage         = "mqtt_usage"
+	HandoffParticipantVideoControlPlane = "video_control_plane"
+)
+
+var requiredHandoffProducers = [...]string{
+	HandoffParticipantFactory,
+	HandoffParticipantMQTTUsage,
+	HandoffParticipantVideoControlPlane,
+}
+
+// RequiredHandoffProducers returns a copy so deployment composition and tests
+// use the reviewed inventory without exposing mutable package state.
+func RequiredHandoffProducers() []string {
+	return append([]string(nil), requiredHandoffProducers[:]...)
+}
+
+func exactHandoffProducerInventory(names []string) bool {
+	if len(names) != len(requiredHandoffProducers) {
+		return false
+	}
+	copy := append([]string(nil), names...)
+	slices.Sort(copy)
+	return slices.Equal(copy, requiredHandoffProducers[:])
 }
 
 var handoffParticipantName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
@@ -34,16 +62,13 @@ var handoffEvidenceDigest = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // Configure once before serving requests. Missing transport/inventory fails closed.
 func (s *Store) ConfigureOwnershipHandoff(in OwnershipHandoffOptions) error {
-	if in.Eligibility == nil || len(in.Producers) == 0 {
+	if in.Eligibility == nil {
 		return ErrHandoffUnavailable
 	}
-	in.Producers = append([]string(nil), in.Producers...)
-	slices.Sort(in.Producers)
-	for i, name := range in.Producers {
-		if name == "billing" || !handoffParticipantName.MatchString(name) || (i > 0 && name == in.Producers[i-1]) {
-			return ErrConflict
-		}
+	if !exactHandoffProducerInventory(in.Producers) {
+		return ErrConflict
 	}
+	in.Producers = RequiredHandoffProducers()
 	s.ownershipHandoff = &in
 	return nil
 }

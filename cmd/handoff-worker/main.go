@@ -48,16 +48,26 @@ func main() {
 	if err != nil {
 		fatal(logger, "configure factory handoff transport failed", err)
 	}
-	if err := repo.ConfigureHandoffParticipants(map[string]store.HandoffParticipant{factoryhandoff.Participant: factory}); err != nil {
-		fatal(logger, "configure factory handoff participant failed", err)
+	videoControlPlane, err := factoryhandoff.NewParticipant(factoryhandoff.ParticipantVideoControlPlane, factoryhandoff.Config{BaseURL: cfg.VideoControlPlaneHandoffBaseURL, Token: cfg.VideoControlPlaneHandoffToken})
+	if err != nil {
+		fatal(logger, "configure Video Cloud control-plane handoff transport failed", err)
+	}
+	mqttUsage, err := factoryhandoff.NewParticipant(factoryhandoff.ParticipantMQTTUsage, factoryhandoff.Config{BaseURL: cfg.MQTTUsageHandoffBaseURL, Token: cfg.MQTTUsageHandoffToken})
+	if err != nil {
+		fatal(logger, "configure MQTT usage handoff transport failed", err)
+	}
+	if err := repo.ConfigureHandoffParticipants(map[string]store.HandoffParticipant{
+		factoryhandoff.Participant:                  factory,
+		factoryhandoff.ParticipantVideoControlPlane: videoControlPlane,
+		factoryhandoff.ParticipantMQTTUsage:         mqttUsage,
+	}); err != nil {
+		fatal(logger, "configure exact handoff participant inventory failed", err)
 	}
 	service, err := handoff.NewService(repo, handoff.Options{PollInterval: cfg.HandoffPollInterval, LeaseDuration: cfg.HandoffLeaseDuration, StepTimeout: cfg.HandoffStepTimeout, BatchSize: cfg.HandoffBatchSize, Logger: logger})
 	if err != nil {
 		fatal(logger, "configure handoff worker failed", err)
 	}
-	// The worker installs only transports implemented by this candidate. Any
-	// additional participant persisted by the reviewed inventory remains fenced.
-	logger.Info("factory handoff participant installed", zap.String("participant", factoryhandoff.Participant))
+	logger.Info("exact handoff participant inventory installed", zap.Strings("participants", store.RequiredHandoffProducers()))
 	logger.Info("starting handoff recovery worker", zap.Duration("poll_interval", cfg.HandoffPollInterval))
 	if err := service.Run(ctx); err != nil {
 		fatal(logger, "handoff worker stopped", err)

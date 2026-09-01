@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 	"rtk_account_manager/internal/billinghandoff"
@@ -21,9 +22,12 @@ type HandoffParticipant interface {
 }
 
 func (s *Store) ConfigureHandoffParticipants(adapters map[string]HandoffParticipant) error {
+	if len(adapters) != len(requiredHandoffProducers) {
+		return ErrConflict
+	}
 	copy := make(map[string]HandoffParticipant, len(adapters))
 	for name, adapter := range adapters {
-		if name == "billing" || !handoffParticipantName.MatchString(name) || adapter == nil {
+		if !slices.Contains(requiredHandoffProducers[:], name) || adapter == nil {
 			return ErrConflict
 		}
 		copy[name] = adapter

@@ -65,6 +65,9 @@ func main() {
 		if err := accountStore.ConfigureHandoffBilling(client); err != nil {
 			fatal(logger, "configure Billing handoff observations failed", err)
 		}
+		if err := accountStore.ConfigureOwnershipHandoff(store.OwnershipHandoffOptions{Eligibility: client, Producers: store.RequiredHandoffProducers()}); err != nil {
+			fatal(logger, "configure exact ownership handoff inventory failed", err)
+		}
 		// Resource observers are installed separately once their reviewed service
 		// inventory is implemented. Until then, deletion preflight fails closed.
 		if err := accountStore.ConfigureCloudDeletionPreflight(store.CloudDeletionPreflightOptions{Billing: client}); err != nil {

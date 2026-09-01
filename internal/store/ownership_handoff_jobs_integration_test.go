@@ -36,12 +36,13 @@ func (b *workerTestBilling) Abort(_ context.Context, in billinghandoff.Binding, 
 }
 
 type workerTestParticipant struct {
-	billing  *workerTestBilling
-	badScope bool
+	billing     *workerTestBilling
+	participant string
+	badScope    bool
 }
 
 func (p workerTestParticipant) Prepare(_ context.Context, in billinghandoff.Binding) (HandoffPrepareAck, error) {
-	ack := HandoffPrepareAck{CloudID: in.CloudID, OperationID: in.OperationID, SourceUserID: in.SourceUserID, TargetUserID: in.TargetUserID, OwnershipVersion: in.OwnershipVersion, Cutoff: in.Cutoff, Participant: "test_resources", HoldReceiptSHA256: strings.Repeat("a", 64), DrainCheckpointSHA256: strings.Repeat("b", 64)}
+	ack := HandoffPrepareAck{CloudID: in.CloudID, OperationID: in.OperationID, SourceUserID: in.SourceUserID, TargetUserID: in.TargetUserID, OwnershipVersion: in.OwnershipVersion, Cutoff: in.Cutoff, Participant: p.participant, HoldReceiptSHA256: strings.Repeat("a", 64), DrainCheckpointSHA256: strings.Repeat("b", 64)}
 	if p.badScope {
 		ack.CloudID = in.OperationID
 	}
@@ -51,10 +52,18 @@ func (p workerTestParticipant) Abort(_ context.Context, d HandoffCanceledDecisio
 	p.billing.abortMu.Lock()
 	p.billing.aborted = true
 	p.billing.abortMu.Unlock()
-	return HandoffAbortAck{CloudID: d.Binding.CloudID, OperationID: d.Binding.OperationID, OwnershipVersion: d.Binding.OwnershipVersion, Participant: "test_resources", ReceiptSHA256: strings.Repeat("c", 64)}, nil
+	return HandoffAbortAck{CloudID: d.Binding.CloudID, OperationID: d.Binding.OperationID, OwnershipVersion: d.Binding.OwnershipVersion, Participant: p.participant, ReceiptSHA256: strings.Repeat("c", 64)}, nil
 }
 func (p workerTestParticipant) Release(_ context.Context, d HandoffCommittedDecision) (HandoffFinalizationAck, error) {
-	return HandoffFinalizationAck{CloudID: d.Binding.CloudID, OperationID: d.Binding.OperationID, OwnershipVersion: d.Binding.OwnershipVersion, DecisionSHA256: d.DecisionSHA256, Participant: "test_resources", ReceiptSHA256: strings.Repeat("d", 64)}, nil
+	return HandoffFinalizationAck{CloudID: d.Binding.CloudID, OperationID: d.Binding.OperationID, OwnershipVersion: d.Binding.OwnershipVersion, DecisionSHA256: d.DecisionSHA256, Participant: p.participant, ReceiptSHA256: strings.Repeat("d", 64)}, nil
+}
+
+func workerTestAdapters(remote *workerTestBilling, badScope bool) map[string]HandoffParticipant {
+	out := make(map[string]HandoffParticipant, len(requiredHandoffProducers))
+	for i, participant := range RequiredHandoffProducers() {
+		out[participant] = workerTestParticipant{billing: remote, participant: participant, badScope: badScope && i == 0}
+	}
+	return out
 }
 
 func claimOneHandoff(t *testing.T, s *Store) HandoffJob {
@@ -148,16 +157,16 @@ func TestHandoffWorkerPreparationConsentCommitAndFinalize(t *testing.T) {
 	if step := advanceOneHandoff(t, env.store); step.Outcome != "participant_unavailable" {
 		t.Fatalf("missing participant guessed success: %+v", step)
 	}
-	if err := env.store.ConfigureHandoffParticipants(map[string]HandoffParticipant{"test_resources": workerTestParticipant{billing: remote, badScope: true}}); err != nil {
+	if err := env.store.ConfigureHandoffParticipants(workerTestAdapters(remote, true)); err != nil {
 		t.Fatal(err)
 	}
 	if step := advanceOneHandoff(t, env.store); step.Outcome != "lifecycle_conflict" {
 		t.Fatalf("cross-scope receipt accepted: %+v", step)
 	}
-	if err := env.store.ConfigureHandoffParticipants(map[string]HandoffParticipant{"test_resources": workerTestParticipant{billing: remote}}); err != nil {
+	if err := env.store.ConfigureHandoffParticipants(workerTestAdapters(remote, false)); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 4; i++ {
 		if step := advanceOneHandoff(t, env.store); step.Outcome != "progress" {
 			t.Fatalf("prepare progress: %+v", step)
 		}
@@ -188,7 +197,7 @@ func TestHandoffWorkerPreparationConsentCommitAndFinalize(t *testing.T) {
 	// Process restart continues the same persisted request, not a second transfer.
 	restarted := New(env.db)
 	restarted.ConfigureHandoffBilling(remote)
-	restarted.ConfigureHandoffParticipants(map[string]HandoffParticipant{"test_resources": workerTestParticipant{billing: remote}})
+	restarted.ConfigureHandoffParticipants(workerTestAdapters(remote, false))
 	if step := advanceOneHandoff(t, restarted); step.Outcome != "progress" {
 		t.Fatalf("commit retry: %+v", step)
 	}
@@ -197,7 +206,7 @@ func TestHandoffWorkerPreparationConsentCommitAndFinalize(t *testing.T) {
 	if step := advanceOneHandoff(t, restarted); !step.Retry {
 		t.Fatalf("lost finalize not retried: %+v", step)
 	}
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 4; i++ {
 		if step := advanceOneHandoff(t, restarted); step.Outcome != "progress" {
 			t.Fatalf("finalization progress: %+v", step)
 		}
@@ -214,7 +223,7 @@ func TestHandoffWorkerCancellationRequiresAllReleaseReceipts(t *testing.T) {
 	b, ack, q := readyCommitFixture(t, env)
 	remote := &workerTestBilling{commitTestBilling: b}
 	env.store.ConfigureHandoffBilling(remote)
-	env.store.ConfigureHandoffParticipants(map[string]HandoffParticipant{"test_resources": workerTestParticipant{billing: remote}})
+	env.store.ConfigureHandoffParticipants(workerTestAdapters(remote, false))
 	remote.loseGrant = true
 	if _, err := env.store.CommitOwnerHandoff(ctx, ack.CloudID, ack.OperationID); !errors.Is(err, ErrHandoffUnavailable) {
 		t.Fatal("lost grant fixture", err)
@@ -231,7 +240,19 @@ func TestHandoffWorkerCancellationRequiresAllReleaseReceipts(t *testing.T) {
 		t.Fatalf("cancel producers: %+v", step)
 	}
 	assertHandoffOwner(t, env, ack, ack.SourceUserID, "canceling", 1)
-	advanceOneHandoff(t, env.store)
+	// Cancellation persists one producer receipt per attempt. Billing's remote
+	// release can be recorded on a later attempt, but the operation must remain
+	// fenced until the final fixed producer has also acknowledged abort.
+	for i := 1; i < len(RequiredHandoffProducers()); i++ {
+		if step := advanceOneHandoff(t, env.store); step.Outcome != "progress" {
+			t.Fatalf("cancel producer %d: %+v", i+1, step)
+		}
+		wantPhase := "canceling"
+		if i == len(RequiredHandoffProducers())-1 {
+			wantPhase = "canceled"
+		}
+		assertHandoffOwner(t, env, ack, ack.SourceUserID, wantPhase, 1)
+	}
 	assertHandoffOwner(t, env, ack, ack.SourceUserID, "canceled", 1)
 	if replay, err := New(env.db).GetHandoffCanceledDecision(ctx, ack.CloudID, ack.OperationID); err != nil || replay.DecisionSHA256 != d.DecisionSHA256 {
 		t.Fatalf("cancel decision replay: %+v %v", replay, err)

@@ -34,7 +34,7 @@ func TestHandoffPreparationRequiresEveryBoundDurableCheckpoint(t *testing.T) {
 	ctx := context.Background()
 	ack, query := preparedAckFixture(t, env)
 	state, err := env.store.GetCloudHandoffPreparation(ctx, query)
-	if err != nil || state.AllParticipantsPrepared || !reflect.DeepEqual(state.MissingParticipants, []string{"billing", "test_resources"}) {
+	if err != nil || state.AllParticipantsPrepared || !reflect.DeepEqual(state.MissingParticipants, []string{"billing", "factory", "mqtt_usage", "video_control_plane"}) {
 		t.Fatalf("missing inventory: %+v %v", state, err)
 	}
 	for _, change := range []func(*HandoffPrepareAck){
@@ -57,13 +57,13 @@ func TestHandoffPreparationRequiresEveryBoundDurableCheckpoint(t *testing.T) {
 		t.Fatalf("HTTP delivery without drained evidence accepted: %v", err)
 	}
 	state, err = env.store.RecordCloudHandoffPrepareAck(ctx, ack)
-	if err != nil || state.AllParticipantsPrepared || !reflect.DeepEqual(state.MissingParticipants, []string{"test_resources"}) {
+	if err != nil || state.AllParticipantsPrepared || !reflect.DeepEqual(state.MissingParticipants, RequiredHandoffProducers()) {
 		t.Fatalf("one participant: %+v %v", state, err)
 	}
 	// Reconstruct the store to prove readiness is not an in-memory flag. The
 	// persisted inventory, not the process's current configuration, is authoritative.
 	restarted := New(env.db)
-	if err := restarted.ConfigureOwnershipHandoff(OwnershipHandoffOptions{Eligibility: env.store.ownershipHandoff.Eligibility, Producers: []string{"different_inventory"}}); err != nil {
+	if err := restarted.ConfigureOwnershipHandoff(OwnershipHandoffOptions{Eligibility: env.store.ownershipHandoff.Eligibility, Producers: RequiredHandoffProducers()}); err != nil {
 		t.Fatal(err)
 	}
 	if replay, err := restarted.RecordCloudHandoffPrepareAck(ctx, ack); err != nil || replay.AllParticipantsPrepared {
@@ -74,10 +74,15 @@ func TestHandoffPreparationRequiresEveryBoundDurableCheckpoint(t *testing.T) {
 	if _, err := restarted.RecordCloudHandoffPrepareAck(ctx, bad); !errors.Is(err, ErrConflict) {
 		t.Fatalf("changed receipt replay: %v", err)
 	}
-	ack.Participant = "test_resources"
-	state, err = restarted.RecordCloudHandoffPrepareAck(ctx, ack)
-	if err != nil || !state.AllParticipantsPrepared || len(state.MissingParticipants) != 0 || state.Phase != "preparing" {
-		t.Fatalf("all prepared: %+v %v", state, err)
+	for i, participant := range RequiredHandoffProducers() {
+		ack.Participant = participant
+		state, err = restarted.RecordCloudHandoffPrepareAck(ctx, ack)
+		if err != nil || state.AllParticipantsPrepared != (i == len(RequiredHandoffProducers())-1) {
+			t.Fatalf("participant %s prepared: %+v %v", participant, state, err)
+		}
+	}
+	if len(state.MissingParticipants) != 0 || state.Phase != "preparing" {
+		t.Fatalf("all prepared: %+v", state)
 	}
 	var owner string
 	if err := env.db.QueryRow(ctx, `SELECT user_id::text FROM organization_members WHERE organization_id=$1 AND role='owner'`, ack.CloudID).Scan(&owner); err != nil || owner != ack.SourceUserID {
@@ -132,14 +137,21 @@ func TestHandoffPreparedReceiptsCannotReleaseCancellationFence(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertFence()
-	release.Participant = "test_resources"
-	if phase, err := env.store.RecordCloudHandoffAbortAck(ctx, release); err != nil || phase != "canceled" {
-		t.Fatalf("complete release: %s %v", phase, err)
+	for i, participant := range RequiredHandoffProducers() {
+		release.Participant = participant
+		phase, err := env.store.RecordCloudHandoffAbortAck(ctx, release)
+		want := "canceling"
+		if i == len(RequiredHandoffProducers())-1 {
+			want = "canceled"
+		}
+		if err != nil || phase != want {
+			t.Fatalf("participant %s release: %s %v", participant, phase, err)
+		}
 	}
 	if state, err := env.store.RecordCloudHandoffPrepareAck(ctx, ack); err != nil || state.Phase != "canceled" || state.AllParticipantsPrepared {
 		t.Fatalf("terminal exact replay: %+v %v", state, err)
 	}
-	ack.Participant = "test_resources"
+	ack.Participant = HandoffParticipantFactory
 	if _, err := env.store.RecordCloudHandoffPrepareAck(ctx, ack); !errors.Is(err, ErrConflict) {
 		t.Fatalf("new hold accepted after cancellation: %v", err)
 	}
@@ -159,7 +171,7 @@ func TestHandoffPrepareReceiptAuditRollbackAndConcurrentReplay(t *testing.T) {
 		t.Fatal("audit failure was ignored")
 	}
 	state, err := env.store.GetCloudHandoffPreparation(ctx, query)
-	if err != nil || len(state.MissingParticipants) != 2 {
+	if err != nil || len(state.MissingParticipants) != 4 {
 		t.Fatalf("audit failure retained receipt: %+v %v", state, err)
 	}
 	if _, err := env.db.Exec(ctx, `ALTER TABLE audit_events DROP CONSTRAINT reject_prepare_receipt_audit`); err != nil {
@@ -167,11 +179,10 @@ func TestHandoffPrepareReceiptAuditRollbackAndConcurrentReplay(t *testing.T) {
 	}
 	var wg sync.WaitGroup
 	errs := make(chan error, 8)
+	participants := append([]string{"billing"}, RequiredHandoffProducers()...)
 	for i := 0; i < 8; i++ {
 		in := ack
-		if i%2 != 0 {
-			in.Participant = "test_resources"
-		}
+		in.Participant = participants[i%len(participants)]
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -191,7 +202,7 @@ func TestHandoffPrepareReceiptAuditRollbackAndConcurrentReplay(t *testing.T) {
 		t.Fatalf("concurrent receipts: %+v %v", state, err)
 	}
 	var count int
-	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE event_type='brand_cloud_owner_transfer_prepared_acknowledged'`).Scan(&count); err != nil || count != 2 {
+	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE event_type='brand_cloud_owner_transfer_prepared_acknowledged'`).Scan(&count); err != nil || count != 4 {
 		t.Fatalf("duplicate prepare audit: %d %v", count, err)
 	}
 }
@@ -211,7 +222,7 @@ func TestHandoffAcceptanceRechecksExpiryAfterRemoteEligibility(t *testing.T) {
 			t.Fatal(err)
 		}
 		return syntheticEligibility(in), nil
-	}), Producers: []string{"test_resources"}}); err != nil {
+	}), Producers: RequiredHandoffProducers()}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, target.User.ID, "expiry-token", started); !errors.Is(err, ErrNotFound) {

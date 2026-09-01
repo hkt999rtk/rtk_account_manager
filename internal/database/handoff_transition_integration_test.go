@@ -26,35 +26,40 @@ func TestHandoffDatabaseTransitionCannotSkipPreparationOrReleaseEvidence(t *test
 		_, err := db.Exec(ctx, insert, transfer, cloud, source, target, tc.phase, tc.version)
 		requirePGState(t, err, "23514")
 	}
-	if _, err := db.Exec(ctx, insert, transfer, cloud, source, target, "preparing", 1); err != nil {
+	tx, err := db.Begin(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
-	_, err := db.Exec(ctx, `UPDATE cloud_ownership_handoffs SET phase='canceled',version=version+1 WHERE id=$1`, transfer)
+	if _, err := tx.Exec(ctx, insert, transfer, cloud, source, target, "preparing", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO cloud_handoff_participants(operation_id,participant) VALUES
+		($1,'billing'),($1,'factory'),($1,'mqtt_usage'),($1,'video_control_plane')`, transfer); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(ctx, `UPDATE cloud_ownership_handoffs SET phase='canceled',version=version+1 WHERE id=$1`, transfer)
 	requirePGState(t, err, "23514")
 	if _, err := db.Exec(ctx, `UPDATE cloud_ownership_handoffs SET phase='canceling',version=version+1 WHERE id=$1`, transfer); err != nil {
 		t.Fatal(err)
 	}
-	// Empty inventory is not "all participants released". Nor may a missing
-	// producer be replaced with Billing alone, even with its release receipt.
+	// Empty inventory is not "all participants released". The inventory itself
+	// must be the exact reviewed set, and every member needs a durable receipt.
 	assertCannotRelease := func() {
 		t.Helper()
 		_, err := db.Exec(ctx, `UPDATE cloud_ownership_handoffs SET phase='canceled',version=version+1 WHERE id=$1`, transfer)
 		requirePGState(t, err, "23514")
 	}
 	assertCannotRelease()
-	if _, err := db.Exec(ctx, `INSERT INTO cloud_handoff_participants(operation_id,participant) VALUES($1,'billing')`, transfer); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(ctx, `INSERT INTO cloud_handoff_abort_acknowledgments(operation_id,participant,receipt_sha256) VALUES($1,'billing',repeat('a',64))`, transfer); err != nil {
-		t.Fatal(err)
-	}
-	assertCannotRelease()
-	if _, err := db.Exec(ctx, `INSERT INTO cloud_handoff_participants(operation_id,participant) VALUES($1,'test_resources')`, transfer); err != nil {
-		t.Fatal(err)
-	}
-	assertCannotRelease()
-	if _, err := db.Exec(ctx, `INSERT INTO cloud_handoff_abort_acknowledgments(operation_id,participant,receipt_sha256) VALUES($1,'test_resources',repeat('b',64))`, transfer); err != nil {
-		t.Fatal(err)
+	for i, participant := range []string{"billing", "factory", "mqtt_usage", "video_control_plane"} {
+		if _, err := db.Exec(ctx, `INSERT INTO cloud_handoff_abort_acknowledgments(operation_id,participant,receipt_sha256) VALUES($1,$2,repeat($3,64))`, transfer, participant, string(rune('a'+i))); err != nil {
+			t.Fatal(err)
+		}
+		if i < 3 {
+			assertCannotRelease()
+		}
 	}
 	if _, err := db.Exec(ctx, `UPDATE cloud_ownership_handoffs SET phase='canceled',version=version+1 WHERE id=$1`, transfer); err != nil {
 		t.Fatal(err)

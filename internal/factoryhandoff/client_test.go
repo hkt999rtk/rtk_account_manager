@@ -21,8 +21,43 @@ func fixtureBinding() billinghandoff.Binding {
 	return billinghandoff.Binding{CloudID: "11111111-1111-4111-8111-111111111111", OperationID: "22222222-2222-4222-8222-222222222222", SourceUserID: "33333333-3333-4333-8333-333333333333", TargetUserID: "44444444-4444-4444-8444-444444444444", OwnershipVersion: 2, Cutoff: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)}
 }
 func fixtureRecord(b binding) record {
+	return fixtureRecordFor(b, "factory-cloud-handoff-v1")
+}
+func fixtureRecordFor(b binding, domain string) record {
 	zero := int64(0)
-	return record{binding: b, Phase: "prepared", Hold: b.digest("hold"), Drain: b.digest("drained", "0", "0"), Completed: &zero, Canceled: &zero}
+	return record{binding: b, Phase: "prepared", Hold: b.domainDigest(domain, "hold"), Drain: b.domainDigest(domain, "drained", "0", "0"), Completed: &zero, Canceled: &zero}
+}
+
+func TestReviewedResourceParticipantsUseFixedRoutesAndDigestDomains(t *testing.T) {
+	in := fixtureBinding()
+	b := wireBinding(in)
+	for _, tc := range []struct {
+		participant, path, domain string
+	}{
+		{ParticipantVideoControlPlane, "/v1/internal/video-control-plane-handoffs/prepare", "video-control-plane-cloud-handoff-v1"},
+		{ParticipantMQTTUsage, "/v1/internal/mqtt-usage-handoffs/prepare", "mqtt-usage-cloud-handoff-v1"},
+	} {
+		t.Run(tc.participant, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if req.URL.Path != tc.path || req.Header.Get("Authorization") != "Bearer "+testToken {
+					t.Fatalf("unexpected authenticated route %s", req.URL.Path)
+				}
+				_ = json.NewEncoder(w).Encode(fixtureRecordFor(b, tc.domain))
+			}))
+			defer server.Close()
+			client, err := NewParticipant(tc.participant, Config{BaseURL: server.URL, Token: testToken})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ack, err := client.Prepare(context.Background(), in)
+			if err != nil || ack.Participant != tc.participant || ack.HoldReceiptSHA256 != b.domainDigest(tc.domain, "hold") {
+				t.Fatalf("participant receipt %+v %v", ack, err)
+			}
+		})
+	}
+	if _, err := NewParticipant("unreviewed", Config{BaseURL: "https://example.com", Token: testToken}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unreviewed participant accepted: %v", err)
+	}
 }
 
 func TestFactoryHandoffClientValidatesConfigurationAndExactReceipts(t *testing.T) {
@@ -35,6 +70,9 @@ func TestFactoryHandoffClientValidatesConfigurationAndExactReceipts(t *testing.T
 		if _, err := New(Config{BaseURL: "https://example.com", Token: token}); err == nil {
 			t.Fatal("unsafe credential")
 		}
+	}
+	if _, err := New(Config{BaseURL: "http://factoryenroll.stack-video-cloud.svc.cluster.local:80", Token: testToken}); err != nil {
+		t.Fatalf("cluster-local participant URL rejected: %v", err)
 	}
 	in := fixtureBinding()
 	b := wireBinding(in)

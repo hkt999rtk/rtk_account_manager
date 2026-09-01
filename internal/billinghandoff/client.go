@@ -51,13 +51,30 @@ func New(in Config) (*Client, error) {
 		len(in.Token) < 32 || strings.ContainsAny(in.Token, " \t\r\n") {
 		return nil, ErrInvalid
 	}
-	loopback := net.ParseIP(u.Hostname())
-	if u.Scheme != "https" && !(u.Scheme == "http" && loopback != nil && loopback.IsLoopback()) {
+	if !TrustedTransportOrigin(u) {
 		return nil, ErrInvalid
 	}
 	u.Path = ""
 	return &Client{baseURL: u.String(), token: in.Token, http: &http.Client{Transport: in.Transport, Timeout: 15 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+}
+
+// TrustedTransportOrigin permits TLS everywhere and plaintext only where the
+// destination is provably local to the process or Kubernetes service network.
+// The cluster-local case is additionally fenced by a dedicated credential and
+// ingress NetworkPolicy in the deployment repository.
+func TrustedTransportOrigin(u *url.URL) bool {
+	if u.Scheme == "https" {
+		return true
+	}
+	if u.Scheme != "http" {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return strings.HasSuffix(host, ".svc.cluster.local")
 }
 
 type Binding struct {

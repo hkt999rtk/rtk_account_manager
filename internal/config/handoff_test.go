@@ -49,6 +49,34 @@ func TestFactoryHandoffConfigurationIsPairedAndIsolated(t *testing.T) {
 	}
 }
 
+func TestResourceHandoffConfigurationIsPairedDistinctAndReviewed(t *testing.T) {
+	if err := validateResourceHandoffConfig(Config{}); err != nil {
+		t.Fatal(err)
+	}
+	valid := Config{
+		VideoControlPlaneHandoffBaseURL: "https://video.example",
+		VideoControlPlaneHandoffToken:   strings.Repeat("v", 32),
+		MQTTUsageHandoffBaseURL:         "https://mqtt.example",
+		MQTTUsageHandoffToken:           strings.Repeat("m", 32),
+	}
+	if err := validateResourceHandoffConfig(valid); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []func(*Config){
+		func(c *Config) { c.VideoControlPlaneHandoffBaseURL = "" },
+		func(c *Config) { c.VideoControlPlaneHandoffToken = "" },
+		func(c *Config) { c.MQTTUsageHandoffBaseURL = "http://mqtt.example" },
+		func(c *Config) { c.InternalAuthToken = c.VideoControlPlaneHandoffToken },
+		func(c *Config) { c.MQTTUsageHandoffToken = c.VideoControlPlaneHandoffToken },
+	} {
+		cfg := valid
+		change(&cfg)
+		if err := validateResourceHandoffConfig(cfg); err == nil {
+			t.Fatal("unsafe resource handoff configuration accepted")
+		}
+	}
+}
+
 func TestLoadHandoffWorkerRequiresTransportAndBoundedLease(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("DATABASE_URL", "postgres://example")
@@ -66,6 +94,13 @@ func TestLoadHandoffWorkerRequiresTransportAndBoundedLease(t *testing.T) {
 	}
 	t.Setenv("FACTORY_HANDOFF_BASE_URL", "https://factory.example")
 	t.Setenv("FACTORY_HANDOFF_TOKEN", strings.Repeat("f", 32))
+	if _, err := LoadHandoffWorker(); err == nil {
+		t.Fatal("worker started without Video Cloud participant transports")
+	}
+	t.Setenv("VIDEO_CONTROL_PLANE_HANDOFF_BASE_URL", "https://video.example")
+	t.Setenv("VIDEO_CONTROL_PLANE_HANDOFF_TOKEN", strings.Repeat("v", 32))
+	t.Setenv("MQTT_USAGE_HANDOFF_BASE_URL", "https://mqtt.example")
+	t.Setenv("MQTT_USAGE_HANDOFF_TOKEN", strings.Repeat("m", 32))
 	if _, err := LoadHandoffWorker(); err != nil {
 		t.Fatal(err)
 	}
