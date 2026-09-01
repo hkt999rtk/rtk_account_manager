@@ -11,8 +11,7 @@ on:
 
 jobs:
   test:
-    # PR validation uses a fresh VM; retain existing runners for other events.
-    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["self-hosted", "Linux", "X64"]') }}
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 20
 
     services:
