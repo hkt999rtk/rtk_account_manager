@@ -37,6 +37,11 @@ var (
 	ErrOIDCStateInvalid            = errors.New("oidc login state is invalid")
 	ErrOIDCStateExpired            = errors.New("oidc login state is expired")
 	ErrDeveloperCloudLimitExceeded = errors.New("developer brand cloud limit exceeded")
+	ErrAccountNotActivated         = errors.New("account must complete email activation")
+	ErrHandoffUnavailable          = errors.New("trusted ownership handoff evidence unavailable")
+	ErrHandoffFinancialBlocked     = errors.New("ownership handoff financial conditions not satisfied")
+	ErrHandoffBalanceNegative      = fmt.Errorf("balance_negative: %w", ErrHandoffFinancialBlocked)
+	ErrHandoffSnapshotNotReady     = errors.New("handoff requires fresh settled balance and preparation evidence")
 )
 
 type Store struct {
@@ -45,6 +50,11 @@ type Store struct {
 	authTokenRateLimitMax    int
 	authTokenRateLimitWindow time.Duration
 	emailOutboxCipher        *emaildelivery.Cipher
+	ownershipHandoff         *OwnershipHandoffOptions
+	handoffBilling           HandoffBilling
+	handoffParticipants      map[string]HandoffParticipant
+	deletionPreflight        *CloudDeletionPreflightOptions
+	deletion                 *CloudDeletionOptions
 }
 
 func (s *Store) ConfigureEmailOutboxCipher(cipher *emaildelivery.Cipher) {
@@ -82,10 +92,13 @@ type OrganizationPage struct {
 }
 
 type BrandCloudInput struct {
-	Name       string
-	TenantSlug string
-	Status     model.OrganizationStatus
-	Metadata   map[string]any
+	// OwnerUserID is required for platform provisioning. It is never an
+	// ownership-update input; developer creation derives the owner from session.
+	OwnerUserID string
+	Name        string
+	TenantSlug  string
+	Status      model.OrganizationStatus
+	Metadata    map[string]any
 }
 
 type DeveloperSignupInput struct {
@@ -120,6 +133,7 @@ type BrandCloudOwnerTransferQuery struct {
 }
 
 type BrandCloudMemberInvitationInput struct {
+	AccessScope     *model.CloudViewerScope
 	BrandCloudID    string
 	InvitedByUserID string
 	TargetEmail     string
@@ -373,6 +387,8 @@ func fleetAccessPredicate(actorID, actorType, permission string) (string, []any)
 		JOIN permissions p ON p.id = rp.permission_id
 		WHERE ra.actor_type = $4 AND ra.actor_id = $2 AND p.name = $3
 		  AND ra.disabled_at IS NULL AND ra.organization_id = d.organization_id
+		  AND ($4 <> 'user' OR user_can_access_brand_cloud_product($2,d.organization_id::text,d.device_item_profile_id::text))
+		  AND ($4 <> 'user' OR brand_cloud_permission_allowed($2,d.organization_id::text,$3))
 		  AND (
 		    ra.scope_type = 'organization'
 		    OR (ra.scope_type = 'product' AND ra.scope_id = d.device_item_profile_id::text)
@@ -839,9 +855,15 @@ func (s *Store) VerifyEmailToken(ctx context.Context, tokenHash, passwordHash st
 		return model.User{}, err
 	}
 	if _, err := tx.Exec(ctx, `
-		UPDATE organization_members
+		WITH consumed_holds AS (
+		    DELETE FROM organization_member_activation_holds WHERE user_id = $1
+		    RETURNING organization_id, user_id, disabled_at, updated_at
+		)
+		UPDATE organization_members m
 		SET disabled_at = NULL, updated_at = now()
-		WHERE user_id = $1 AND disabled_at IS NOT NULL
+		FROM consumed_holds h
+		WHERE m.organization_id = h.organization_id AND m.user_id = h.user_id
+		  AND m.disabled_at = h.disabled_at AND m.updated_at = h.updated_at
 	`, userID); err != nil {
 		return model.User{}, err
 	}
@@ -869,13 +891,14 @@ func (s *Store) EmailVerificationTokenStatus(ctx context.Context, tokenHash stri
 		SELECT CASE
 			WHEN at.consumed_at IS NOT NULL THEN 'invalid'
 			WHEN at.expires_at <= now() THEN 'expired'
-			WHEN u.email_verified OR NOT u.signup_pending_verification THEN 'invalid'
+			WHEN u.email_verified THEN 'invalid'
 			ELSE 'valid'
 		END
 		FROM auth_tokens at
 		JOIN users u ON u.id = at.user_id
 		WHERE at.token_hash = $1
 		  AND at.purpose = 'email_verification'
+		  AND at.subject_type = 'user' AND at.subject_id = u.id
 		  AND at.scope = ''
 		  AND u.disabled_at IS NULL
 	`, tokenHash).Scan(&status)
@@ -983,6 +1006,7 @@ func consumeAuthTokenTx(ctx context.Context, tx pgx.Tx, tokenHash, purpose, scop
 		JOIN users u ON u.id = at.user_id
 		WHERE at.token_hash = $1
 		  AND at.purpose = $2
+		  AND at.subject_type = 'user' AND at.subject_id = u.id
 		  AND at.scope = $3
 		  AND at.consumed_at IS NULL
 		  AND at.expires_at > now()
@@ -1123,6 +1147,7 @@ func (s *Store) RotateRefreshToken(ctx context.Context, oldTokenHash, newTokenHa
 		  AND rt.revoked_at IS NULL
 		  AND rt.expires_at > now()
 		  AND u.disabled_at IS NULL
+		  AND u.signup_pending_verification = false
 		FOR UPDATE
 	`, oldTokenHash).Scan(&activeUserID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1161,6 +1186,7 @@ func (s *Store) RefreshTokenActive(ctx context.Context, tokenHash string) (strin
 		  AND rt.revoked_at IS NULL
 		  AND rt.expires_at > now()
 		  AND u.disabled_at IS NULL
+		  AND u.signup_pending_verification = false
 	`, tokenHash).Scan(&userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
@@ -1276,6 +1302,7 @@ func (s *Store) GetOrganization(ctx context.Context, orgID, userID string) (mode
 		FROM organizations o
 		JOIN organization_members m ON m.organization_id = o.id
 		WHERE o.id = $1 AND m.user_id = $2
+		  AND user_can_access_brand_cloud(m.user_id::text, o.id::text)
 	`, orgID, userID).Scan(&org.ID, &org.Name, &org.TenantSlug, &org.Role, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &rawMetadata, &org.CreatedAt, &org.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Organization{}, ErrNotFound
@@ -1321,7 +1348,10 @@ func (s *Store) GetRole(ctx context.Context, orgID, userID string) (model.Role, 
 		JOIN users u ON u.id = m.user_id
 		WHERE m.organization_id = $1
 		  AND m.user_id = $2
+		  AND m.disabled_at IS NULL
 		  AND u.disabled_at IS NULL
+		  AND u.signup_pending_verification = false
+		  AND user_can_access_brand_cloud(m.user_id::text, m.organization_id::text)
 	`, orgID, userID).Scan(&role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
@@ -1335,7 +1365,7 @@ func (s *Store) ListMembers(ctx context.Context, orgID string, limit, offset int
 		return MemberPage{}, err
 	}
 	rows, err := s.db.Query(ctx, `
-		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, u.disabled_at
+		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, u.disabled_at,m.access_scope
 		FROM organization_members m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.organization_id = $1
@@ -1350,7 +1380,7 @@ func (s *Store) ListMembers(ctx context.Context, orgID string, limit, offset int
 	members := []model.Member{}
 	for rows.Next() {
 		var member model.Member
-		if err := rows.Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &member.CreatedAt, &member.UpdatedAt, &member.DisabledAt); err != nil {
+		if err := rows.Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &member.CreatedAt, &member.UpdatedAt, &member.DisabledAt, &member.AccessScope); err != nil {
 			return MemberPage{}, err
 		}
 		members = append(members, member)
@@ -1364,11 +1394,11 @@ func (s *Store) ListMembers(ctx context.Context, orgID string, limit, offset int
 func (s *Store) getMemberTx(ctx context.Context, tx pgx.Tx, orgID, userID string) (model.Member, error) {
 	var member model.Member
 	err := tx.QueryRow(ctx, `
-		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, u.disabled_at
+		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, u.disabled_at,m.access_scope
 		FROM organization_members m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.organization_id = $1 AND m.user_id = $2
-	`, orgID, userID).Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &member.CreatedAt, &member.UpdatedAt, &member.DisabledAt)
+	`, orgID, userID).Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &member.CreatedAt, &member.UpdatedAt, &member.DisabledAt, &member.AccessScope)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Member{}, ErrNotFound
 	}
@@ -1590,10 +1620,17 @@ func (s *Store) CreateDevice(ctx context.Context, orgID string, in DeviceInput) 
 		return model.Device{}, err
 	}
 	defer tx.Rollback(ctx)
+	device, err := createDeviceTx(ctx, tx, orgID, in)
+	if err != nil {
+		return model.Device{}, err
+	}
+	return device, tx.Commit(ctx)
+}
 
+func createDeviceTx(ctx context.Context, tx pgx.Tx, orgID string, in DeviceInput) (model.Device, error) {
 	var tier model.OrganizationTier
 	var quota int
-	err = tx.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 		SELECT tier, evaluation_device_quota
 		FROM organizations
 		WHERE id = $1
@@ -1622,15 +1659,12 @@ func (s *Store) CreateDevice(ctx context.Context, orgID string, in DeviceInput) 
 	if err != nil {
 		return model.Device{}, err
 	}
-	device, err := s.scanDevice(tx.QueryRow(ctx, `
+	device, err := scanDevice(tx.QueryRow(ctx, `
 		INSERT INTO devices (organization_id, name, category, serial_number, mac_address, manufacturer, model, metadata)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
 	`, orgID, in.Name, in.Category, in.SerialNumber, in.MACAddress, in.Manufacturer, in.Model, metadata))
 	if err != nil {
-		return model.Device{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
 		return model.Device{}, err
 	}
 	return device, nil
@@ -1656,6 +1690,10 @@ func (s *Store) ListDevicesFiltered(ctx context.Context, in DeviceListFilter) (D
 		userPlaceholder := "$" + strconv.Itoa(len(args)-2)
 		permissionPlaceholder := "$" + strconv.Itoa(len(args)-1)
 		actorTypePlaceholder := "$" + strconv.Itoa(len(args))
+		if actorType == "user" {
+			where = append(where, fmt.Sprintf(`user_can_access_brand_cloud_product(%s,d.organization_id::text,d.device_item_profile_id::text)`, userPlaceholder))
+			where = append(where, fmt.Sprintf(`brand_cloud_permission_allowed(%s,d.organization_id::text,%s)`, userPlaceholder, permissionPlaceholder))
+		}
 		where = append(where, fmt.Sprintf(`EXISTS (
 			SELECT 1 FROM role_assignments ra
 			JOIN roles r ON r.id = ra.role_id AND r.disabled_at IS NULL
@@ -1847,18 +1885,23 @@ func (s *Store) GetDevice(ctx context.Context, orgID, deviceID string) (model.De
 }
 
 func (s *Store) UpdateDevice(ctx context.Context, orgID, deviceID string, in DeviceInput) (model.Device, error) {
+	return updateDevice(ctx, s.db, orgID, deviceID, in)
+}
+
+func updateDevice(ctx context.Context, q rowQuerier, orgID, deviceID string, in DeviceInput) (model.Device, error) {
 	metadata, err := json.Marshal(defaultMetadata(in.Metadata))
 	if err != nil {
 		return model.Device{}, err
 	}
-	device, err := s.scanDevice(s.db.QueryRow(ctx, `
+	device, err := scanDevice(q.QueryRow(ctx, `
 		UPDATE devices
 		SET name = $3, category = $4, serial_number = $5, mac_address = $6, manufacturer = $7, model = $8, metadata = $9, updated_at = now()
 		WHERE organization_id = $1 AND id = $2 AND disabled_at IS NULL
 		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
 	`, orgID, deviceID, in.Name, in.Category, in.SerialNumber, in.MACAddress, in.Manufacturer, in.Model, metadata))
 	if errors.Is(err, pgx.ErrNoRows) {
-		if existing, getErr := s.GetDevice(ctx, orgID, deviceID); getErr == nil && existing.DisabledAt != nil {
+		var disabled bool
+		if q.QueryRow(ctx, `SELECT disabled_at IS NOT NULL FROM devices WHERE organization_id=$1 AND id=$2`, orgID, deviceID).Scan(&disabled) == nil && disabled {
 			return model.Device{}, ErrDisabled
 		}
 		return model.Device{}, ErrNotFound
@@ -1882,14 +1925,19 @@ func (s *Store) DeleteDevice(ctx context.Context, orgID, deviceID string) error 
 }
 
 func (s *Store) UpdateDeviceStatus(ctx context.Context, orgID, deviceID string, status model.DeviceStatus, lastSeenAt *time.Time) (model.Device, error) {
-	device, err := s.scanDevice(s.db.QueryRow(ctx, `
+	return updateDeviceStatus(ctx, s.db, orgID, deviceID, status, lastSeenAt)
+}
+
+func updateDeviceStatus(ctx context.Context, q rowQuerier, orgID, deviceID string, status model.DeviceStatus, lastSeenAt *time.Time) (model.Device, error) {
+	device, err := scanDevice(q.QueryRow(ctx, `
 		UPDATE devices
 		SET status = $3, last_seen_at = COALESCE($4, last_seen_at), disabled_at = CASE WHEN $3 = 'disabled' THEN now() ELSE disabled_at END, updated_at = now()
 		WHERE organization_id = $1 AND id = $2 AND (disabled_at IS NULL OR status <> 'disabled')
 		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
 	`, orgID, deviceID, status, lastSeenAt))
 	if errors.Is(err, pgx.ErrNoRows) {
-		if existing, getErr := s.GetDevice(ctx, orgID, deviceID); getErr == nil && existing.DisabledAt != nil {
+		var disabled bool
+		if q.QueryRow(ctx, `SELECT disabled_at IS NOT NULL FROM devices WHERE organization_id=$1 AND id=$2`, orgID, deviceID).Scan(&disabled) == nil && disabled {
 			return model.Device{}, ErrDisabled
 		}
 		return model.Device{}, ErrNotFound

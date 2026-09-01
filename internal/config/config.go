@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"rtk_account_manager/internal/billinghandoff"
+	"rtk_account_manager/internal/factoryhandoff"
 )
 
 type Config struct {
@@ -78,8 +81,23 @@ type Config struct {
 	AppCertIssuerCAFile            string
 	AppCertIssuerTimeout           time.Duration
 	InternalAuthToken              string
+	BillingHandoffBaseURL          string
+	BillingHandoffToken            string
+	FactoryHandoffBaseURL          string
+	FactoryHandoffToken            string
+	BillingCloudCreationBaseURL    string
+	BillingCloudCreationToken      string
+	HandoffPollInterval            time.Duration
+	HandoffLeaseDuration           time.Duration
+	HandoffStepTimeout             time.Duration
+	HandoffBatchSize               int
+	CloudDeletionPollInterval      time.Duration
+	CloudDeletionLeaseDuration     time.Duration
+	CloudDeletionStepTimeout       time.Duration
+	CloudDeletionBatchSize         int
 	AllowImmediateBrandAccounts    bool
 	FactoryProductionJWTSecret     string
+	FactoryEnrollmentToken         string
 	FactoryProductionJWTAudience   string
 	BootstrapPlatformAdminEmail    string
 	BootstrapPlatformAdminPassword string
@@ -124,6 +142,83 @@ func Load() (Config, error) {
 	if err := validateEmailConfig(cfg); err != nil {
 		return Config{}, err
 	}
+	if err := validateHandoffBillingConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	if err := validateFactoryHandoffConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	if err := validateBillingCloudCreationConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	if err := validateFactoryEnrollmentConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+func validateFactoryEnrollmentConfig(cfg Config) error {
+	if cfg.FactoryEnrollmentToken == "" {
+		return nil
+	}
+	if len(cfg.FactoryEnrollmentToken) < 32 || strings.TrimSpace(cfg.FactoryEnrollmentToken) != cfg.FactoryEnrollmentToken || strings.ContainsAny(cfg.FactoryEnrollmentToken, "\r\n\t") {
+		return fmt.Errorf("ACCOUNT_MANAGER_FACTORY_ENROLLMENT_TOKEN requires a dedicated token of at least 32 bytes")
+	}
+	for _, secret := range []string{cfg.AccessSecret, cfg.RefreshSecret, cfg.InternalAuthToken, cfg.FactoryProductionJWTSecret, cfg.BillingHandoffToken, cfg.VideoCloudLifecycleToken, cfg.SendMailHTTPBearerToken, cfg.EmailOutboxEncryptionKey, cfg.OIDCClientSecret, cfg.JWTAccessPKCS11PIN, cfg.JWTRefreshPKCS11PIN} {
+		if secret != "" && secret == cfg.FactoryEnrollmentToken {
+			return fmt.Errorf("ACCOUNT_MANAGER_FACTORY_ENROLLMENT_TOKEN must not reuse another credential")
+		}
+	}
+	return nil
+}
+
+func validateHandoffBillingConfig(cfg Config) error {
+	if cfg.BillingHandoffBaseURL == "" && cfg.BillingHandoffToken == "" {
+		return nil
+	}
+	if _, err := billinghandoff.New(billinghandoff.Config{BaseURL: cfg.BillingHandoffBaseURL, Token: cfg.BillingHandoffToken}); err != nil {
+		return fmt.Errorf("BILLING_HANDOFF_BASE_URL and a dedicated BILLING_HANDOFF_TOKEN must be configured together with a trusted origin")
+	}
+	for _, secret := range []string{cfg.AccessSecret, cfg.RefreshSecret, cfg.InternalAuthToken, cfg.SendMailHTTPBearerToken, cfg.VideoCloudLifecycleToken, cfg.EmailOutboxEncryptionKey, cfg.FactoryProductionJWTSecret, cfg.FactoryEnrollmentToken, cfg.FactoryHandoffToken, cfg.OIDCClientSecret, cfg.JWTAccessPKCS11PIN, cfg.JWTRefreshPKCS11PIN} {
+		if secret != "" && secret == cfg.BillingHandoffToken {
+			return fmt.Errorf("BILLING_HANDOFF_TOKEN must not reuse other service credentials")
+		}
+	}
+	return nil
+}
+
+func validateFactoryHandoffConfig(cfg Config) error {
+	if cfg.FactoryHandoffBaseURL == "" && cfg.FactoryHandoffToken == "" {
+		return nil
+	}
+	if _, err := factoryhandoff.New(factoryhandoff.Config{BaseURL: cfg.FactoryHandoffBaseURL, Token: cfg.FactoryHandoffToken}); err != nil {
+		return fmt.Errorf("FACTORY_HANDOFF_BASE_URL and a dedicated FACTORY_HANDOFF_TOKEN must be configured together with a trusted origin")
+	}
+	for _, secret := range []string{cfg.AccessSecret, cfg.RefreshSecret, cfg.InternalAuthToken, cfg.SendMailHTTPBearerToken, cfg.VideoCloudLifecycleToken, cfg.EmailOutboxEncryptionKey, cfg.FactoryProductionJWTSecret, cfg.FactoryEnrollmentToken, cfg.BillingHandoffToken, cfg.OIDCClientSecret, cfg.JWTAccessPKCS11PIN, cfg.JWTRefreshPKCS11PIN} {
+		if secret != "" && secret == cfg.FactoryHandoffToken {
+			return fmt.Errorf("FACTORY_HANDOFF_TOKEN must not reuse other service credentials")
+		}
+	}
+	return nil
+}
+
+func LoadHandoffWorker() (Config, error) {
+	cfg, err := load()
+	if err != nil {
+		return Config{}, err
+	}
+	if cfg.BillingHandoffBaseURL == "" || cfg.BillingHandoffToken == "" || cfg.FactoryHandoffBaseURL == "" || cfg.FactoryHandoffToken == "" {
+		return Config{}, fmt.Errorf("handoff worker requires dedicated Billing and factory transport configuration")
+	}
+	if err := validateHandoffBillingConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	if err := validateFactoryHandoffConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	if cfg.HandoffPollInterval <= 0 || cfg.HandoffPollInterval > time.Minute || cfg.HandoffLeaseDuration < 30*time.Second || cfg.HandoffLeaseDuration > 5*time.Minute || cfg.HandoffStepTimeout <= 0 || cfg.HandoffStepTimeout+5*time.Second >= cfg.HandoffLeaseDuration || cfg.HandoffBatchSize < 1 || cfg.HandoffBatchSize > 128 {
+		return Config{}, fmt.Errorf("invalid handoff worker timing or batch size")
+	}
 	return cfg, nil
 }
 
@@ -146,6 +241,49 @@ func LoadWorker() (Config, error) {
 		if cfg.VideoCloudLifecycleTimeout <= 0 {
 			return Config{}, fmt.Errorf("VIDEO_CLOUD_LIFECYCLE_TIMEOUT must be positive")
 		}
+	}
+	return cfg, nil
+}
+
+// Recovery-only process: it has no public routes or resource-observer setup.
+func LoadCloudDeletionWorker() (Config, error) {
+	cfg, err := load()
+	if err != nil {
+		return Config{}, err
+	}
+	if strings.TrimSpace(os.Getenv("DATABASE_URL")) == "" {
+		return Config{}, fmt.Errorf("cloud deletion worker requires explicit DATABASE_URL")
+	}
+	if cfg.BillingHandoffBaseURL == "" || cfg.BillingHandoffToken == "" {
+		return Config{}, fmt.Errorf("cloud deletion worker requires dedicated Billing transport configuration")
+	}
+	if err := validateHandoffBillingConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	// The generic loaders use defaults for malformed values. Recovery startup must
+	// reject typos rather than silently running with a different resource budget.
+	for key, target := range map[string]*time.Duration{
+		"CLOUD_DELETION_WORKER_POLL_INTERVAL":  &cfg.CloudDeletionPollInterval,
+		"CLOUD_DELETION_WORKER_LEASE_DURATION": &cfg.CloudDeletionLeaseDuration,
+		"CLOUD_DELETION_WORKER_STEP_TIMEOUT":   &cfg.CloudDeletionStepTimeout,
+	} {
+		if raw := strings.TrimSpace(os.Getenv(key)); raw != "" {
+			value, err := time.ParseDuration(raw)
+			if err != nil {
+				return Config{}, fmt.Errorf("invalid %s", key)
+			}
+			*target = value
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("CLOUD_DELETION_WORKER_BATCH_SIZE")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid CLOUD_DELETION_WORKER_BATCH_SIZE")
+		}
+		cfg.CloudDeletionBatchSize = value
+	}
+	if cfg.CloudDeletionPollInterval <= 0 || cfg.CloudDeletionPollInterval > time.Minute || cfg.CloudDeletionLeaseDuration < 30*time.Second || cfg.CloudDeletionLeaseDuration > 5*time.Minute || cfg.CloudDeletionStepTimeout <= 0 || cfg.CloudDeletionStepTimeout >= cfg.CloudDeletionLeaseDuration-5*time.Second || cfg.CloudDeletionBatchSize < 1 || cfg.CloudDeletionBatchSize > 128 {
+		return Config{}, fmt.Errorf("invalid cloud deletion worker timing or batch size")
 	}
 	return cfg, nil
 }
@@ -343,8 +481,23 @@ func load() (Config, error) {
 		AppCertIssuerCAFile:            os.Getenv("APP_CERT_ISSUER_CA_FILE"),
 		AppCertIssuerTimeout:           duration("APP_CERT_ISSUER_TIMEOUT", 10*time.Second),
 		InternalAuthToken:              os.Getenv("ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN"),
+		BillingHandoffBaseURL:          strings.TrimSpace(os.Getenv("BILLING_HANDOFF_BASE_URL")),
+		BillingHandoffToken:            strings.TrimSpace(os.Getenv("BILLING_HANDOFF_TOKEN")),
+		FactoryHandoffBaseURL:          strings.TrimSpace(os.Getenv("FACTORY_HANDOFF_BASE_URL")),
+		FactoryHandoffToken:            strings.TrimSpace(os.Getenv("FACTORY_HANDOFF_TOKEN")),
+		BillingCloudCreationBaseURL:    strings.TrimSpace(os.Getenv("BILLING_CLOUD_CREATION_BASE_URL")),
+		BillingCloudCreationToken:      strings.TrimSpace(os.Getenv("BILLING_CLOUD_CREATION_TOKEN")),
+		HandoffPollInterval:            duration("HANDOFF_WORKER_POLL_INTERVAL", 5*time.Second),
+		HandoffLeaseDuration:           duration("HANDOFF_WORKER_LEASE_DURATION", 2*time.Minute),
+		HandoffStepTimeout:             duration("HANDOFF_WORKER_STEP_TIMEOUT", 45*time.Second),
+		HandoffBatchSize:               intValue("HANDOFF_WORKER_BATCH_SIZE", 10),
+		CloudDeletionPollInterval:      duration("CLOUD_DELETION_WORKER_POLL_INTERVAL", 5*time.Second),
+		CloudDeletionLeaseDuration:     duration("CLOUD_DELETION_WORKER_LEASE_DURATION", 2*time.Minute),
+		CloudDeletionStepTimeout:       duration("CLOUD_DELETION_WORKER_STEP_TIMEOUT", 45*time.Second),
+		CloudDeletionBatchSize:         intValue("CLOUD_DELETION_WORKER_BATCH_SIZE", 10),
 		AllowImmediateBrandAccounts:    strings.EqualFold(strings.TrimSpace(os.Getenv("ACCOUNT_MANAGER_ENV")), "staging") && boolValue("ACCOUNT_MANAGER_ALLOW_IMMEDIATE_BRAND_ACCOUNTS", false),
 		FactoryProductionJWTSecret:     os.Getenv("FACTORY_PRODUCTION_JWT_SECRET"),
+		FactoryEnrollmentToken:         os.Getenv("ACCOUNT_MANAGER_FACTORY_ENROLLMENT_TOKEN"),
 		FactoryProductionJWTAudience:   getenv("FACTORY_PRODUCTION_JWT_AUDIENCE", "factory-enroll"),
 		BootstrapPlatformAdminEmail:    os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL"),
 		BootstrapPlatformAdminPassword: os.Getenv("ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD"),

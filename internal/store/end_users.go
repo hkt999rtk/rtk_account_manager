@@ -171,8 +171,21 @@ func (s *Store) RevokeEndUserRefreshToken(ctx context.Context, tokenHash string)
 }
 
 func (s *Store) ResolveEndUserDeviceClaimToken(ctx context.Context, in EndUserDeviceClaimResolveInput) (EndUserDeviceClaimResolveResult, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return EndUserDeviceClaimResolveResult{}, err
+	}
+	defer tx.Rollback(ctx)
+	var actor string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM end_users WHERE id::text=$1 AND disabled_at IS NULL AND status='active' FOR UPDATE`, in.EndUserID).Scan(&actor)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return EndUserDeviceClaimResolveResult{}, ErrNotFound
+	}
+	if err != nil {
+		return EndUserDeviceClaimResolveResult{}, err
+	}
 	var brandCloudID string
-	err := s.db.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		SELECT organization_id::text
 		FROM device_claim_tokens
 		WHERE token_hash = $1
@@ -186,22 +199,24 @@ func (s *Store) ResolveEndUserDeviceClaimToken(ctx context.Context, in EndUserDe
 	if strings.TrimSpace(brandCloudID) == "" {
 		return EndUserDeviceClaimResolveResult{}, ErrNotFound
 	}
-	result, err := s.ResolveDeviceClaimToken(ctx, DeviceClaimResolveInput{
+	if err := lockOperationalCloudTx(ctx, tx, brandCloudID); err != nil {
+		return EndUserDeviceClaimResolveResult{}, err
+	}
+	token, err := getClaimTokenByHashForUpdateTx(ctx, tx, in.TokenHash)
+	if err != nil {
+		return EndUserDeviceClaimResolveResult{}, err
+	}
+	result, err := resolveLockedDeviceClaimTokenTx(ctx, tx, DeviceClaimResolveInput{
 		TokenHash:      in.TokenHash,
 		OrganizationID: brandCloudID,
 		RequestedBy:    in.EndUserID,
 		DeviceName:     in.DeviceName,
 		Now:            in.Now,
-	})
+	}, token)
 	if err != nil {
 		return EndUserDeviceClaimResolveResult{}, err
 	}
 
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return EndUserDeviceClaimResolveResult{}, err
-	}
-	defer tx.Rollback(ctx)
 	now := in.Now
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -224,6 +239,12 @@ func (s *Store) ResolveEndUserDeviceClaimToken(ctx context.Context, in EndUserDe
 		RETURNING id::text, device_id::text, brand_cloud_id::text, end_user_id::text, role, created_from_claim_id::text, created_at, updated_at, disabled_at
 	`, result.Device.ID, brandCloudID, in.EndUserID, result.Claim.ID))
 	if err != nil {
+		return EndUserDeviceClaimResolveResult{}, err
+	}
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{
+		EventType: "app_device_claim_resolved", OrganizationID: &brandCloudID, SubjectType: "device_claim", SubjectID: result.Claim.ID,
+		Payload: map[string]any{"end_user_id": in.EndUserID, "device_id": result.Device.ID},
+	}); err != nil {
 		return EndUserDeviceClaimResolveResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

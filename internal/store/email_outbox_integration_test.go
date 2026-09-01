@@ -243,6 +243,7 @@ func TestQuotaDecisionAndEmailOutboxCommitOrRollbackTogether(t *testing.T) {
 
 func TestOwnerTransferAndEmailOutboxCommitOrRollbackTogether(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
+	configureTestHandoff(t, env)
 	ctx := context.Background()
 	requester, err := env.store.SignupDeveloper(ctx, DeveloperSignupInput{
 		Email: "owner-transfer-requester@example.com", PasswordHash: "hash",
@@ -254,6 +255,9 @@ func TestOwnerTransferAndEmailOutboxCommitOrRollbackTogether(t *testing.T) {
 		Email: "owner-transfer-target@example.com", PasswordHash: "hash",
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified=true,signup_pending_verification=false WHERE id IN ($1,$2)`, requester.User.ID, target.User.ID); err != nil {
 		t.Fatal(err)
 	}
 	expiresAt := time.Now().UTC().Add(time.Hour)

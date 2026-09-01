@@ -2,12 +2,15 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 
 	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/model"
@@ -27,12 +30,14 @@ type brandCloudOwnerTransferResponse struct {
 }
 
 type developerBrandCloudMemberRequest struct {
-	Role model.Role `json:"role" binding:"required"`
+	Role        json.RawMessage `json:"role"`
+	AccessScope json.RawMessage `json:"access_scope,omitempty"`
 }
 
 type developerBrandCloudInvitationRequest struct {
-	Email string     `json:"email" binding:"required,email"`
-	Role  model.Role `json:"role" binding:"required"`
+	AccessScope json.RawMessage `json:"access_scope,omitempty"`
+	Email       string          `json:"email" binding:"required,email"`
+	Role        model.Role      `json:"role" binding:"required"`
 }
 
 type developerBrandCloudInvitationAcceptRequest struct {
@@ -57,83 +62,92 @@ func developerBrandCloudManager(c *gin.Context, s *Server) (model.Member, bool) 
 }
 
 func (s *Server) listDeveloperBrandClouds(c *gin.Context) {
-	limit, offset := pagination(c)
-	page, err := s.store.ListDeveloperBrandClouds(c.Request.Context(), currentUserID(c), limit, offset)
+	c.Header("Cache-Control", "no-store")
+	if !requireManagedCloudSession(c) {
+		return
+	}
+	limit, limitErr := strconv.Atoi(c.DefaultQuery("limit", "25"))
+	offset, offsetErr := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if limitErr != nil || offsetErr != nil || limit < 1 || limit > 100 || offset < 0 {
+		writeError(c, http.StatusBadRequest, "invalid_pagination", "limit must be 1..100 and offset nonnegative")
+		return
+	}
+	view := strings.TrimSpace(c.DefaultQuery("view", "all"))
+	if view != "all" && view != "owned" && view != "shared" {
+		writeError(c, http.StatusBadRequest, "invalid_cloud_view", "view must be all, owned or shared")
+		return
+	}
+	page, err := s.store.ListManagedBrandClouds(c.Request.Context(), currentUserID(c), view, limit, offset)
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	for i := range page.Organizations {
-		page.Organizations[i].Capabilities, err = s.developerCapabilitiesForUser(c.Request.Context(), currentUserID(c), page.Organizations[i].ID, page.Organizations[i].Role)
+	for i := range page.BrandClouds {
+		if !page.BrandClouds[i].Operational {
+			continue
+		}
+		page.BrandClouds[i].Capabilities, err = s.developerCapabilitiesForUser(c.Request.Context(), currentUserID(c), page.BrandClouds[i].ID, page.BrandClouds[i].Role)
 		if err != nil {
 			writeStoreError(c, err)
 			return
 		}
 	}
-	user, err := s.store.GetUser(c.Request.Context(), currentUserID(c))
-	if err != nil {
-		writeStoreError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"brand_clouds": page.Organizations, "pagination": page.Page, "developer_cloud_limit": user.DeveloperCloudLimit})
+	c.JSON(http.StatusOK, gin.H{"brand_clouds": page.BrandClouds, "total": page.Total, "limit": page.Limit, "offset": page.Offset,
+		"owned_count": page.OwnedCount, "owned_limit": page.OwnedLimit,
+		"reserved_count": page.ReservedCount,
+		"pagination":     page.Page, "developer_cloud_limit": page.OwnedLimit})
 }
 
 func (s *Server) createDeveloperBrandCloud(c *gin.Context) {
-	var req brandCloudRequest
-	if !bind(c, &req) {
+	c.Header("Cache-Control", "no-store")
+	if !requireManagedCloudSession(c) {
 		return
 	}
-	if !requireNonBlank(c, "name", req.Name) {
+	req, ok := bindManagedCloudWrite(c)
+	if !ok {
 		return
 	}
-	org, err := s.store.CreateDeveloperBrandCloud(c.Request.Context(), currentUserID(c), store.BrandCloudInput{
-		Name:       strings.TrimSpace(req.Name),
-		TenantSlug: strings.TrimSpace(req.TenantSlug),
-		Metadata:   req.Metadata,
-	})
+	org, err := s.store.CreateManagedBrandCloud(c.Request.Context(), currentUserID(c), c.GetHeader("Idempotency-Key"), req)
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"brand_cloud": org})
+	s.writeManagedCloudResponse(c, http.StatusCreated, org)
 }
 
 func (s *Server) getDeveloperBrandCloud(c *gin.Context) {
-	org, err := s.store.GetOrganization(c.Request.Context(), c.Param("brandCloudId"), currentUserID(c))
-	if err != nil || org.OrganizationKind != model.OrganizationKindBrandCloud {
-		if err == nil {
-			err = store.ErrNotFound
-		}
-		writeStoreError(c, err)
+	c.Header("Cache-Control", "no-store")
+	if !requireManagedCloudSession(c) {
 		return
 	}
-	member, err := s.store.GetDeveloperBrandCloudMember(c.Request.Context(), org.ID, currentUserID(c))
+	org, err := s.store.GetManagedBrandCloud(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"))
 	if err != nil {
 		writeStoreError(c, err)
 		return
 	}
-	org.Capabilities, err = s.developerCapabilitiesForUser(c.Request.Context(), currentUserID(c), org.ID, member.Role)
-	if err != nil {
-		writeStoreError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"brand_cloud": org, "membership": member})
+	s.writeManagedCloudResponse(c, http.StatusOK, org)
 }
 
 func developerCapabilitiesForRole(role model.Role) []string {
+	if role == model.RoleViewer {
+		return []string{"fleet.read", "product.read", "firmware.release.read", "ota.plan.read", "reports.read"}
+	}
 	read := []string{"fleet.read", "product.read", "firmware.release.read", "ota.plan.read", "reports.read", "team.read", "provisioning.read"}
 	if role == model.RoleMember {
 		return read
 	}
 	capabilities := append(read, "fleet.device.manage", "fleet.batch.manage", "product.manage", "product.policy.manage", "firmware.release.manage", "ota.plan.manage", "reports.create", "provisioning.create", "pki.test.issue")
 	if role == model.RoleOwner {
-		capabilities = append(capabilities, "team.manage")
+		capabilities = append(capabilities, "team.manage", "cloud.update")
 	}
 	return capabilities
 }
 
 func (s *Server) developerCapabilitiesForUser(ctx context.Context, userID, brandCloudID string, role model.Role) ([]string, error) {
 	capabilities := developerCapabilitiesForRole(role)
+	if role == model.RoleViewer {
+		return capabilities, nil
+	}
 	permissions, err := s.store.ListUserOrganizationPermissions(ctx, userID, brandCloudID)
 	if err != nil {
 		return nil, err
@@ -173,8 +187,7 @@ func hasCapability(capabilities []string, target string) bool {
 }
 
 func (s *Server) listDeveloperBrandCloudMembers(c *gin.Context) {
-	if _, err := s.store.GetDeveloperBrandCloudMember(c.Request.Context(), c.Param("brandCloudId"), currentUserID(c)); err != nil {
-		writeStoreError(c, err)
+	if _, ok := developerBrandCloudManager(c, s); !ok {
 		return
 	}
 	limit, offset := pagination(c)
@@ -197,7 +210,16 @@ func (s *Server) inviteDeveloperBrandCloudMember(c *gin.Context) {
 		return
 	}
 	var req developerBrandCloudInvitationRequest
-	if !bind(c, &req) || !validDeveloperInvitationRole(c, req.Role) {
+	if !bindStrict(c, &req) || !validDeveloperInvitationRole(c, req.Role) {
+		return
+	}
+	if err := binding.Validator.ValidateStruct(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	scope, err := parseViewerScope(req.AccessScope)
+	if err != nil {
+		writeStoreError(c, err)
 		return
 	}
 	token, expiresAt, err := s.newAuthToken("brand_cloud_membership_invitation")
@@ -209,7 +231,7 @@ func (s *Server) inviteDeveloperBrandCloudMember(c *gin.Context) {
 	outbox := authTokenEmailOutbox(email, "brand_cloud_membership_invitation", token, expiresAt)
 	invitation, created, err := s.store.CreateBrandCloudMemberInvitation(c.Request.Context(), store.BrandCloudMemberInvitationInput{
 		BrandCloudID: c.Param("brandCloudId"), InvitedByUserID: currentUserID(c), TargetEmail: email,
-		Role: req.Role, TokenHash: auth.HashToken(token), ExpiresAt: expiresAt, Email: &outbox,
+		Role: req.Role, AccessScope: scope, TokenHash: auth.HashToken(token), ExpiresAt: expiresAt, Email: &outbox,
 	}, time.Now().UTC())
 	if err != nil {
 		writeStoreError(c, err)
@@ -222,11 +244,22 @@ func (s *Server) inviteDeveloperBrandCloudMember(c *gin.Context) {
 }
 
 func validDeveloperInvitationRole(c *gin.Context, role model.Role) bool {
-	if role != model.RoleAdmin && role != model.RoleMember {
-		writeError(c, http.StatusBadRequest, "invalid_role", "Invitation role must be admin or member")
+	if role != model.RoleAdmin && role != model.RoleMember && role != model.RoleViewer {
+		writeError(c, http.StatusBadRequest, "invalid_role", "Invitation role must be admin, member or viewer")
 		return false
 	}
 	return true
+}
+
+func parseViewerScope(raw json.RawMessage) (*model.CloudViewerScope, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	var scope model.CloudViewerScope
+	if err := json.Unmarshal(raw, &scope); err != nil {
+		return nil, model.ErrInvalidCloudViewerScope
+	}
+	return &scope, nil
 }
 
 func (s *Server) listDeveloperBrandCloudMemberInvitations(c *gin.Context) {
@@ -299,10 +332,25 @@ func (s *Server) updateDeveloperBrandCloudMember(c *gin.Context) {
 		return
 	}
 	var req developerBrandCloudMemberRequest
-	if !bind(c, &req) || !validDeveloperInvitationRole(c, req.Role) {
+	if !bindStrict(c, &req) {
 		return
 	}
-	member, err := s.store.UpdateMemberRole(c.Request.Context(), c.Param("brandCloudId"), c.Param("userId"), req.Role)
+	role := model.Role("")
+	if req.Role != nil {
+		if err := json.Unmarshal(req.Role, &role); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid_role", "Invalid role")
+			return
+		}
+		if !validDeveloperInvitationRole(c, role) {
+			return
+		}
+	}
+	scope, err := parseViewerScope(req.AccessScope)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	member, err := s.store.UpdateDeveloperBrandCloudMember(c.Request.Context(), store.CloudMemberUpdateInput{BrandCloudID: c.Param("brandCloudId"), ActorUserID: currentUserID(c), TargetUserID: c.Param("userId"), Role: role, AccessScope: scope})
 	if err != nil {
 		if errors.Is(err, store.ErrLastOwner) {
 			writeError(c, http.StatusConflict, "last_owner", err.Error())
@@ -361,6 +409,10 @@ func (s *Server) enableDeveloperBrandCloudMember(c *gin.Context) {
 }
 
 func (s *Server) createBrandCloudOwnerTransfer(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	if !requireHandoffGlobalSession(c) {
+		return
+	}
 	if _, ok := developerBrandCloudManager(c, s); !ok {
 		return
 	}
@@ -395,6 +447,10 @@ func (s *Server) createBrandCloudOwnerTransfer(c *gin.Context) {
 }
 
 func (s *Server) acceptBrandCloudOwnerTransfer(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	if !requireHandoffGlobalSession(c) {
+		return
+	}
 	var req brandCloudOwnerTransferAcceptRequest
 	if !bind(c, &req) {
 		return
@@ -404,14 +460,17 @@ func (s *Server) acceptBrandCloudOwnerTransfer(c *gin.Context) {
 		writeStoreError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, brandCloudOwnerTransferResponse{OwnerTransfer: transfer})
+	c.JSON(http.StatusAccepted, brandCloudOwnerTransferResponse{OwnerTransfer: transfer})
 }
 
 func (s *Server) getBrandCloudOwnerTransfer(c *gin.Context) {
-	if _, ok := developerBrandCloudManager(c, s); !ok {
+	c.Header("Cache-Control", "no-store")
+	if !requireHandoffGlobalSession(c) {
 		return
 	}
-	transfer, err := s.store.GetBrandCloudOwnerTransfer(c.Request.Context(), store.BrandCloudOwnerTransferQuery{BrandCloudID: c.Param("brandCloudId"), TransferID: c.Param("transferId"), RequesterID: currentUserID(c)}, time.Now().UTC())
+	// The target is a participant, not a member. The store checks this global
+	// session against the exact operation's source/target even while cloud-fenced.
+	transfer, err := s.store.GetOwnerHandoffStatus(c.Request.Context(), store.BrandCloudOwnerTransferQuery{BrandCloudID: c.Param("brandCloudId"), TransferID: c.Param("transferId"), RequesterID: currentUserID(c)})
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -420,7 +479,8 @@ func (s *Server) getBrandCloudOwnerTransfer(c *gin.Context) {
 }
 
 func (s *Server) cancelBrandCloudOwnerTransfer(c *gin.Context) {
-	if _, ok := developerBrandCloudManager(c, s); !ok {
+	c.Header("Cache-Control", "no-store")
+	if !requireHandoffGlobalSession(c) {
 		return
 	}
 	transfer, err := s.store.CancelBrandCloudOwnerTransfer(c.Request.Context(), store.BrandCloudOwnerTransferQuery{BrandCloudID: c.Param("brandCloudId"), TransferID: c.Param("transferId"), RequesterID: currentUserID(c)}, time.Now().UTC())

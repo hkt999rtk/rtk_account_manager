@@ -46,6 +46,13 @@ func TestDeveloperSignupCreatesDefaultBrandCloudAndEnforcesCloudLimit(t *testing
 	if err := env.store.SetDeveloperCloudLimit(ctx, result.User.ID, 2); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := env.store.CreateDeveloperBrandCloud(ctx, result.User.ID, BrandCloudInput{Name: "Pending must fail"}); !errors.Is(err, ErrAccountNotActivated) {
+		t.Fatalf("pending cloud creation err=%v", err)
+	}
+	// This store fixture represents completed activation; API/email evidence is separate.
+	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified=true,signup_pending_verification=false WHERE id=$1`, result.User.ID); err != nil {
+		t.Fatal(err)
+	}
 	second, err := env.store.CreateDeveloperBrandCloud(ctx, result.User.ID, BrandCloudInput{Name: "Second Cloud", TenantSlug: "second-cloud"})
 	if err != nil {
 		t.Fatal(err)
@@ -80,6 +87,9 @@ func TestDeveloperBrandCloudErrorPaths(t *testing.T) {
 		PasswordHash: "hash",
 	}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("expected duplicate developer signup conflict, got %v", err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified=true,signup_pending_verification=false WHERE id=$1`, result.User.ID); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := env.store.CreateDeveloperBrandCloud(ctx, result.User.ID, BrandCloudInput{
 		Name:       "Invalid Slug",
@@ -141,6 +151,9 @@ func TestBrandCloudMemberInvitationLifecycleAndConflicts(t *testing.T) {
 		PasswordHash: "hash",
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified=true,signup_pending_verification=false WHERE id=$1`, owner.User.ID); err != nil {
 		t.Fatal(err)
 	}
 	target, err := env.store.SignupDeveloper(ctx, DeveloperSignupInput{
@@ -321,6 +334,13 @@ func TestBrandCloudMemberInvitationLifecycleAndConflicts(t *testing.T) {
 	if _, err := env.db.Exec(ctx, `DELETE FROM organization_members WHERE organization_id = $1 AND user_id = $2`, owner.BrandCloud.ID, target.User.ID); err != nil {
 		t.Fatal(err)
 	}
+	if _, _, err := env.store.AcceptBrandCloudMemberInvitation(ctx, target.User.ID, base.TokenHash, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("revocation must cancel earlier invitation: %v", err)
+	}
+	base.TokenHash = "invitation-after-revocation"
+	if _, created, err := env.store.CreateBrandCloudMemberInvitation(ctx, base, now); err != nil || !created {
+		t.Fatalf("fresh owner invitation after revocation: %v %v", created, err)
+	}
 	if _, _, err := env.store.AcceptBrandCloudMemberInvitation(ctx, owner.User.ID, base.TokenHash, now); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("wrong developer should not accept invitation, got %v", err)
 	}
@@ -361,6 +381,7 @@ func TestBrandCloudMemberInvitationLifecycleAndConflicts(t *testing.T) {
 
 func TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
+	configureTestHandoff(t, env)
 	ctx := context.Background()
 
 	source, err := env.store.SignupDeveloper(ctx, DeveloperSignupInput{
@@ -375,6 +396,9 @@ func TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeve
 		PasswordHash: "hash",
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified=true,signup_pending_verification=false WHERE id IN ($1,$2)`, source.User.ID, target.User.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -473,18 +497,14 @@ func TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeve
 		t.Fatalf("expected accepted transfer, got %+v", accepted)
 	}
 
-	sourceMember, err := env.store.GetDeveloperBrandCloudMember(ctx, source.BrandCloud.ID, source.User.ID)
-	if err != nil {
-		t.Fatal(err)
+	var owner string
+	if err := env.db.QueryRow(ctx, `SELECT user_id::text FROM organization_members WHERE organization_id=$1 AND role='owner'`, source.BrandCloud.ID).Scan(&owner); err != nil || owner != source.User.ID {
+		t.Fatalf("accept prematurely changed owner: %s %v", owner, err)
 	}
-	targetMember, err := env.store.GetDeveloperBrandCloudMember(ctx, source.BrandCloud.ID, target.User.ID)
-	if err != nil {
-		t.Fatal(err)
+	if accepted.OperationPhase != "preparing" {
+		t.Fatalf("accept omitted durable preparation: %+v", accepted)
 	}
-	if sourceMember.Role != model.RoleAdmin || targetMember.Role != model.RoleOwner {
-		t.Fatalf("expected source admin and target owner after transfer, source=%+v target=%+v", sourceMember, targetMember)
-	}
-	if _, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, target.User.ID, "transfer-token-hash-2", time.Now()); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("accepted transfer token must reject replay, got %v", err)
+	if replay, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, target.User.ID, "transfer-token-hash-2", time.Now()); err != nil || replay.ID != accepted.ID {
+		t.Fatalf("accepted retry must return same operation: %+v %v", replay, err)
 	}
 }

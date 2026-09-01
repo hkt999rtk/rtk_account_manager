@@ -113,9 +113,86 @@ Production runs are stored in `factory_production_runs`. Creation emits a
 `factory_production_run_created` audit event with the brand cloud, profile,
 factory, batch, quantity, and validity window.
 
-`issued_quantity` is reserved for quota enforcement. The current implementation
-creates the run and signs a bounded JWT; the next enforcement step is a consume
-operation called by factory enrollment after each successful certificate issue.
+Issuance records the current ownership version and whether authority came from
+the explicit platform route. Existing runs without this provenance are not
+silently authorized: an eligible operator must issue a new run. Consumption
+rechecks that version, the original operator's current authority, cloud/Product
+state and run validity under the same actor/cloud/Product/run lock order.
+
+Quota must be reserved **before** contacting the certificate issuer. The Account
+Manager admission ledger binds `(run_id, request_id)` to the device and a SHA-256
+digest of the complete canonical enrollment request. Issued quantity plus pending
+reservations cannot exceed the run limit. Same-key/same-payload retries return
+the existing reservation; changed payloads conflict. A reservation is not a
+permission to repeat an issuer call: the consumer must durably serialize its
+request journal and the issuer must replay the same idempotent issuance result.
+
+Only trusted reconciliation of a definite `issued` or `not_issued` outcome can
+close a reservation. Persist its evidence digest and audit atomically with the
+quota update; exact retries do not count twice. Timeouts, lost responses, worker
+crashes and token expiry are unknown outcomes, not evidence of non-issuance.
+They never release capacity automatically. Do not send JWTs, CSRs, private keys
+or certificate bodies to this ledger or its audit payloads.
+Factory persistence is part of the required API store interface. The production
+user-cache wrapper forwards reserve, lookup and completion directly to the
+durable store; it must never cache authority or factory reconciliation results.
+`not_issued` requires an issuer-side durable terminal rejection/cancellation
+that also rejects delayed copies of the original request. A missing issuer row,
+a transport error or an elapsed lease is not that proof. After local admission,
+the consumer retains the original reservation/request binding for reconciliation;
+it must not request fresh admission merely to learn an expired/fenced request's
+outcome or retry the signer after a failure to persist the certificate.
+
+An accepted handoff fences new reservations. Already admitted work may report a
+terminal result while fenced, without acquiring new authority to issue. Pending
+reservations independently block preparation readiness, balance confirmation
+and owner commit even if a remote participant incorrectly reports itself drained.
+Closing the local ledger is necessary, not sufficient: the actual factory/issuer
+participant still proves its durable drain and usage cutoff. Deletion retains
+the existing nonempty-Product/resource and financial blockers.
+
+Service coordination uses an independent `ACCOUNT_MANAGER_FACTORY_ENROLLMENT_TOKEN`
+bearer credential (at least 32 bytes, not reused from human JWTs, Billing or other
+service secrets). A missing credential disables these paths; ordinary login and
+general internal tokens cannot authorize them. Require trusted TLS in deployment;
+plain HTTP is only for owned loopback test endpoints.
+
+- `POST /v1/internal/factory-enrollments/reserve` accepts the complete run/cloud/
+  Product/request/device/digest binding and `production_jwt`. Account Manager
+  independently verifies HS256, audience, expiry, nbf, jti, subject and scope,
+  then executes current-authority/quota admission. Never persist/log the JWT.
+- `POST /v1/internal/factory-enrollments/lookup` reads an exact preexisting
+  binding, including during a fence or after JWT expiry. It grants no new work.
+- `POST /v1/internal/factory-enrollments/cancel` is a trusted cancellation
+  decision, not a human endpoint or a lookup shortcut. It locks the cloud/run
+  in admission order and persists `cancel_requested` on the exact key, even
+  when the original admission never committed. Delayed admission cannot bypass
+  this record. Existing admitted work retains its quota hold. A key created
+  solely for cancellation has immutable `admitted=false`: it consumes no
+  capacity, can never become `issued`, and still blocks handoff until reconciled.
+  Neither kind is non-issuance evidence. Exact retries do not mutate terminal
+  results; actor revocation/expiry do not prevent trusted cancellation.
+- `POST /v1/internal/factory-enrollments/{reservationId}/result` verifies the
+  binding and records a trusted reconciled terminal outcome. The adapter must
+  authenticate durable issuer evidence, not translate an HTTP failure to
+  `not_issued`. Terminal evidence conflicts are rejected; exact retries replay.
+
+Responses bind reservation ID, run/cloud/Product, request/device/digest and
+status. Secrets and certificates are excluded. Capacity exhaustion or changed
+payload/results return 409, unavailable scope 404, bad service/JWT credentials
+401, and missing configuration/dependency failure 503. Responses are no-store
+and request bodies are bounded to 32 KiB. These paths are not human login APIs.
+Video Cloud's factory application now uses this ledger and durable consumer
+journal. Its separately authenticated cancellation controller queues exact
+bindings; a restart-safe worker obtains this admission fence, the issuer's
+authenticated pre-sign cancellation receipt, then completes AM and its journal.
+Lost responses retain pending work and replay immutable evidence. The real
+cross-service test covers both issued and non-issued completion response loss.
+The worker does not infer cancellation decisions from elapsed time. Automated
+revocation/handoff decision dispatch, already-started signer reconciliation,
+real producer/Billing cutoffs and staging verification remain release gates.
+Migration 065 adds intent state and immutable admission provenance without
+changing the published migration 064 or historical reservation evidence.
 
 ## Configuration
 
@@ -123,3 +200,4 @@ operation called by factory enrollment after each successful certificate issue.
 | --- | --- |
 | `FACTORY_PRODUCTION_JWT_SECRET` | HS256 signing secret for factory production JWTs. Keep separate from user access and refresh token secrets. |
 | `FACTORY_PRODUCTION_JWT_AUDIENCE` | Expected factory enrollment audience. Defaults to `factory-enroll`. |
+| `ACCOUNT_MANAGER_FACTORY_ENROLLMENT_TOKEN` | Dedicated factory-to-Account-Manager coordination bearer token; empty disables admission/reconciliation HTTP paths. |

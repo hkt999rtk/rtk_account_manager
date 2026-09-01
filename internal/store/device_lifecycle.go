@@ -47,11 +47,20 @@ type DeviceDeactivationOperationInput struct {
 }
 
 func (s *Store) StartDeviceLifecycleOperation(ctx context.Context, in DeviceLifecycleOperationInput) (DeviceLifecycleOperationResult, error) {
+	if in.RequestedBy == nil || strings.TrimSpace(*in.RequestedBy) == "" {
+		return DeviceLifecycleOperationResult{}, ErrNotFound
+	}
+	if in.OperationType != model.DeviceOperationTypeProvision {
+		return DeviceLifecycleOperationResult{}, ErrConflict
+	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return DeviceLifecycleOperationResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := authorizeDeviceUserMutationTx(ctx, tx, *in.RequestedBy, in.OrganizationID, in.DeviceID, "lifecycle_operation.provision"); err != nil {
+		return DeviceLifecycleOperationResult{}, err
+	}
 
 	device, err := getDeviceForUpdateTx(ctx, tx, in.OrganizationID, in.DeviceID)
 	if err != nil {
@@ -61,11 +70,17 @@ func (s *Store) StartDeviceLifecycleOperation(ctx context.Context, in DeviceLife
 }
 
 func (s *Store) StartDeviceDeactivationOperation(ctx context.Context, in DeviceDeactivationOperationInput) (DeviceLifecycleOperationResult, error) {
+	if in.RequestedBy == nil || strings.TrimSpace(*in.RequestedBy) == "" {
+		return DeviceLifecycleOperationResult{}, ErrNotFound
+	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return DeviceLifecycleOperationResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := authorizeDeviceUserMutationTx(ctx, tx, *in.RequestedBy, in.OrganizationID, in.DeviceID, "lifecycle_operation.deactivate"); err != nil {
+		return DeviceLifecycleOperationResult{}, err
+	}
 
 	device, err := getDeviceForUpdateTx(ctx, tx, in.OrganizationID, in.DeviceID)
 	if err != nil {
@@ -129,6 +144,16 @@ func startDeviceLifecycleOperationTx(ctx context.Context, tx pgx.Tx, device mode
 		}
 	}
 
+	if created {
+		if err := createAuditEventTx(ctx, tx, AuditEventInput{
+			ActorUserID: in.RequestedBy, OrganizationID: &in.OrganizationID,
+			EventType:   "device.lifecycle." + string(in.OperationType) + ".requested",
+			SubjectType: "device", SubjectID: device.ID,
+			Payload: map[string]any{"operation_id": operation.OperationID},
+		}); err != nil {
+			return DeviceLifecycleOperationResult{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return DeviceLifecycleOperationResult{}, err
 	}

@@ -18,7 +18,7 @@ type customerRoleAssignmentRequest struct {
 }
 
 func (s *Server) checkOrganizationAccess(c *gin.Context) {
-	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
+	if currentSubjectType(c) != auth.SubjectTypeUser {
 		writeError(c, http.StatusNotFound, "not_found", "Resource not found")
 		return
 	}

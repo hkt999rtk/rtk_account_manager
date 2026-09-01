@@ -22,6 +22,9 @@ func (s *Store) AuthorizeActiveAppCertificateForSubject(ctx context.Context, sub
 		  AND revoked_at IS NULL
 		  AND not_before <= $4
 		  AND not_after > $4
+		  AND (subject_type <> 'user' OR EXISTS (
+		      SELECT 1 FROM users u WHERE u.id::text = app_certificates.subject_id
+		        AND u.disabled_at IS NULL AND u.signup_pending_verification = false))
 		LIMIT 1
 	`, strings.TrimSpace(subjectType), strings.TrimSpace(subjectID), strings.ToLower(strings.TrimSpace(fingerprintSHA256)), now).Scan(&ok)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -60,6 +63,9 @@ func (s *Store) GetValidAppCertificateForSubject(ctx context.Context, subjectTyp
 		  AND revoked_at IS NULL
 		  AND not_before <= $3
 		  AND not_after > $3
+		  AND (subject_type <> 'user' OR EXISTS (
+		      SELECT 1 FROM users u WHERE u.id::text = app_certificates.subject_id
+		        AND u.disabled_at IS NULL AND u.signup_pending_verification = false))
 		ORDER BY not_after DESC
 		LIMIT 1
 	`, subjectType, subjectID, now)
@@ -93,6 +99,17 @@ func (s *Store) CreateAppCertificate(ctx context.Context, in AppCertificateCreat
 	}
 	if subjectID == "" {
 		subjectID = in.UserID
+	}
+	if subjectType == "user" {
+		var eligible bool
+		if err := tx.QueryRow(ctx, `SELECT true FROM users
+			WHERE id::text=$1 AND disabled_at IS NULL AND signup_pending_verification=false
+			FOR UPDATE`, subjectID).Scan(&eligible); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return model.AppCertificate{}, ErrNotFound
+			}
+			return model.AppCertificate{}, err
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE app_certificates

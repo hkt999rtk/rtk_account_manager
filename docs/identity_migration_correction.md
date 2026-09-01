@@ -28,9 +28,9 @@ and a sole-owner credential conflict aborts the migration transaction. The
 database already enforces normalized emails on both identity tables; tests do
 not drop those constraints to manufacture unsupported input.
 
-## Fresh cutovers
+## Pre-cutover design target and implementation boundary
 
-The corrected 049 source keeps the approved identity model and transaction:
+The pre-cutover correction must keep the approved identity model and transaction:
 
 1. Existing global users keep their password and verification state. Their
    credentials are not replaced using legacy tenant credentials.
@@ -63,9 +63,13 @@ The corrected 049 source keeps the approved identity model and transaction:
    from operational access until owner eligibility is restored through approved
    flows. Legacy customer-organization invariants are unchanged.
 
-The published migration number is not deleted from an existing database to
-force execution. Corrected 049 is for fresh databases and pre-cutover restores;
-already-applied databases use the forward correction below.
+Published 049 and its applied marker remain unchanged. The implemented forward
+051 covers databases already through 050; it does not repair a failure inside
+049 before that point. A pre-049 legacy restore with duplicate membership targets
+or a reset-required sole owner needs a separately reviewed cutover path satisfying
+the rules above. It remains a release blocker, not a reason to rewrite legacy
+evidence or bypass the old assertion. Empty new databases apply the normal chain.
+See [the operator runbook](identity_correction_runbook.md).
 
 ## Already-applied databases: forward correction before cleanup
 
@@ -148,7 +152,7 @@ rejoining a Brand Cloud from which an administrator removed access.
   `disabled_at` and `updated_at` values written by the activation suspension,
   its source (`signup`, `provisioning`, or `identity_migration`), and creation
   time. Do not infer an activation hold from `disabled_at IS NOT NULL` alone.
-- Fresh 049 and the forward migration create this table idempotently. The
+- The pre-cutover correction and forward 051 create this table idempotently. The
   migration, public signup and global-user provisioning write the hold in the
   same transaction as any membership they suspend solely for verification.
   Current developer signup creates an enabled owner membership; it needs no

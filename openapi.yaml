@@ -41,6 +41,8 @@ tags:
     description: Platform-admin claim token lifecycle operations.
   - name: Provisioning
     description: Provision, deactivation, unprovision, and readiness operations.
+  - name: Factory Enrollment
+    description: Service-only factory issuance admission and durable result reconciliation.
   - name: Quota
     description: Evaluation quota raise request workflows.
   - name: Admin Metrics
@@ -64,6 +66,107 @@ tags:
 servers:
   - url: http://localhost:8080
 paths:
+  /v1/internal/factory-enrollments/reserve:
+    post:
+      operationId: reserveFactoryEnrollment
+      tags: [Factory Enrollment]
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001, REQ-MULTICLOUD-SHARING-001]
+      summary: Reserve factory capacity under current production-run authority.
+      description: Dedicated service-only coordination. Verifies the production JWT and rechecks its actor, ownership version, Product scope and run quota transactionally. An exact replay returns the existing ledger state, not permission to repeat a signer call. Never persist the JWT in consumer audit.
+      security: [{ factoryEnrollmentService: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/FactoryEnrollmentScope'
+                - type: object
+                  required: [production_jwt]
+                  properties:
+                    production_jwt: { type: string, writeOnly: true }
+      responses:
+        '200': { $ref: '#/components/responses/FactoryEnrollmentLedger' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /v1/internal/factory-enrollments/lookup:
+    post:
+      operationId: lookupFactoryEnrollment
+      tags: [Factory Enrollment]
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001]
+      summary: Reconcile an existing factory reservation by its complete binding.
+      description: Works after token expiry or a lifecycle fence. A missing entry is not a terminal non-issuance receipt and this read cannot create admission.
+      security: [{ factoryEnrollmentService: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FactoryEnrollmentScope' }
+      responses:
+        '200': { $ref: '#/components/responses/FactoryEnrollmentLedger' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /v1/internal/factory-enrollments/cancel:
+    post:
+      operationId: cancelFactoryEnrollment
+      tags: [Factory Enrollment]
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001]
+      summary: Persist a trusted cancellation intent and fence delayed admission.
+      description: Dedicated reconciliation service only. Locks the cloud and run and returns the exact reservation, creating a cancel_requested key if admission was absent. Existing admitted reservations retain quota; never-admitted cancellation keys consume no capacity and cannot become issued. Both retain handoff holds and are not proof of non-issuance. Definitive authenticated issuer evidence is still required by the result endpoint. Works after actor revocation or token expiry.
+      security: [{ factoryEnrollmentService: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FactoryEnrollmentScope' }
+      responses:
+        '200': { $ref: '#/components/responses/FactoryEnrollmentLedger' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /v1/internal/factory-enrollments/{reservationId}/result:
+    post:
+      operationId: completeFactoryEnrollment
+      tags: [Factory Enrollment]
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001]
+      summary: Persist a trusted reconciled issuer outcome exactly once.
+      description: The authenticated adapter must verify durable issuer evidence before calling. Never map timeouts or missing rows to not_issued. A non-issuance receipt must fence delayed issuer requests. Exact terminal replay is accepted; changed scope, digest or result conflicts. Closing this ledger alone does not prove downstream resource drain or Billing settlement.
+      security: [{ factoryEnrollmentService: [] }]
+      parameters:
+        - in: path
+          name: reservationId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/FactoryEnrollmentScope'
+                - type: object
+                  required: [status, evidence_sha256]
+                  properties:
+                    status: { type: string, enum: [issued, not_issued] }
+                    evidence_sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+      responses:
+        '200': { $ref: '#/components/responses/FactoryEnrollmentLedger' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /v1/health:
     get:
       tags:
@@ -88,7 +191,7 @@ paths:
       x-rtk-feature-id: FEAT-AM-SIGNUP-001
       x-rtk-requirement-ids:
         - REQ-E2E-CA-SIGNUP-EMAIL-001
-      summary: Register a user and initial organization.
+      summary: Alias of signup; create a pending global user and default owned cloud.
       requestBody:
         required: true
         content:
@@ -96,8 +199,8 @@ paths:
             schema:
               $ref: "#/components/schemas/RegisterRequest"
       responses:
-        "201":
-          description: Registered.
+        "202":
+          description: Pending registration accepted; email activation is required before login. No session tokens are returned.
           content:
             application/json:
               schema:
@@ -105,6 +208,8 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
         "409":
+          $ref: "#/components/responses/Error"
+        "429":
           $ref: "#/components/responses/Error"
   /v1/auth/signup:
     post:
@@ -425,6 +530,9 @@ paths:
         - bearerAuth: []
       summary: List brand clouds visible to the current developer.
       parameters:
+        - in: query
+          name: view
+          schema: { type: string, enum: [all, owned, shared], default: all }
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Offset"
       responses:
@@ -433,7 +541,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BrandCloudsResponse"
+                $ref: "#/components/schemas/ManagedCloudListResponse"
         "401":
           $ref: "#/components/responses/Error"
     post:
@@ -445,20 +553,22 @@ paths:
         - REQ-UI-CA-CLOUD-005
       security:
         - bearerAuth: []
-      summary: Create a brand cloud owned by the current developer.
+      summary: Atomically create a cloud with the current global user as sole owner.
+      parameters:
+        - $ref: '#/components/parameters/ManagedCloudIdempotencyKey'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/BrandCloudRequest"
+              $ref: "#/components/schemas/ManagedCloudWrite"
       responses:
         "201":
           description: Developer brand cloud created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BrandCloudResponse"
+                $ref: "#/components/schemas/ManagedCloudResponse"
         "400":
           $ref: "#/components/responses/Error"
         "401":
@@ -466,30 +576,141 @@ paths:
         "409":
           $ref: "#/components/responses/Error"
   /v1/developer/brand-clouds/{brandCloudId}:
+    delete:
+      tags: [Developer Brand Clouds]
+      operationId: deleteDeveloperBrandCloud
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-LIFECYCLE-001]
+      summary: Owner requests durable fenced empty-cloud soft deletion, preserving history.
+      description: No request body. Requires verified producer/Billing configuration. Exact actor/cloud/key retries return the same operation even after deletion. Admission is not completion; poll the operation resource. Billing closes before tombstoning. Missing evidence never releases the fence.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/BrandCloudId'
+        - $ref: '#/components/parameters/ManagedCloudIdempotencyKey'
+      responses:
+        '202':
+          description: Durable deletion operation accepted or replayed.
+          headers:
+            Location: { schema: { type: string } }
+            Cache-Control: { schema: { type: string, enum: [no-store] } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudOperationResponse' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
     get:
       tags: [Developer Brand Clouds]
       operationId: getDeveloperBrandCloud
       x-rtk-feature-id: FEAT-CA-BRAND-001
       x-rtk-requirement-ids:
         - REQ-UI-CA-CLOUD-005
-      summary: Get a Brand Cloud and the current developer membership.
+      summary: Read an accessible cloud with derived owner, caller role and capabilities.
       security:
         - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/BrandCloudId"
       responses:
         "200":
-          description: Developer Brand Cloud detail and current membership.
+          description: Developer Brand Cloud detail; nonoperational clouds have no capabilities.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedCloudResponse'
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [Developer Brand Clouds]
+      operationId: updateDeveloperBrandCloud
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-LIFECYCLE-001]
+      summary: Owner-only name/description update; UUID and slug never change.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/BrandCloudId'
+        - $ref: '#/components/parameters/ManagedCloudIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 255 }
+                description: { type: string, maxLength: 2000 }
+      responses:
+        '200':
+          description: Cloud updated; exact retry replays the stored result subject to current authorization.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManagedCloudResponse' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /v1/developer/brand-clouds/{brandCloudId}/operations/{operationId}:
+    get:
+      tags: [Developer Brand Clouds]
+      operationId: getDeveloperCloudOperation
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-LIFECYCLE-001]
+      summary: Original authenticated owner reads safe deletion progress, including after tombstoning.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/BrandCloudId'
+        - in: path
+          name: operationId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Persisted operation state, never a resource permission grant.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudOperationResponse' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /v1/developer/brand-clouds/{brandCloudId}/deletion-preflight:
+    get:
+      tags: [Developer Brand Clouds]
+      operationId: preflightDeveloperBrandCloudDeletion
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-LIFECYCLE-001]
+      summary: Owner reads advisory deletion blockers; no reservation or mutation.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/BrandCloudId'
+      responses:
+        '200':
+          description: Missing dependency/checkpoint evidence blocks readiness. Disabled resources are not tombstones.
           content:
             application/json:
               schema:
                 type: object
-                required: [brand_cloud, membership]
+                required: [eligible, blockers]
                 properties:
-                  brand_cloud: { $ref: "#/components/schemas/Organization" }
-                  membership: { $ref: "#/components/schemas/Member" }
-        "401": { $ref: "#/components/responses/Error" }
-        "403": { $ref: "#/components/responses/Error" }
+                  eligible: { type: boolean }
+                  blockers:
+                    type: array
+                    items:
+                      type: object
+                      required: [code, retryable]
+                      properties:
+                        code: { type: string, enum: [products_present, devices_present, jobs_running, balance_nonzero, usage_unsettled, debt_outstanding, payment_pending, refund_pending, dispute_pending, lifecycle_conflict, evidence_unavailable] }
+                        retryable: { type: boolean }
+                        count: { type: integer, format: int64, minimum: 0 }
+                        balance_minor: { type: integer, format: int64 }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
   /v1/developer/brand-clouds/{brandCloudId}/members:
     get:
       tags: [Developer Brand Clouds]
@@ -521,10 +742,10 @@ paths:
     patch:
       tags: [Developer Brand Clouds]
       operationId: updateDeveloperBrandCloudMember
-      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
       x-rtk-requirement-ids:
-        - REQ-UI-CA-CLOUD-005
-      summary: Update a Developer Brand Cloud member role.
+        - REQ-MULTICLOUD-SHARING-001
+      summary: Owner replaces a member role or the complete viewer scope.
       security:
         - bearerAuth: []
       parameters:
@@ -535,14 +756,30 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [role]
-              properties:
-                role: { type: string, enum: [owner, admin, member] }
+              $ref: '#/components/schemas/CloudMemberUpdateRequest'
       responses:
         "200": { description: Member updated. }
+        "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Developer Brand Clouds]
+      operationId: removeDeveloperBrandCloudMember
+      x-rtk-feature-id: FEAT-CA-BRAND-001
+      x-rtk-requirement-ids: [REQ-UI-CA-CLOUD-005]
+      summary: Remove membership and invalidate its grants and invitations.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/BrandCloudId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204": { description: Member removed. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /v1/developer/brand-clouds/{brandCloudId}/members/{userId}/disable:
     patch:
       tags: [Developer Brand Clouds]
@@ -574,22 +811,6 @@ paths:
         - $ref: "#/components/parameters/UserId"
       responses:
         "200": { description: Member enabled. }
-    delete:
-      tags: [Developer Brand Clouds]
-      operationId: removeDeveloperBrandCloudMember
-      x-rtk-feature-id: FEAT-CA-BRAND-001
-      x-rtk-requirement-ids:
-        - REQ-UI-CA-CLOUD-005
-      summary: Remove a Developer Brand Cloud member.
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/BrandCloudId"
-        - $ref: "#/components/parameters/UserId"
-      responses:
-        "204": { description: Member removed. }
-        "401": { $ref: "#/components/responses/Error" }
-        "403": { $ref: "#/components/responses/Error" }
   /v1/developer/brand-clouds/{brandCloudId}/members/invitations:
     get:
       tags: [Developer Brand Clouds]
@@ -631,15 +852,23 @@ paths:
             schema:
               type: object
               required: [email, role]
+              additionalProperties: false
               properties:
                 email: { type: string, format: email }
-                role: { type: string, enum: [admin, member] }
+                role: { type: string, enum: [admin, member, viewer] }
+                access_scope: { $ref: '#/components/schemas/CloudViewerScope' }
+              oneOf:
+                - properties: { role: { enum: [admin, member] } }
+                  not: { required: [access_scope] }
+                - properties: { role: { enum: [viewer] } }
+                  required: [access_scope]
       responses:
         "202":
           description: Pending invitation created or replayed without creating membership.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BrandCloudMemberInvitationResponse" }
+        "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
@@ -861,6 +1090,7 @@ paths:
       security:
         - bearerAuth: []
       summary: Request transfer of brand cloud ownership to an existing developer.
+      description: Both source and target must be enabled verified global users. Fresh trusted Billing eligibility must prove settled charges and balance >= 0 with no independent financial blockers. Evidence and email are persisted with the request; this is not authority to commit ownership.
       parameters:
         - $ref: "#/components/parameters/BrandCloudId"
       requestBody:
@@ -882,6 +1112,8 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /v1/developer/brand-cloud-owner-transfers/accept:
     post:
       tags:
@@ -893,6 +1125,7 @@ paths:
       security:
         - bearerAuth: []
       summary: Accept a pending brand cloud owner transfer as the target developer.
+      description: Rechecks current ownership, both users, target quota and fresh nonnegative settled Billing eligibility. Acceptance persists a preparing operation, reserves target ownership quota and queues Billing/resource prepare commands. It does not grant membership or swap owner. Missing trusted Billing transport or producer inventory fails closed. Replays by the authenticated target return the same durable operation.
       requestBody:
         required: true
         content:
@@ -900,8 +1133,8 @@ paths:
             schema:
               $ref: "#/components/schemas/BrandCloudOwnerTransferAcceptRequest"
       responses:
-        "200":
-          description: Owner transfer accepted.
+        "202":
+          description: Handoff preparation accepted; original owner remains designated.
           content:
             application/json:
               schema:
@@ -912,6 +1145,8 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
   /v1/developer/brand-cloud-member-invitations/accept:
     post:
       tags: [Developer Brand Clouds]
@@ -952,29 +1187,92 @@ paths:
       x-rtk-feature-id: FEAT-CA-BRAND-001
       x-rtk-requirement-ids:
         - REQ-UI-CA-CLOUD-005
-      summary: Get the status of an owner transfer requested by the current developer.
+      summary: Get owner-transfer status as its authenticated source or target.
+      description: Participant access does not require or grant cloud membership and remains available while the cloud lifecycle is fenced. Other global users and disabled or unverified participants cannot read this operation.
       security:
         - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/BrandCloudId"
         - { name: transferId, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        "200": { description: Owner transfer status. }
+        "200":
+          description: Participant status with retained settled preview; confirmation flags come only from current Billing evidence.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrandCloudOwnerTransferResponse" }
+        "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/owner-transfer/{transferId}/preview:
+    get:
+      tags: [Developer Brand Clouds]
+      operationId: previewBrandCloudOwnerTransfer
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001]
+      summary: Read the current settled handoff snapshot as its authenticated source or target.
+      description: Requires every persisted producer preparation receipt, current source ownership/version, eligible participants and an unexpired operation. Returns 409 until Billing provides a fresh confirmable nonnegative snapshot. Status retains the last snapshot through outages/cancellation with stale confirmation flags reset to false. No membership or Billing-account access is granted.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/BrandCloudId" }
+        - { name: transferId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Current exact settled snapshot and confirmation progress. Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrandCloudHandoffPreviewResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/owner-transfer/{transferId}/confirm:
+    post:
+      tags: [Developer Brand Clouds]
+      operationId: confirmBrandCloudOwnerTransfer
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001]
+      summary: Confirm the exact settled balance as the current authenticated participant.
+      description: Persists the actor/key/immutable snapshot intent before delivery to Billing. Identical retries cannot change the amount/version or duplicate acknowledgment. After ambiguous delivery retry the same key and payload; stale snapshots require a fresh preview and new key. Acceptance is not ownership commit, payment consent or fence release.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/BrandCloudId" }
+        - { name: transferId, in: path, required: true, schema: { type: string, format: uuid } }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[!-~]+$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CloudBalanceConfirmation" }
+      responses:
+        "202":
+          description: Exact participant confirmation recorded; inspect status for the remaining handoff. Cache-Control is no-store.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrandCloudHandoffPreviewResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/owner-transfer/{transferId}/cancel:
     post:
       tags: [Developer Brand Clouds]
       operationId: cancelBrandCloudOwnerTransfer
       x-rtk-feature-id: FEAT-CA-BRAND-001
       x-rtk-requirement-ids:
         - REQ-UI-CA-CLOUD-005
-      summary: Cancel a pending owner transfer.
+      summary: Request cancellation of a precommit owner transfer as the source.
+      description: Unaccepted requests cancel immediately. Accepted preparation enters canceling and queues abort commands. Ownership quota and cloud access stay fenced until Billing and every persisted participant acknowledge remote hold release. Expiry or an HTTP delivery result never releases a hold.
       security:
         - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/BrandCloudId"
         - { name: transferId, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        "200": { description: Owner transfer canceled. }
+        "200": { description: Cancellation state; inspect operation_phase for outstanding release acknowledgments. }
         "404": { $ref: "#/components/responses/Error" }
   /v1/app/end-users/auth/login:
     post:
@@ -1545,12 +1843,13 @@ paths:
       security:
         - bearerAuth: []
       summary: Create a platform-managed brand cloud.
+      description: Atomically creates a cloud and its sole owner membership for the explicitly designated enabled, verified global user. Platform privilege does not bypass that user's ownership quota or grant the operator a cloud membership.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/BrandCloudRequest"
+              $ref: "#/components/schemas/BrandCloudCreateRequest"
       responses:
         "201":
           description: Brand cloud created.
@@ -2966,7 +3265,8 @@ paths:
         - REQ-AM-MEMBERSHIP-INVARIANT-001
       security:
         - bearerAuth: []
-      summary: Add an existing user to an organization.
+      summary: Add an existing user to a legacy customer organization.
+      description: Brand Clouds return invitation_required; use the owner invitation and authenticated acceptance workflow.
       parameters:
         - $ref: "#/components/parameters/OrgId"
       requestBody:
@@ -3003,7 +3303,7 @@ paths:
       security:
         - bearerAuth: []
       summary: Update member role.
-      description: Refuses to downgrade the last active organization owner. Disabled owner memberships do not satisfy the active-owner invariant.
+      description: Legacy customer organizations retain their active-owner guard. For Brand Clouds, only the owner can change another member, owner assignment requires the dedicated billing handoff, and the dedicated developer member PATCH accepts viewer scope. Every non-deleted Brand Cloud retains exactly one designated owner, including while that owner is disabled.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/UserId"
@@ -3914,6 +4214,40 @@ paths:
           $ref: "#/components/responses/Error"
         "503":
           $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/device-item-profiles/{profileId}/devices/{deviceId}/display:
+    patch:
+      operationId: patchProductDeviceDisplay
+      tags: [Devices]
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-PROV-ACCOUNT-001
+      security:
+        - bearerAuth: []
+      summary: Update a Brand Cloud Product device's display fields without replacing operational data
+      description: Serializes on user, cloud and device, rechecks current device authority and Product binding, and audits in the same transaction. Omitted fields are preserved. Viewer/activation/handoff/deletion ceilings apply. This does not modify legacy customer organizations or hardware identity.
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name: { type: string, minLength: 1, maxLength: 255 }
+                model: { type: string, maxLength: 255, description: Empty string explicitly clears this display field. }
+      responses:
+        '200':
+          description: Updated device. Retrying the same assignment returns current state rather than a frozen historical response.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceResponse' }
+        default: { $ref: '#/components/responses/Error' }
+
   /v1/orgs/{orgId}/devices/{deviceId}:
     get:
       tags:
@@ -4346,11 +4680,21 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
+    factoryEnrollmentService:
+      type: http
+      scheme: bearer
+      description: Dedicated ACCOUNT_MANAGER_FACTORY_ENROLLMENT_TOKEN, never a human JWT or general internal service token. Send only over trusted TLS or owned loopback test transport.
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
   parameters:
+    ManagedCloudIdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 200 }
+      description: Actor, operation and cloud scoped. Exact retries replay the stored result subject to current authorization; changed payload conflicts.
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -4487,6 +4831,11 @@ components:
         default: 0
         minimum: 0
   responses:
+    FactoryEnrollmentLedger:
+      description: Scope-bound durable reservation state; not a new signer authorization.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/FactoryEnrollmentLedger' }
     Error:
       description: Error response.
       content:
@@ -4547,6 +4896,48 @@ components:
                   code: oidc_provider_misconfigured
                   message: OIDC provider is misconfigured
   schemas:
+    FactoryEnrollmentScope:
+      type: object
+      required: [production_run_id, brand_cloud_id, device_item_profile_id, request_id, devid, request_sha256]
+      properties:
+        production_run_id: { type: string, format: uuid }
+        brand_cloud_id: { type: string, format: uuid }
+        device_item_profile_id: { type: string, format: uuid }
+        request_id: { type: string, minLength: 1, maxLength: 128 }
+        devid: { type: string, minLength: 1, maxLength: 256 }
+        request_sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+    FactoryEnrollmentLedger:
+      allOf:
+        - $ref: '#/components/schemas/FactoryEnrollmentScope'
+        - type: object
+          required: [reservation_id, status]
+          properties:
+            reservation_id: { type: string, format: uuid }
+            status: { type: string, enum: [reserved, cancel_requested, issued, not_issued] }
+            evidence_sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+    CloudOperationResponse:
+      type: object
+      required: [operation]
+      properties:
+        operation:
+          type: object
+          required: [id, brand_cloud_id, type, state, phase, blockers, created_at, updated_at]
+          properties:
+            id: { type: string, format: uuid }
+            brand_cloud_id: { type: string, format: uuid }
+            type: { type: string, enum: [delete, owner_transfer] }
+            state: { type: string, enum: [pending, running, blocked, succeeded, failed, canceled] }
+            phase: { type: string }
+            blockers:
+              type: array
+              items:
+                type: object
+                required: [code, retryable]
+                properties:
+                  code: { type: string }
+                  retryable: { type: boolean }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
     HealthResponse:
       type: object
       required: [status]
@@ -4555,23 +4946,8 @@ components:
           type: string
           example: ok
     RegisterRequest:
-      type: object
-      required: [email, password, organization_name]
-      properties:
-        email:
-          type: string
-          format: email
-        password:
-          type: string
-        app_csr_pem:
-          type: string
-          description: Optional app-generated CSR PEM for first-login app certificate bootstrap. The CSR private key stays on the app.
-          minLength: 8
-        display_name:
-          type: string
-        organization_name:
-          type: string
-          minLength: 1
+      allOf:
+        - $ref: "#/components/schemas/SignupRequest"
     SignupRequest:
       type: object
       required: [email]
@@ -5123,6 +5499,16 @@ components:
         name:
           type: string
           minLength: 1
+    BrandCloudCreateRequest:
+      allOf:
+        - $ref: "#/components/schemas/BrandCloudRequest"
+        - type: object
+          required: [name, owner_user_id]
+          properties:
+            owner_user_id:
+              type: string
+              format: uuid
+              description: Explicit designated global user; never defaults to the platform operator.
     BrandCloudRequest:
       type: object
       properties:
@@ -5153,7 +5539,9 @@ components:
         display_name:
           type: string
         role:
-          $ref: "#/components/schemas/Role"
+          type: string
+          enum: [admin, member]
+          description: Ownership cannot be assigned by account provisioning.
         rotate_password:
           type: boolean
           default: false
@@ -5521,15 +5909,8 @@ components:
         decision_reason:
           type: string
     RegisterResponse:
-      type: object
-      required: [user, organization, tokens]
-      properties:
-        user:
-          $ref: "#/components/schemas/User"
-        organization:
-          $ref: "#/components/schemas/Organization"
-        tokens:
-          $ref: "#/components/schemas/Tokens"
+      allOf:
+        - $ref: "#/components/schemas/SignupResponse"
     SignupResponse:
       type: object
       required: [user, brand_cloud, organization]
@@ -5781,6 +6162,42 @@ components:
       properties:
         brand_cloud:
           $ref: "#/components/schemas/Organization"
+    ManagedCloudWrite:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 255 }
+        description: { type: string, maxLength: 2000, default: '' }
+    ManagedBrandCloud:
+      type: object
+      required: [id, name, description, tenant_slug, owner_user_id, my_role, status, ownership_version, capabilities]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        tenant_slug: { type: string }
+        owner_user_id: { type: string, format: uuid }
+        my_role: { type: string, enum: [owner, admin, member, viewer] }
+        status: { type: string, enum: [pending_activation, active, disabled, deleted] }
+        ownership_version: { type: integer, minimum: 1 }
+        capabilities: { type: array, uniqueItems: true, items: { type: string } }
+    ManagedCloudResponse:
+      type: object
+      required: [brand_cloud]
+      properties:
+        brand_cloud: { $ref: '#/components/schemas/ManagedBrandCloud' }
+    ManagedCloudListResponse:
+      type: object
+      required: [brand_clouds, total, limit, offset, owned_count, owned_limit, reserved_count]
+      properties:
+        brand_clouds: { type: array, items: { $ref: '#/components/schemas/ManagedBrandCloud' } }
+        total: { type: integer, minimum: 0 }
+        limit: { type: integer, minimum: 1, maximum: 100 }
+        offset: { type: integer, minimum: 0 }
+        owned_count: { type: integer, minimum: 0 }
+        owned_limit: { type: integer, minimum: 0 }
+        reserved_count: { type: integer, minimum: 0 }
     BrandCloudAccountProvisionResponse:
       type: object
       required: [action, user, member]
@@ -5810,6 +6227,9 @@ components:
       type: object
       required: [brand_clouds, pagination]
       properties:
+        owned_count: { type: integer, minimum: 0 }
+        owned_limit: { type: integer, minimum: 0 }
+        reserved_count: { type: integer, minimum: 0, description: Incoming handoffs reserving ownership slots; shared clouds do not consume slots. }
         brand_clouds:
           type: array
           items:
@@ -6226,10 +6646,68 @@ components:
         disabled_at:
           type: string
           format: date-time
+    CloudBalanceConfirmation:
+      type: object
+      additionalProperties: false
+      required: [ownership_version, billing_snapshot_version, balance_minor, currency]
+      properties:
+        ownership_version: { type: integer, format: int64, minimum: 1 }
+        billing_snapshot_version: { type: integer, format: int64, minimum: 2 }
+        balance_minor: { type: integer, format: int64, minimum: 0 }
+        currency: { type: string, enum: [TWD] }
+    CloudHandoffBlocker:
+      type: object
+      required: [code, retryable]
+      properties:
+        code: { type: string, enum: [products_present, devices_present, jobs_running, balance_nonzero, balance_negative, usage_unsettled, debt_outstanding, payment_pending, refund_pending, dispute_pending, evidence_unavailable, lifecycle_conflict, confirmation_stale, quota_exceeded] }
+        retryable: { type: boolean }
+    CloudHandoffOperation:
+      type: object
+      required: [id, brand_cloud_id, type, state, phase, blockers, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        brand_cloud_id: { type: string, format: uuid }
+        type: { type: string, enum: [owner_transfer] }
+        state: { type: string, enum: [pending, running, blocked, succeeded, failed, canceled] }
+        phase: { type: string }
+        blockers: { type: array, items: { $ref: "#/components/schemas/CloudHandoffBlocker" } }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    BrandCloudHandoffPreviewResponse:
+      type: object
+      required: [owner_transfer]
+      properties:
+        owner_transfer:
+          allOf:
+            - { $ref: "#/components/schemas/BrandCloudOwnerTransfer" }
+            - required: [operation, ownership_version, balance_snapshot, source_confirmed, target_confirmed]
+              properties:
+                phase: { type: string, enum: [awaiting_balance_confirmation] }
     BrandCloudOwnerTransfer:
       type: object
-      required: [id, brand_cloud_id, requested_by_user_id, target_user_id, status, expires_at, created_at, updated_at]
+      required: [id, brand_cloud_id, source_user_id, requested_by_user_id, target_user_id, status, phase, blockers, has_settled_snapshot, expires_at, created_at, updated_at]
+      oneOf:
+        - properties:
+            has_settled_snapshot: { type: boolean, enum: [false] }
+          not:
+            anyOf:
+              - required: [balance_snapshot]
+              - required: [source_confirmed]
+              - required: [target_confirmed]
+        - required: [balance_snapshot, source_confirmed, target_confirmed]
+          properties:
+            has_settled_snapshot: { type: boolean, enum: [true] }
       properties:
+        source_user_id: { type: string, format: uuid }
+        phase: { type: string, enum: [requested, awaiting_acceptance, preparing, awaiting_balance_confirmation, committing, finalizing, succeeded, blocked, canceled, expired] }
+        blockers: { type: array, items: { $ref: "#/components/schemas/CloudHandoffBlocker" } }
+        has_settled_snapshot: { type: boolean }
+        balance_snapshot: { $ref: "#/components/schemas/CloudBalanceConfirmation" }
+        source_confirmed: { type: boolean }
+        target_confirmed: { type: boolean }
+        operation: { $ref: "#/components/schemas/CloudHandoffOperation" }
+        ownership_version: { type: integer, format: int64, minimum: 1 }
+        operation_phase: { type: string, enum: [preparing, committing, finalizing, succeeded, canceling, canceled] }
         id:
           type: string
           format: uuid
@@ -6272,7 +6750,8 @@ components:
         invited_by_user_id: { type: string, format: uuid }
         target_user_id: { type: string, format: uuid }
         target_email: { type: string, format: email }
-        role: { type: string, enum: [admin, member] }
+        role: { type: string, enum: [admin, member, viewer] }
+        access_scope: { $ref: '#/components/schemas/CloudViewerScope' }
         status: { type: string, enum: [pending, accepted, canceled, expired] }
         expires_at: { type: string, format: date-time }
         accepted_at: { type: string, format: date-time }
@@ -6429,6 +6908,7 @@ components:
           type: string
         role:
           $ref: "#/components/schemas/Role"
+        access_scope: { $ref: '#/components/schemas/CloudViewerScope' }
         capabilities:
           type: array
           items: { type: string }
@@ -6441,6 +6921,42 @@ components:
         disabled_at:
           type: string
           format: date-time
+    CloudViewerScope:
+      description: Owner-approved read-only scope; all_products includes future Products. No Billing, private keys, payment methods or playback.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, product_ids]
+          properties:
+            kind: { type: string, enum: [selected_products] }
+            product_ids:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              items: { type: string, format: uuid }
+        - type: object
+          additionalProperties: false
+          required: [kind]
+          properties:
+            kind: { type: string, enum: [all_products] }
+    CloudMemberUpdateRequest:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [role]
+          properties:
+            role: { type: string, enum: [admin, member] }
+        - type: object
+          additionalProperties: false
+          required: [role, access_scope]
+          properties:
+            role: { type: string, enum: [viewer] }
+            access_scope: { $ref: '#/components/schemas/CloudViewerScope' }
+        - type: object
+          additionalProperties: false
+          required: [access_scope]
+          properties:
+            access_scope: { $ref: '#/components/schemas/CloudViewerScope' }
     DeviceItemProfile:
       type: object
       required: [id, brand_cloud_id, profile_key, display_name, status, category, metadata_defaults, metadata_schema, ca_profile, issuer_profile, service_options, claim_policy, provisioning_policy, created_at, updated_at]
@@ -6867,7 +7383,7 @@ components:
           type: integer
     Role:
       type: string
-      enum: [owner, admin, member]
+      enum: [owner, admin, member, viewer]
     DeviceCategory:
       type: string
       enum: [ip_camera, mqtt_device, generic]

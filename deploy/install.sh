@@ -38,6 +38,8 @@ install -m 0755 "$release_dir/bin/rtk-account-manager-inbox-worker" "$prefix/bin
 install -m 0755 "$release_dir/bin/rtk-account-manager-email-worker" "$prefix/bin/rtk-account-manager-email-worker"
 install -m 0755 "$release_dir/bin/rtk-account-manager-email-outbox-admin" "$prefix/bin/rtk-account-manager-email-outbox-admin"
 install -m 0755 "$release_dir/bin/rtk-account-manager-cleanup-tokens" "$prefix/bin/rtk-account-manager-cleanup-tokens"
+install -m 0755 "$release_dir/bin/rtk-account-manager-cloud-deletion-worker" "$prefix/bin/rtk-account-manager-cloud-deletion-worker"
+install -m 0755 "$release_dir/bin/rtk-account-manager-handoff-worker" "$prefix/bin/rtk-account-manager-handoff-worker"
 install -m 0755 "$release_dir/deploy/verify.sh" "$prefix/verify.sh"
 
 rm -rf "$prefix/migrations"

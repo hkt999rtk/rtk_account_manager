@@ -459,6 +459,9 @@ func TestDeviceClaimTransferMovesOwnershipAndAudits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin=true WHERE id=$1`, target.User.ID); err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	token, err := env.store.CreateDeviceClaimToken(ctx, DeviceClaimTokenCreateInput{
 		OrganizationID:  &source.Organization.ID,
@@ -549,6 +552,9 @@ func TestDeviceClaimReclaimRequiresEvidenceAndRejectsInvalidTransitions(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin=true WHERE id=$1`, target.User.ID); err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	token, err := env.store.CreateDeviceClaimToken(ctx, DeviceClaimTokenCreateInput{
 		OrganizationID:  &source.Organization.ID,
@@ -614,7 +620,7 @@ func TestDeviceClaimReclaimRequiresEvidenceAndRejectsInvalidTransitions(t *testi
 	if _, err := env.store.TransferDeviceClaim(ctx, DeviceClaimTransferInput{
 		ClaimID:              resolved.Claim.ID,
 		TargetOrganizationID: source.Organization.ID,
-		ActorUserID:          source.User.ID,
+		ActorUserID:          target.User.ID,
 		Reason:               "second transfer should fail",
 		Evidence:             map[string]any{"ticket": "SUP-133"},
 		Now:                  now.Add(5 * time.Minute),

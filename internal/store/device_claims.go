@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -78,13 +79,22 @@ type DeviceClaimOverrideResult struct {
 	Device model.Device           `json:"device"`
 }
 
+// Low-level bootstrap/fixture persistence. Human HTTP callers must use the
+// separately authorized CreateDeviceClaimTokenAsPlatform entrypoint.
 func (s *Store) CreateDeviceClaimToken(ctx context.Context, in DeviceClaimTokenCreateInput) (model.DeviceClaimToken, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return model.DeviceClaimToken{}, err
 	}
 	defer tx.Rollback(ctx)
+	token, err := createDeviceClaimTokenTx(ctx, tx, in)
+	if err != nil {
+		return model.DeviceClaimToken{}, err
+	}
+	return token, tx.Commit(ctx)
+}
 
+func createDeviceClaimTokenTx(ctx context.Context, tx pgx.Tx, in DeviceClaimTokenCreateInput) (model.DeviceClaimToken, error) {
 	metadataValue := defaultMetadata(in.Metadata)
 	category := in.Category
 	serviceOptionValues := in.ServiceOptions
@@ -162,9 +172,6 @@ func (s *Store) CreateDeviceClaimToken(ctx context.Context, in DeviceClaimTokenC
 	if err != nil {
 		return model.DeviceClaimToken{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return model.DeviceClaimToken{}, err
-	}
 	return token, nil
 }
 
@@ -210,11 +217,16 @@ func (s *Store) GetDeviceClaimToken(ctx context.Context, tokenID string) (model.
 	return token, err
 }
 
+// Low-level bootstrap/fixture persistence, not a human request authorization path.
 func (s *Store) RevokeDeviceClaimToken(ctx context.Context, tokenID string, now time.Time) (model.DeviceClaimToken, error) {
+	return revokeDeviceClaimToken(ctx, s.db, tokenID, now)
+}
+
+func revokeDeviceClaimToken(ctx context.Context, q handoffQuerier, tokenID string, now time.Time) (model.DeviceClaimToken, error) {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	token, err := scanDeviceClaimToken(s.db.QueryRow(ctx, `
+	token, err := scanDeviceClaimToken(q.QueryRow(ctx, `
 		UPDATE device_claim_tokens
 		SET revoked_at = COALESCE(revoked_at, $2), updated_at = $2
 		WHERE id = $1
@@ -232,23 +244,54 @@ func (s *Store) ResolveDeviceClaimToken(ctx context.Context, in DeviceClaimResol
 		return DeviceClaimResolveResult{}, err
 	}
 	defer tx.Rollback(ctx)
-
-	now := in.Now
-	if now.IsZero() {
-		now = time.Now().UTC()
+	if err := authorizeDeviceUserMutationTx(ctx, tx, in.RequestedBy, in.OrganizationID, "", "claim.resolve"); err != nil {
+		return DeviceClaimResolveResult{}, err
 	}
 
+	token, err := getClaimTokenByHashForUpdateTx(ctx, tx, in.TokenHash)
+	if err != nil {
+		return DeviceClaimResolveResult{}, err
+	}
+	var productAllowed bool
+	if err := tx.QueryRow(ctx, `SELECT user_can_access_brand_cloud_product($1,$2,$3)`, in.RequestedBy, in.OrganizationID, token.DeviceItemProfileID).Scan(&productAllowed); err != nil {
+		return DeviceClaimResolveResult{}, err
+	}
+	if !productAllowed {
+		return DeviceClaimResolveResult{}, ErrNotFound
+	}
+	result, err := resolveLockedDeviceClaimTokenTx(ctx, tx, in, token)
+	if err != nil {
+		return DeviceClaimResolveResult{}, err
+	}
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{
+		EventType: "device_claim_resolved", ActorUserID: &in.RequestedBy,
+		OrganizationID: &in.OrganizationID, SubjectType: "device_claim", SubjectID: result.Claim.ID,
+		Payload: map[string]any{"device_id": result.Device.ID},
+	}); err != nil {
+		return DeviceClaimResolveResult{}, err
+	}
+	return result, tx.Commit(ctx)
+}
+
+func getClaimTokenByHashForUpdateTx(ctx context.Context, tx pgx.Tx, hash string) (model.DeviceClaimToken, error) {
 	token, err := scanDeviceClaimToken(tx.QueryRow(ctx, `
 		SELECT id::text, organization_id::text, created_by::text, device_item_profile_id::text, category, video_cloud_devid, activity_id, clip_public_key, service_options, metadata, notes, expires_at, claimed_at, revoked_at, created_at, updated_at
 		FROM device_claim_tokens
 		WHERE token_hash = $1
 		FOR UPDATE
-	`, in.TokenHash))
+	`, hash))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return DeviceClaimResolveResult{}, ErrNotFound
+		return model.DeviceClaimToken{}, ErrNotFound
 	}
-	if err != nil {
-		return DeviceClaimResolveResult{}, err
+	return token, err
+}
+
+// Callers authenticate their distinct human/end-user identity and lock its cloud
+// before the token. They commit the claim with their own audit/binding writes.
+func resolveLockedDeviceClaimTokenTx(ctx context.Context, tx pgx.Tx, in DeviceClaimResolveInput, token model.DeviceClaimToken) (DeviceClaimResolveResult, error) {
+	now := in.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
 	}
 	if token.ClaimedAt != nil {
 		return DeviceClaimResolveResult{}, ErrClaimAlreadyClaimed
@@ -261,6 +304,16 @@ func (s *Store) ResolveDeviceClaimToken(ctx context.Context, in DeviceClaimResol
 	}
 	if token.OrganizationID != nil && *token.OrganizationID != in.OrganizationID {
 		return DeviceClaimResolveResult{}, ErrClaimCrossOrganization
+	}
+	if token.DeviceItemProfileID != nil {
+		var sameCloud bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM organizations o WHERE o.id::text=$2 AND
+			(o.organization_kind<>'brand_cloud' OR EXISTS(SELECT 1 FROM device_item_profiles p WHERE p.id::text=$1 AND p.brand_cloud_id=o.id)))`, *token.DeviceItemProfileID, in.OrganizationID).Scan(&sameCloud); err != nil {
+			return DeviceClaimResolveResult{}, err
+		}
+		if !sameCloud {
+			return DeviceClaimResolveResult{}, ErrNotFound
+		}
 	}
 	if token.Category != model.DeviceCategoryIPCamera &&
 		token.Category != model.DeviceCategoryMQTT &&
@@ -323,11 +376,6 @@ func (s *Store) ResolveDeviceClaimToken(ctx context.Context, in DeviceClaimResol
 	`, token.ID, now); err != nil {
 		return DeviceClaimResolveResult{}, err
 	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return DeviceClaimResolveResult{}, err
-	}
-
 	return DeviceClaimResolveResult{
 		Claim:  claim,
 		Device: device,
@@ -432,22 +480,42 @@ func (s *Store) overrideDeviceClaim(ctx context.Context, in claimOverrideInput) 
 		return DeviceClaimOverrideResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockPlatformActorTx(ctx, tx, in.ActorUserID); err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
+	observed, err := getClaimForOverrideTx(ctx, tx, in.ClaimID, in.TokenID, false)
+	if err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
+	clouds := []string{observed.OrganizationID, in.TargetOrganizationID}
+	slices.Sort(clouds)
+	for i, cloud := range clouds {
+		if i > 0 && cloud == clouds[i-1] {
+			continue
+		}
+		if err := lockOperationalCloudTx(ctx, tx, cloud); err != nil {
+			return DeviceClaimOverrideResult{}, err
+		}
+	}
+	device, err := getDeviceForUpdateTx(ctx, tx, observed.OrganizationID, observed.DeviceID)
+	if err != nil {
+		return DeviceClaimOverrideResult{}, err
+	}
 
 	now := in.Now
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
 
-	if err := lockOrganization(ctx, tx, in.TargetOrganizationID); err != nil {
-		return DeviceClaimOverrideResult{}, err
-	}
-
-	claim, err := getClaimForOverrideTx(ctx, tx, in.ClaimID, in.TokenID)
+	claim, err := getClaimForOverrideTx(ctx, tx, in.ClaimID, in.TokenID, true)
 	if err != nil {
 		return DeviceClaimOverrideResult{}, err
 	}
 	if claim.Status != "resolved" {
 		return DeviceClaimOverrideResult{}, ErrClaimInvalidState
+	}
+	if claim.ID != observed.ID || claim.OrganizationID != observed.OrganizationID || claim.DeviceID != device.ID || claim.TokenID != observed.TokenID {
+		return DeviceClaimOverrideResult{}, ErrConflict
 	}
 
 	token, err := getClaimTokenForUpdateTx(ctx, tx, claim.TokenID)
@@ -460,10 +528,16 @@ func (s *Store) overrideDeviceClaim(ctx context.Context, in claimOverrideInput) 
 	if token.RevokedAt != nil {
 		return DeviceClaimOverrideResult{}, ErrClaimRevoked
 	}
-
-	device, err := getDeviceByIDForUpdateTx(ctx, tx, claim.DeviceID)
-	if err != nil {
+	if token.OrganizationID != nil && *token.OrganizationID != claim.OrganizationID || stringValue(token.DeviceItemProfileID) != stringValue(device.DeviceItemProfileID) {
+		return DeviceClaimOverrideResult{}, ErrConflict
+	}
+	var productAllowed bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM organizations o WHERE o.id::text=$1 AND
+		(o.organization_kind<>'brand_cloud' OR EXISTS(SELECT 1 FROM device_item_profiles p WHERE p.id::text=$2 AND p.brand_cloud_id=o.id)))`, in.TargetOrganizationID, device.DeviceItemProfileID).Scan(&productAllowed); err != nil {
 		return DeviceClaimOverrideResult{}, err
+	}
+	if !productAllowed {
+		return DeviceClaimOverrideResult{}, ErrConflict
 	}
 
 	updatedDevice, err := scanDevice(tx.QueryRow(ctx, `
@@ -541,21 +615,11 @@ func (s *Store) overrideDeviceClaim(ctx context.Context, in claimOverrideInput) 
 	return DeviceClaimOverrideResult{Claim: updatedClaim, Token: updatedToken, Device: updatedDevice}, nil
 }
 
-func lockOrganization(ctx context.Context, tx pgx.Tx, orgID string) error {
-	var id string
-	err := tx.QueryRow(ctx, `SELECT id::text FROM organizations WHERE id = $1 FOR UPDATE`, orgID).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	}
-	return err
-}
-
-func getClaimForOverrideTx(ctx context.Context, tx pgx.Tx, claimID, tokenID string) (model.DeviceClaim, error) {
+func getClaimForOverrideTx(ctx context.Context, tx pgx.Tx, claimID, tokenID string, lock bool) (model.DeviceClaim, error) {
 	query := `
 		SELECT id::text, claim_token_id::text, organization_id::text, device_id::text, claimed_by::text, status, provision_input, created_at, updated_at
 		FROM device_claims
 		WHERE id = $1
-		FOR UPDATE
 	`
 	arg := claimID
 	if strings.TrimSpace(claimID) == "" {
@@ -563,9 +627,11 @@ func getClaimForOverrideTx(ctx context.Context, tx pgx.Tx, claimID, tokenID stri
 			SELECT id::text, claim_token_id::text, organization_id::text, device_id::text, claimed_by::text, status, provision_input, created_at, updated_at
 			FROM device_claims
 			WHERE claim_token_id = $1
-			FOR UPDATE
 		`
 		arg = tokenID
+	}
+	if lock {
+		query += " FOR UPDATE"
 	}
 	claim, err := scanDeviceClaim(tx.QueryRow(ctx, query, arg))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -585,19 +651,6 @@ func getClaimTokenForUpdateTx(ctx context.Context, tx pgx.Tx, tokenID string) (m
 		return model.DeviceClaimToken{}, ErrNotFound
 	}
 	return token, err
-}
-
-func getDeviceByIDForUpdateTx(ctx context.Context, tx pgx.Tx, deviceID string) (model.Device, error) {
-	device, err := scanDevice(tx.QueryRow(ctx, `
-		SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
-		FROM devices
-		WHERE id = $1
-		FOR UPDATE
-	`, deviceID))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return model.Device{}, ErrNotFound
-	}
-	return device, err
 }
 
 func getClaimedDeviceByVideoDevidTx(ctx context.Context, tx pgx.Tx, orgID, videoCloudDevid string) (model.Device, error) {

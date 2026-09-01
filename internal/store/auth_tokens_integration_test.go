@@ -65,11 +65,11 @@ func TestBrandCloudLoginActivationTokenIsTenantScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	acme, err := env.store.CreateBrandCloud(ctx, admin.User.ID, BrandCloudInput{Name: "Acme", TenantSlug: "acme"})
+	acme, err := createVerifiedOwnedCloudForTest(t, env, admin.User.ID, BrandCloudInput{Name: "Acme", TenantSlug: "acme"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	contoso, err := env.store.CreateBrandCloud(ctx, admin.User.ID, BrandCloudInput{Name: "Contoso", TenantSlug: "contoso"})
+	contoso, err := createVerifiedOwnedCloudForTest(t, env, admin.User.ID, BrandCloudInput{Name: "Contoso", TenantSlug: "contoso"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,10 +151,10 @@ func TestBrandCloudStoreCRUDAndErrorPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := env.store.CreateBrandCloud(ctx, admin.User.ID, BrandCloudInput{Name: "Invalid Slug", TenantSlug: "!!!"}); !errors.Is(err, ErrConflict) {
+	if _, err := createVerifiedOwnedCloudForTest(t, env, admin.User.ID, BrandCloudInput{Name: "Invalid Slug", TenantSlug: "!!!"}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("expected invalid tenant slug conflict, got %v", err)
 	}
-	acme, err := env.store.CreateBrandCloud(ctx, admin.User.ID, BrandCloudInput{
+	acme, err := createVerifiedOwnedCloudForTest(t, env, admin.User.ID, BrandCloudInput{
 		Name:       "Acme Cameras",
 		TenantSlug: "acme-crud",
 		Metadata:   map[string]any{"region": "tw"},
@@ -162,10 +162,10 @@ func TestBrandCloudStoreCRUDAndErrorPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := env.store.CreateBrandCloud(ctx, admin.User.ID, BrandCloudInput{Name: "Duplicate", TenantSlug: "acme-crud"}); !errors.Is(err, ErrConflict) {
+	if _, err := createVerifiedOwnedCloudForTest(t, env, admin.User.ID, BrandCloudInput{Name: "Duplicate", TenantSlug: "acme-crud"}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("expected duplicate tenant slug conflict, got %v", err)
 	}
-	contoso, err := env.store.CreateBrandCloud(ctx, admin.User.ID, BrandCloudInput{Name: "Contoso Cameras", TenantSlug: "contoso-crud"})
+	contoso, err := createVerifiedOwnedCloudForTest(t, env, admin.User.ID, BrandCloudInput{Name: "Contoso Cameras", TenantSlug: "contoso-crud"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,11 +235,11 @@ func TestBrandCloudUserProvisioningUsesBrandScopedIdentityOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	acme, err := env.store.CreateBrandCloud(ctx, admin.User.ID, BrandCloudInput{Name: "Target Acme", TenantSlug: "target-acme"})
+	acme, err := createVerifiedOwnedCloudForTest(t, env, admin.User.ID, BrandCloudInput{Name: "Target Acme", TenantSlug: "target-acme"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	contoso, err := env.store.CreateBrandCloud(ctx, admin.User.ID, BrandCloudInput{Name: "Target Contoso", TenantSlug: "target-contoso"})
+	contoso, err := createVerifiedOwnedCloudForTest(t, env, admin.User.ID, BrandCloudInput{Name: "Target Contoso", TenantSlug: "target-contoso"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestBrandCloudUserProvisioningUsesBrandScopedIdentityOnly(t *testing.T) {
 		t.Fatalf("brand-cloud user provisioning must not create global users, got %d", globalUserCount)
 	}
 	var legacyMembershipCount int
-	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM organization_members WHERE organization_id IN ($1, $2)`, acme.ID, contoso.ID).Scan(&legacyMembershipCount); err != nil {
+	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM organization_members WHERE organization_id IN ($1, $2) AND NOT (user_id=$3 AND role='owner')`, acme.ID, contoso.ID, admin.User.ID).Scan(&legacyMembershipCount); err != nil {
 		t.Fatal(err)
 	}
 	if legacyMembershipCount != 0 {

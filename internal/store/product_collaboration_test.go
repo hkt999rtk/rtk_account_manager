@@ -34,9 +34,10 @@ func TestProductCollaborationInvitationVisibilityAndOwnershipTransferIntegration
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified=true,email_verified_at=$2 WHERE id=$1`, target.User.ID, now); err != nil {
+	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified=true,email_verified_at=$3 WHERE id IN ($1,$2)`, target.User.ID, owner.User.ID, now); err != nil {
 		t.Fatal(err)
 	}
+	admitProductCollaboratorFixture(t, env, owner, target, now)
 	createProduct := func(key string) model.DeviceItemProfile {
 		profile, err := env.store.CreateDeviceItemProfile(ctx, DeviceItemProfileCreateInput{
 			ActorUserID: &owner.User.ID, BrandCloudID: owner.BrandCloud.ID,
@@ -131,8 +132,8 @@ func TestProductCollaborationInvitationVisibilityAndOwnershipTransferIntegration
 	if allowed, err := env.store.CanManageProductCollaborators(ctx, target.User.ID, owner.BrandCloud.ID, assignedProduct.ID); err != nil || !allowed {
 		t.Fatalf("new Product owner cannot manage collaborators: allowed=%v err=%v", allowed, err)
 	}
-	if allowed, err := env.store.CanManageProductCollaborators(ctx, owner.User.ID, owner.BrandCloud.ID, assignedProduct.ID); err != nil || allowed {
-		t.Fatalf("previous Product owner retained collaborator authority: allowed=%v err=%v", allowed, err)
+	if allowed, err := env.store.CanManageProductCollaborators(ctx, owner.User.ID, owner.BrandCloud.ID, assignedProduct.ID); err != nil || !allowed {
+		t.Fatalf("cloud owner lost ultimate collaborator authority: allowed=%v err=%v", allowed, err)
 	}
 	if err := env.store.RemoveProductCollaborator(ctx, target.User.ID, owner.BrandCloud.ID, assignedProduct.ID, owner.User.ID); err != nil {
 		t.Fatalf("remove previous owner: %v", err)
@@ -154,9 +155,10 @@ func TestProductCollaboratorPendingInvitationLifecycleIntegration(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified=true,email_verified_at=$2 WHERE id=$1`, target.User.ID, now); err != nil {
+	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified=true,email_verified_at=$3 WHERE id IN ($1,$2)`, target.User.ID, owner.User.ID, now); err != nil {
 		t.Fatal(err)
 	}
+	admitProductCollaboratorFixture(t, env, owner, target, now)
 	profile, err := env.store.CreateDeviceItemProfile(ctx, DeviceItemProfileCreateInput{
 		ActorUserID: &owner.User.ID, BrandCloudID: owner.BrandCloud.ID,
 		ProfileKey: "pending-product", DisplayName: "pending-product", Category: model.DeviceCategoryIPCamera,

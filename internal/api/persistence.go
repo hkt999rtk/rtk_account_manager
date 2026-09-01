@@ -27,11 +27,11 @@ type Store interface {
 	auditPersistence
 	chipsetProviderPersistence
 	productCollaborationPersistence
+	factoryEnrollmentPersistence
 }
 
 type productCollaborationPersistence interface {
 	CanManageProductCollaborators(ctx context.Context, actorUserID, brandCloudID, productID string) (bool, error)
-	GetProductCollaboratorRole(ctx context.Context, brandCloudUserID, brandCloudID, productID string) (string, error)
 	GetUserProductCollaboratorRole(ctx context.Context, userID, brandCloudID, productID string) (string, error)
 	ListProductCollaborators(ctx context.Context, brandCloudID, productID string) ([]model.ProductCollaborator, error)
 	CreateProductCollaboratorInvitation(ctx context.Context, in store.ProductCollaboratorInvitationInput, now time.Time) (model.ProductCollaboratorInvitation, bool, error)
@@ -86,6 +86,7 @@ type memberPersistence interface {
 	ListDeveloperBrandCloudMembers(ctx context.Context, brandCloudID string, limit, offset int) (store.MemberPage, error)
 	AddMember(ctx context.Context, orgID, email string, role model.Role) (model.Member, error)
 	UpdateMemberRole(ctx context.Context, orgID, userID string, role model.Role) (model.Member, error)
+	UpdateDeveloperBrandCloudMember(ctx context.Context, in store.CloudMemberUpdateInput) (model.Member, error)
 	DisableMemberUser(ctx context.Context, orgID, userID string) (model.Member, error)
 	EnableMemberUser(ctx context.Context, orgID, userID string) (model.Member, error)
 	RemoveMember(ctx context.Context, orgID, userID string) error
@@ -94,21 +95,24 @@ type memberPersistence interface {
 }
 
 type devicePersistence interface {
-	CreateDevice(ctx context.Context, orgID string, in store.DeviceInput) (model.Device, error)
+	CreateDeviceAsUser(ctx context.Context, actor, orgID string, in store.DeviceInput) (model.Device, error)
 	ListDevices(ctx context.Context, orgID string, limit, offset int) (store.DevicePage, error)
 	ListDevicesFiltered(ctx context.Context, in store.DeviceListFilter) (store.DevicePage, error)
 	FleetSummary(ctx context.Context, orgID string) (store.FleetSummary, error)
 	FleetSummaryForUser(ctx context.Context, orgID, userID string) (store.FleetSummary, error)
-	FleetSummaryForBrandCloudUser(ctx context.Context, orgID, brandCloudUserID string) (store.FleetSummary, error)
 	GetDevice(ctx context.Context, orgID, deviceID string) (model.Device, error)
-	UpdateDevice(ctx context.Context, orgID, deviceID string, in store.DeviceInput) (model.Device, error)
-	DeleteDevice(ctx context.Context, orgID, deviceID string) error
-	UpdateDeviceStatus(ctx context.Context, orgID, deviceID string, status model.DeviceStatus, lastSeenAt *time.Time) (model.Device, error)
+	UpdateDeviceAsUser(ctx context.Context, actor, orgID, deviceID string, in store.DeviceInput) (model.Device, error)
+	PatchProductDeviceDisplay(ctx context.Context, actor, cloud, product, device string, in store.DeviceDisplayPatch) (model.Device, error)
+	DeleteDeviceAsUser(ctx context.Context, actor, orgID, deviceID string) error
+	UpdateDeviceStatusAsUser(ctx context.Context, actor, orgID, deviceID string, status model.DeviceStatus, lastSeenAt *time.Time) (model.Device, error)
 }
 
 type deviceGroupPersistence interface {
 	CreateDeviceGroup(ctx context.Context, orgID string, in store.DeviceGroupInput) (model.DeviceGroup, error)
 	ListDeviceGroups(ctx context.Context, orgID string, limit, offset int) (store.DeviceGroupPage, error)
+	ListDeviceGroupsForUser(ctx context.Context, orgID, userID, groupID string, limit, offset int) (store.DeviceGroupPage, error)
+	GetDeviceGroupForUser(ctx context.Context, orgID, userID, groupID string) (model.DeviceGroup, error)
+	ListOrganizationTagsForUser(ctx context.Context, orgID, userID string, limit, offset int) (store.DeviceTagSummaryPage, error)
 	GetDeviceGroup(ctx context.Context, orgID, groupID string) (model.DeviceGroup, error)
 	UpdateDeviceGroup(ctx context.Context, orgID, groupID string, in store.DeviceGroupInput) (model.DeviceGroup, error)
 	DeleteDeviceGroup(ctx context.Context, orgID, groupID string) error
@@ -143,10 +147,10 @@ type provisioningPersistence interface {
 }
 
 type deviceClaimPersistence interface {
-	CreateDeviceClaimToken(ctx context.Context, in store.DeviceClaimTokenCreateInput) (model.DeviceClaimToken, error)
+	CreateDeviceClaimTokenAsPlatform(ctx context.Context, in store.DeviceClaimTokenCreateInput) (model.DeviceClaimToken, error)
 	ListDeviceClaimTokens(ctx context.Context, in store.DeviceClaimTokenListFilter) (store.DeviceClaimTokenPage, error)
 	GetDeviceClaimToken(ctx context.Context, tokenID string) (model.DeviceClaimToken, error)
-	RevokeDeviceClaimToken(ctx context.Context, tokenID string, now time.Time) (model.DeviceClaimToken, error)
+	RevokeDeviceClaimTokenAsPlatform(ctx context.Context, actor, tokenID string, now time.Time) (model.DeviceClaimToken, error)
 	ResolveDeviceClaimToken(ctx context.Context, in store.DeviceClaimResolveInput) (store.DeviceClaimResolveResult, error)
 	ResolveEndUserDeviceClaimToken(ctx context.Context, in store.EndUserDeviceClaimResolveInput) (store.EndUserDeviceClaimResolveResult, error)
 	TransferDeviceClaim(ctx context.Context, in store.DeviceClaimTransferInput) (store.DeviceClaimOverrideResult, error)
@@ -217,6 +221,13 @@ type brandCloudPersistence interface {
 	CreateBrandCloud(ctx context.Context, actorUserID string, in store.BrandCloudInput) (model.Organization, error)
 	CreateDeveloperBrandCloud(ctx context.Context, userID string, in store.BrandCloudInput) (model.Organization, error)
 	ListDeveloperBrandClouds(ctx context.Context, userID string, limit, offset int) (store.OrganizationPage, error)
+	ListManagedBrandClouds(ctx context.Context, userID, view string, limit, offset int) (store.ManagedBrandCloudPage, error)
+	GetManagedBrandCloud(ctx context.Context, userID, cloudID string) (store.ManagedBrandCloud, error)
+	PreflightDeveloperBrandCloudDeletion(ctx context.Context, userID, cloudID string) (store.CloudDeletionPreflight, error)
+	RequestDeveloperCloudDeletion(context.Context, string, string, string) (store.CloudDeletionOperation, error)
+	GetDeveloperCloudDeletion(context.Context, string, string, string) (store.CloudDeletionOperation, error)
+	CreateManagedBrandCloud(ctx context.Context, userID, key string, in store.ManagedCloudWrite) (store.ManagedBrandCloud, error)
+	UpdateManagedBrandCloud(ctx context.Context, userID, cloudID, key string, in store.ManagedCloudWrite) (store.ManagedBrandCloud, error)
 	CreateBrandCloudMemberInvitation(ctx context.Context, in store.BrandCloudMemberInvitationInput, now time.Time) (model.BrandCloudMemberInvitation, bool, error)
 	ListBrandCloudMemberInvitations(ctx context.Context, brandCloudID, actorUserID string, now time.Time) ([]model.BrandCloudMemberInvitation, error)
 	ResendBrandCloudMemberInvitation(ctx context.Context, in store.BrandCloudMemberInvitationMutation, now time.Time) (model.BrandCloudMemberInvitation, error)
@@ -225,6 +236,9 @@ type brandCloudPersistence interface {
 	CreateBrandCloudOwnerTransfer(ctx context.Context, in store.BrandCloudOwnerTransferInput) (model.BrandCloudOwnerTransfer, error)
 	AcceptBrandCloudOwnerTransfer(ctx context.Context, targetUserID, tokenHash string, now time.Time) (model.BrandCloudOwnerTransfer, error)
 	GetBrandCloudOwnerTransfer(ctx context.Context, in store.BrandCloudOwnerTransferQuery, now time.Time) (model.BrandCloudOwnerTransfer, error)
+	GetOwnerHandoffStatus(ctx context.Context, in store.BrandCloudOwnerTransferQuery) (model.BrandCloudOwnerTransfer, error)
+	PreviewOwnerHandoff(ctx context.Context, in store.BrandCloudOwnerTransferQuery) (model.BrandCloudOwnerTransfer, error)
+	ConfirmOwnerHandoff(ctx context.Context, in store.HandoffConfirmationInput) (model.BrandCloudOwnerTransfer, error)
 	CancelBrandCloudOwnerTransfer(ctx context.Context, in store.BrandCloudOwnerTransferQuery, now time.Time) (model.BrandCloudOwnerTransfer, error)
 	ListBrandClouds(ctx context.Context, limit, offset int) (store.OrganizationPage, error)
 	GetBrandCloud(ctx context.Context, orgID string) (model.Organization, error)
@@ -233,12 +247,12 @@ type brandCloudPersistence interface {
 	ListBrandCloudAccounts(ctx context.Context, in store.BrandCloudAccountListFilter) (store.BrandCloudAccountPage, error)
 	DisableDeveloperBrandCloudMember(ctx context.Context, brandCloudID, userID string) (model.Member, error)
 	EnableDeveloperBrandCloudMember(ctx context.Context, brandCloudID, userID string) (model.Member, error)
-	CreateDeviceItemProfile(ctx context.Context, in store.DeviceItemProfileCreateInput) (model.DeviceItemProfile, error)
+	CreateDeviceItemProfileAsUser(ctx context.Context, in store.DeviceItemProfileCreateInput) (model.DeviceItemProfile, error)
 	ListDeviceItemProfiles(ctx context.Context, in store.DeviceItemProfileListFilter) (store.DeviceItemProfilePage, error)
 	GetDeviceItemProfile(ctx context.Context, brandCloudID, profileID string) (model.DeviceItemProfile, error)
-	UpdateDeviceItemProfile(ctx context.Context, in store.DeviceItemProfileUpdateInput) (model.DeviceItemProfile, error)
-	DisableDeviceItemProfile(ctx context.Context, brandCloudID, profileID string, actorUserID *string) (model.DeviceItemProfile, error)
-	CreateProductionRun(ctx context.Context, in store.ProductionRunCreateInput) (model.ProductionRun, error)
+	UpdateDeviceItemProfileAsUser(ctx context.Context, in store.DeviceItemProfileUpdateInput) (model.DeviceItemProfile, error)
+	DisableDeviceItemProfileAsUser(ctx context.Context, brandCloudID, profileID, actor string, platform bool) (model.DeviceItemProfile, error)
+	IssueProductionRunAsUser(ctx context.Context, in store.ProductionRunCreateInput, issue store.ProductionRunIssuer) (model.ProductionRun, string, error)
 	ListProductionRuns(ctx context.Context, brandCloudID, profileID string, limit, offset int) (store.ProductionRunPage, error)
 }
 

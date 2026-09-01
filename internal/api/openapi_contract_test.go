@@ -47,7 +47,7 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	}, "")
 	contract.validate(t, http.MethodPost, "/v1/auth/signup", signupRes)
 
-	registered := registerUser(t, env.router, "contract-owner@example.com", "Contract Org")
+	registered := legacyCustomerForTest(t, env, "contract-owner@example.com", "Contract Org")
 	registerRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
 		"email":    "contract-owner@example.com",
 		"password": "password123",
@@ -148,7 +148,7 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	}, "")
 	contract.validate(t, http.MethodPost, "/v1/auth/login", signupLoginRes)
 
-	quotaRegistered := registerUser(t, env.router, "contract-quota@example.com", "Contract Quota Org")
+	quotaRegistered := legacyCustomerForTest(t, env, "contract-quota@example.com", "Contract Quota Org")
 	markEvaluationOrg(t, env, quotaRegistered.Organization.ID, 5)
 	raiseReqRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+quotaRegistered.Organization.ID+"/quota-raise-requests", map[string]any{
 		"requested_quota": 8,
@@ -160,7 +160,7 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	contract.validate(t, http.MethodPost, "/v1/orgs/"+quotaRegistered.Organization.ID+"/quota-raise-requests", raiseReqRes)
 	raiseReqBody := decodeBody[quotaRaiseRequestBody](t, raiseReqRes)
 
-	admin := registerUser(t, env.router, "contract-platform-admin@example.com", "Contract Admin Org")
+	admin := legacyCustomerForTest(t, env, "contract-platform-admin@example.com", "Contract Admin Org")
 	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -219,9 +219,11 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 	contract.validate(t, http.MethodPatch, "/v1/admin/identity-providers/contract-keycloak", adminIDPPatchRes)
 	adminIDPDeleteRes := performJSON(env.router, http.MethodDelete, "/v1/admin/identity-providers/contract-keycloak", nil, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodDelete, "/v1/admin/identity-providers/contract-keycloak", adminIDPDeleteRes)
+	activateGlobalFixtureForTest(t, env, registered.User.Email)
 	brandCloudCreateRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
-		"name":     "Contract Brand Cloud",
-		"metadata": map[string]any{"contract": true},
+		"name":          "Contract Brand Cloud",
+		"owner_user_id": registered.User.ID,
+		"metadata":      map[string]any{"contract": true},
 	}, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/admin/brand-clouds", brandCloudCreateRes)
 	brandCloudResp := decodeBody[brandCloudBody](t, brandCloudCreateRes)

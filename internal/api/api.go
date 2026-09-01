@@ -33,6 +33,7 @@ type Server struct {
 	oidcEnvClientSecretRef      string
 	appCertificateIssuer        AppCertificateIssuer
 	internalAuthToken           string
+	factoryEnrollmentToken      string
 	productionJWTSecret         string
 	productionJWTAudience       string
 	logger                      *zap.Logger
@@ -113,6 +114,10 @@ func (s *Server) ConfigureAppCertificateIssuer(issuer AppCertificateIssuer) {
 
 func (s *Server) ConfigureInternalAuthToken(token string) {
 	s.internalAuthToken = strings.TrimSpace(token)
+}
+
+func (s *Server) ConfigureFactoryEnrollmentToken(token string) {
+	s.factoryEnrollmentToken = strings.TrimSpace(token)
 }
 
 func (s *Server) ConfigureImmediateBrandAccountProvisioning(allow bool) {
@@ -246,6 +251,10 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/app/end-users/auth/refresh", s.appEndUserRefresh)
 	v1.POST("/internal/app-token-authorizations", s.handleInternalAppTokenAuthorization)
 	v1.POST("/internal/device-provisioning-results", s.handleInternalDeviceProvisioningResult)
+	v1.POST("/internal/factory-enrollments/reserve", s.reserveFactoryEnrollment)
+	v1.POST("/internal/factory-enrollments/lookup", s.lookupFactoryEnrollment)
+	v1.POST("/internal/factory-enrollments/cancel", s.cancelFactoryEnrollment)
+	v1.POST("/internal/factory-enrollments/:reservationId/result", s.completeFactoryEnrollment)
 
 	protected := v1.Group("")
 	protected.Use(s.requireAuth())
@@ -262,6 +271,10 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/developer/brand-clouds", s.listDeveloperBrandClouds)
 	protected.GET("/developer/brand-clouds/:brandCloudId", s.getDeveloperBrandCloud)
 	protected.POST("/developer/brand-clouds", s.createDeveloperBrandCloud)
+	protected.PATCH("/developer/brand-clouds/:brandCloudId", s.updateDeveloperBrandCloud)
+	protected.GET("/developer/brand-clouds/:brandCloudId/deletion-preflight", s.preflightDeveloperBrandCloudDeletion)
+	protected.DELETE("/developer/brand-clouds/:brandCloudId", s.deleteDeveloperBrandCloud)
+	protected.GET("/developer/brand-clouds/:brandCloudId/operations/:operationId", s.getDeveloperCloudOperation)
 	protected.GET("/developer/brand-clouds/:brandCloudId/members", s.listDeveloperBrandCloudMembers)
 	protected.GET("/developer/brand-clouds/:brandCloudId/members/invitations", s.listDeveloperBrandCloudMemberInvitations)
 	protected.POST("/developer/brand-clouds/:brandCloudId/members/invitations", s.inviteDeveloperBrandCloudMember)
@@ -273,6 +286,8 @@ func (s *Server) Router() *gin.Engine {
 	protected.DELETE("/developer/brand-clouds/:brandCloudId/members/:userId", s.removeDeveloperBrandCloudMember)
 	protected.POST("/developer/brand-clouds/:brandCloudId/owner-transfer", s.createBrandCloudOwnerTransfer)
 	protected.GET("/developer/brand-clouds/:brandCloudId/owner-transfer/:transferId", s.getBrandCloudOwnerTransfer)
+	protected.GET("/developer/brand-clouds/:brandCloudId/owner-transfer/:transferId/preview", s.previewOwnerHandoff)
+	protected.POST("/developer/brand-clouds/:brandCloudId/owner-transfer/:transferId/confirm", s.confirmOwnerHandoff)
 	protected.POST("/developer/brand-clouds/:brandCloudId/owner-transfer/:transferId/cancel", s.cancelBrandCloudOwnerTransfer)
 	protected.POST("/developer/brand-clouds/:brandCloudId/pki/test-app-certificates", s.issueDeveloperPKITestAppCertificate)
 	protected.POST("/developer/brand-cloud-owner-transfers/accept", s.acceptBrandCloudOwnerTransfer)
@@ -336,6 +351,7 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/orgs/:orgId/devices/:deviceId/deactivate", s.requirePermission("lifecycle_operation.deactivate"), s.deactivateDevice)
 	protected.POST("/orgs/:orgId/devices/:deviceId/unprovision", s.requirePermission("device.unprovision"), s.unprovisionDevice)
 	protected.PATCH("/orgs/:orgId/devices/:deviceId", s.requirePermission("registry_device.manage"), s.updateDevice)
+	protected.PATCH("/orgs/:orgId/device-item-profiles/:profileId/devices/:deviceId/display", s.requirePermission("registry_device.manage"), s.patchProductDeviceDisplay)
 	protected.DELETE("/orgs/:orgId/devices/:deviceId", s.requirePermission("registry_device.manage"), s.deleteDevice)
 	protected.PATCH("/orgs/:orgId/devices/:deviceId/status", s.requirePermission("registry_device.manage"), s.updateDeviceStatus)
 
@@ -397,53 +413,10 @@ func (s *Server) Router() *gin.Engine {
 	return r
 }
 
-type registerRequest struct {
-	Email            string  `json:"email" binding:"required,email"`
-	Password         string  `json:"password" binding:"required,min=8"`
-	DisplayName      *string `json:"display_name"`
-	OrganizationName string  `json:"organization_name" binding:"required"`
-}
-
 func (s *Server) register(c *gin.Context) {
-	var req registerRequest
-	if !bind(c, &req) {
-		return
-	}
-	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if !s.allowSignup(c, email) {
-		return
-	}
-	if !requireNonBlank(c, "organization_name", req.OrganizationName) {
-		return
-	}
-	hash, err := auth.HashPassword(req.Password)
-	if err != nil {
-		writeError(c, http.StatusInternalServerError, "password_hash_failed", "Could not hash password")
-		return
-	}
-	result, err := s.store.Register(c.Request.Context(), store.RegisterInput{
-		Email:                     email,
-		PasswordHash:              hash,
-		DisplayName:               req.DisplayName,
-		OrganizationName:          strings.TrimSpace(req.OrganizationName),
-		OrganizationTier:          model.OrganizationTierCommercial,
-		EvaluationDeviceQuota:     5,
-		SignupPendingVerification: false,
-	})
-	if err != nil {
-		writeStoreError(c, err)
-		return
-	}
-	if _, _, err := s.issueAuthToken(c, result.User.ID, result.User.Email, "email_verification"); err != nil {
-		writeError(c, http.StatusInternalServerError, "email_enqueue_failed", "Could not queue verification email")
-		return
-	}
-	tokens, err := s.issueTokens(c, result.User.ID)
-	if err != nil {
-		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
-		return
-	}
-	c.JSON(http.StatusCreated, gin.H{"user": result.User, "organization": result.Organization, "tokens": tokens})
+	// Both public names share validation, abuse controls, the transactional
+	// email outbox and pending response. Registration never issues a session.
+	s.signup(c)
 }
 
 type loginRequest struct {
@@ -1296,6 +1269,10 @@ type addMemberRequest struct {
 }
 
 func (s *Server) addMember(c *gin.Context) {
+	if c.GetBool("brandCloudScope") {
+		writeError(c, http.StatusConflict, "invitation_required", "Brand Cloud members must accept an owner invitation")
+		return
+	}
 	var req addMemberRequest
 	if !bind(c, &req) || !validRole(c, req.Role) {
 		return
@@ -1317,7 +1294,13 @@ func (s *Server) updateMemberRole(c *gin.Context) {
 	if !bind(c, &req) || !validRole(c, req.Role) {
 		return
 	}
-	member, err := s.store.UpdateMemberRole(c.Request.Context(), c.Param("orgId"), c.Param("userId"), req.Role)
+	var member model.Member
+	var err error
+	if c.GetBool("brandCloudScope") {
+		member, err = s.store.UpdateDeveloperBrandCloudMember(c.Request.Context(), store.CloudMemberUpdateInput{BrandCloudID: c.Param("orgId"), ActorUserID: currentUserID(c), TargetUserID: c.Param("userId"), Role: req.Role})
+	} else {
+		member, err = s.store.UpdateMemberRole(c.Request.Context(), c.Param("orgId"), c.Param("userId"), req.Role)
+	}
 	if err != nil {
 		if errors.Is(err, store.ErrLastOwner) {
 			writeError(c, http.StatusConflict, "last_owner", err.Error())
@@ -1394,7 +1377,7 @@ func (s *Server) createDevice(c *gin.Context) {
 	if !requireNonBlank(c, "name", req.Name) {
 		return
 	}
-	device, err := s.store.CreateDevice(c.Request.Context(), c.Param("orgId"), req.input())
+	device, err := s.store.CreateDeviceAsUser(c.Request.Context(), currentUserID(c), c.Param("orgId"), req.input())
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -1405,14 +1388,8 @@ func (s *Server) createDevice(c *gin.Context) {
 func (s *Server) listDevices(c *gin.Context) {
 	limit, offset := pagination(c)
 	filter := store.DeviceListFilter{OrganizationID: c.Param("orgId"), Limit: limit, Offset: offset}
-	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
-		filter.BrandCloudUserID = currentBrandCloudUserID(c)
-		filter.ScopePermission = "registry_device.read"
-	}
-	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser && !s.currentUserIsPlatformAdmin(c) {
-		filter.UserID = currentUserID(c)
-		filter.ScopePermission = "registry_device.read"
-	}
+	filter.UserID = currentUserID(c)
+	filter.ScopePermission = "registry_device.read"
 	devicePage, err := s.store.ListDevicesFiltered(c.Request.Context(), filter)
 	if err != nil {
 		writeStoreError(c, err)
@@ -1449,14 +1426,8 @@ func (s *Server) listFleetDevices(c *gin.Context) {
 		Limit:          limit,
 		Offset:         queryInt(c, "offset", 0),
 	}
-	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
-		filter.BrandCloudUserID = currentBrandCloudUserID(c)
-		filter.ScopePermission = "registry_device.read"
-	}
-	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser && !s.currentUserIsPlatformAdmin(c) {
-		filter.UserID = currentUserID(c)
-		filter.ScopePermission = "registry_device.read"
-	}
+	filter.UserID = currentUserID(c)
+	filter.ScopePermission = "registry_device.read"
 	page, err := s.store.ListDevicesFiltered(c.Request.Context(), filter)
 	if err != nil {
 		writeStoreError(c, err)
@@ -1480,15 +1451,7 @@ func splitCSVQuery(value string) []string {
 }
 
 func (s *Server) fleetSummary(c *gin.Context) {
-	var summary store.FleetSummary
-	var err error
-	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
-		summary, err = s.store.FleetSummaryForBrandCloudUser(c.Request.Context(), c.Param("orgId"), currentBrandCloudUserID(c))
-	} else if s.currentUserIsPlatformAdmin(c) {
-		summary, err = s.store.FleetSummary(c.Request.Context(), c.Param("orgId"))
-	} else {
-		summary, err = s.store.FleetSummaryForUser(c.Request.Context(), c.Param("orgId"), currentUserID(c))
-	}
+	summary, err := s.store.FleetSummaryForUser(c.Request.Context(), c.Param("orgId"), currentUserID(c))
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -1497,7 +1460,7 @@ func (s *Server) fleetSummary(c *gin.Context) {
 }
 
 func (s *Server) currentUserIsPlatformAdmin(c *gin.Context) bool {
-	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
+	if currentSubjectType(c) != auth.SubjectTypeUser {
 		return false
 	}
 	allowed, err := s.store.IsPlatformAdmin(c.Request.Context(), currentUserID(c))
@@ -1521,7 +1484,7 @@ func (s *Server) updateDevice(c *gin.Context) {
 	if !requireNonBlank(c, "name", req.Name) {
 		return
 	}
-	device, err := s.store.UpdateDevice(c.Request.Context(), c.Param("orgId"), c.Param("deviceId"), req.input())
+	device, err := s.store.UpdateDeviceAsUser(c.Request.Context(), currentUserID(c), c.Param("orgId"), c.Param("deviceId"), req.input())
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -1530,7 +1493,7 @@ func (s *Server) updateDevice(c *gin.Context) {
 }
 
 func (s *Server) deleteDevice(c *gin.Context) {
-	if err := s.store.DeleteDevice(c.Request.Context(), c.Param("orgId"), c.Param("deviceId")); err != nil {
+	if err := s.store.DeleteDeviceAsUser(c.Request.Context(), currentUserID(c), c.Param("orgId"), c.Param("deviceId")); err != nil {
 		writeStoreError(c, err)
 		return
 	}
@@ -1547,7 +1510,7 @@ func (s *Server) updateDeviceStatus(c *gin.Context) {
 	if !bind(c, &req) || !validStatus(c, req.Status) {
 		return
 	}
-	device, err := s.store.UpdateDeviceStatus(c.Request.Context(), c.Param("orgId"), c.Param("deviceId"), req.Status, req.LastSeenAt)
+	device, err := s.store.UpdateDeviceStatusAsUser(c.Request.Context(), currentUserID(c), c.Param("orgId"), c.Param("deviceId"), req.Status, req.LastSeenAt)
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -1585,7 +1548,7 @@ func (s *Server) createDeviceGroup(c *gin.Context) {
 
 func (s *Server) listDeviceGroups(c *gin.Context) {
 	limit, offset := pagination(c)
-	groupPage, err := s.store.ListDeviceGroups(c.Request.Context(), c.Param("orgId"), limit, offset)
+	groupPage, err := s.store.ListDeviceGroupsForUser(c.Request.Context(), c.Param("orgId"), currentUserID(c), "", limit, offset)
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -1594,7 +1557,7 @@ func (s *Server) listDeviceGroups(c *gin.Context) {
 }
 
 func (s *Server) getDeviceGroup(c *gin.Context) {
-	group, err := s.store.GetDeviceGroup(c.Request.Context(), c.Param("orgId"), c.Param("groupId"))
+	group, err := s.store.GetDeviceGroupForUser(c.Request.Context(), c.Param("orgId"), currentUserID(c), c.Param("groupId"))
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -1644,7 +1607,11 @@ func (s *Server) removeDeviceFromGroup(c *gin.Context) {
 
 func (s *Server) listDeviceGroupDevices(c *gin.Context) {
 	limit, offset := pagination(c)
-	devicePage, err := s.store.ListDeviceGroupDevices(c.Request.Context(), c.Param("orgId"), c.Param("groupId"), limit, offset)
+	if _, err := s.store.GetDeviceGroupForUser(c.Request.Context(), c.Param("orgId"), currentUserID(c), c.Param("groupId")); err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	devicePage, err := s.store.ListDevicesFiltered(c.Request.Context(), store.DeviceListFilter{OrganizationID: c.Param("orgId"), UserID: currentUserID(c), GroupID: c.Param("groupId"), ScopePermission: "device_group.read", Limit: limit, Offset: offset})
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -1689,7 +1656,7 @@ func (s *Server) listDeviceTags(c *gin.Context) {
 
 func (s *Server) listOrganizationTags(c *gin.Context) {
 	limit, offset := pagination(c)
-	page, err := s.store.ListOrganizationTags(c.Request.Context(), c.Param("orgId"), limit, offset)
+	page, err := s.store.ListOrganizationTagsForUser(c.Request.Context(), c.Param("orgId"), currentUserID(c), limit, offset)
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -1714,18 +1681,12 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 		if s.store != nil {
 			switch claims.SubjectType {
 			case "", auth.SubjectTypeUser:
-				if _, err := s.store.GetUser(c.Request.Context(), claims.UserID); err != nil {
+				user, err := s.store.GetUser(c.Request.Context(), claims.UserID)
+				if err != nil || user.SignupPendingVerification {
 					writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
 					c.Abort()
 					return
 				}
-			case auth.SubjectTypeBrandCloudUser:
-				// Tenant-scoped human identities were retired by the global-user
-				// cutover. Rejecting the subject here also invalidates every legacy
-				// tenant JWT even if its signature and expiry are otherwise valid.
-				writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
-				c.Abort()
-				return
 			case auth.SubjectTypeEndUser:
 				if _, err := s.store.GetEndUser(c.Request.Context(), claims.EndUserID); err != nil {
 					writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
@@ -1740,9 +1701,6 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 		}
 		c.Set("subjectType", claims.SubjectType)
 		c.Set("userID", claims.UserID)
-		c.Set("brandCloudUserID", claims.BrandCloudUserID)
-		c.Set("brandCloudID", claims.BrandCloudID)
-		c.Set("tenantSlug", claims.TenantSlug)
 		c.Set("endUserID", claims.EndUserID)
 		c.Next()
 	}
@@ -1750,14 +1708,18 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 
 func (s *Server) requirePermission(permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		brandCloudScope := false
 		if orgID := c.Param("orgId"); orgID != "" {
-			if _, err := s.store.GetRole(c.Request.Context(), orgID, currentUserID(c)); err != nil {
+			org, err := s.store.GetOrganization(c.Request.Context(), orgID, currentUserID(c))
+			if err != nil {
 				writeError(c, http.StatusNotFound, "not_found", "Resource not found")
 				c.Abort()
 				return
 			}
+			brandCloudScope = org.OrganizationKind == model.OrganizationKindBrandCloud
 		}
-		if isAdmin, err := s.store.IsPlatformAdmin(c.Request.Context(), currentUserID(c)); err == nil && isAdmin {
+		c.Set("brandCloudScope", brandCloudScope)
+		if isAdmin, err := s.store.IsPlatformAdmin(c.Request.Context(), currentUserID(c)); !brandCloudScope && err == nil && isAdmin {
 			c.Set("permission", permission)
 			c.Next()
 			return
@@ -1814,18 +1776,6 @@ func currentSubjectType(c *gin.Context) auth.SubjectType {
 		return auth.SubjectTypeUser
 	}
 	return subjectType
-}
-
-func currentBrandCloudUserID(c *gin.Context) string {
-	value, _ := c.Get("brandCloudUserID")
-	id, _ := value.(string)
-	return id
-}
-
-func currentBrandCloudID(c *gin.Context) string {
-	value, _ := c.Get("brandCloudID")
-	id, _ := value.(string)
-	return id
 }
 
 func currentEndUserID(c *gin.Context) string {
@@ -1935,6 +1885,20 @@ func trimPtr(value *string) *string {
 
 func writeStoreError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, store.ErrInvalidManagedCloudWrite):
+		writeError(c, http.StatusBadRequest, "invalid_request", "Cloud name must be 1-255 characters, description at most 2000, and a valid Idempotency-Key is required")
+	case errors.Is(err, model.ErrInvalidCloudViewerScope):
+		writeError(c, http.StatusBadRequest, "invalid_access_scope", err.Error())
+	case errors.Is(err, store.ErrHandoffUnavailable):
+		writeError(c, http.StatusServiceUnavailable, "ownership_handoff_unavailable", "Trusted Billing evidence and the producer inventory are required")
+	case errors.Is(err, store.ErrHandoffSnapshotNotReady):
+		writeError(c, http.StatusConflict, "ownership_handoff_not_ready", "Fresh preparation and exact settled balance confirmation are required; refresh transfer status")
+	case errors.Is(err, store.ErrHandoffBalanceNegative):
+		writeError(c, http.StatusConflict, "balance_negative", "Settle Billing to a nonnegative cloud balance before transfer")
+	case errors.Is(err, store.ErrHandoffFinancialBlocked):
+		writeError(c, http.StatusConflict, "ownership_handoff_financial_blocked", "Settle outstanding Billing and leave a nonnegative cloud balance before transfer")
+	case errors.Is(err, store.ErrAccountNotActivated):
+		writeError(c, http.StatusForbidden, "account_activation_required", "Complete email activation before creating a cloud")
 	case errors.Is(err, store.ErrNotFound):
 		writeError(c, http.StatusNotFound, "not_found", "Resource not found")
 	case errors.Is(err, store.ErrLastOwner):

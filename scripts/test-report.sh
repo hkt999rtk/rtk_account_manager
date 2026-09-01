@@ -56,7 +56,10 @@ if [ -s "$FORMAT_OUT" ]; then
 	format_status=1
 fi
 
-TEST_DATABASE_URL="$TEST_DATABASE_URL" go test -json -count=1 ./... -coverpkg=./internal/... -coverprofile="$COVERAGE_OUT" -covermode=atomic | tee "$TEST_EVENTS" >/dev/null
+# Integration packages intentionally share TEST_DATABASE_URL. Run packages one at
+# a time so a slow package cannot spend its entire per-package test timeout queued
+# behind another package's database-wide advisory lock.
+TEST_DATABASE_URL="$TEST_DATABASE_URL" go test -p=1 -json -count=1 ./... -coverpkg=./internal/... -coverprofile="$COVERAGE_OUT" -covermode=atomic | tee "$TEST_EVENTS" >/dev/null
 test_status=${PIPESTATUS[0]}
 if [ "$test_status" -ne 0 ]; then
 	echo "go test failed with status $test_status. Failed test events:" >&2
@@ -164,7 +167,7 @@ require_passed_test "Lifecycle observability" "TestIntegrationAdminMetricsInclud
 require_passed_test "Broker adapters" "TestAzureEventHubsPublisherPublishesJSONRecord"
 require_passed_test "Database invariants" "TestIntegrationDatabaseSchemaInvariants"
 require_passed_test "OpenAPI contract" "TestIntegrationResponsesMatchOpenAPIContract"
-require_passed_test "Brand-cloud scoped user namespace" "TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug"
+require_passed_test "Global user authentication and retired tenant auth" "TestIntegrationPlatformAdminCreatesActiveBrandCloudUser"
 require_passed_test "Developer-owned brand clouds" "TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit"
 require_passed_test "Brand-cloud owner transfer" "TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession"
 require_passed_test "ChipSet SDK provider lifecycle and ACL" "TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit"
@@ -271,7 +274,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Broker adapters | \`TestNewPublisherCreatesLogPublisherAndRejectsUnsupportedKinds\`, \`TestNewConsumerCreatesLogConsumerAndRejectsUnsupportedKinds\`, \`TestLogPublisherWritesEnvelopeJSON\`, \`TestLogConsumerReadsEnvelopeJSON\`, \`TestAzureEventHubsPublisherPublishesJSONRecord\`, \`TestAzureEventHubsConsumerReadsAcrossPartitions\`, \`TestAzureEventHubsConsumerAcknowledgesAndResumesFromCheckpoint\`, and \`TestOpenAzurePartitionsUsesStoredCheckpointWhenPresent\` cover the deterministic local default adapter plus Azure Event Hubs publish/consume and durable checkpoint resume behavior without requiring live Azure. |
 | Database invariants | \`TestIntegrationDatabaseSchemaInvariants\` plus existing migration tests verify idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, critical tables/columns/constraints/indexes, and automatic \`updated_at\` triggers. |
 | OpenAPI contract | \`TestIntegrationResponsesMatchOpenAPIContract\` plus OpenAPI schema validation cover representative Claim Token resolve/admin, registry-only provisioning-state with nullable \`operation\`, provisioned/failed provisioning-state, provisioning, deactivation, quota visibility, audit visibility, public OIDC, current-user identity, and admin identity-provider responses against \`openapi.yaml\`. |
-| Brand-cloud scoped user namespace | \`TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug\`, \`TestIntegrationPlatformAdminBrandCloudLifecycle\`, \`TestIntegrationPlatformAdminCreatesActiveBrandCloudUser\`, \`TestIntegrationDatabaseSchemaInvariants\`, and brand-cloud token/helper unit tests verify tenant slug uniqueness, brand-scoped user storage, same-email cross-brand login isolation, brand-only refresh/logout handling, platform-login rejection for brand users, and brand-cloud membership authorization. |
+| Global user authentication and retired tenant auth | \`TestGlobalEmailLoginDoesNotDependOnMembershipNamespace\`, \`TestIntegrationPlatformAdminCreatesActiveBrandCloudUser\`, \`TestIntegrationRetiredTenantAuthenticationAndTokensRejected\`, and \`TestMultiCloudRegisterSignupOnboardingParityIntegration\` verify one global human identity across memberships, global login and activation, tenant auth endpoint retirement, legacy JWT rejection, and organization-scoped authorization. |
 | Developer-owned brand clouds | \`TestDeveloperSignupCreatesDefaultBrandCloudAndEnforcesCloudLimit\`, \`TestEnsurePlatformAdminCreatesRealtekConnectBrandCloud\`, and \`TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit\` verify global developer signup, default brand cloud creation, root \`Realtek Connect+\` bootstrap, and developer cloud limits. |
 | Brand-cloud owner transfer | \`TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper\` and \`TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession\` verify existing-target checks, email token delivery, target-session acceptance, old-owner downgrade, and replay rejection. |
 | ChipSet SDK information providers | \`TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit\`, \`TestChipsetProviderSnapshotLifecycle\`, and manifest fetch security tests verify independent read/edit/publish ACLs, draft/published/unpublished visibility, synchronous and background refresh, ETag 304, atomic snapshots, stale last-known-good fallback, audit correlation, SSRF controls, timeout, redirect, response-size, and JSON-complexity limits. |
@@ -294,7 +297,7 @@ $(if [ -s "$TEST_CASES_MD" ]; then cat "$TEST_CASES_MD"; else echo "No test case
 
 \`\`\`sh
 gofmt -l .
-TEST_DATABASE_URL='***' go test -json -count=1 ./... -coverpkg=./internal/... -coverprofile=$COVERAGE_OUT -covermode=atomic
+TEST_DATABASE_URL='***' go test -p=1 -json -count=1 ./... -coverpkg=./internal/... -coverprofile=$COVERAGE_OUT -covermode=atomic
 go tool cover -func=$COVERAGE_OUT
 go tool cover -html=$COVERAGE_OUT -o $COVERAGE_HTML
 go build ./...

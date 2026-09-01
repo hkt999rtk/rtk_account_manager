@@ -76,6 +76,8 @@ for executable in \
 	bin/rtk-account-manager-email-worker \
 	bin/rtk-account-manager-email-outbox-admin \
 	bin/rtk-account-manager-cleanup-tokens \
+	bin/rtk-account-manager-cloud-deletion-worker \
+	bin/rtk-account-manager-handoff-worker \
 	deploy/install.sh \
 	deploy/verify.sh; do
 	printf '#!/usr/bin/env sh\nexit 0\n' >"$release_dir/$executable"
@@ -90,6 +92,8 @@ for file in \
 	deploy/systemd/rtk-account-manager-email-worker.service \
 	deploy/systemd/rtk-account-manager-cleanup-tokens.service \
 	deploy/systemd/rtk-account-manager-cleanup-tokens.timer \
+	deploy/systemd/rtk-account-manager-cloud-deletion-worker.service \
+	deploy/systemd/rtk-account-manager-handoff-worker.service \
 	release-manifest.txt \
 	migrations/001_test.sql; do
 	printf 'test\n' >"$release_dir/$file"

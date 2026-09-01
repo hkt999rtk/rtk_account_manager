@@ -20,6 +20,8 @@ required_executables=(
   bin/rtk-account-manager-email-worker
   bin/rtk-account-manager-email-outbox-admin
   bin/rtk-account-manager-cleanup-tokens
+  bin/rtk-account-manager-cloud-deletion-worker
+  bin/rtk-account-manager-handoff-worker
   deploy/install.sh
   deploy/verify.sh
 )
@@ -40,6 +42,8 @@ required_files=(
   deploy/systemd/rtk-account-manager-email-worker.service
   deploy/systemd/rtk-account-manager-cleanup-tokens.service
   deploy/systemd/rtk-account-manager-cleanup-tokens.timer
+  deploy/systemd/rtk-account-manager-cloud-deletion-worker.service
+  deploy/systemd/rtk-account-manager-handoff-worker.service
   release-manifest.txt
 )
 

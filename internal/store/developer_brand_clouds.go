@@ -149,38 +149,15 @@ func (s *Store) CreateDeveloperBrandCloud(ctx context.Context, userID string, in
 }
 
 func (s *Store) ListDeveloperBrandClouds(ctx context.Context, userID string, limit, offset int) (OrganizationPage, error) {
-	total, err := s.countDeveloperBrandClouds(ctx, userID)
+	page, err := s.ListManagedBrandClouds(ctx, userID, "all", limit, offset)
 	if err != nil {
 		return OrganizationPage{}, err
 	}
-	rows, err := s.db.Query(ctx, `
-		SELECT o.id::text, o.name, o.tenant_slug, m.role, o.organization_kind, o.status, o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at
-		FROM organizations o
-		JOIN organization_members m ON m.organization_id = o.id
-		JOIN users u ON u.id = m.user_id
-		WHERE m.user_id = $1
-		  AND o.organization_kind = 'brand_cloud'
-		  AND u.disabled_at IS NULL
-		ORDER BY o.created_at ASC
-		LIMIT $2 OFFSET $3
-	`, userID, limit, offset)
-	if err != nil {
-		return OrganizationPage{}, err
+	orgs := make([]model.Organization, 0, len(page.BrandClouds))
+	for _, cloud := range page.BrandClouds {
+		orgs = append(orgs, cloud.Organization)
 	}
-	defer rows.Close()
-
-	orgs := []model.Organization{}
-	for rows.Next() {
-		org, err := scanOrganization(rows)
-		if err != nil {
-			return OrganizationPage{}, err
-		}
-		orgs = append(orgs, org)
-	}
-	if err := rows.Err(); err != nil {
-		return OrganizationPage{}, err
-	}
-	return OrganizationPage{Organizations: orgs, Page: Page{Limit: limit, Offset: offset, Total: total}}, nil
+	return OrganizationPage{Organizations: orgs, Page: page.Page}, nil
 }
 
 func (s *Store) SetDeveloperCloudLimit(ctx context.Context, userID string, limit int) error {
@@ -200,7 +177,7 @@ func (s *Store) SetDeveloperCloudLimit(ctx context.Context, userID string, limit
 
 func (s *Store) GetDeveloperBrandCloudMember(ctx context.Context, brandCloudID, userID string) (model.Member, error) {
 	member, err := scanDeveloperMember(s.db.QueryRow(ctx, `
-		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, m.disabled_at
+		SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, m.disabled_at, m.access_scope
 		FROM organization_members m
 		JOIN organizations o ON o.id = m.organization_id
 		JOIN users u ON u.id = m.user_id
@@ -209,6 +186,7 @@ func (s *Store) GetDeveloperBrandCloudMember(ctx context.Context, brandCloudID, 
 		  AND o.organization_kind = 'brand_cloud'
 		  AND m.disabled_at IS NULL
 		  AND u.disabled_at IS NULL
+		  AND user_can_access_brand_cloud(m.user_id::text, m.organization_id::text)
 	`, brandCloudID, userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Member{}, ErrNotFound
@@ -221,7 +199,7 @@ func (s *Store) ListDeveloperBrandCloudMembers(ctx context.Context, brandCloudID
 	if err := s.db.QueryRow(ctx, `SELECT count(*) FROM organization_members m JOIN organizations o ON o.id = m.organization_id WHERE m.organization_id = $1 AND o.organization_kind = 'brand_cloud'`, brandCloudID).Scan(&total); err != nil {
 		return MemberPage{}, err
 	}
-	rows, err := s.db.Query(ctx, `SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, COALESCE(m.disabled_at, u.disabled_at) FROM organization_members m JOIN organizations o ON o.id = m.organization_id JOIN users u ON u.id = m.user_id WHERE m.organization_id = $1 AND o.organization_kind = 'brand_cloud' ORDER BY m.created_at ASC LIMIT $2 OFFSET $3`, brandCloudID, limit, offset)
+	rows, err := s.db.Query(ctx, `SELECT m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, COALESCE(m.disabled_at, u.disabled_at), m.access_scope FROM organization_members m JOIN organizations o ON o.id = m.organization_id JOIN users u ON u.id = m.user_id WHERE m.organization_id = $1 AND o.organization_kind = 'brand_cloud' ORDER BY m.created_at ASC LIMIT $2 OFFSET $3`, brandCloudID, limit, offset)
 	if err != nil {
 		return MemberPage{}, err
 	}
@@ -246,7 +224,7 @@ func (s *Store) DisableDeveloperBrandCloudMember(ctx context.Context, brandCloud
 	if err := ensureNotLastActiveOwnerTx(ctx, tx, brandCloudID, userID); err != nil {
 		return model.Member{}, err
 	}
-	member, err := scanDeveloperMember(tx.QueryRow(ctx, `UPDATE organization_members m SET disabled_at = COALESCE(m.disabled_at, now()), updated_at = now() FROM users u WHERE m.organization_id = $1 AND m.user_id = $2 AND u.id = m.user_id RETURNING m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, m.disabled_at`, brandCloudID, userID))
+	member, err := scanDeveloperMember(tx.QueryRow(ctx, `UPDATE organization_members m SET disabled_at = COALESCE(m.disabled_at, now()), updated_at = now() FROM users u WHERE m.organization_id = $1 AND m.user_id = $2 AND u.id = m.user_id RETURNING m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, m.disabled_at, m.access_scope`, brandCloudID, userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Member{}, ErrNotFound
 	}
@@ -260,7 +238,7 @@ func (s *Store) DisableDeveloperBrandCloudMember(ctx context.Context, brandCloud
 }
 
 func (s *Store) EnableDeveloperBrandCloudMember(ctx context.Context, brandCloudID, userID string) (model.Member, error) {
-	member, err := scanDeveloperMember(s.db.QueryRow(ctx, `UPDATE organization_members m SET disabled_at = NULL, updated_at = now() FROM users u WHERE m.organization_id = $1 AND m.user_id = $2 AND u.id = m.user_id RETURNING m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, m.disabled_at`, brandCloudID, userID))
+	member, err := scanDeveloperMember(s.db.QueryRow(ctx, `UPDATE organization_members m SET disabled_at = NULL, updated_at = now() FROM users u WHERE m.organization_id = $1 AND m.user_id = $2 AND u.id = m.user_id RETURNING m.organization_id::text, m.user_id::text, u.email, u.display_name, m.role, m.created_at, m.updated_at, m.disabled_at, m.access_scope`, brandCloudID, userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Member{}, ErrNotFound
 	}
@@ -269,54 +247,72 @@ func (s *Store) EnableDeveloperBrandCloudMember(ctx context.Context, brandCloudI
 
 func scanDeveloperMember(row scanner) (model.Member, error) {
 	var member model.Member
-	err := row.Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &member.CreatedAt, &member.UpdatedAt, &member.DisabledAt)
+	err := row.Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &member.CreatedAt, &member.UpdatedAt, &member.DisabledAt, &member.AccessScope)
 	return member, err
 }
 
 func (s *Store) CreateBrandCloudOwnerTransfer(ctx context.Context, in BrandCloudOwnerTransferInput) (model.BrandCloudOwnerTransfer, error) {
+	var targetID, targetEmail string
+	if err := s.db.QueryRow(ctx, `SELECT id::text,email FROM users WHERE email=$1 AND disabled_at IS NULL`, strings.ToLower(strings.TrimSpace(in.TargetEmail))).Scan(&targetID, &targetEmail); errors.Is(err, pgx.ErrNoRows) {
+		return model.BrandCloudOwnerTransfer{}, ErrNotFound
+	} else if err != nil {
+		return model.BrandCloudOwnerTransfer{}, err
+	}
+	if targetID == in.RequestedByUserID {
+		return model.BrandCloudOwnerTransfer{}, ErrConflict
+	}
+	version, err := handoffVersion(ctx, s.db, in.BrandCloudID, in.RequestedByUserID, targetID)
+	if err != nil {
+		return model.BrandCloudOwnerTransfer{}, err
+	}
+	evidence, err := s.checkHandoffEligibility(ctx, HandoffEligibilityRequest{CloudID: in.BrandCloudID, SourceUserID: in.RequestedByUserID, TargetUserID: targetID, Action: "request", OwnershipVersion: version}, time.Now().UTC())
+	if err != nil {
+		return model.BrandCloudOwnerTransfer{}, err
+	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return model.BrandCloudOwnerTransfer{}, err
 	}
 	defer tx.Rollback(ctx)
 
-	target, err := getDeveloperUserByEmailTx(ctx, tx, in.TargetEmail)
+	if err := lockBrandCloudCollaborationTx(ctx, tx, in.BrandCloudID, in.RequestedByUserID, targetID); err != nil {
+		return model.BrandCloudOwnerTransfer{}, err
+	}
+	currentVersion, err := handoffVersion(ctx, tx, in.BrandCloudID, in.RequestedByUserID, targetID)
 	if err != nil {
 		return model.BrandCloudOwnerTransfer{}, err
 	}
-	var currentRole model.Role
-	if err := tx.QueryRow(ctx, `
-		SELECT m.role
-		FROM organization_members m
-		JOIN organizations o ON o.id = m.organization_id
-		WHERE m.organization_id = $1
-		  AND m.user_id = $2
-		  AND o.organization_kind = 'brand_cloud'
-		FOR UPDATE
-	`, in.BrandCloudID, in.RequestedByUserID).Scan(&currentRole); errors.Is(err, pgx.ErrNoRows) {
-		return model.BrandCloudOwnerTransfer{}, ErrNotFound
-	} else if err != nil {
+	if currentVersion != version {
+		return model.BrandCloudOwnerTransfer{}, ErrConflict
+	}
+	var currentEmail string
+	if err := tx.QueryRow(ctx, `SELECT email FROM users WHERE id=$1`, targetID).Scan(&currentEmail); err != nil {
 		return model.BrandCloudOwnerTransfer{}, err
 	}
-	if currentRole != model.RoleOwner {
-		return model.BrandCloudOwnerTransfer{}, ErrNotFound
-	}
-	if target.ID == in.RequestedByUserID {
+	if currentEmail != targetEmail {
 		return model.BrandCloudOwnerTransfer{}, ErrConflict
+	}
+	if err := validateHandoffEligibility(evidence, evidence.Request, time.Now().UTC()); err != nil {
+		return model.BrandCloudOwnerTransfer{}, err
+	}
+	encoded, err := json.Marshal(evidence)
+	if err != nil {
+		return model.BrandCloudOwnerTransfer{}, err
 	}
 
 	transfer, err := scanBrandCloudOwnerTransfer(tx.QueryRow(ctx, `
 		INSERT INTO brand_cloud_owner_transfers (
-		    brand_cloud_id, requested_by_user_id, target_user_id, token_hash, status, expires_at
+		    brand_cloud_id, requested_by_user_id, target_user_id, token_hash, status, expires_at,ownership_version,request_eligibility
 		)
-		VALUES ($1, $2, $3, $4, 'pending', $5)
+		VALUES ($1, $2, $3, $4, 'pending', $5,$6,$7)
 		RETURNING id::text, brand_cloud_id::text, requested_by_user_id::text, target_user_id::text,
 		          status, expires_at, accepted_at, canceled_at, created_at, updated_at
-	`, in.BrandCloudID, in.RequestedByUserID, target.ID, in.TokenHash, in.ExpiresAt))
+	`, in.BrandCloudID, in.RequestedByUserID, targetID, in.TokenHash, in.ExpiresAt, version, encoded))
 	if err != nil {
 		return model.BrandCloudOwnerTransfer{}, err
 	}
-	transfer.TargetEmail = target.Email
+	transfer.TargetEmail = targetEmail
+	transfer.OwnershipVersion = version
 	if err := createAuditEventTx(ctx, tx, AuditEventInput{
 		EventType:      "brand_cloud_owner_transfer_requested",
 		ActorUserID:    &in.RequestedByUserID,
@@ -324,8 +320,8 @@ func (s *Store) CreateBrandCloudOwnerTransfer(ctx context.Context, in BrandCloud
 		SubjectType:    "brand_cloud",
 		SubjectID:      in.BrandCloudID,
 		Payload: map[string]any{
-			"target_user_id": target.ID,
-			"target_email":   target.Email,
+			"target_user_id": targetID,
+			"target_email":   targetEmail,
 			"transfer_id":    transfer.ID,
 		},
 	}); err != nil {
@@ -339,84 +335,23 @@ func (s *Store) CreateBrandCloudOwnerTransfer(ctx context.Context, in BrandCloud
 	if err := tx.Commit(ctx); err != nil {
 		return model.BrandCloudOwnerTransfer{}, err
 	}
-	return transfer, nil
+	return projectHandoffStatus(transfer), nil
 }
 
 func (s *Store) AcceptBrandCloudOwnerTransfer(ctx context.Context, targetUserID, tokenHash string, now time.Time) (model.BrandCloudOwnerTransfer, error) {
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return model.BrandCloudOwnerTransfer{}, err
-	}
-	defer tx.Rollback(ctx)
-
-	transfer, err := scanBrandCloudOwnerTransfer(tx.QueryRow(ctx, `
-		SELECT id::text, brand_cloud_id::text, requested_by_user_id::text, target_user_id::text,
-		       status, expires_at, accepted_at, canceled_at, created_at, updated_at
-		FROM brand_cloud_owner_transfers
-		WHERE token_hash = $1
-		  AND target_user_id = $2
-		  AND status = 'pending'
-		  AND expires_at > $3
-		FOR UPDATE
-	`, tokenHash, targetUserID, now))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return model.BrandCloudOwnerTransfer{}, ErrNotFound
-	}
-	if err != nil {
-		return model.BrandCloudOwnerTransfer{}, err
-	}
-
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO organization_members (organization_id, user_id, role)
-		VALUES ($1, $2, 'owner')
-		ON CONFLICT (organization_id, user_id)
-		DO UPDATE SET role = 'owner', updated_at = now()
-	`, transfer.BrandCloudID, targetUserID); err != nil {
-		return model.BrandCloudOwnerTransfer{}, err
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE organization_members
-		SET role = 'admin', updated_at = now()
-		WHERE organization_id = $1 AND user_id = $2 AND role = 'owner'
-	`, transfer.BrandCloudID, transfer.RequestedByUserID); err != nil {
-		return model.BrandCloudOwnerTransfer{}, err
-	}
-	accepted, err := scanBrandCloudOwnerTransfer(tx.QueryRow(ctx, `
-		UPDATE brand_cloud_owner_transfers
-		SET status = 'accepted', accepted_at = $2, updated_at = now()
-		WHERE id = $1
-		RETURNING id::text, brand_cloud_id::text, requested_by_user_id::text, target_user_id::text,
-		          status, expires_at, accepted_at, canceled_at, created_at, updated_at
-	`, transfer.ID, now))
-	if err != nil {
-		return model.BrandCloudOwnerTransfer{}, err
-	}
-	if err := createAuditEventTx(ctx, tx, AuditEventInput{
-		EventType:      "brand_cloud_owner_transfer_accepted",
-		ActorUserID:    &targetUserID,
-		OrganizationID: &transfer.BrandCloudID,
-		SubjectType:    "brand_cloud",
-		SubjectID:      transfer.BrandCloudID,
-		Payload: map[string]any{
-			"previous_owner_user_id": transfer.RequestedByUserID,
-			"new_owner_user_id":      targetUserID,
-			"transfer_id":            transfer.ID,
-		},
-	}); err != nil {
-		return model.BrandCloudOwnerTransfer{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return model.BrandCloudOwnerTransfer{}, err
-	}
-	return accepted, nil
+	return s.acceptOwnerHandoff(ctx, targetUserID, tokenHash, now)
 }
 
 func (s *Store) GetBrandCloudOwnerTransfer(ctx context.Context, in BrandCloudOwnerTransferQuery, now time.Time) (model.BrandCloudOwnerTransfer, error) {
-	transfer, err := scanBrandCloudOwnerTransfer(s.db.QueryRow(ctx, `
+	return getHandoffParticipant(ctx, s.db, in, now)
+}
+func getHandoffParticipant(ctx context.Context, q handoffQuerier, in BrandCloudOwnerTransferQuery, now time.Time) (model.BrandCloudOwnerTransfer, error) {
+	transfer, err := scanBrandCloudOwnerTransfer(q.QueryRow(ctx, `
 		SELECT id::text, brand_cloud_id::text, requested_by_user_id::text, target_user_id::text,
 		       status, expires_at, accepted_at, canceled_at, created_at, updated_at
 		FROM brand_cloud_owner_transfers
-		WHERE id = $1 AND brand_cloud_id = $2 AND requested_by_user_id = $3
+		WHERE id = $1 AND brand_cloud_id = $2 AND (requested_by_user_id::text=$3 OR target_user_id::text=$3)
+		AND EXISTS(SELECT 1 FROM users u WHERE u.id::text=$3 AND u.disabled_at IS NULL AND u.email_verified AND NOT u.signup_pending_verification)
 	`, in.TransferID, in.BrandCloudID, in.RequesterID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.BrandCloudOwnerTransfer{}, ErrNotFound
@@ -425,31 +360,13 @@ func (s *Store) GetBrandCloudOwnerTransfer(ctx context.Context, in BrandCloudOwn
 		return model.BrandCloudOwnerTransfer{}, err
 	}
 	if transfer.Status == "pending" && !transfer.ExpiresAt.After(now) {
-		transfer, err = scanBrandCloudOwnerTransfer(s.db.QueryRow(ctx, `
-			UPDATE brand_cloud_owner_transfers SET status = 'expired', updated_at = now()
-			WHERE id = $1 AND status = 'pending'
-			RETURNING id::text, brand_cloud_id::text, requested_by_user_id::text, target_user_id::text,
-			          status, expires_at, accepted_at, canceled_at, created_at, updated_at
-		`, transfer.ID))
-		if err != nil {
-			return model.BrandCloudOwnerTransfer{}, err
-		}
+		transfer.Status = "expired"
 	}
-	return transfer, nil
+	return hydrateHandoff(ctx, q, transfer)
 }
 
 func (s *Store) CancelBrandCloudOwnerTransfer(ctx context.Context, in BrandCloudOwnerTransferQuery, now time.Time) (model.BrandCloudOwnerTransfer, error) {
-	transfer, err := scanBrandCloudOwnerTransfer(s.db.QueryRow(ctx, `
-		UPDATE brand_cloud_owner_transfers
-		SET status = 'canceled', canceled_at = $4, updated_at = now()
-		WHERE id = $1 AND brand_cloud_id = $2 AND requested_by_user_id = $3 AND status = 'pending' AND expires_at > $4
-		RETURNING id::text, brand_cloud_id::text, requested_by_user_id::text, target_user_id::text,
-		          status, expires_at, accepted_at, canceled_at, created_at, updated_at
-	`, in.TransferID, in.BrandCloudID, in.RequesterID, now))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return model.BrandCloudOwnerTransfer{}, ErrNotFound
-	}
-	return transfer, err
+	return s.cancelOwnerHandoff(ctx, in, now)
 }
 
 func createDeveloperBrandCloudTx(ctx context.Context, tx pgx.Tx, userID string, in BrandCloudInput, enforceLimit bool) (model.Organization, error) {
@@ -458,7 +375,10 @@ func createDeveloperBrandCloudTx(ctx context.Context, tx pgx.Tx, userID string, 
 		return model.Organization{}, err
 	}
 	if enforceLimit {
-		count, err := countDeveloperBrandCloudsTx(ctx, tx, user.ID)
+		if !user.EmailVerified || user.SignupPendingVerification {
+			return model.Organization{}, ErrAccountNotActivated
+		}
+		count, err := countCloudQuotaUsageTx(ctx, tx, user.ID)
 		if err != nil {
 			return model.Organization{}, err
 		}
@@ -519,6 +439,7 @@ func countDeveloperBrandCloudsTx(ctx context.Context, q rowQuerier, userID strin
 		WHERE m.user_id = $1
 		  AND m.role = 'owner'
 		  AND o.organization_kind = 'brand_cloud'
+		  AND o.deleted_at IS NULL
 	`, userID).Scan(&total)
 	return total, err
 }

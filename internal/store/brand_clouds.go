@@ -22,9 +22,9 @@ type rowQuerier interface {
 }
 
 func (s *Store) CreateBrandCloud(ctx context.Context, actorUserID string, in BrandCloudInput) (model.Organization, error) {
-	metadata, err := json.Marshal(defaultMetadata(in.Metadata))
-	if err != nil {
-		return model.Organization{}, err
+	ownerID := strings.TrimSpace(in.OwnerUserID)
+	if ownerID == "" {
+		return model.Organization{}, ErrConflict
 	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -32,29 +32,13 @@ func (s *Store) CreateBrandCloud(ctx context.Context, actorUserID string, in Bra
 	}
 	defer tx.Rollback(ctx)
 
-	name := strings.TrimSpace(in.Name)
-	slug := normalizeTenantSlug(in.TenantSlug)
-	if strings.TrimSpace(in.TenantSlug) != "" && slug == "" {
-		return model.Organization{}, ErrConflict
-	}
-	if slug == "" {
-		suffix, err := randomTenantSlugSuffix()
-		if err != nil {
-			return model.Organization{}, err
-		}
-		slug = generatedTenantSlug(name, suffix)
-	}
-	org, err := scanOrganization(tx.QueryRow(ctx, `
-		INSERT INTO organizations (name, tenant_slug, organization_kind, status, tier, evaluation_device_quota, metadata)
-		VALUES ($1, $2, 'brand_cloud', 'active', 'commercial', 5, $3)
-		RETURNING id::text, name, tenant_slug, ''::text, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at
-	`, name, slug, metadata))
+	// Platform privilege does not make the operator the billing owner and does
+	// not bypass the designated owner's activation or ownership quota.
+	org, err := createDeveloperBrandCloudTx(ctx, tx, ownerID, in, true)
 	if err != nil {
-		if isUniqueViolation(err) {
-			return model.Organization{}, ErrConflict
-		}
 		return model.Organization{}, err
 	}
+	org.Role = "" // The platform actor has not been granted a cloud membership.
 	if err := createAuditEventTx(ctx, tx, AuditEventInput{
 		EventType:      "brand_cloud_created",
 		ActorUserID:    &actorUserID,
@@ -62,6 +46,7 @@ func (s *Store) CreateBrandCloud(ctx context.Context, actorUserID string, in Bra
 		SubjectType:    "brand_cloud",
 		SubjectID:      org.ID,
 		Payload: map[string]any{
+			"owner_user_id":     ownerID,
 			"name":              org.Name,
 			"organization_kind": org.OrganizationKind,
 			"status":            org.Status,
@@ -369,6 +354,9 @@ func (s *Store) CreateBrandCloudUser(ctx context.Context, actorUserID, orgID str
 }
 
 func (s *Store) ProvisionBrandCloudAccount(ctx context.Context, actorUserID, orgID string, in BrandCloudAccountInput) (BrandCloudAccountResult, error) {
+	if in.Role != model.RoleAdmin && in.Role != model.RoleMember {
+		return BrandCloudAccountResult{}, ErrConflict
+	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return BrandCloudAccountResult{}, err
@@ -394,6 +382,15 @@ func (s *Store) ProvisionBrandCloudAccount(ctx context.Context, actorUserID, org
 	if !newUser && user.DisabledAt != nil {
 		return BrandCloudAccountResult{}, ErrConflict
 	}
+	if !newUser {
+		var isOwner bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM organization_members WHERE organization_id=$1 AND user_id=$2 AND role='owner')`, orgID, user.ID).Scan(&isOwner); err != nil {
+			return BrandCloudAccountResult{}, err
+		}
+		if isOwner {
+			return BrandCloudAccountResult{}, ErrLastOwner
+		}
+	}
 	action := "assigned"
 	if newUser {
 		action = "created"
@@ -413,9 +410,40 @@ func (s *Store) ProvisionBrandCloudAccount(ctx context.Context, actorUserID, org
 	}
 
 	memberDisabled := in.ActivationMode == "email" && !user.EmailVerified
-	member, err := scanDeveloperMember(tx.QueryRow(ctx, `INSERT INTO organization_members (organization_id,user_id,role,disabled_at) VALUES ($1,$2,$3,CASE WHEN $4 THEN now() ELSE NULL END) ON CONFLICT (organization_id,user_id) DO UPDATE SET role=EXCLUDED.role,disabled_at=CASE WHEN $4 THEN organization_members.disabled_at ELSE NULL END,updated_at=now() RETURNING organization_id::text,user_id::text,$5::text,$6::text,role,created_at,updated_at,disabled_at`, orgID, user.ID, in.Role, memberDisabled, user.Email, user.DisplayName))
+	member, err := scanDeveloperMember(tx.QueryRow(ctx, `INSERT INTO organization_members (organization_id,user_id,role,disabled_at)
+		VALUES ($1,$2,$3,CASE WHEN $4 THEN now() ELSE NULL END) ON CONFLICT DO NOTHING
+		RETURNING organization_id::text,user_id::text,$5::text,$6::text,role,created_at,updated_at,disabled_at,access_scope`, orgID, user.ID, in.Role, memberDisabled, user.Email, user.DisplayName))
+	holdEligible := err == nil && memberDisabled
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Lock the existing row before judging provenance. An earlier
+		// administrative disable must never be converted into an email hold.
+		member, err = scanDeveloperMember(tx.QueryRow(ctx, `SELECT organization_id::text,user_id::text,$3::text,$4::text,role,created_at,updated_at,disabled_at,access_scope
+			FROM organization_members WHERE organization_id=$1 AND user_id=$2 FOR UPDATE`, orgID, user.ID, user.Email, user.DisplayName))
+		if err != nil {
+			return BrandCloudAccountResult{}, err
+		}
+		if memberDisabled && member.Role == in.Role {
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM organization_member_activation_holds h
+				JOIN organization_members m USING(organization_id,user_id)
+				WHERE h.organization_id=$1 AND h.user_id=$2 AND h.disabled_at=m.disabled_at AND h.updated_at=m.updated_at)`, orgID, user.ID).Scan(&holdEligible); err != nil {
+				return BrandCloudAccountResult{}, err
+			}
+		}
+		member, err = scanDeveloperMember(tx.QueryRow(ctx, `UPDATE organization_members SET role=$3,
+			disabled_at=CASE WHEN $4 THEN disabled_at ELSE NULL END,updated_at=now()
+			WHERE organization_id=$1 AND user_id=$2
+			RETURNING organization_id::text,user_id::text,$5::text,$6::text,role,created_at,updated_at,disabled_at,access_scope`, orgID, user.ID, in.Role, memberDisabled, user.Email, user.DisplayName))
+	}
 	if err != nil {
 		return BrandCloudAccountResult{}, err
+	}
+	if holdEligible {
+		if _, err := tx.Exec(ctx, `INSERT INTO organization_member_activation_holds(organization_id,user_id,disabled_at,updated_at,source)
+			SELECT organization_id,user_id,disabled_at,updated_at,'provisioning' FROM organization_members
+			WHERE organization_id=$1 AND user_id=$2 AND disabled_at IS NOT NULL
+			ON CONFLICT(organization_id,user_id) DO UPDATE SET disabled_at=EXCLUDED.disabled_at,updated_at=EXCLUDED.updated_at,source=EXCLUDED.source`, orgID, user.ID); err != nil {
+			return BrandCloudAccountResult{}, err
+		}
 	}
 	if in.ActivationMode == "immediate" {
 		if _, err := tx.Exec(ctx, `INSERT INTO role_assignments (role_id,actor_type,actor_id,scope_type,scope_id,organization_id,created_by) SELECT id,'user',$1,'organization',$2,$3,$4 FROM roles WHERE name=$5 AND disabled_at IS NULL ON CONFLICT DO NOTHING`, user.ID, orgID, orgID, actorUserID, in.Role); err != nil {
@@ -456,7 +484,7 @@ func (s *Store) ListBrandCloudAccounts(ctx context.Context, in BrandCloudAccount
 		return BrandCloudAccountPage{}, ErrNotFound
 	}
 	status, query := strings.TrimSpace(in.Status), strings.ToLower(strings.TrimSpace(in.Query))
-	filter := `m.organization_id=$1 AND ($2='' OR ($2='active' AND m.disabled_at IS NULL AND u.disabled_at IS NULL AND u.signup_pending_verification=false) OR ($2='pending_verification' AND m.disabled_at IS NOT NULL AND u.signup_pending_verification=true) OR ($2='disabled' AND (m.disabled_at IS NOT NULL OR u.disabled_at IS NOT NULL))) AND ($3='' OR lower(u.email) LIKE '%'||$3||'%' OR lower(coalesce(u.display_name,'')) LIKE '%'||$3||'%' OR u.id::text=$3)`
+	filter := `m.organization_id=$1 AND ($2='' OR ($2='active' AND m.disabled_at IS NULL AND u.disabled_at IS NULL AND u.email_verified=true AND u.signup_pending_verification=false) OR ($2='pending_verification' AND (u.signup_pending_verification=true OR u.email_verified=false)) OR ($2='disabled' AND (m.disabled_at IS NOT NULL OR u.disabled_at IS NOT NULL))) AND ($3='' OR lower(u.email) LIKE '%'||$3||'%' OR lower(coalesce(u.display_name,'')) LIKE '%'||$3||'%' OR u.id::text=$3)`
 	var total int
 	if err := s.db.QueryRow(ctx, `SELECT count(*) FROM organization_members m JOIN users u ON u.id=m.user_id WHERE `+filter, in.BrandCloudID, status, query).Scan(&total); err != nil {
 		return BrandCloudAccountPage{}, err

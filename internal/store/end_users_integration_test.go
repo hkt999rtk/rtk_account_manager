@@ -37,7 +37,7 @@ func TestEndUserPersistenceErrorPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	brand, err := env.store.CreateBrandCloud(ctx, owner.User.ID, BrandCloudInput{Name: "End User Link Cloud"})
+	brand, err := createVerifiedOwnedCloudForTest(t, env, owner.User.ID, BrandCloudInput{Name: "End User Link Cloud"})
 	if err != nil {
 		t.Fatal(err)
 	}

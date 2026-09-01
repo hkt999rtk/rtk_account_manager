@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -19,13 +20,33 @@ func requireBrandCloudOwnerTx(ctx context.Context, tx pgx.Tx, brandCloudID, user
 		JOIN users u ON u.id = m.user_id
 		WHERE m.organization_id = $1 AND m.user_id = $2
 		  AND o.organization_kind = 'brand_cloud'
-		  AND m.disabled_at IS NULL AND u.disabled_at IS NULL
-		FOR UPDATE
+		  AND user_can_access_brand_cloud(u.id::text,o.id::text)
 	`, brandCloudID, userID).Scan(&role)
-	if errors.Is(err, pgx.ErrNoRows) || role != model.RoleOwner {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	if role != model.RoleOwner {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func lockCloudInvitationMutationTx(ctx context.Context, tx pgx.Tx, in BrandCloudMemberInvitationMutation) error {
+	var target string
+	err := tx.QueryRow(ctx, `SELECT target_user_id::text FROM brand_cloud_member_invitations WHERE id::text=$1 AND brand_cloud_id::text=$2`, in.InvitationID, in.BrandCloudID).Scan(&target)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrConflict
+	}
+	if err != nil {
+		return err
+	}
+	if err := lockBrandCloudCollaborationTx(ctx, tx, in.BrandCloudID, in.ActorUserID, target); err != nil {
+		return err
+	}
+	return requireBrandCloudOwnerTx(ctx, tx, in.BrandCloudID, in.ActorUserID)
 }
 
 func expireBrandCloudMemberInvitationsTx(ctx context.Context, tx pgx.Tx, brandCloudID string, now time.Time) (int64, error) {
@@ -41,15 +62,30 @@ func expireBrandCloudMemberInvitationsTx(ctx context.Context, tx pgx.Tx, brandCl
 }
 
 func (s *Store) CreateBrandCloudMemberInvitation(ctx context.Context, in BrandCloudMemberInvitationInput, now time.Time) (model.BrandCloudMemberInvitation, bool, error) {
-	if in.Role != model.RoleAdmin && in.Role != model.RoleMember {
+	if in.Role != model.RoleAdmin && in.Role != model.RoleMember && in.Role != model.RoleViewer {
 		return model.BrandCloudMemberInvitation{}, false, ErrConflict
 	}
+	scope, err := normalizeCloudMemberScope(in.Role, in.AccessScope)
+	if err != nil {
+		return model.BrandCloudMemberInvitation{}, false, err
+	}
+	in.AccessScope = scope
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return model.BrandCloudMemberInvitation{}, false, err
 	}
 	defer tx.Rollback(ctx)
 
+	var targetID string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM users WHERE email=$1`, strings.ToLower(strings.TrimSpace(in.TargetEmail))).Scan(&targetID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = ErrNotFound
+		}
+		return model.BrandCloudMemberInvitation{}, false, err
+	}
+	if err := lockBrandCloudCollaborationTx(ctx, tx, in.BrandCloudID, in.InvitedByUserID, targetID); err != nil {
+		return model.BrandCloudMemberInvitation{}, false, err
+	}
 	if err := requireBrandCloudOwnerTx(ctx, tx, in.BrandCloudID, in.InvitedByUserID); err != nil {
 		return model.BrandCloudMemberInvitation{}, false, err
 	}
@@ -67,6 +103,9 @@ func (s *Store) CreateBrandCloudMemberInvitation(ctx context.Context, in BrandCl
 	if memberExists {
 		return model.BrandCloudMemberInvitation{}, false, ErrConflict
 	}
+	if err := validateCloudViewerProductsTx(ctx, tx, in.BrandCloudID, in.AccessScope); err != nil {
+		return model.BrandCloudMemberInvitation{}, false, err
+	}
 	if expired, err := expireBrandCloudMemberInvitationsTx(ctx, tx, in.BrandCloudID, now); err != nil {
 		return model.BrandCloudMemberInvitation{}, false, err
 	} else if expired > 0 {
@@ -76,13 +115,13 @@ func (s *Store) CreateBrandCloudMemberInvitation(ctx context.Context, in BrandCl
 	}
 	existing, err := scanBrandCloudMemberInvitation(tx.QueryRow(ctx, `
 		SELECT id::text, brand_cloud_id::text, invited_by_user_id::text, target_user_id::text,
-		       target_email, role, status, expires_at, accepted_at, canceled_at, created_at, updated_at
+		       target_email, role, status, expires_at, accepted_at, canceled_at, created_at, updated_at, access_scope
 		FROM brand_cloud_member_invitations
 		WHERE brand_cloud_id = $1 AND target_user_id = $2 AND status = 'pending'
 		FOR UPDATE
 	`, in.BrandCloudID, target.ID))
 	if err == nil {
-		if existing.Role != in.Role {
+		if existing.Role != in.Role || !sameCloudScope(existing.AccessScope, in.AccessScope) {
 			return model.BrandCloudMemberInvitation{}, false, ErrConflict
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -96,11 +135,11 @@ func (s *Store) CreateBrandCloudMemberInvitation(ctx context.Context, in BrandCl
 
 	invitation, err := scanBrandCloudMemberInvitation(tx.QueryRow(ctx, `
 		INSERT INTO brand_cloud_member_invitations (
-			brand_cloud_id, invited_by_user_id, target_user_id, target_email, role, token_hash, expires_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+			brand_cloud_id, invited_by_user_id, target_user_id, target_email, role, token_hash, expires_at, access_scope
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id::text, brand_cloud_id::text, invited_by_user_id::text, target_user_id::text,
-		          target_email, role, status, expires_at, accepted_at, canceled_at, created_at, updated_at
-	`, in.BrandCloudID, in.InvitedByUserID, target.ID, target.Email, in.Role, in.TokenHash, in.ExpiresAt))
+		          target_email, role, status, expires_at, accepted_at, canceled_at, created_at, updated_at, access_scope
+	`, in.BrandCloudID, in.InvitedByUserID, target.ID, target.Email, in.Role, in.TokenHash, in.ExpiresAt, in.AccessScope))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return model.BrandCloudMemberInvitation{}, false, ErrConflict
@@ -129,6 +168,9 @@ func (s *Store) ListBrandCloudMemberInvitations(ctx context.Context, brandCloudI
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockBrandCloudCollaborationTx(ctx, tx, brandCloudID, actorUserID); err != nil {
+		return nil, err
+	}
 	if err := requireBrandCloudOwnerTx(ctx, tx, brandCloudID, actorUserID); err != nil {
 		return nil, err
 	}
@@ -143,7 +185,7 @@ func (s *Store) ListBrandCloudMemberInvitations(ctx context.Context, brandCloudI
 	}
 	rows, err := tx.Query(ctx, `
 		SELECT id::text, brand_cloud_id::text, invited_by_user_id::text, target_user_id::text,
-		       target_email, role, status, expires_at, accepted_at, canceled_at, created_at, updated_at
+		       target_email, role, status, expires_at, accepted_at, canceled_at, created_at, updated_at, access_scope
 		FROM brand_cloud_member_invitations WHERE brand_cloud_id = $1
 		ORDER BY created_at DESC
 	`, brandCloudID)
@@ -174,7 +216,7 @@ func (s *Store) ResendBrandCloudMemberInvitation(ctx context.Context, in BrandCl
 		return model.BrandCloudMemberInvitation{}, err
 	}
 	defer tx.Rollback(ctx)
-	if err := requireBrandCloudOwnerTx(ctx, tx, in.BrandCloudID, in.ActorUserID); err != nil {
+	if err := lockCloudInvitationMutationTx(ctx, tx, in); err != nil {
 		return model.BrandCloudMemberInvitation{}, err
 	}
 	invitation, err := scanBrandCloudMemberInvitation(tx.QueryRow(ctx, `
@@ -182,7 +224,7 @@ func (s *Store) ResendBrandCloudMemberInvitation(ctx context.Context, in BrandCl
 		SET token_hash = $4, expires_at = $5, updated_at = now()
 		WHERE id = $1 AND brand_cloud_id = $2 AND status = 'pending' AND expires_at > $3
 		RETURNING id::text, brand_cloud_id::text, invited_by_user_id::text, target_user_id::text,
-		          target_email, role, status, expires_at, accepted_at, canceled_at, created_at, updated_at
+		          target_email, role, status, expires_at, accepted_at, canceled_at, created_at, updated_at, access_scope
 	`, in.InvitationID, in.BrandCloudID, now, in.TokenHash, in.ExpiresAt))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.BrandCloudMemberInvitation{}, ErrConflict
@@ -212,7 +254,7 @@ func (s *Store) CancelBrandCloudMemberInvitation(ctx context.Context, in BrandCl
 		return model.BrandCloudMemberInvitation{}, err
 	}
 	defer tx.Rollback(ctx)
-	if err := requireBrandCloudOwnerTx(ctx, tx, in.BrandCloudID, in.ActorUserID); err != nil {
+	if err := lockCloudInvitationMutationTx(ctx, tx, in); err != nil {
 		return model.BrandCloudMemberInvitation{}, err
 	}
 	invitation, err := scanBrandCloudMemberInvitation(tx.QueryRow(ctx, `
@@ -220,7 +262,7 @@ func (s *Store) CancelBrandCloudMemberInvitation(ctx context.Context, in BrandCl
 		SET status = 'canceled', canceled_at = $3, updated_at = now()
 		WHERE id = $1 AND brand_cloud_id = $2 AND status = 'pending' AND expires_at > $3
 		RETURNING id::text, brand_cloud_id::text, invited_by_user_id::text, target_user_id::text,
-		          target_email, role, status, expires_at, accepted_at, canceled_at, created_at, updated_at
+		          target_email, role, status, expires_at, accepted_at, canceled_at, created_at, updated_at, access_scope
 	`, in.InvitationID, in.BrandCloudID, now))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.BrandCloudMemberInvitation{}, ErrConflict
@@ -243,9 +285,22 @@ func (s *Store) AcceptBrandCloudMemberInvitation(ctx context.Context, targetUser
 		return model.BrandCloudMemberInvitation{}, model.Member{}, err
 	}
 	defer tx.Rollback(ctx)
+	var cloudID, inviterID string
+	if err := tx.QueryRow(ctx, `SELECT brand_cloud_id::text,invited_by_user_id::text FROM brand_cloud_member_invitations WHERE token_hash=$1 AND target_user_id::text=$2 AND status='pending'`, tokenHash, targetUserID).Scan(&cloudID, &inviterID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = ErrNotFound
+		}
+		return model.BrandCloudMemberInvitation{}, model.Member{}, err
+	}
+	if err := lockBrandCloudCollaborationTx(ctx, tx, cloudID, inviterID, targetUserID); err != nil {
+		return model.BrandCloudMemberInvitation{}, model.Member{}, err
+	}
+	if err := requireBrandCloudOwnerTx(ctx, tx, cloudID, inviterID); err != nil {
+		return model.BrandCloudMemberInvitation{}, model.Member{}, err
+	}
 	invitation, err := scanBrandCloudMemberInvitation(tx.QueryRow(ctx, `
 		SELECT i.id::text, i.brand_cloud_id::text, i.invited_by_user_id::text, i.target_user_id::text,
-		       i.target_email, i.role, i.status, i.expires_at, i.accepted_at, i.canceled_at, i.created_at, i.updated_at
+		       i.target_email, i.role, i.status, i.expires_at, i.accepted_at, i.canceled_at, i.created_at, i.updated_at, i.access_scope
 		FROM brand_cloud_member_invitations i
 		JOIN users u ON u.id = i.target_user_id
 		WHERE i.token_hash = $1 AND i.target_user_id = $2 AND i.status = 'pending'
@@ -271,7 +326,10 @@ func (s *Store) AcceptBrandCloudMemberInvitation(ctx context.Context, targetUser
 		}
 		return model.BrandCloudMemberInvitation{}, model.Member{}, ErrNotFound
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO organization_members (organization_id, user_id, role) VALUES ($1, $2, $3)`, invitation.BrandCloudID, targetUserID, invitation.Role); err != nil {
+	if err := validateCloudViewerProductsTx(ctx, tx, invitation.BrandCloudID, invitation.AccessScope); err != nil {
+		return model.BrandCloudMemberInvitation{}, model.Member{}, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO organization_members (organization_id, user_id, role,access_scope) VALUES ($1, $2, $3,$4)`, invitation.BrandCloudID, targetUserID, invitation.Role, invitation.AccessScope); err != nil {
 		if isUniqueViolation(err) {
 			return model.BrandCloudMemberInvitation{}, model.Member{}, ErrConflict
 		}
@@ -285,7 +343,7 @@ func (s *Store) AcceptBrandCloudMemberInvitation(ctx context.Context, targetUser
 		UPDATE brand_cloud_member_invitations SET status = 'accepted', accepted_at = $2, updated_at = now()
 		WHERE id = $1
 		RETURNING id::text, brand_cloud_id::text, invited_by_user_id::text, target_user_id::text,
-		          target_email, role, status, expires_at, accepted_at, canceled_at, created_at, updated_at
+		          target_email, role, status, expires_at, accepted_at, canceled_at, created_at, updated_at, access_scope
 	`, invitation.ID, now))
 	if err != nil {
 		return model.BrandCloudMemberInvitation{}, model.Member{}, err
@@ -303,6 +361,6 @@ func scanBrandCloudMemberInvitation(row scanner) (model.BrandCloudMemberInvitati
 	var invitation model.BrandCloudMemberInvitation
 	err := row.Scan(&invitation.ID, &invitation.BrandCloudID, &invitation.InvitedByUserID, &invitation.TargetUserID,
 		&invitation.TargetEmail, &invitation.Role, &invitation.Status, &invitation.ExpiresAt, &invitation.AcceptedAt,
-		&invitation.CanceledAt, &invitation.CreatedAt, &invitation.UpdatedAt)
+		&invitation.CanceledAt, &invitation.CreatedAt, &invitation.UpdatedAt, &invitation.AccessScope)
 	return invitation, err
 }

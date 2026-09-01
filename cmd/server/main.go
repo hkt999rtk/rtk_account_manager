@@ -9,6 +9,8 @@ import (
 
 	"rtk_account_manager/internal/api"
 	"rtk_account_manager/internal/auth"
+	"rtk_account_manager/internal/billingbootstrap"
+	"rtk_account_manager/internal/billinghandoff"
 	"rtk_account_manager/internal/config"
 	"rtk_account_manager/internal/database"
 	"rtk_account_manager/internal/emaildelivery"
@@ -44,6 +46,31 @@ func main() {
 		fatal(logger, "configure auth token signer failed", err)
 	}
 	accountStore := store.New(db)
+	if cfg.BillingCloudCreationBaseURL != "" {
+		client, err := billingbootstrap.New(billingbootstrap.Config{BaseURL: cfg.BillingCloudCreationBaseURL, Token: cfg.BillingCloudCreationToken})
+		if err != nil {
+			fatal(logger, "configure Billing cloud creation failed", err)
+		}
+		worker, err := billingbootstrap.NewWorker(accountStore, client, logger)
+		if err != nil {
+			fatal(logger, "configure Billing cloud creation worker failed", err)
+		}
+		go worker.Run(ctx)
+	}
+	if cfg.BillingHandoffBaseURL != "" {
+		client, err := billinghandoff.New(billinghandoff.Config{BaseURL: cfg.BillingHandoffBaseURL, Token: cfg.BillingHandoffToken})
+		if err != nil {
+			fatal(logger, "configure Billing handoff transport failed", err)
+		}
+		if err := accountStore.ConfigureHandoffBilling(client); err != nil {
+			fatal(logger, "configure Billing handoff observations failed", err)
+		}
+		// Resource observers are installed separately once their reviewed service
+		// inventory is implemented. Until then, deletion preflight fails closed.
+		if err := accountStore.ConfigureCloudDeletionPreflight(store.CloudDeletionPreflightOptions{Billing: client}); err != nil {
+			fatal(logger, "configure Billing deletion preflight failed", err)
+		}
+	}
 	accountStore.ConfigureAuthTokenRateLimit(cfg.AuthTokenRateLimitMax, cfg.AuthTokenRateLimitWindow)
 	cipher, err := emaildelivery.NewCipher(cfg.EmailOutboxEncryptionKey)
 	if err != nil {
@@ -81,6 +108,7 @@ func main() {
 	server.ConfigureInternalAuthToken(cfg.InternalAuthToken)
 	server.ConfigureImmediateBrandAccountProvisioning(cfg.AllowImmediateBrandAccounts)
 	server.ConfigureProductionJWT(cfg.FactoryProductionJWTSecret, cfg.FactoryProductionJWTAudience)
+	server.ConfigureFactoryEnrollmentToken(cfg.FactoryEnrollmentToken)
 	server.ConfigureChipsetManifestFetcher(api.NewChipsetManifestFetcher(api.ChipsetManifestFetcherConfig{AllowedHosts: cfg.ChipsetProviderAllowedHosts}))
 	if cfg.ChipsetProviderRefreshInterval > 0 {
 		go server.RunChipsetProviderRefresh(ctx, cfg.ChipsetProviderRefreshInterval)

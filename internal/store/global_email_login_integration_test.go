@@ -45,12 +45,25 @@ func TestGlobalEmailLoginDoesNotDependOnMembershipNamespace(t *testing.T) {
 					}
 				}
 				for n := 0; n < tc.brands; n++ {
+					tx, err := env.db.Begin(ctx)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer tx.Rollback(ctx)
 					var brandID string
-					if err := env.db.QueryRow(ctx, `INSERT INTO organizations(name,organization_kind,status,tenant_slug)
+					if err := tx.QueryRow(ctx, `INSERT INTO organizations(name,organization_kind,status,tenant_slug)
 						VALUES('Global email fixture','brand_cloud','active',gen_random_uuid()::text) RETURNING id::text`).Scan(&brandID); err != nil {
 						t.Fatal(err)
 					}
-					if _, err := env.db.Exec(ctx, `INSERT INTO organization_members(organization_id,user_id,role) VALUES($1,$2,$3),($1,$4,'owner')`, brandID, userID, tc.role, anchorID); err != nil {
+					if _, err := tx.Exec(ctx, `INSERT INTO organization_members(organization_id,user_id,role) VALUES($1,$2,$3)`, brandID, userID, tc.role); err != nil {
+						t.Fatal(err)
+					}
+					if tc.role != "owner" {
+						if _, err := tx.Exec(ctx, `INSERT INTO organization_members(organization_id,user_id,role) VALUES($1,$2,'owner')`, brandID, anchorID); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if err := tx.Commit(ctx); err != nil {
 						t.Fatal(err)
 					}
 				}

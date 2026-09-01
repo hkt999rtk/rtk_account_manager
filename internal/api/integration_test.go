@@ -147,7 +147,7 @@ func TestIntegrationSignupQueuesEncryptedEmailForSendMailHTTP(t *testing.T) {
 func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
-	admin := registerUser(t, env.router, "load-owner-admin@example.com", "Load Owner Admin")
+	admin := legacyCustomerForTest(t, env, "load-owner-admin@example.com", "Load Owner Admin")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -162,22 +162,15 @@ func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing
 	}
 	repository.ConfigureEmailOutboxCipher(cipher)
 	env.server.ConfigureEmailOutbox(repository)
-	brandRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
-		"name": "RTK-LOAD-CANARY-run-b01", "tenant_slug": "load-run-b01",
-	}, admin.Tokens.AccessToken)
-	if brandRes.Code != http.StatusCreated {
-		t.Fatalf("brand create status = %d: %s", brandRes.Code, brandRes.Body.String())
-	}
-	brand := decodeBody[brandCloudBody](t, brandRes)
-	createRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email": "imap-test01+load-run-b01@realtekconnect.com", "display_name": "Load Owner",
-		"role": "owner", "activation_mode": "email",
-	}, admin.Tokens.AccessToken)
-	if createRes.Code != http.StatusCreated {
+	createRes := performJSON(env.router, http.MethodPost, "/v1/auth/signup", map[string]any{
+		"email": "imap-test01+load-run-b01@realtekconnect.com",
+	}, "")
+	if createRes.Code != http.StatusAccepted {
 		t.Fatalf("email owner create status = %d: %s", createRes.Code, createRes.Body.String())
 	}
-	created := decodeBody[brandCloudAccountBody](t, createRes)
-	if created.User.EmailVerified || !created.User.SignupPendingVerification || created.Member.Role != "owner" || created.Member.DisabledAt == nil {
+	brand := decodeBody[brandCloudBody](t, createRes)
+	created := decodeBody[developerSignupBody](t, createRes)
+	if created.User.EmailVerified || !created.User.SignupPendingVerification || created.BrandCloud.Role != "owner" {
 		t.Fatalf("email owner did not start pending: %+v", created)
 	}
 	pendingListRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users?status=pending_verification", nil, admin.Tokens.AccessToken)
@@ -194,8 +187,8 @@ func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing
 		"email": "imap-test01+load-run-b01@realtekconnect.com", "display_name": "Load Owner",
 		"role": "owner", "activation_mode": "email",
 	}, admin.Tokens.AccessToken)
-	if duplicateRes.Code != http.StatusOK {
-		t.Fatalf("existing global owner assignment status = %d, want 200", duplicateRes.Code)
+	if duplicateRes.Code != http.StatusBadRequest {
+		t.Fatalf("generic owner assignment status = %d, want 400", duplicateRes.Code)
 	}
 	beforeLogin := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
 		"email": "imap-test01+load-run-b01@realtekconnect.com", "password": "not-activated",
@@ -217,7 +210,7 @@ func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if payload.OrganizationID != brand.BrandCloud.ID || payload.OrganizationName != brand.BrandCloud.Name || payload.RecipientEmail != "imap-test01+load-run-b01@realtekconnect.com" || payload.Token == "" {
+	if payload.OrganizationID != "" || payload.RecipientEmail != "imap-test01+load-run-b01@realtekconnect.com" || payload.Token == "" {
 		t.Fatalf("activation outbox payload = %+v", payload)
 	}
 	activateRes := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
@@ -248,11 +241,16 @@ func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing
 		t.Fatalf("global owner /v1/me status/body = %d/%s", meRes.Code, meRes.Body.String())
 	}
 
-	expiredCreate := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email": "imap-test01+load-run-b02@realtekconnect.com", "display_name": "Expired Load Owner",
-		"role": "owner", "activation_mode": "email",
+	additional := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
+		"name": "RTK Load Additional Cloud", "owner_user_id": created.User.ID,
 	}, admin.Tokens.AccessToken)
-	if expiredCreate.Code != http.StatusCreated {
+	if additional.Code != http.StatusCreated {
+		t.Fatalf("activated designated owner creation failed: %d %s", additional.Code, additional.Body.String())
+	}
+	expiredCreate := performJSON(env.router, http.MethodPost, "/v1/auth/register", map[string]any{
+		"email": "imap-test01+load-run-b02@realtekconnect.com",
+	}, "")
+	if expiredCreate.Code != http.StatusAccepted {
 		t.Fatalf("expired owner create status = %d: %s", expiredCreate.Code, expiredCreate.Body.String())
 	}
 	if err := env.db.QueryRow(ctx, `
@@ -281,7 +279,7 @@ func TestIntegrationPlatformAdminCreatesAndActivatesBrandOwnerByEmail(t *testing
 
 func TestIntegrationOutboxQueuesEveryPlatformAuthEmail(t *testing.T) {
 	env := newIntegrationEnv(t)
-	registered := registerUser(t, env.router, "queued-auth@example.com", "Queued Auth Org")
+	registered := legacyCustomerForTest(t, env, "queued-auth@example.com", "Queued Auth Org")
 	repository, ok := env.server.store.(*store.Store)
 	if !ok {
 		t.Fatal("integration store is not the concrete store")
@@ -343,7 +341,25 @@ func TestIntegrationOutboxQueuesEveryPlatformAuthEmail(t *testing.T) {
 func TestIntegrationRegisterLoginRefreshAndLogout(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	registered := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	registration := performJSON(env.router, http.MethodPost, "/v1/auth/register", map[string]any{"email": "owner@example.com"}, "")
+	if registration.Code != http.StatusAccepted {
+		t.Fatalf("expected pending register 202, got %d: %s", registration.Code, registration.Body.String())
+	}
+	registered := decodeBody[registerBody](t, registration)
+	if registered.Tokens.AccessToken != "" || !registered.User.SignupPendingVerification {
+		t.Fatal("registration did not remain pending")
+	}
+	verification := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": latestAuthToken(t, env.tokenObserver, "owner@example.com", "email_verification"), "new_password": "password123",
+	}, "")
+	if verification.Code != http.StatusOK {
+		t.Fatalf("activation failed: %d %s", verification.Code, verification.Body.String())
+	}
+	firstLogin := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{"email": "owner@example.com", "password": "password123"}, "")
+	if firstLogin.Code != http.StatusOK {
+		t.Fatalf("first login failed: %d %s", firstLogin.Code, firstLogin.Body.String())
+	}
+	registered.Tokens = decodeBody[registerBody](t, firstLogin).Tokens
 	if registered.User.ID == "" || registered.Organization.ID == "" {
 		t.Fatal("expected user and organization IDs")
 	}
@@ -413,7 +429,7 @@ func TestIntegrationRegisterLoginRefreshAndLogout(t *testing.T) {
 
 func TestIntegrationLoginAppCertificateCSRRequired(t *testing.T) {
 	env := newIntegrationEnv(t)
-	registerUser(t, env.router, "app-cert-required@example.com", "App Cert Required Org")
+	legacyCustomerForTest(t, env, "app-cert-required@example.com", "App Cert Required Org")
 
 	loginRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
 		"email":    "app-cert-required@example.com",
@@ -433,7 +449,7 @@ func TestIntegrationLoginAppCertificateCSRRequired(t *testing.T) {
 
 func TestIntegrationLoginAppCertificateRejectsUnavailableIssuerAndInvalidCSR(t *testing.T) {
 	env := newIntegrationEnv(t)
-	registered := registerUser(t, env.router, "app-cert-invalid@example.com", "App Cert Invalid Org")
+	registered := legacyCustomerForTest(t, env, "app-cert-invalid@example.com", "App Cert Invalid Org")
 
 	csrRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
 		"email":       "app-cert-invalid@example.com",
@@ -453,7 +469,7 @@ func TestIntegrationLoginAppCertificateRejectsUnavailableIssuerAndInvalidCSR(t *
 
 func TestIntegrationLoginWithAppCSRStoresCertificateAndReusesIt(t *testing.T) {
 	env := newIntegrationEnv(t)
-	registered := registerUser(t, env.router, "app-cert-issued@example.com", "App Cert Issued Org")
+	registered := legacyCustomerForTest(t, env, "app-cert-issued@example.com", "App Cert Issued Org")
 	issuer := &fakeAppCertificateIssuer{}
 	env.server.ConfigureAppCertificateIssuer(issuer)
 
@@ -557,9 +573,9 @@ func TestIntegrationInternalAppTokenAuthorization(t *testing.T) {
 		t.Fatalf("expected unconfigured internal token 503, got %d: %s", unconfiguredRes.Code, unconfiguredRes.Body.String())
 	}
 	env.server.ConfigureInternalAuthToken("internal-authz-token")
-	owner := registerUser(t, env.router, "app-authz-owner@example.com", "App Authz Owner Org")
-	outsider := registerUser(t, env.router, "app-authz-outsider@example.com", "App Authz Outsider Org")
-	admin := registerUser(t, env.router, "app-authz-platform-admin@example.com", "App Authz Platform Admin Org")
+	owner := legacyCustomerForTest(t, env, "app-authz-owner@example.com", "App Authz Owner Org")
+	outsider := legacyCustomerForTest(t, env, "app-authz-outsider@example.com", "App Authz Outsider Org")
+	admin := legacyCustomerForTest(t, env, "app-authz-platform-admin@example.com", "App Authz Platform Admin Org")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -669,7 +685,7 @@ func TestIntegrationInternalAppTokenAuthorization(t *testing.T) {
 func TestIntegrationInternalDeviceProvisioningResult(t *testing.T) {
 	env := newIntegrationEnv(t)
 	env.server.ConfigureInternalAuthToken("internal-provision-token")
-	owner := registerUser(t, env.router, "internal-provision-owner@example.com", "Internal Provision Org")
+	owner := legacyCustomerForTest(t, env, "internal-provision-owner@example.com", "Internal Provision Org")
 
 	deviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("internal-provision-device", "INTERNAL-PROVISION-001"), owner.Tokens.AccessToken)
 	if deviceRes.Code != http.StatusCreated {
@@ -765,8 +781,8 @@ func TestIntegrationOIDCProviderLoginAndCallback(t *testing.T) {
 	defer fake.close()
 	configureOIDCTestServer(t, env.server, fake, true)
 
-	registered := registerUser(t, env.router, "oidc-user@example.com", "OIDC Org")
-	targetOrg := registerUser(t, env.router, "oidc-target@example.com", "OIDC Target Org")
+	registered := legacyCustomerForTest(t, env, "oidc-user@example.com", "OIDC Org")
+	targetOrg := legacyCustomerForTest(t, env, "oidc-target@example.com", "OIDC Target Org")
 	targetOrgID := targetOrg.Organization.ID
 	if _, err := store.New(env.db).CreateExternalGroupMapping(context.Background(), store.ExternalGroupMappingCreateInput{
 		ProviderID:     "keycloak",
@@ -857,6 +873,12 @@ func TestIntegrationOIDCProviderLoginAndCallback(t *testing.T) {
 	if identityCount != 1 {
 		t.Fatalf("expected exactly one linked identity, got %d", identityCount)
 	}
+	if allowed, err := store.New(env.db).HasPermission(context.Background(), registered.User.ID, targetOrg.Organization.ID, "claim.resolve"); err != nil || allowed {
+		t.Fatalf("OIDC mapping without membership must not grant access: allowed=%t err=%v", allowed, err)
+	}
+	if _, err := env.db.Exec(context.Background(), `INSERT INTO organization_members(organization_id,user_id,role) VALUES($1,$2,'member')`, targetOrg.Organization.ID, registered.User.ID); err != nil {
+		t.Fatal(err)
+	}
 	canClaimMappedOrg, err := store.New(env.db).HasPermission(context.Background(), registered.User.ID, targetOrg.Organization.ID, "claim.resolve")
 	if err != nil {
 		t.Fatal(err)
@@ -902,7 +924,7 @@ func TestIntegrationOIDCCallbackRejectsUnknownDisabledAndUnverifiedUsers(t *test
 		fake := newAPIOIDCTestServer(t)
 		defer fake.close()
 		configureOIDCTestServer(t, env.server, fake, false)
-		registered := registerUser(t, env.router, "disabled-oidc@example.com", "Disabled OIDC Org")
+		registered := legacyCustomerForTest(t, env, "disabled-oidc@example.com", "Disabled OIDC Org")
 		provider := seedOIDCTestProvider(t, env.db, fake)
 		if _, err := store.New(env.db).CreateUserIdentity(context.Background(), store.UserIdentityCreateInput{
 			UserID:        registered.User.ID,
@@ -963,8 +985,8 @@ func TestIntegrationCurrentUserOIDCIdentityManagement(t *testing.T) {
 	fake := newAPIOIDCTestServer(t)
 	defer fake.close()
 	configureOIDCTestServer(t, env.server, fake, true)
-	owner := registerUser(t, env.router, "identity-owner@example.com", "Identity Owner Org")
-	other := registerUser(t, env.router, "identity-other@example.com", "Identity Other Org")
+	owner := legacyCustomerForTest(t, env, "identity-owner@example.com", "Identity Owner Org")
+	other := legacyCustomerForTest(t, env, "identity-other@example.com", "Identity Other Org")
 
 	state, nonce := startOIDCTestLogin(t, env.router)
 	fake.idToken = fake.signToken(t, apiOIDCTokenFixture{
@@ -1038,7 +1060,7 @@ func TestIntegrationDisabledUserCannotManageOIDCIdentities(t *testing.T) {
 	fake := newAPIOIDCTestServer(t)
 	defer fake.close()
 	configureOIDCTestServer(t, env.server, fake, true)
-	registered := registerUser(t, env.router, "disabled-identities@example.com", "Disabled Identities Org")
+	registered := legacyCustomerForTest(t, env, "disabled-identities@example.com", "Disabled Identities Org")
 	provider := seedOIDCTestProvider(t, env.db, fake)
 	if _, err := store.New(env.db).CreateUserIdentity(context.Background(), store.UserIdentityCreateInput{
 		UserID:        registered.User.ID,
@@ -1064,7 +1086,7 @@ func TestIntegrationDisabledUserCannotManageOIDCIdentities(t *testing.T) {
 func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	registered := registerUser(t, env.router, "verify@example.com", "Verify Org")
+	registered := legacyCustomerForTest(t, env, "verify@example.com", "Verify Org")
 	if registered.User.EmailVerified {
 		t.Fatal("expected newly registered user to start unverified")
 	}
@@ -1103,7 +1125,7 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 		t.Fatalf("expected consumed verification token 400, got %d", reuseVerifyRes.Code)
 	}
 
-	resendTarget := registerUser(t, env.router, "resend@example.com", "Resend Org")
+	resendTarget := legacyCustomerForTest(t, env, "resend@example.com", "Resend Org")
 	resendRes := performJSON(env.router, http.MethodPost, "/v1/auth/resend-verification", map[string]any{
 		"email": "resend@example.com",
 	}, "")
@@ -1121,15 +1143,12 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	if resendTarget.User.ID == "" {
 		t.Fatal("expected resend target user id")
 	}
-	registerUser(t, env.router, "resend-delivery-failure@example.com", "Resend Delivery Failure Org")
+	legacyCustomerForTest(t, env, "resend-delivery-failure@example.com", "Resend Delivery Failure Org")
 	failingEnqueueServer := New(accountStore, auth.NewService("test-access-secret", "test-refresh-secret", time.Minute, time.Hour))
 	failingEnqueueServer.ConfigureEmailOutbox(accountStore)
 	failingEnqueueRouter := failingEnqueueServer.Router()
 	registerDeliveryFailureRes := performJSON(failingEnqueueRouter, http.MethodPost, "/v1/auth/register", map[string]any{
-		"email":             "delivery-failure@example.com",
-		"password":          "password123",
-		"display_name":      "delivery failure",
-		"organization_name": "Delivery Failure Org",
+		"email": "delivery-failure@example.com",
 	}, "")
 	if registerDeliveryFailureRes.Code != http.StatusInternalServerError {
 		t.Fatalf("expected register delivery failure 500, got %d", registerDeliveryFailureRes.Code)
@@ -1199,7 +1218,7 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	if forgotRes.Code != http.StatusAccepted {
 		t.Fatalf("expected forgot-password 202, got %d: %s", forgotRes.Code, forgotRes.Body.String())
 	}
-	rateLimited := registerUser(t, env.router, "rate-limit@example.com", "Rate Limit Org")
+	rateLimited := legacyCustomerForTest(t, env, "rate-limit@example.com", "Rate Limit Org")
 	for i := 0; i < 5; i++ {
 		if err := accountStore.CreatePasswordResetToken(context.Background(), rateLimited.User.ID, auth.HashToken("rate-limit-reset-"+strconv.Itoa(i)), time.Now().Add(30*time.Minute)); err != nil {
 			t.Fatal(err)
@@ -1214,7 +1233,7 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 	if forgotRateLimitedRes.Code != http.StatusAccepted {
 		t.Fatalf("expected forgot-password throttling to remain enumeration-safe 202, got %d", forgotRateLimitedRes.Code)
 	}
-	resendRateLimited := registerUser(t, env.router, "resend-rate-limit@example.com", "Resend Rate Limit Org")
+	resendRateLimited := legacyCustomerForTest(t, env, "resend-rate-limit@example.com", "Resend Rate Limit Org")
 	for i := 0; i < 4; i++ {
 		if err := accountStore.CreateEmailVerificationToken(context.Background(), resendRateLimited.User.ID, auth.HashToken("rate-limit-verify-"+strconv.Itoa(i)), time.Now().Add(30*time.Minute)); err != nil {
 			t.Fatal(err)
@@ -1274,7 +1293,7 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 		t.Fatalf("expected expired login token 400, got %d", expiredLoginRes.Code)
 	}
 
-	expiredResetUser := registerUser(t, env.router, "expired-reset@example.com", "Expired Reset Org")
+	expiredResetUser := legacyCustomerForTest(t, env, "expired-reset@example.com", "Expired Reset Org")
 	expiredResetToken := "expired-reset-token"
 	if err := accountStore.CreatePasswordResetToken(context.Background(), expiredResetUser.User.ID, auth.HashToken(expiredResetToken), time.Now().Add(-time.Minute)); err != nil {
 		t.Fatal(err)
@@ -1323,7 +1342,7 @@ func TestIntegrationEmailVerificationAndPasswordRecovery(t *testing.T) {
 		t.Fatalf("expected new password login 200, got %d: %s", newPasswordLoginRes.Code, newPasswordLoginRes.Body.String())
 	}
 
-	disabled := registerUser(t, env.router, "recovery-disabled@example.com", "Recovery Disabled Org")
+	disabled := legacyCustomerForTest(t, env, "recovery-disabled@example.com", "Recovery Disabled Org")
 	disabledVerificationToken := latestAuthToken(t, env.tokenObserver, "recovery-disabled@example.com", "email_verification")
 	if _, err := env.db.Exec(context.Background(), `
 		UPDATE users SET disabled_at = now(), updated_at = now() WHERE id = $1
@@ -1394,7 +1413,7 @@ func TestIntegrationEmailSignInValidationPaths(t *testing.T) {
 		t.Fatalf("expected retired brand activation 404, got %d: %s", invalidBrandActivationTokenRes.Code, invalidBrandActivationTokenRes.Body.String())
 	}
 
-	rateLimited := registerUser(t, env.router, "signin-rate-limit@example.com", "Sign In Rate Limit Org")
+	rateLimited := legacyCustomerForTest(t, env, "signin-rate-limit@example.com", "Sign In Rate Limit Org")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET email_verified = true, email_verified_at = now(), signup_pending_verification = false WHERE id = $1`, rateLimited.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -1414,7 +1433,7 @@ func TestIntegrationEmailSignInValidationPaths(t *testing.T) {
 func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	registered := registerUser(t, env.router, "eval@example.com", "Eval Org")
+	registered := legacyCustomerForTest(t, env, "eval@example.com", "Eval Org")
 	markEvaluationOrg(t, env, registered.Organization.ID, 5)
 	orgID := registered.Organization.ID
 	accessToken := registered.Tokens.AccessToken
@@ -1463,7 +1482,7 @@ func TestIntegrationSignupEvaluationQuotaAndRaiseWorkflow(t *testing.T) {
 		t.Fatalf("expected non-admin approval attempt 403, got %d: %s", nonAdminApproveRes.Code, nonAdminApproveRes.Body.String())
 	}
 
-	admin := registerUser(t, env.router, "platform-admin@example.com", "Admin Org")
+	admin := legacyCustomerForTest(t, env, "platform-admin@example.com", "Admin Org")
 	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -1690,10 +1709,9 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 		t.Fatalf("expected default cloud in list, got %+v", list)
 	}
 
-	createRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds", map[string]any{
-		"name":        "Second Developer Cloud",
-		"tenant_slug": "second-developer-cloud",
-	}, login.Tokens.AccessToken)
+	createRes := managedCloudHTTP(t, env.router, http.MethodPost, "/v1/developer/brand-clouds", login.Tokens.AccessToken, "second-developer-cloud", map[string]any{
+		"name": "Second Developer Cloud",
+	})
 	if createRes.Code != http.StatusCreated {
 		t.Fatalf("expected developer brand cloud create 201, got %d: %s", createRes.Code, createRes.Body.String())
 	}
@@ -1831,6 +1849,10 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 	}
 
 	membersRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members", nil, member.AccessToken)
+	if membersRes.Code != http.StatusForbidden {
+		t.Fatalf("expected member collection hidden from member, got %d: %s", membersRes.Code, membersRes.Body.String())
+	}
+	membersRes = performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members", nil, login.Tokens.AccessToken)
 	if membersRes.Code != http.StatusOK {
 		t.Fatalf("expected member list 200, got %d: %s", membersRes.Code, membersRes.Body.String())
 	}
@@ -1842,6 +1864,10 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 	updateRes := performJSON(env.router, http.MethodPatch, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/"+member.UserID, map[string]any{"role": "admin"}, login.Tokens.AccessToken)
 	if updateRes.Code != http.StatusOK || decodeBody[memberBody](t, updateRes).Member.Role != "admin" {
 		t.Fatalf("expected member role update 200, got %d: %s", updateRes.Code, updateRes.Body.String())
+	}
+	adminListRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members", nil, member.AccessToken)
+	if adminListRes.Code != http.StatusForbidden {
+		t.Fatalf("admin role exposed cloud membership collection: %d", adminListRes.Code)
 	}
 	disableRes := performJSON(env.router, http.MethodPatch, "/v1/developer/brand-clouds/"+signup.BrandCloud.ID+"/members/"+member.UserID+"/disable", nil, login.Tokens.AccessToken)
 	if disableRes.Code != http.StatusOK || decodeBody[memberBody](t, disableRes).Member.DisabledAt == nil {
@@ -1863,15 +1889,17 @@ func TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreate
 
 func TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession(t *testing.T) {
 	env := newIntegrationEnv(t)
+	configureAPIHandoffFixture(t, env)
+	contract := newResponseContract(t)
 	source := verifiedDeveloperForTest(t, env, "source-transfer@example.com")
 	target := verifiedDeveloperForTest(t, env, "target-transfer@example.com")
 
-	invalidCreateRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds", map[string]any{
+	invalidCreateRes := managedCloudHTTP(t, env.router, http.MethodPost, "/v1/developer/brand-clouds", source.AccessToken, "invalid-create", map[string]any{
 		"name":        "Invalid Slug Cloud",
 		"tenant_slug": "!!!",
-	}, source.AccessToken)
-	if invalidCreateRes.Code != http.StatusConflict {
-		t.Fatalf("expected invalid developer cloud slug 409, got %d: %s", invalidCreateRes.Code, invalidCreateRes.Body.String())
+	})
+	if invalidCreateRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected caller-selected developer cloud slug rejected 400, got %d: %s", invalidCreateRes.Code, invalidCreateRes.Body.String())
 	}
 
 	invalidTransferRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer", map[string]any{}, source.AccessToken)
@@ -1936,10 +1964,11 @@ func TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession(t 
 	acceptRes := performJSON(env.router, http.MethodPost, "/v1/developer/brand-cloud-owner-transfers/accept", map[string]any{
 		"token": token,
 	}, target.AccessToken)
-	if acceptRes.Code != http.StatusOK {
-		t.Fatalf("expected target accept 200, got %d: %s", acceptRes.Code, acceptRes.Body.String())
+	if acceptRes.Code != http.StatusAccepted {
+		t.Fatalf("expected target accept 202, got %d: %s", acceptRes.Code, acceptRes.Body.String())
 	}
 	accepted := decodeBody[brandCloudOwnerTransferBody](t, acceptRes)
+	contract.validate(t, http.MethodPost, "/v1/developer/brand-cloud-owner-transfers/accept", acceptRes)
 	if accepted.OwnerTransfer.Status != "accepted" || accepted.OwnerTransfer.AcceptedAt == nil {
 		t.Fatalf("expected accepted transfer, got %+v", accepted.OwnerTransfer)
 	}
@@ -1948,18 +1977,28 @@ func TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession(t 
 	targetCloudsRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds", nil, target.AccessToken)
 	sourceClouds := decodeBody[brandCloudsBody](t, sourceCloudsRes)
 	targetClouds := decodeBody[brandCloudsBody](t, targetCloudsRes)
-	if !brandCloudListHasRole(sourceClouds, source.BrandCloudID, "admin") {
-		t.Fatalf("expected source to become admin, got %+v", sourceClouds)
+	if !brandCloudListHasRole(sourceClouds, source.BrandCloudID, "owner") {
+		t.Fatalf("source must remain owner during preparation, got %+v", sourceClouds)
 	}
-	if !brandCloudListHasRole(targetClouds, source.BrandCloudID, "owner") {
-		t.Fatalf("expected target to become owner, got %+v", targetClouds)
+	if brandCloudListHasRole(targetClouds, source.BrandCloudID, "owner") {
+		t.Fatalf("target gained premature ownership, got %+v", targetClouds)
 	}
+	statusRes := performJSON(env.router, http.MethodGet, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer/"+transfer.OwnerTransfer.ID, nil, target.AccessToken)
+	if statusRes.Code != http.StatusOK || !strings.Contains(statusRes.Body.String(), `"operation_phase":"preparing"`) {
+		t.Fatalf("target cannot view own operation: %d %s", statusRes.Code, statusRes.Body.String())
+	}
+	contract.validate(t, http.MethodGet, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer/"+transfer.OwnerTransfer.ID, statusRes)
+	postCancel := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer/"+transfer.OwnerTransfer.ID+"/cancel", map[string]any{}, source.AccessToken)
+	if postCancel.Code != http.StatusOK || !strings.Contains(postCancel.Body.String(), `"operation_phase":"canceling"`) {
+		t.Fatalf("fenced source cannot cancel: %d %s", postCancel.Code, postCancel.Body.String())
+	}
+	contract.validate(t, http.MethodPost, "/v1/developer/brand-clouds/"+source.BrandCloudID+"/owner-transfer/"+transfer.OwnerTransfer.ID+"/cancel", postCancel)
 }
 
 func TestIntegrationAdminMetricsReportsEmptySnapshot(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	admin := registerUser(t, env.router, "metrics-admin@example.com", "Metrics Admin Org")
+	admin := legacyCustomerForTest(t, env, "metrics-admin@example.com", "Metrics Admin Org")
 	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -1986,7 +2025,7 @@ func TestIntegrationAdminMetricsReportsEmptySnapshot(t *testing.T) {
 func TestIntegrationPlatformAdminMissingBrandResourcesReturnNotFound(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
-	admin := registerUser(t, env.router, "missing-brand-root@example.com", "Missing Brand Root")
+	admin := legacyCustomerForTest(t, env, "missing-brand-root@example.com", "Missing Brand Root")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -2075,12 +2114,13 @@ func TestIntegrationPlatformAdminBrandCloudLifecycle(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
 
-	admin := registerUser(t, env.router, "brand-root@example.com", "Root Org")
+	admin := legacyCustomerForTest(t, env, "brand-root@example.com", "Root Org")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	owner := registerUser(t, env.router, "brand-owner@example.com", "Owner Org")
-	nonAdmin := registerUser(t, env.router, "brand-user@example.com", "User Org")
+	owner := legacyCustomerForTest(t, env, "brand-owner@example.com", "Owner Org")
+	activateGlobalFixtureForTest(t, env, owner.User.Email)
+	nonAdmin := legacyCustomerForTest(t, env, "brand-user@example.com", "User Org")
 
 	nonAdminCreateRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
 		"name": "Realtek Connect+",
@@ -2090,8 +2130,9 @@ func TestIntegrationPlatformAdminBrandCloudLifecycle(t *testing.T) {
 	}
 
 	createRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
-		"name":     "Realtek Connect+",
-		"metadata": map[string]any{"public_name": "Realtek Connect+"},
+		"name":          "Realtek Connect+",
+		"owner_user_id": owner.User.ID,
+		"metadata":      map[string]any{"public_name": "Realtek Connect+"},
 	}, admin.Tokens.AccessToken)
 	if createRes.Code != http.StatusCreated {
 		t.Fatalf("expected brand cloud create 201, got %d: %s", createRes.Code, createRes.Body.String())
@@ -2139,12 +2180,8 @@ func TestIntegrationPlatformAdminBrandCloudLifecycle(t *testing.T) {
 	brandUserRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+created.BrandCloud.ID+"/users", map[string]any{
 		"email": owner.User.Email, "role": "owner", "activation_mode": "email",
 	}, admin.Tokens.AccessToken)
-	if brandUserRes.Code != http.StatusOK {
-		t.Fatalf("expected existing global user assignment 200, got %d: %s", brandUserRes.Code, brandUserRes.Body.String())
-	}
-	account := decodeBody[brandCloudAccountBody](t, brandUserRes)
-	if account.User.ID != owner.User.ID || account.Member.Role != "owner" {
-		t.Fatalf("unexpected global owner assignment: %+v", account)
+	if brandUserRes.Code != http.StatusBadRequest {
+		t.Fatalf("generic endpoint must reject owner assignment, got %d: %s", brandUserRes.Code, brandUserRes.Body.String())
 	}
 
 	listRes := performJSON(env.router, http.MethodGet, "/v1/admin/brand-clouds", nil, admin.Tokens.AccessToken)
@@ -2170,15 +2207,17 @@ func TestIntegrationPlatformAdminDeviceItemProfileLifecycle(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
 
-	admin := registerUser(t, env.router, "profile-api-root@example.com", "Profile API Root")
+	admin := legacyCustomerForTest(t, env, "profile-api-root@example.com", "Profile API Root")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	nonAdmin := registerUser(t, env.router, "profile-api-user@example.com", "Profile API User")
-	owner := registerUser(t, env.router, "profile-api-owner@example.com", "Profile API Owner")
+	nonAdmin := legacyCustomerForTest(t, env, "profile-api-user@example.com", "Profile API User")
+	owner := legacyCustomerForTest(t, env, "profile-api-owner@example.com", "Profile API Owner")
+	activateGlobalFixtureForTest(t, env, owner.User.Email)
 
 	brandRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
-		"name": "Profile API Brand",
+		"name":          "Profile API Brand",
+		"owner_user_id": owner.User.ID,
 	}, admin.Tokens.AccessToken)
 	if brandRes.Code != http.StatusCreated {
 		t.Fatalf("expected brand cloud create 201, got %d: %s", brandRes.Code, brandRes.Body.String())
@@ -2358,14 +2397,16 @@ func TestIntegrationPlatformAdminCreatesProductionRunJWT(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
 
-	admin := registerUser(t, env.router, "production-run-api-root@example.com", "Production Run API Root")
+	admin := legacyCustomerForTest(t, env, "production-run-api-root@example.com", "Production Run API Root")
+	activateGlobalFixtureForTest(t, env, admin.User.Email)
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	nonAdmin := registerUser(t, env.router, "production-run-api-user@example.com", "Production Run API User")
+	nonAdmin := legacyCustomerForTest(t, env, "production-run-api-user@example.com", "Production Run API User")
 
 	brandRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
-		"name": "Production Run API Brand",
+		"name":          "Production Run API Brand",
+		"owner_user_id": admin.User.ID,
 	}, admin.Tokens.AccessToken)
 	if brandRes.Code != http.StatusCreated {
 		t.Fatalf("expected brand cloud create 201, got %d: %s", brandRes.Code, brandRes.Body.String())
@@ -2478,9 +2519,8 @@ func TestIntegrationPlatformAdminCreatesProductionRunJWT(t *testing.T) {
 	if strings.Contains(auditPayload, body.FactoryJWT) || strings.Contains(auditPayload, "factory-production-secret") {
 		t.Fatal("factory production audit payload leaked bearer or signing secret material")
 	}
-	if _, err := store.New(env.db).AddMember(ctx, brand.BrandCloud.ID, admin.User.Email, model.RoleOwner); err != nil {
-		t.Fatalf("add production-run reader membership: %v", err)
-	}
+	// The explicitly designated account already received sole ownership in the
+	// creation transaction; a second owner assignment is neither needed nor valid.
 	listPath := "/v1/orgs/" + brand.BrandCloud.ID + "/device-item-profiles/" + profile.DeviceItemProfile.ID + "/production-runs"
 	listRes := performJSON(env.router, http.MethodGet, listPath, nil, admin.Tokens.AccessToken)
 	if listRes.Code != http.StatusOK || !bytes.Contains(listRes.Body.Bytes(), []byte(body.ProductionRun.ID)) {
@@ -2491,7 +2531,7 @@ func TestIntegrationPlatformAdminCreatesProductionRunJWT(t *testing.T) {
 func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
-	admin := registerUser(t, env.router, "brand-user-root@example.com", "Root Org")
+	admin := legacyCustomerForTest(t, env, "brand-user-root@example.com", "Root Org")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -2535,7 +2575,7 @@ func TestIntegrationPlatformAdminCreatesActiveBrandCloudUser(t *testing.T) {
 	}
 }
 
-func TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug(t *testing.T) {
+func TestIntegrationRetiredTenantAuthenticationAndTokensRejected(t *testing.T) {
 	env := newIntegrationEnv(t)
 	for _, suffix := range []string{"login", "refresh", "logout", "activate", "sign-in", "login/activate"} {
 		res := performJSON(env.router, http.MethodPost, "/v1/brand-clouds/acme/auth/"+suffix, map[string]any{}, "")
@@ -2543,7 +2583,12 @@ func TestIntegrationBrandScopedUsersLoginAndAuthorizeByTenantSlug(t *testing.T) 
 			t.Fatalf("retired tenant auth %s status=%d, want 404", suffix, res.Code)
 		}
 	}
-	legacyToken, _, err := env.server.auth.IssueBrandCloudAccessToken("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002", "00000000-0000-0000-0000-000000000003", "acme")
+	// Mint an old-format fixture independently; production has no tenant issuer.
+	legacyToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.Claims{
+		UserID: "00000000-0000-0000-0000-000000000001", SubjectType: auth.SubjectTypeBrandCloudUser,
+		BrandCloudUserID: "00000000-0000-0000-0000-000000000002", BrandCloudID: "00000000-0000-0000-0000-000000000003", TenantSlug: "acme", Kind: auth.TokenKindAccess,
+		RegisteredClaims: jwt.RegisteredClaims{Subject: "brand_cloud_user:00000000-0000-0000-0000-000000000002", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))},
+	}).SignedString([]byte("test-access-secret"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2623,7 +2668,7 @@ func TestIntegrationAppEndUserLoginDoesNotCreateBrandLinkAndIssuesGlobalSubject(
 	if wrongPasswordRes.Code != http.StatusUnauthorized {
 		t.Fatalf("expected wrong end-user password 401, got %d: %s", wrongPasswordRes.Code, wrongPasswordRes.Body.String())
 	}
-	platform := registerUser(t, env.router, "end-user-platform-token@example.com", "End User Platform Token Org")
+	platform := legacyCustomerForTest(t, env, "end-user-platform-token@example.com", "End User Platform Token Org")
 	platformRefreshRes := performJSON(env.router, http.MethodPost, "/v1/app/end-users/auth/refresh", map[string]any{
 		"refresh_token": platform.Tokens.RefreshToken,
 	}, "")
@@ -2695,7 +2740,7 @@ func TestIntegrationAppEndUserClaimCreatesMultiBrandBindings(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
 
-	admin := registerUser(t, env.router, "end-user-platform-admin@example.com", "End User Platform Admin")
+	admin := legacyCustomerForTest(t, env, "end-user-platform-admin@example.com", "End User Platform Admin")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -2824,11 +2869,11 @@ func TestIntegrationAppEndUserClaimCreatesMultiBrandBindings(t *testing.T) {
 
 func TestIntegrationACLAdminWorkflow(t *testing.T) {
 	env := newIntegrationEnv(t)
-	admin := registerUser(t, env.router, "acl-admin@example.com", "ACL Admin Org")
+	admin := legacyCustomerForTest(t, env, "acl-admin@example.com", "ACL Admin Org")
 	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	tenant := registerUser(t, env.router, "acl-tenant@example.com", "ACL Tenant Org")
+	tenant := legacyCustomerForTest(t, env, "acl-tenant@example.com", "ACL Tenant Org")
 
 	nonAdminRes := performJSON(env.router, http.MethodGet, "/v1/admin/acl/permissions", nil, tenant.Tokens.AccessToken)
 	if nonAdminRes.Code != http.StatusForbidden {
@@ -3008,19 +3053,11 @@ func TestIntegrationACLAdminWorkflow(t *testing.T) {
 
 func TestIntegrationBrandCloudScopedRoleAssignmentWorkflow(t *testing.T) {
 	env := newIntegrationEnv(t)
-	admin := registerUser(t, env.router, "scoped-acl-platform-admin@example.com", "Scoped ACL Platform Admin")
+	admin := legacyCustomerForTest(t, env, "scoped-acl-platform-admin@example.com", "Scoped ACL Platform Admin")
 	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	brand := createBrandCloudForTest(t, env, admin.Tokens.AccessToken, "Scoped ACL Brand", "scoped-acl-brand")
-	operator := registerUser(t, env.router, "scoped-acl-operator@example.com", "Scoped ACL Operator")
-	userRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email": operator.User.Email, "role": "owner", "activation_mode": "email",
-	}, admin.Tokens.AccessToken)
-	if userRes.Code != http.StatusOK {
-		t.Fatalf("expected global user membership assignment 200, got %d: %s", userRes.Code, userRes.Body.String())
-	}
-	account := decodeBody[brandCloudAccountBody](t, userRes)
+	brand, operator := createOwnedBrandCloudForTest(t, env, admin.Tokens.AccessToken, "Scoped ACL Brand", "scoped-acl-brand")
 	accessToken := operator.Tokens.AccessToken
 	rolesRes := performJSON(env.router, http.MethodGet, "/v1/orgs/"+brand.BrandCloud.ID+"/roles?limit=250", nil, accessToken)
 	if rolesRes.Code != http.StatusOK || !bytes.Contains(rolesRes.Body.Bytes(), []byte("firmware_operator")) {
@@ -3043,7 +3080,7 @@ func TestIntegrationBrandCloudScopedRoleAssignmentWorkflow(t *testing.T) {
 		t.Fatalf("expected scoped assignment list 200, got %d: %s", listRes.Code, listRes.Body.String())
 	}
 	assignmentRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+brand.BrandCloud.ID+"/role-assignments", map[string]any{
-		"role_name": "firmware_operator", "actor_id": account.User.ID, "scope_type": "product", "scope_id": "product-camera-pro",
+		"role_name": "firmware_operator", "actor_id": operator.User.ID, "scope_type": "product", "scope_id": "product-camera-pro",
 	}, accessToken)
 	if assignmentRes.Code != http.StatusCreated {
 		t.Fatalf("expected scoped assignment create 201, got %d: %s", assignmentRes.Code, assignmentRes.Body.String())
@@ -3061,18 +3098,11 @@ func TestIntegrationBrandCloudScopedRoleAssignmentWorkflow(t *testing.T) {
 func TestIntegrationBrandCloudResourceScopeFiltersFleetQueries(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
-	admin := registerUser(t, env.router, "resource-scope-platform-admin@example.com", "Resource Scope Platform Admin")
+	admin := legacyCustomerForTest(t, env, "resource-scope-platform-admin@example.com", "Resource Scope Platform Admin")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	brand := createBrandCloudForTest(t, env, admin.Tokens.AccessToken, "Resource Scope Brand", "resource-scope-brand")
-	owner := registerUser(t, env.router, "resource-scope-owner@example.com", "Resource Scope Owner")
-	ownerRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
-		"email": owner.User.Email, "role": "owner", "activation_mode": "email",
-	}, admin.Tokens.AccessToken)
-	if ownerRes.Code != http.StatusOK {
-		t.Fatalf("expected existing owner assignment 200, got %d: %s", ownerRes.Code, ownerRes.Body.String())
-	}
+	brand, owner := createOwnedBrandCloudForTest(t, env, admin.Tokens.AccessToken, "Resource Scope Brand", "resource-scope-brand")
 	createDevice := func(name string) deviceBody {
 		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+brand.BrandCloud.ID+"/devices", map[string]any{"name": name, "category": "generic"}, owner.Tokens.AccessToken)
 		if res.Code != http.StatusCreated {
@@ -3082,7 +3112,8 @@ func TestIntegrationBrandCloudResourceScopeFiltersFleetQueries(t *testing.T) {
 	}
 	scopedDevice := createDevice("Scoped Device")
 	otherDevice := createDevice("Other Device")
-	memberUser := registerUser(t, env.router, "resource-scope-member@example.com", "Resource Scope Member")
+	memberUser := legacyCustomerForTest(t, env, "resource-scope-member@example.com", "Resource Scope Member")
+	activateGlobalFixtureForTest(t, env, memberUser.User.Email)
 	memberRes := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds/"+brand.BrandCloud.ID+"/users", map[string]any{
 		"email": memberUser.User.Email, "role": "member", "activation_mode": "email",
 	}, admin.Tokens.AccessToken)
@@ -3090,6 +3121,27 @@ func TestIntegrationBrandCloudResourceScopeFiltersFleetQueries(t *testing.T) {
 		t.Fatalf("expected existing member assignment 200, got %d: %s", memberRes.Code, memberRes.Body.String())
 	}
 	member := decodeBody[brandCloudAccountBody](t, memberRes)
+	product, err := store.New(env.db).CreateDeviceItemProfile(ctx, store.DeviceItemProfileCreateInput{ActorUserID: &owner.User.ID, BrandCloudID: brand.BrandCloud.ID, ProfileKey: "resource-scope", DisplayName: "Resource scope", Category: model.DeviceCategoryGeneric, CAProfile: "ca", IssuerProfile: "issuer", ServiceOptions: []string{"video_streaming"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE devices SET device_item_profile_id=$2 WHERE id=$1`, scopedDevice.Device.ID, product.ID); err != nil {
+		t.Fatal(err)
+	}
+	productBase := "/v1/developer/brand-clouds/" + brand.BrandCloud.ID + "/products/" + product.ID
+	inviteRes := performJSON(env.router, http.MethodPost, productBase+"/collaborator-invitations", map[string]any{"email": member.User.Email, "role": "product_viewer"}, owner.Tokens.AccessToken)
+	if inviteRes.Code != http.StatusAccepted {
+		t.Fatalf("owner Product approval: %d %s", inviteRes.Code, inviteRes.Body.String())
+	}
+	productToken := latestAuthToken(t, env.tokenObserver, member.User.Email, "product_collaborator_invitation")
+	acceptRes := performJSON(env.router, http.MethodPost, "/v1/developer/product-collaborator-invitations/accept", map[string]any{"token": productToken}, memberUser.Tokens.AccessToken)
+	if acceptRes.Code != http.StatusOK {
+		t.Fatalf("accept Product approval: %d %s", acceptRes.Code, acceptRes.Body.String())
+	}
+	// Keep the owner-approved Product ceiling, but exercise a narrower device ACL.
+	if _, err := env.db.Exec(ctx, `UPDATE role_assignments SET disabled_at=now() WHERE actor_type='user' AND actor_id=$1 AND scope_type='product'`, member.User.ID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := env.db.Exec(ctx, `UPDATE role_assignments SET disabled_at = now() WHERE actor_type = 'user' AND actor_id = $1 AND scope_type = 'organization'`, member.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -3130,11 +3182,11 @@ func TestIntegrationBrandCloudResourceScopeFiltersFleetQueries(t *testing.T) {
 func TestIntegrationAdminMetricsIncludesLifecycleVisibility(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
-	admin := registerUser(t, env.router, "lifecycle-metrics-admin@example.com", "Lifecycle Metrics Admin Org")
+	admin := legacyCustomerForTest(t, env, "lifecycle-metrics-admin@example.com", "Lifecycle Metrics Admin Org")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	nonAdmin := registerUser(t, env.router, "lifecycle-metrics-user@example.com", "Lifecycle Metrics User Org")
+	nonAdmin := legacyCustomerForTest(t, env, "lifecycle-metrics-user@example.com", "Lifecycle Metrics User Org")
 
 	deviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+admin.Organization.ID+"/devices", devicePayload("metrics-device", "METRICS-DEVICE-1"), admin.Tokens.AccessToken)
 	if deviceRes.Code != http.StatusCreated {
@@ -3243,7 +3295,7 @@ func TestIntegrationAdminMetricsIncludesLifecycleVisibility(t *testing.T) {
 func TestIntegrationQuotaRaiseValidationAndDefaultApproval(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	registered := registerUser(t, env.router, "validate-quota@example.com", "Validate Quota Org")
+	registered := legacyCustomerForTest(t, env, "validate-quota@example.com", "Validate Quota Org")
 	markEvaluationOrg(t, env, registered.Organization.ID, 5)
 	orgID := registered.Organization.ID
 	accessToken := registered.Tokens.AccessToken
@@ -3273,7 +3325,7 @@ func TestIntegrationQuotaRaiseValidationAndDefaultApproval(t *testing.T) {
 	}
 	raiseReqBody := decodeBody[quotaRaiseRequestBody](t, raiseReqRes)
 
-	admin := registerUser(t, env.router, "validate-quota-admin@example.com", "Validate Quota Admin Org")
+	admin := legacyCustomerForTest(t, env, "validate-quota-admin@example.com", "Validate Quota Admin Org")
 	if _, err := env.db.Exec(context.Background(), `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -3322,7 +3374,7 @@ func TestIntegrationQuotaRaiseValidationAndDefaultApproval(t *testing.T) {
 func TestIntegrationCurrentUserCanChangePassword(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	registered := registerUser(t, env.router, "password-change@example.com", "Password Org")
+	registered := legacyCustomerForTest(t, env, "password-change@example.com", "Password Org")
 
 	wrongCurrentRes := performJSON(env.router, http.MethodPatch, "/v1/me/password", map[string]any{
 		"current_password": "wrong-password",
@@ -3380,14 +3432,14 @@ func TestIntegrationCurrentUserCanChangePassword(t *testing.T) {
 func TestIntegrationCurrentUserCanDisableSelfWithOwnerSafety(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	lastOwner := registerUser(t, env.router, "last-owner@example.com", "Last Owner Org")
+	lastOwner := legacyCustomerForTest(t, env, "last-owner@example.com", "Last Owner Org")
 	lastOwnerDeleteRes := performJSON(env.router, http.MethodDelete, "/v1/me", nil, lastOwner.Tokens.AccessToken)
 	if lastOwnerDeleteRes.Code != http.StatusConflict {
 		t.Fatalf("expected last owner self-delete 409, got %d: %s", lastOwnerDeleteRes.Code, lastOwnerDeleteRes.Body.String())
 	}
 
-	owner := registerUser(t, env.router, "self-delete@example.com", "Self Delete Org")
-	backupOwner := registerUser(t, env.router, "backup-owner@example.com", "Backup Owner Org")
+	owner := legacyCustomerForTest(t, env, "self-delete@example.com", "Self Delete Org")
+	backupOwner := legacyCustomerForTest(t, env, "backup-owner@example.com", "Backup Owner Org")
 
 	addBackupOwnerRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
 		"email": "backup-owner@example.com",
@@ -3452,7 +3504,7 @@ func TestIntegrationCurrentUserCanDisableSelfWithOwnerSafety(t *testing.T) {
 func TestIntegrationDisabledUserCannotUseExistingTokens(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	registered := registerUser(t, env.router, "disabled@example.com", "Disabled Org")
+	registered := legacyCustomerForTest(t, env, "disabled@example.com", "Disabled Org")
 	if _, err := env.db.Exec(context.Background(), `
 		UPDATE users SET disabled_at = now() WHERE id = $1
 	`, registered.User.ID); err != nil {
@@ -3482,9 +3534,9 @@ func TestIntegrationDisabledUserCannotUseExistingTokens(t *testing.T) {
 func TestIntegrationOwnerCanDisableAndEnableMemberUser(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
-	member := registerUser(t, env.router, "member@example.com", "Member Org")
-	admin := registerUser(t, env.router, "admin@example.com", "Admin Org")
+	owner := legacyCustomerForTest(t, env, "owner@example.com", "Owner Org")
+	member := legacyCustomerForTest(t, env, "member@example.com", "Member Org")
+	admin := legacyCustomerForTest(t, env, "admin@example.com", "Admin Org")
 
 	addMemberRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
 		"email": "member@example.com",
@@ -3567,8 +3619,8 @@ func TestIntegrationOwnerCanDisableAndEnableMemberUser(t *testing.T) {
 func TestIntegrationOwnerCanUpdateAndRemoveMember(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
-	member := registerUser(t, env.router, "member@example.com", "Member Org")
+	owner := legacyCustomerForTest(t, env, "owner@example.com", "Owner Org")
+	member := legacyCustomerForTest(t, env, "member@example.com", "Member Org")
 
 	addMemberRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
 		"email": "member@example.com",
@@ -3607,7 +3659,7 @@ func TestIntegrationOwnerCanUpdateAndRemoveMember(t *testing.T) {
 func TestIntegrationValidationAndNotFoundErrors(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	owner := legacyCustomerForTest(t, env, "owner@example.com", "Owner Org")
 
 	malformedCreateOrgRes := performRaw(env.router, http.MethodPost, "/v1/orgs", []byte(`{"name":`), owner.Tokens.AccessToken)
 	if malformedCreateOrgRes.Code != http.StatusBadRequest {
@@ -3651,9 +3703,9 @@ func TestIntegrationValidationAndNotFoundErrors(t *testing.T) {
 func TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
-	member := registerUser(t, env.router, "member@example.com", "Member Org")
-	admin := registerUser(t, env.router, "admin@example.com", "Admin Org")
+	owner := legacyCustomerForTest(t, env, "owner@example.com", "Owner Org")
+	member := legacyCustomerForTest(t, env, "member@example.com", "Member Org")
+	admin := legacyCustomerForTest(t, env, "admin@example.com", "Admin Org")
 
 	addMemberRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
 		"email": "member@example.com",
@@ -3857,10 +3909,10 @@ func TestIntegrationRoleAuthorizationDeviceScopeAndSerialUniqueness(t *testing.T
 func TestIntegrationFleetGroupsAndTags(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
-	admin := registerUser(t, env.router, "admin@example.com", "Admin Org")
-	member := registerUser(t, env.router, "member@example.com", "Member Org")
-	outsider := registerUser(t, env.router, "outsider@example.com", "Outsider Org")
+	owner := legacyCustomerForTest(t, env, "owner@example.com", "Owner Org")
+	admin := legacyCustomerForTest(t, env, "admin@example.com", "Admin Org")
+	member := legacyCustomerForTest(t, env, "member@example.com", "Member Org")
+	outsider := legacyCustomerForTest(t, env, "outsider@example.com", "Outsider Org")
 
 	for _, membership := range []struct {
 		email string
@@ -4067,9 +4119,9 @@ func TestIntegrationFleetGroupsAndTags(t *testing.T) {
 func TestIntegrationOwnerCanUpdateOrganization(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
-	admin := registerUser(t, env.router, "admin@example.com", "Admin Org")
-	member := registerUser(t, env.router, "member@example.com", "Member Org")
+	owner := legacyCustomerForTest(t, env, "owner@example.com", "Owner Org")
+	admin := legacyCustomerForTest(t, env, "admin@example.com", "Admin Org")
+	member := legacyCustomerForTest(t, env, "member@example.com", "Member Org")
 
 	for _, user := range []struct {
 		email string
@@ -4130,7 +4182,7 @@ func TestIntegrationOwnerCanUpdateOrganization(t *testing.T) {
 func TestIntegrationListPaginationMetadata(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	owner := legacyCustomerForTest(t, env, "owner@example.com", "Owner Org")
 	secondOrgRes := performJSON(env.router, http.MethodPost, "/v1/orgs", map[string]any{
 		"name": "Second Org",
 	}, owner.Tokens.AccessToken)
@@ -4147,7 +4199,7 @@ func TestIntegrationListPaginationMetadata(t *testing.T) {
 		t.Fatalf("unexpected org pagination response: %+v", orgsBody)
 	}
 
-	member := registerUser(t, env.router, "member@example.com", "Member Org")
+	member := legacyCustomerForTest(t, env, "member@example.com", "Member Org")
 	addMemberRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
 		"email": "member@example.com",
 		"role":  "member",
@@ -4192,7 +4244,7 @@ func TestIntegrationMigrationsAreIdempotent(t *testing.T) {
 
 func TestIntegrationFleetDeviceQueryAndSummaryAreServerSide(t *testing.T) {
 	env := newIntegrationEnv(t)
-	owner := registerUser(t, env.router, "fleet-query-owner@example.com", "Fleet Query Org")
+	owner := legacyCustomerForTest(t, env, "fleet-query-owner@example.com", "Fleet Query Org")
 	for _, serial := range []string{"FLEET-A", "FLEET-B"} {
 		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("fleet-"+serial, serial), owner.Tokens.AccessToken)
 		if res.Code != http.StatusCreated {
@@ -4225,7 +4277,7 @@ func TestIntegrationFleetDeviceQueryAndSummaryAreServerSide(t *testing.T) {
 func TestIntegrationCleanupRefreshTokensRemovesExpiredAndRevokedRows(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	owner := legacyCustomerForTest(t, env, "owner@example.com", "Owner Org")
 	now := time.Now().UTC()
 	for _, token := range []struct {
 		hash      string
@@ -4265,7 +4317,7 @@ func TestIntegrationCleanupRefreshTokensRemovesExpiredAndRevokedRows(t *testing.
 func TestIntegrationStoreRefreshTokenHelpers(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	owner := legacyCustomerForTest(t, env, "owner@example.com", "Owner Org")
 	tokenHash := auth.HashToken("store-refresh-token")
 	if err := store.New(env.db).SaveRefreshToken(context.Background(), owner.User.ID, tokenHash, time.Now().UTC().Add(time.Hour)); err != nil {
 		t.Fatal(err)
@@ -4290,7 +4342,7 @@ func TestIntegrationStoreRefreshTokenHelpers(t *testing.T) {
 func TestIntegrationLastOwnerCannotBeRemovedOrDowngraded(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	owner := legacyCustomerForTest(t, env, "owner@example.com", "Owner Org")
 
 	downgradeRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+owner.Organization.ID+"/members/"+owner.User.ID, map[string]any{
 		"role": "admin",
@@ -4325,8 +4377,8 @@ func TestIntegrationLastOwnerCannotBeRemovedOrDowngraded(t *testing.T) {
 		t.Fatal("expected direct SQL deletion of last owner to fail")
 	}
 
-	disabledOwner := registerUser(t, env.router, "disabled-owner@example.com", "Disabled Owner Org")
-	activeOwner := registerUser(t, env.router, "active-owner@example.com", "Active Owner Org")
+	disabledOwner := legacyCustomerForTest(t, env, "disabled-owner@example.com", "Disabled Owner Org")
+	activeOwner := legacyCustomerForTest(t, env, "active-owner@example.com", "Active Owner Org")
 	addActiveOwnerRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+disabledOwner.Organization.ID+"/members", map[string]any{
 		"email": "active-owner@example.com",
 		"role":  "owner",
@@ -4368,7 +4420,7 @@ func TestIntegrationRejectsBlankNames(t *testing.T) {
 		t.Fatalf("expected blank organization name 400, got %d", blankOrgRes.Code)
 	}
 
-	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	owner := legacyCustomerForTest(t, env, "owner@example.com", "Owner Org")
 	blankDeviceRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", map[string]any{
 		"name":     "   ",
 		"category": "ip_camera",
@@ -4399,7 +4451,7 @@ func TestIntegrationDatabaseRejectsInvalidCoreData(t *testing.T) {
 		t.Fatal("expected database to reject organization without owner")
 	}
 
-	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	owner := legacyCustomerForTest(t, env, "owner@example.com", "Owner Org")
 	if _, err := env.db.Exec(context.Background(), `
 		INSERT INTO devices (organization_id, name, category) VALUES ($1, '   ', 'generic')
 	`, owner.Organization.ID); err == nil {
@@ -4410,7 +4462,7 @@ func TestIntegrationDatabaseRejectsInvalidCoreData(t *testing.T) {
 func TestIntegrationDatabaseMaintainsUpdatedAt(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
+	owner := legacyCustomerForTest(t, env, "owner@example.com", "Owner Org")
 
 	var updatedAt time.Time
 	if err := env.db.QueryRow(context.Background(), `
@@ -4442,10 +4494,10 @@ func TestIntegrationDatabaseMaintainsUpdatedAt(t *testing.T) {
 func TestIntegrationProvisioningEndpoints(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
-	admin := registerUser(t, env.router, "admin@example.com", "Admin Org")
-	member := registerUser(t, env.router, "member@example.com", "Member Org")
-	outsider := registerUser(t, env.router, "outsider@example.com", "Outsider Org")
+	owner := legacyCustomerForTest(t, env, "owner@example.com", "Owner Org")
+	admin := legacyCustomerForTest(t, env, "admin@example.com", "Admin Org")
+	member := legacyCustomerForTest(t, env, "member@example.com", "Member Org")
+	outsider := legacyCustomerForTest(t, env, "outsider@example.com", "Outsider Org")
 
 	for _, membership := range []struct {
 		email string
@@ -4715,8 +4767,8 @@ func TestIntegrationProvisioningEndpoints(t *testing.T) {
 func TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	owner := registerUser(t, env.router, "registry-owner@example.com", "Registry Owner Org")
-	member := registerUser(t, env.router, "registry-member@example.com", "Registry Member Org")
+	owner := legacyCustomerForTest(t, env, "registry-owner@example.com", "Registry Owner Org")
+	member := legacyCustomerForTest(t, env, "registry-member@example.com", "Registry Member Org")
 
 	addMemberRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/members", map[string]any{
 		"email": "registry-member@example.com",
@@ -5069,8 +5121,8 @@ func TestIntegrationAdminDeviceClaimTokenWorkflow(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
 
-	admin := registerUser(t, env.router, "claim-token-platform-admin@example.com", "Claim Token Admin Org")
-	nonAdmin := registerUser(t, env.router, "claim-token-non-admin@example.com", "Claim Token Non Admin Org")
+	admin := legacyCustomerForTest(t, env, "claim-token-platform-admin@example.com", "Claim Token Admin Org")
+	nonAdmin := legacyCustomerForTest(t, env, "claim-token-non-admin@example.com", "Claim Token Non Admin Org")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -5198,8 +5250,8 @@ func TestIntegrationAdminIdentityProviderWorkflow(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
 
-	admin := registerUser(t, env.router, "idp-platform-admin@example.com", "IdP Admin Org")
-	nonAdmin := registerUser(t, env.router, "idp-non-admin@example.com", "IdP Non Admin Org")
+	admin := legacyCustomerForTest(t, env, "idp-platform-admin@example.com", "IdP Admin Org")
+	nonAdmin := legacyCustomerForTest(t, env, "idp-non-admin@example.com", "IdP Non Admin Org")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -5359,9 +5411,9 @@ func TestIntegrationAdminDeviceClaimOverrideWorkflow(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
 
-	platformAdmin := registerUser(t, env.router, "claim-override-platform-admin@example.com", "Claim Override Admin Org")
-	source := registerUser(t, env.router, "claim-override-source@example.com", "Claim Override Source Org")
-	target := registerUser(t, env.router, "claim-override-target@example.com", "Claim Override Target Org")
+	platformAdmin := legacyCustomerForTest(t, env, "claim-override-platform-admin@example.com", "Claim Override Admin Org")
+	source := legacyCustomerForTest(t, env, "claim-override-source@example.com", "Claim Override Source Org")
+	target := legacyCustomerForTest(t, env, "claim-override-target@example.com", "Claim Override Target Org")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, platformAdmin.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -5465,8 +5517,15 @@ func TestIntegrationAdminDeviceClaimOverrideWorkflow(t *testing.T) {
 		t.Fatalf("expected audit list 200, got %d: %s", auditRes.Code, auditRes.Body.String())
 	}
 	audit := decodeBody[auditEventsBody](t, auditRes)
-	if audit.Pagination.Total != 2 {
-		t.Fatalf("expected transfer and reclaim audit events, got %+v", audit)
+	if audit.Pagination.Total != 4 {
+		t.Fatalf("expected two claim resolutions plus transfer and reclaim audit events, got %+v", audit)
+	}
+	counts := map[string]int{}
+	for _, event := range audit.AuditEvents {
+		counts[event.EventType]++
+	}
+	if counts["device_claim_resolved"] != 2 || counts["device_claim_transferred"] != 1 || counts["device_claim_reclaimed"] != 1 {
+		t.Fatalf("unexpected claim audit kinds: %v", counts)
 	}
 }
 
@@ -5474,9 +5533,9 @@ func TestIntegrationDeviceUserUnprovisionWorkflow(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
 
-	owner := registerUser(t, env.router, "unprovision-owner@example.com", "Unprovision Owner Org")
-	member := registerUser(t, env.router, "unprovision-member@example.com", "Unprovision Member Org")
-	outsider := registerUser(t, env.router, "unprovision-outsider@example.com", "Unprovision Outsider Org")
+	owner := legacyCustomerForTest(t, env, "unprovision-owner@example.com", "Unprovision Owner Org")
+	member := legacyCustomerForTest(t, env, "unprovision-member@example.com", "Unprovision Member Org")
+	outsider := legacyCustomerForTest(t, env, "unprovision-outsider@example.com", "Unprovision Outsider Org")
 	fixtures := newAPIFixtureBuilder(t, env)
 	fixtures.addMember(owner, member, "member")
 
@@ -5633,9 +5692,9 @@ func TestIntegrationAdminDeviceUnprovisionOverride(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
 
-	platformAdmin := registerUser(t, env.router, "unprovision-platform-admin@example.com", "Unprovision Platform Admin Org")
-	owner := registerUser(t, env.router, "unprovision-override-owner@example.com", "Unprovision Override Owner Org")
-	nonAdmin := registerUser(t, env.router, "unprovision-override-non-admin@example.com", "Unprovision Override Non Admin Org")
+	platformAdmin := legacyCustomerForTest(t, env, "unprovision-platform-admin@example.com", "Unprovision Platform Admin Org")
+	owner := legacyCustomerForTest(t, env, "unprovision-override-owner@example.com", "Unprovision Override Owner Org")
+	nonAdmin := legacyCustomerForTest(t, env, "unprovision-override-non-admin@example.com", "Unprovision Override Non Admin Org")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, platformAdmin.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -5716,10 +5775,10 @@ func TestIntegrationAdminDeviceUnprovisionOverride(t *testing.T) {
 func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 	env := newIntegrationEnv(t)
 
-	owner := registerUser(t, env.router, "owner@example.com", "Owner Org")
-	admin := registerUser(t, env.router, "admin@example.com", "Admin Org")
-	member := registerUser(t, env.router, "member@example.com", "Member Org")
-	outsider := registerUser(t, env.router, "outsider@example.com", "Outsider Org")
+	owner := legacyCustomerForTest(t, env, "owner@example.com", "Owner Org")
+	admin := legacyCustomerForTest(t, env, "admin@example.com", "Admin Org")
+	member := legacyCustomerForTest(t, env, "member@example.com", "Member Org")
+	outsider := legacyCustomerForTest(t, env, "outsider@example.com", "Outsider Org")
 	for _, membership := range []struct {
 		email string
 		role  string
@@ -6443,18 +6502,40 @@ type paginationBody struct {
 	Total  int `json:"total"`
 }
 
-func registerUser(t *testing.T, router *gin.Engine, email, orgName string) registerBody {
+// Legacy customer organizations remain supported by the migration. Construct
+// those fixtures explicitly; the public register endpoint now always creates a
+// pending Brand Cloud owner and must not be used to manufacture legacy state.
+func legacyCustomerForTest(t *testing.T, env integrationEnv, email, orgName string) registerBody {
 	t.Helper()
-	res := performJSON(router, http.MethodPost, "/v1/auth/register", map[string]any{
-		"email":             email,
-		"password":          "password123",
-		"display_name":      email,
-		"organization_name": orgName,
-	}, "")
-	if res.Code != http.StatusCreated {
-		t.Fatalf("expected register 201, got %d: %s", res.Code, res.Body.String())
+	hash, err := auth.HashPassword("password123")
+	if err != nil {
+		t.Fatal(err)
 	}
-	return decodeBody[registerBody](t, res)
+	result, err := env.store.Register(context.Background(), store.RegisterInput{
+		Email: email, PasswordHash: hash, DisplayName: &email, OrganizationName: orgName,
+		OrganizationTier: model.OrganizationTierCommercial, EvaluationDeviceQuota: 5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/test-fixture", nil)
+	if _, _, err := env.server.issueAuthToken(c, result.User.ID, result.User.Email, "email_verification"); err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := env.server.issueTokens(c, result.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(map[string]any{"user": result.User, "organization": result.Organization, "tokens": tokens})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture registerBody
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	return fixture
 }
 
 func markEvaluationOrg(t *testing.T, env integrationEnv, orgID string, quota int) {
@@ -6510,14 +6591,33 @@ func brandCloudListHasRole(body brandCloudsBody, brandCloudID, role string) bool
 
 func createBrandCloudForTest(t *testing.T, env integrationEnv, accessToken, name, tenantSlug string) brandCloudBody {
 	t.Helper()
+	brand, _ := createOwnedBrandCloudForTest(t, env, accessToken, name, tenantSlug)
+	return brand
+}
+
+func createOwnedBrandCloudForTest(t *testing.T, env integrationEnv, accessToken, name, tenantSlug string) (brandCloudBody, registerBody) {
+	t.Helper()
+	owner := legacyCustomerForTest(t, env, tenantSlug+"-designated@example.com", name+" Owner")
+	activateGlobalFixtureForTest(t, env, owner.User.Email)
 	res := performJSON(env.router, http.MethodPost, "/v1/admin/brand-clouds", map[string]any{
-		"name":        name,
-		"tenant_slug": tenantSlug,
+		"name":          name,
+		"tenant_slug":   tenantSlug,
+		"owner_user_id": owner.User.ID,
 	}, accessToken)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected brand cloud create 201, got %d: %s", res.Code, res.Body.String())
 	}
-	return decodeBody[brandCloudBody](t, res)
+	return decodeBody[brandCloudBody](t, res), owner
+}
+
+func activateGlobalFixtureForTest(t *testing.T, env integrationEnv, email string) {
+	t.Helper()
+	res := performJSON(env.router, http.MethodPost, "/v1/auth/verify-email", map[string]any{
+		"token": latestAuthToken(t, env.tokenObserver, email, "email_verification"), "new_password": "password123",
+	}, "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("fixture activation failed: %d %s", res.Code, res.Body.String())
+	}
 }
 
 func TestIntegrationProductCollaboratorLifecycleAndVisibility(t *testing.T) {
@@ -6525,6 +6625,22 @@ func TestIntegrationProductCollaboratorLifecycleAndVisibility(t *testing.T) {
 	owner := verifiedDeveloperForTest(t, env, "product-api-owner@example.com")
 	editor := verifiedDeveloperForTest(t, env, "product-api-editor@example.com")
 	viewer := verifiedDeveloperForTest(t, env, "product-api-viewer@example.com")
+	// Product invitations cannot admit an external account to the cloud. The
+	// cloud owner must first invite it, and the developer must accept that invite.
+	for _, target := range []struct {
+		email     string
+		developer verifiedDeveloperFixture
+	}{{"product-api-editor@example.com", editor}, {"product-api-viewer@example.com", viewer}} {
+		res := performJSON(env.router, http.MethodPost, "/v1/developer/brand-clouds/"+owner.BrandCloudID+"/members/invitations", map[string]any{"email": target.email, "role": "member"}, owner.AccessToken)
+		if res.Code != http.StatusAccepted {
+			t.Fatalf("invite cloud member: %d %s", res.Code, res.Body.String())
+		}
+		token := latestAuthToken(t, env.tokenObserver, target.email, "brand_cloud_membership_invitation")
+		res = performJSON(env.router, http.MethodPost, "/v1/developer/brand-cloud-member-invitations/accept", map[string]any{"token": token}, target.developer.AccessToken)
+		if res.Code != http.StatusOK {
+			t.Fatalf("accept cloud membership: %d %s", res.Code, res.Body.String())
+		}
+	}
 
 	createProduct := func(key string) model.DeviceItemProfile {
 		res := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.BrandCloudID+"/device-item-profiles", map[string]any{
@@ -6609,8 +6725,8 @@ func TestIntegrationProductCollaboratorLifecycleAndVisibility(t *testing.T) {
 		t.Fatalf("transfer Product owner: %d %s", transferRes.Code, transferRes.Body.String())
 	}
 	oldOwnerRes := performJSON(env.router, http.MethodGet, base+"/collaborators", nil, owner.AccessToken)
-	if oldOwnerRes.Code != http.StatusNotFound {
-		t.Fatalf("old owner collaborator access = %d, want 404", oldOwnerRes.Code)
+	if oldOwnerRes.Code != http.StatusOK {
+		t.Fatalf("cloud owner must retain Product management: %d %s", oldOwnerRes.Code, oldOwnerRes.Body.String())
 	}
 	newOwnerRes := performJSON(env.router, http.MethodGet, base+"/collaborators", nil, editor.AccessToken)
 	if newOwnerRes.Code != http.StatusOK {
@@ -6642,7 +6758,7 @@ func newAPIFixtureBuilder(t *testing.T, env integrationEnv) apiFixtureBuilder {
 
 func (b apiFixtureBuilder) register(slug string) registerBody {
 	b.t.Helper()
-	return registerUser(b.t, b.env.router, slug+"@example.com", slug+" Org")
+	return legacyCustomerForTest(b.t, b.env, slug+"@example.com", slug+" Org")
 }
 
 func (b apiFixtureBuilder) addMember(owner registerBody, member registerBody, role string) {

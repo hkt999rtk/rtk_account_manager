@@ -13,6 +13,7 @@ import (
 
 type ProductionRunCreateInput struct {
 	ActorUserID         *string
+	PlatformOverride    bool
 	BrandCloudID        string
 	DeviceItemProfileID string
 	FactoryID           string
@@ -53,19 +54,65 @@ func (s *Store) ListProductionRuns(ctx context.Context, brandCloudID, profileID 
 	return ProductionRunPage{Runs: runs, Page: Page{Limit: limit, Offset: offset, Total: total}}, nil
 }
 
+// Bootstrap/fixture persistence. HTTP uses IssueProductionRunAsUser.
 func (s *Store) CreateProductionRun(ctx context.Context, in ProductionRunCreateInput) (model.ProductionRun, error) {
-	if err := validateProductionRunCreate(in); err != nil {
-		return model.ProductionRun{}, err
-	}
-	if err := ensureBrandCloud(ctx, s.db, in.BrandCloudID); err != nil {
-		return model.ProductionRun{}, err
-	}
-	profile, err := s.GetDeviceItemProfile(ctx, in.BrandCloudID, in.DeviceItemProfileID)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return model.ProductionRun{}, err
 	}
+	defer tx.Rollback(ctx)
+	run, _, err := createProductionRunTx(ctx, tx, in)
+	if err != nil {
+		return model.ProductionRun{}, err
+	}
+	return run, tx.Commit(ctx)
+}
+
+var ErrProductionRunSigning = errors.New("production JWT signing failed")
+
+// The issuer must perform only bounded, in-process signing: no network or DB
+// calls. A signed token is returned only after its run and audit commit.
+type ProductionRunIssuer func(model.ProductionRun, model.DeviceItemProfile) (string, error)
+
+func (s *Store) IssueProductionRunAsUser(ctx context.Context, in ProductionRunCreateInput, issue ProductionRunIssuer) (model.ProductionRun, string, error) {
+	if issue == nil {
+		return model.ProductionRun{}, "", ErrProductionRunSigning
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return model.ProductionRun{}, "", err
+	}
+	defer tx.Rollback(ctx)
+	if err := authorizeProductUserMutationTx(ctx, tx, stringValue(in.ActorUserID), in.BrandCloudID, in.DeviceItemProfileID, in.PlatformOverride); err != nil {
+		return model.ProductionRun{}, "", err
+	}
+	run, profile, err := createProductionRunTx(ctx, tx, in)
+	if err != nil {
+		return model.ProductionRun{}, "", err
+	}
+	token, err := issue(run, profile)
+	if err != nil || strings.TrimSpace(token) == "" {
+		return model.ProductionRun{}, "", ErrProductionRunSigning
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.ProductionRun{}, "", err
+	}
+	return run, token, nil
+}
+
+func createProductionRunTx(ctx context.Context, tx pgx.Tx, in ProductionRunCreateInput) (model.ProductionRun, model.DeviceItemProfile, error) {
+	if err := validateProductionRunCreate(in); err != nil {
+		return model.ProductionRun{}, model.DeviceItemProfile{}, err
+	}
+	if err := ensureBrandCloud(ctx, tx, in.BrandCloudID); err != nil {
+		return model.ProductionRun{}, model.DeviceItemProfile{}, err
+	}
+	profile, err := getDeviceItemProfile(ctx, tx, in.BrandCloudID, in.DeviceItemProfileID, true)
+	if err != nil {
+		return model.ProductionRun{}, model.DeviceItemProfile{}, err
+	}
 	if profile.Status == model.DeviceItemProfileStatusDisabled {
-		return model.ProductionRun{}, ErrDeviceItemProfileDisabled
+		return model.ProductionRun{}, model.DeviceItemProfile{}, ErrDeviceItemProfileDisabled
 	}
 
 	now := in.Now
@@ -73,24 +120,20 @@ func (s *Store) CreateProductionRun(ctx context.Context, in ProductionRunCreateI
 		now = time.Now().UTC()
 	}
 
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return model.ProductionRun{}, err
-	}
-	defer tx.Rollback(ctx)
-
 	run, err := scanProductionRun(tx.QueryRow(ctx, `
 		INSERT INTO factory_production_runs (
 			brand_cloud_id, device_item_profile_id, factory_id, batch_id,
-			status, allowed_quantity, valid_from, valid_until, created_by, created_at, updated_at
+			status, allowed_quantity, valid_from, valid_until, created_by, created_at, updated_at,
+			authorization_ownership_version, authorization_platform_override
 		)
-		VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $9)
+		VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $9,
+			(SELECT ownership_version FROM organizations WHERE id=$1), $10)
 		RETURNING id::text, brand_cloud_id::text, device_item_profile_id::text, factory_id, batch_id,
 			status, allowed_quantity, issued_quantity, valid_from, valid_until, created_by::text, created_at, updated_at
 	`, in.BrandCloudID, in.DeviceItemProfileID, strings.TrimSpace(in.FactoryID), strings.TrimSpace(in.BatchID),
-		in.AllowedQuantity, in.ValidFrom.UTC(), in.ValidUntil.UTC(), in.ActorUserID, now))
+		in.AllowedQuantity, in.ValidFrom.UTC(), in.ValidUntil.UTC(), in.ActorUserID, now, in.PlatformOverride))
 	if err != nil {
-		return model.ProductionRun{}, err
+		return model.ProductionRun{}, model.DeviceItemProfile{}, err
 	}
 
 	if err := createAuditEventTx(ctx, tx, AuditEventInput{
@@ -109,12 +152,9 @@ func (s *Store) CreateProductionRun(ctx context.Context, in ProductionRunCreateI
 			"valid_until":            run.ValidUntil,
 		},
 	}); err != nil {
-		return model.ProductionRun{}, err
+		return model.ProductionRun{}, model.DeviceItemProfile{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return model.ProductionRun{}, err
-	}
-	return run, nil
+	return run, profile, nil
 }
 
 func validateProductionRunCreate(in ProductionRunCreateInput) error {

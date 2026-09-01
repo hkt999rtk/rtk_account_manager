@@ -15,7 +15,12 @@ func (s *Store) AuthorizeUserForVideoDevice(ctx context.Context, userID, videoCl
 		SELECT true
 		FROM devices d
 		JOIN organization_members m ON m.organization_id = d.organization_id
+		JOIN users u ON u.id = m.user_id
 		WHERE m.user_id = $1
+		  AND u.disabled_at IS NULL AND NOT u.signup_pending_verification
+		  AND user_can_access_brand_cloud_product(m.user_id::text, m.organization_id::text, d.device_item_profile_id::text)
+		  AND m.disabled_at IS NULL
+		  AND m.role <> 'viewer'
 		  AND d.disabled_at IS NULL
 		  AND d.metadata ->> $2 = $3
 		LIMIT 1

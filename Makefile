@@ -2,7 +2,7 @@ REPORT_DIR ?= reports
 VERSION ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo dev)
 PYTHON ?= python3
 ADMIN_REPO ?= ../rtk_cloud_admin
-UNIT_TEST_PACKAGES := ./internal/api ./internal/auth ./internal/broker ./internal/channel ./internal/config ./internal/database ./internal/emaildelivery ./internal/openapi ./internal/readiness ./internal/store ./internal/worker/emailoutbox ./internal/worker/inbox ./internal/worker/outbox
+UNIT_TEST_PACKAGES := ./internal/api ./internal/auth ./internal/broker ./internal/channel ./internal/config ./internal/database ./internal/emaildelivery ./internal/openapi ./internal/readiness ./internal/store ./internal/worker/clouddeletion ./internal/worker/emailoutbox ./internal/worker/inbox ./internal/worker/outbox
 RACE_TEST_PACKAGES := ./internal/channel ./internal/broker ./internal/worker/... ./internal/auth ./internal/config ./internal/readiness
 FUZZ_SMOKE_TIME ?= 2s
 
@@ -49,6 +49,8 @@ build:
 	go build -trimpath -o dist/rtk-account-manager-email-worker ./cmd/email-worker
 	go build -trimpath -o dist/rtk-account-manager-email-outbox-admin ./cmd/email-outbox-admin
 	go build -trimpath -o dist/rtk-account-manager-cleanup-tokens ./cmd/cleanup-tokens
+	go build -trimpath -o dist/rtk-account-manager-cloud-deletion-worker ./cmd/cloud-deletion-worker
+	go build -trimpath -o dist/rtk-account-manager-handoff-worker ./cmd/handoff-worker
 
 release:
 	@rm -rf "dist/rtk_account_manager-$(VERSION)" "dist/rtk_account_manager-$(VERSION).tar.gz"
@@ -60,6 +62,8 @@ release:
 	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-email-worker" ./cmd/email-worker
 	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-email-outbox-admin" ./cmd/email-outbox-admin
 	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-cleanup-tokens" ./cmd/cleanup-tokens
+	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-cloud-deletion-worker" ./cmd/cloud-deletion-worker
+	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-handoff-worker" ./cmd/handoff-worker
 	cp -R migrations "dist/rtk_account_manager-$(VERSION)/migrations"
 	cp -R deploy/systemd "dist/rtk_account_manager-$(VERSION)/deploy/systemd"
 	cp deploy/account-manager.env.example "dist/rtk_account_manager-$(VERSION)/deploy/account-manager.env.example"

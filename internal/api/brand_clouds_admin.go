@@ -12,10 +12,11 @@ import (
 )
 
 type brandCloudRequest struct {
-	Name       string         `json:"name,omitempty"`
-	TenantSlug string         `json:"tenant_slug,omitempty"`
-	Status     string         `json:"status,omitempty"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
+	OwnerUserID string         `json:"owner_user_id,omitempty" binding:"omitempty,uuid"`
+	Name        string         `json:"name,omitempty"`
+	TenantSlug  string         `json:"tenant_slug,omitempty"`
+	Status      string         `json:"status,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
 type brandCloudUserRequest struct {
@@ -62,9 +63,6 @@ type brandCloudUserResponse struct {
 }
 
 func profileBrandCloudID(c *gin.Context) string {
-	if id := currentBrandCloudID(c); id != "" {
-		return id
-	}
 	if id := c.Param("brandCloudId"); id != "" {
 		return id
 	}
@@ -79,10 +77,16 @@ func (s *Server) createBrandCloud(c *gin.Context) {
 	if !requireNonBlank(c, "name", req.Name) {
 		return
 	}
+	ownerID := strings.TrimSpace(req.OwnerUserID)
+	if ownerID == "" {
+		writeError(c, http.StatusBadRequest, "invalid_request", "owner_user_id must identify the designated global user")
+		return
+	}
 	org, err := s.store.CreateBrandCloud(c.Request.Context(), currentUserID(c), store.BrandCloudInput{
-		Name:       strings.TrimSpace(req.Name),
-		TenantSlug: strings.TrimSpace(req.TenantSlug),
-		Metadata:   req.Metadata,
+		OwnerUserID: ownerID,
+		Name:        strings.TrimSpace(req.Name),
+		TenantSlug:  strings.TrimSpace(req.TenantSlug),
+		Metadata:    req.Metadata,
 	})
 	if err != nil {
 		writeStoreError(c, err)
@@ -113,6 +117,10 @@ func (s *Server) getBrandCloud(c *gin.Context) {
 func (s *Server) updateBrandCloud(c *gin.Context) {
 	var req brandCloudRequest
 	if !bind(c, &req) {
+		return
+	}
+	if req.OwnerUserID != "" {
+		writeError(c, http.StatusBadRequest, "invalid_request", "ownership changes require an owner transfer")
 		return
 	}
 	status := model.OrganizationStatus(strings.TrimSpace(req.Status))
@@ -152,8 +160,9 @@ func (s *Server) createDeviceItemProfile(c *gin.Context) {
 	if !ok {
 		return
 	}
-	profile, err := s.store.CreateDeviceItemProfile(c.Request.Context(), store.DeviceItemProfileCreateInput{
+	profile, err := s.store.CreateDeviceItemProfileAsUser(c.Request.Context(), store.DeviceItemProfileCreateInput{
 		ActorUserID:        stringPtr(currentUserID(c)),
+		PlatformOverride:   strings.HasPrefix(c.FullPath(), "/v1/admin/"),
 		BrandCloudID:       profileBrandCloudID(c),
 		ProfileKey:         req.ProfileKey,
 		DisplayName:        req.DisplayName,
@@ -177,7 +186,7 @@ func (s *Server) createDeviceItemProfile(c *gin.Context) {
 
 func (s *Server) listDeviceItemProfiles(c *gin.Context) {
 	limit, offset := pagination(c)
-	isPlatformAdmin := s.currentUserIsPlatformAdmin(c)
+	isPlatformAdmin := strings.HasPrefix(c.FullPath(), "/v1/admin/") && s.currentUserIsPlatformAdmin(c)
 	status := model.DeviceItemProfileStatus(strings.TrimSpace(c.Query("status")))
 	if status != "" && status != model.DeviceItemProfileStatusActive && status != model.DeviceItemProfileStatusDisabled {
 		writeError(c, http.StatusBadRequest, "invalid_status", "status must be active or disabled")
@@ -185,14 +194,8 @@ func (s *Server) listDeviceItemProfiles(c *gin.Context) {
 	}
 	page, err := s.store.ListDeviceItemProfiles(c.Request.Context(), store.DeviceItemProfileListFilter{
 		BrandCloudID: profileBrandCloudID(c),
-		BrandCloudUserID: func() string {
-			if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
-				return currentBrandCloudUserID(c)
-			}
-			return ""
-		}(),
 		UserID: func() string {
-			if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser && !isPlatformAdmin {
+			if !isPlatformAdmin {
 				return currentUserID(c)
 			}
 			return ""
@@ -205,15 +208,8 @@ func (s *Server) listDeviceItemProfiles(c *gin.Context) {
 		writeStoreError(c, err)
 		return
 	}
-	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
-		for i := range page.Profiles {
-			page.Profiles[i].CurrentUserRole, _ = s.store.GetProductCollaboratorRole(c.Request.Context(), currentBrandCloudUserID(c), profileBrandCloudID(c), page.Profiles[i].ID)
-		}
-	}
-	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser {
-		for i := range page.Profiles {
-			page.Profiles[i].CurrentUserRole, _ = s.store.GetUserProductCollaboratorRole(c.Request.Context(), currentUserID(c), profileBrandCloudID(c), page.Profiles[i].ID)
-		}
+	for i := range page.Profiles {
+		page.Profiles[i].CurrentUserRole, _ = s.store.GetUserProductCollaboratorRole(c.Request.Context(), currentUserID(c), profileBrandCloudID(c), page.Profiles[i].ID)
 	}
 	c.JSON(http.StatusOK, deviceItemProfilesResponse{DeviceItemProfiles: page.Profiles, Pagination: page.Page})
 }
@@ -224,12 +220,7 @@ func (s *Server) getDeviceItemProfile(c *gin.Context) {
 		writeStoreError(c, err)
 		return
 	}
-	if currentSubjectType(c) == auth.SubjectTypeBrandCloudUser {
-		profile.CurrentUserRole, _ = s.store.GetProductCollaboratorRole(c.Request.Context(), currentBrandCloudUserID(c), profileBrandCloudID(c), profile.ID)
-	}
-	if currentSubjectType(c) != auth.SubjectTypeBrandCloudUser {
-		profile.CurrentUserRole, _ = s.store.GetUserProductCollaboratorRole(c.Request.Context(), currentUserID(c), profileBrandCloudID(c), profile.ID)
-	}
+	profile.CurrentUserRole, _ = s.store.GetUserProductCollaboratorRole(c.Request.Context(), currentUserID(c), profileBrandCloudID(c), profile.ID)
 	c.JSON(http.StatusOK, deviceItemProfileResponse{DeviceItemProfile: profile})
 }
 
@@ -275,8 +266,9 @@ func (s *Server) updateDeviceItemProfile(c *gin.Context) {
 	if strings.TrimSpace(req.IssuerProfile) != "" {
 		issuerProfile = &req.IssuerProfile
 	}
-	profile, err := s.store.UpdateDeviceItemProfile(c.Request.Context(), store.DeviceItemProfileUpdateInput{
+	profile, err := s.store.UpdateDeviceItemProfileAsUser(c.Request.Context(), store.DeviceItemProfileUpdateInput{
 		ActorUserID:        stringPtr(currentUserID(c)),
+		PlatformOverride:   strings.HasPrefix(c.FullPath(), "/v1/admin/"),
 		BrandCloudID:       profileBrandCloudID(c),
 		ProfileID:          c.Param("profileId"),
 		DisplayName:        displayName,
@@ -300,7 +292,7 @@ func (s *Server) updateDeviceItemProfile(c *gin.Context) {
 }
 
 func (s *Server) disableDeviceItemProfile(c *gin.Context) {
-	profile, err := s.store.DisableDeviceItemProfile(c.Request.Context(), profileBrandCloudID(c), c.Param("profileId"), stringPtr(currentUserID(c)))
+	profile, err := s.store.DisableDeviceItemProfileAsUser(c.Request.Context(), profileBrandCloudID(c), c.Param("profileId"), currentUserID(c), strings.HasPrefix(c.FullPath(), "/v1/admin/"))
 	if err != nil {
 		writeStoreError(c, err)
 		return
@@ -314,8 +306,8 @@ func (s *Server) createBrandCloudUser(c *gin.Context) {
 		return
 	}
 	role := model.Role(strings.TrimSpace(req.Role))
-	if role != model.RoleOwner && role != model.RoleAdmin && role != model.RoleMember {
-		writeError(c, http.StatusBadRequest, "invalid_role", "Invalid role")
+	if role != model.RoleAdmin && role != model.RoleMember {
+		writeError(c, http.StatusBadRequest, "invalid_role", "Only admin/member may be provisioned; ownership requires atomic creation or transfer")
 		return
 	}
 	activationMode := strings.ToLower(strings.TrimSpace(req.ActivationMode))

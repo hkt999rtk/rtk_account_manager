@@ -49,6 +49,15 @@ func (s *Store) UnprovisionDevice(ctx context.Context, in DeviceUnprovisionInput
 		return DeviceUnprovisionResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	if in.PlatformOverride {
+		cloud, err := authorizePlatformDeviceUnprovisionTx(ctx, tx, in.ActorUserID, in.DeviceID)
+		if err != nil {
+			return DeviceUnprovisionResult{}, err
+		}
+		in.OrganizationID = cloud
+	} else if err := authorizeDeviceUserMutationTx(ctx, tx, in.ActorUserID, in.OrganizationID, in.DeviceID, "device.unprovision"); err != nil {
+		return DeviceUnprovisionResult{}, err
+	}
 
 	now := in.Now
 	if now.IsZero() {
@@ -59,7 +68,7 @@ func (s *Store) UnprovisionDevice(ctx context.Context, in DeviceUnprovisionInput
 		reason = "user_unprovision"
 	}
 
-	device, err := getDeviceForUnprovisionTx(ctx, tx, in.OrganizationID, in.DeviceID, in.PlatformOverride)
+	device, err := getDeviceForUpdateTx(ctx, tx, in.OrganizationID, in.DeviceID)
 	if err != nil {
 		return DeviceUnprovisionResult{}, err
 	}
@@ -171,28 +180,58 @@ func (s *Store) UnprovisionDevice(ctx context.Context, in DeviceUnprovisionInput
 	}, nil
 }
 
-func getDeviceForUnprovisionTx(ctx context.Context, tx pgx.Tx, orgID, deviceID string, platformOverride bool) (model.Device, error) {
-	query := `
-		SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
-		FROM devices
-		WHERE organization_id = $1 AND id = $2
-		FOR UPDATE
-	`
-	args := []any{orgID, deviceID}
-	if platformOverride {
-		query = `
-			SELECT id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
-			FROM devices
-			WHERE id = $1
-			FOR UPDATE
-		`
-		args = []any{deviceID}
+// Lock actor -> cloud -> device, matching ordinary writes and ownership commit.
+// The first device lookup only resolves scope; the caller rechecks it under lock.
+func authorizePlatformDeviceUnprovisionTx(ctx context.Context, tx pgx.Tx, actor, device string) (string, error) {
+	if err := lockPlatformActorTx(ctx, tx, actor); err != nil {
+		return "", err
 	}
-	device, err := scanDevice(tx.QueryRow(ctx, query, args...))
+	var cloud string
+	err := tx.QueryRow(ctx, `SELECT organization_id::text FROM devices WHERE id::text=$1`, device).Scan(&cloud)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return model.Device{}, ErrNotFound
+		return "", ErrNotFound
 	}
-	return device, err
+	if err != nil {
+		return "", err
+	}
+	return cloud, lockOperationalCloudTx(ctx, tx, cloud)
+}
+
+func lockPlatformActorTx(ctx context.Context, tx pgx.Tx, actor string) error {
+	var admin bool
+	err := tx.QueryRow(ctx, `SELECT COALESCE(platform_admin,false) FROM users
+		WHERE id::text=$1 AND disabled_at IS NULL AND NOT signup_pending_verification FOR UPDATE`, actor).Scan(&admin)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !admin) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Used by independently authenticated platform/App actors, not a human
+// membership substitute. An active cloud still requires its designated owner.
+func lockOperationalCloudTx(ctx context.Context, tx pgx.Tx, cloud string) error {
+	var kind model.OrganizationKind
+	err := tx.QueryRow(ctx, `SELECT organization_kind FROM organizations WHERE id::text=$1 AND deleted_at IS NULL FOR UPDATE`, cloud).Scan(&kind)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if kind == model.OrganizationKindBrandCloud {
+		var active bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM organization_members m WHERE m.organization_id::text=$1 AND m.role='owner'
+			AND user_can_access_brand_cloud(m.user_id::text,$1))`, cloud).Scan(&active); err != nil {
+			return err
+		}
+		if !active {
+			return ErrNotFound
+		}
+	}
+	return nil
 }
 
 func getResolvedClaimByDeviceForUpdateTx(ctx context.Context, tx pgx.Tx, deviceID string) (model.DeviceClaim, error) {

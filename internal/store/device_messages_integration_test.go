@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -20,6 +21,52 @@ import (
 type storeIntegrationEnv struct {
 	store *Store
 	db    *pgxpool.Pool
+}
+
+func transactionBackendPID(t *testing.T, ctx context.Context, tx pgx.Tx) uint32 {
+	t.Helper()
+	var pid uint32
+	if err := tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+		t.Fatal(err)
+	}
+	return pid
+}
+
+type blockedConnectionObserver interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func awaitBlockedConnections(t *testing.T, ctx context.Context, observer blockedConnectionObserver, blockerPID uint32, expected int, escaped <-chan error) {
+	t.Helper()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		// PostgreSQL caches statistics snapshots inside a transaction. The observer
+		// is also the blocker transaction, so force a live pg_stat_activity view.
+		if _, err := observer.Exec(ctx, `SELECT pg_stat_clear_snapshot()`); err != nil {
+			t.Fatal(err)
+		}
+		var waiting int
+		// A competing operation can wait behind another waiter rather than directly
+		// behind blockerPID. Count the whole database's lock waiters; integration
+		// tests hold the database-wide test lock, so no unrelated test can contribute.
+		if err := observer.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>$1 AND wait_event_type='Lock'`, blockerPID).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting >= expected {
+			return
+		}
+		select {
+		case err := <-escaped:
+			t.Fatalf("operation escaped transaction lock: %v", err)
+		case <-ctx.Done():
+			var activity string
+			_ = observer.QueryRow(context.Background(), `SELECT COALESCE(string_agg(format('pid=%s wait=%s/%s query=%s',pid,wait_event_type,wait_event,left(query,120)), E'\n'),'none') FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()`).Scan(&activity)
+			t.Fatalf("waiting for %d connections blocked by pid %d: %v\n%s", expected, blockerPID, ctx.Err(), activity)
+		case <-ticker.C:
+		}
+	}
 }
 
 func newStoreIntegrationEnv(t *testing.T) storeIntegrationEnv {

@@ -57,14 +57,14 @@ func TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit(t *testing.T) {
 	fetcher := &integrationChipsetFetcher{result: integrationManifestResult("1.0.0")}
 	env.server.ConfigureChipsetManifestFetcher(fetcher)
 
-	admin := registerUser(t, env.router, "chipset-admin@example.com", "Chipset Admin")
+	admin := legacyCustomerForTest(t, env, "chipset-admin@example.com", "Chipset Admin")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin = true WHERE id = $1`, admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	developer := registerUser(t, env.router, "chipset-developer@example.com", "Chipset Developer")
-	readUser := registerUser(t, env.router, "chipset-reader@example.com", "Chipset Reader")
-	editUser := registerUser(t, env.router, "chipset-editor@example.com", "Chipset Editor")
-	publishUser := registerUser(t, env.router, "chipset-publisher@example.com", "Chipset Publisher")
+	developer := legacyCustomerForTest(t, env, "chipset-developer@example.com", "Chipset Developer")
+	readUser := legacyCustomerForTest(t, env, "chipset-reader@example.com", "Chipset Reader")
+	editUser := legacyCustomerForTest(t, env, "chipset-editor@example.com", "Chipset Editor")
+	publishUser := legacyCustomerForTest(t, env, "chipset-publisher@example.com", "Chipset Publisher")
 
 	aclStore := store.New(env.db)
 	bindPlatformCapability(t, ctx, aclStore, readUser.User.ID, "chipset_reader_test_"+readUser.User.ID, store.PermissionChipsetProviderRead)
