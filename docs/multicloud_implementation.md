@@ -78,11 +78,16 @@ domains rather than environment-provided participant names:
 
 - `VIDEO_CONTROL_PLANE_HANDOFF_BASE_URL` and
   `VIDEO_CONTROL_PLANE_HANDOFF_TOKEN` call
-  `/v1/internal/video-control-plane-handoffs/{prepare,abort,release}`.
+  `/v1/internal/video-control-plane-handoffs/{prepare,abort,release}` and the
+  read-only `/v1/internal/video-control-plane-handoffs/deletion-preflight`.
 - `MQTT_USAGE_HANDOFF_BASE_URL` and `MQTT_USAGE_HANDOFF_TOKEN` call
   `/v1/internal/mqtt-usage-handoffs/{prepare,abort,release}`.
 
 An HTTP status without an exact durable response never advances the operation.
+The deletion observer validates the exact cloud, owner, ownership and
+authorization versions plus a fresh no-store receipt and evidence digest. Video
+Control Plane reports its device projections, clip/firmware/OTA resources,
+active work and lifecycle fences; Billing continues to own usage settlement.
 
 ## Persistence and concurrency
 

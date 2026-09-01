@@ -60,6 +60,37 @@ func TestReviewedResourceParticipantsUseFixedRoutesAndDigestDomains(t *testing.T
 	}
 }
 
+func TestVideoControlPlaneDeletionObserverBindsScopeAndEvidence(t *testing.T) {
+	scope := store.CloudDeletionResourceScope{CloudDeletionScope: billinghandoff.CloudDeletionScope{CloudID: fixtureBinding().CloudID, OwnerUserID: fixtureBinding().SourceUserID, OwnershipVersion: 2}, AuthorizationVersion: 9}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path != "/v1/internal/video-control-plane-handoffs/deletion-preflight" || req.Header.Get("Authorization") != "Bearer "+testToken {
+			t.Fatalf("unexpected authenticated route %s", req.URL.Path)
+		}
+		var got deletionScope
+		if json.NewDecoder(req.Body).Decode(&got) != nil || got.CloudID != scope.CloudID || got.AuthorizationVersion != scope.AuthorizationVersion {
+			t.Fatal("wrong deletion scope")
+		}
+		now := time.Now().UTC().Truncate(time.Microsecond)
+		evidence := deletionEvidence{deletionScope: got, Complete: true, ReceiptID: "55555555-5555-4555-8555-555555555555", Blockers: []string{"jobs_running"}, ObservedAt: now, ExpiresAt: now.Add(time.Minute)}
+		evidence.EvidenceSHA256 = evidence.digest()
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(evidence)
+	}))
+	defer server.Close()
+	client, err := NewParticipant(ParticipantVideoControlPlane, Config{BaseURL: server.URL, Token: testToken})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := client.ObserveCloudDeletion(context.Background(), scope)
+	if err != nil || evidence.Scope != scope || len(evidence.Blockers) != 1 || evidence.Blockers[0] != "jobs_running" {
+		t.Fatalf("evidence %+v: %v", evidence, err)
+	}
+	client.participant = ParticipantMQTTUsage
+	if _, err := client.ObserveCloudDeletion(context.Background(), scope); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unreviewed observer accepted: %v", err)
+	}
+}
+
 func TestFactoryHandoffClientValidatesConfigurationAndExactReceipts(t *testing.T) {
 	for _, base := range []string{"", "http://cloud.example", "http://localhost:123", "ftp://127.0.0.1", "https://user:secret@example.com", "https://example.com/path", "https://example.com?", "https://example.com?q=1", "https://example.com#fragment", "https://example.com/%2f"} {
 		if _, err := New(Config{BaseURL: base, Token: testToken}); !errors.Is(err, ErrInvalid) {
