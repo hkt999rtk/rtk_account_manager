@@ -24,7 +24,9 @@ for binary in \
   rtk-account-manager-inbox-worker \
   rtk-account-manager-email-worker \
   rtk-account-manager-email-outbox-admin \
-  rtk-account-manager-cleanup-tokens; do
+  rtk-account-manager-cleanup-tokens \
+  rtk-account-manager-cloud-deletion-worker \
+  rtk-account-manager-handoff-worker; do
   test -x "$prefix/bin/$binary"
 done
 

@@ -875,6 +875,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/database`: `TestMultiCloudSoleOwnerIntegration`
 - `rtk_account_manager/internal/database`: `TestMultiCloudViewerScopeConstraintsIntegration`
 - `rtk_account_manager/internal/database`: `TestPreflightIdentityCorrectionRejectsNilPool`
+- `rtk_account_manager/internal/database`: `TestPreflightIdentityCorrectionRequiresMigrationDirectory`
 - `rtk_account_manager/internal/emaildelivery`: `TestAuthEmailHTMLEscapesContent`
 - `rtk_account_manager/internal/emaildelivery`: `TestCipherRejectsInvalidKey`
 - `rtk_account_manager/internal/emaildelivery`: `TestCipherRoundTripAndWrongKey`
@@ -1195,6 +1196,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestGlobalVerificationTokenStatusHonorsAccountAndTokenState`
 - `rtk_account_manager/internal/store`: `TestHandoffAcceptanceRechecksExpiryAfterRemoteEligibility`
 - `rtk_account_manager/internal/store`: `TestHandoffAcceptanceReservesQuotaAndCancellationWaitsForEveryHoldRelease`
+- `rtk_account_manager/internal/store`: `TestHandoffAndDeletionAdapterConfiguration`
 - `rtk_account_manager/internal/store`: `TestHandoffBalanceChangeToZeroRequiresFreshConsentAndNewKey`
 - `rtk_account_manager/internal/store`: `TestHandoffBalancePreviewRequiresAllPrepareEvidenceAndPreservesSnapshot`
 - `rtk_account_manager/internal/store`: `TestHandoffBalanceRechecksParticipantAfterRemoteRead`
@@ -1247,6 +1249,16 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestHandoffPreparedReceiptsCannotReleaseCancellationFence`
 - `rtk_account_manager/internal/store`: `TestHandoffRechecksOwnerAndTargetAfterExternalPreflight`
 - `rtk_account_manager/internal/store`: `TestHandoffSnapshotBindingComparesCutoffInstant`
+- `rtk_account_manager/internal/store`: `TestHandoffStatusProjectionAndBillingBlockers/canceled`
+- `rtk_account_manager/internal/store`: `TestHandoffStatusProjectionAndBillingBlockers/canceling`
+- `rtk_account_manager/internal/store`: `TestHandoffStatusProjectionAndBillingBlockers/committing`
+- `rtk_account_manager/internal/store`: `TestHandoffStatusProjectionAndBillingBlockers/finalizing`
+- `rtk_account_manager/internal/store`: `TestHandoffStatusProjectionAndBillingBlockers/missing_operation`
+- `rtk_account_manager/internal/store`: `TestHandoffStatusProjectionAndBillingBlockers/pending`
+- `rtk_account_manager/internal/store`: `TestHandoffStatusProjectionAndBillingBlockers/preparing`
+- `rtk_account_manager/internal/store`: `TestHandoffStatusProjectionAndBillingBlockers/stale_confirmation`
+- `rtk_account_manager/internal/store`: `TestHandoffStatusProjectionAndBillingBlockers/succeeded`
+- `rtk_account_manager/internal/store`: `TestHandoffStatusProjectionAndBillingBlockers`
 - `rtk_account_manager/internal/store`: `TestHandoffWorkerCancellationRequiresAllReleaseReceipts`
 - `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/canceling/invalid_receipt`
 - `rtk_account_manager/internal/store`: `TestHandoffWorkerDoesNotReleaseOnUnprovenParticipantResponses/canceling/missing_adapter`

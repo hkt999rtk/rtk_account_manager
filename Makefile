@@ -50,6 +50,7 @@ build:
 	go build -trimpath -o dist/rtk-account-manager-email-outbox-admin ./cmd/email-outbox-admin
 	go build -trimpath -o dist/rtk-account-manager-cleanup-tokens ./cmd/cleanup-tokens
 	go build -trimpath -o dist/rtk-account-manager-cloud-deletion-worker ./cmd/cloud-deletion-worker
+	go build -trimpath -o dist/rtk-account-manager-handoff-worker ./cmd/handoff-worker
 
 release:
 	@rm -rf "dist/rtk_account_manager-$(VERSION)" "dist/rtk_account_manager-$(VERSION).tar.gz"
@@ -62,6 +63,7 @@ release:
 	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-email-outbox-admin" ./cmd/email-outbox-admin
 	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-cleanup-tokens" ./cmd/cleanup-tokens
 	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-cloud-deletion-worker" ./cmd/cloud-deletion-worker
+	go build -trimpath -o "dist/rtk_account_manager-$(VERSION)/bin/rtk-account-manager-handoff-worker" ./cmd/handoff-worker
 	cp -R migrations "dist/rtk_account_manager-$(VERSION)/migrations"
 	cp -R deploy/systemd "dist/rtk_account_manager-$(VERSION)/deploy/systemd"
 	cp deploy/account-manager.env.example "dist/rtk_account_manager-$(VERSION)/deploy/account-manager.env.example"
