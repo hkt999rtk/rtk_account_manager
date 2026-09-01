@@ -2600,7 +2600,11 @@ The unified human identity implementation is acceptable when:
   `404`.
 - Legacy tenant tokens and certificates are revoked, new human app certificates
   use `app-user:<user_id>`, and the old identity tables are removed only after
-  cutover assertions pass.
+  cutover assertions pass. A client that intentionally replaces its private key
+  authenticates through global `/v1/auth/login` with a same-user CSR and
+  `rotate_app_certificate=true`; issuance and revocation of all prior active
+  certificates commit together. Tenant slug and Brand Cloud membership are not
+  certificate-rotation authority.
 - Automated migration, API, authorization, OpenAPI, and staging email/load-test
   checks cover the coordinated release and rollback preconditions.
 

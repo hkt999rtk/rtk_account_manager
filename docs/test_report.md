@@ -70,6 +70,7 @@ Generated: ci-candidate
 | Database invariants | `TestIntegrationDatabaseSchemaInvariants` | PASS |
 | OpenAPI contract | `TestIntegrationResponsesMatchOpenAPIContract` | PASS |
 | Global user authentication and retired tenant auth | `TestIntegrationPlatformAdminCreatesActiveBrandCloudUser` | PASS |
+| Global app certificate rotation | `TestIntegrationGlobalLoginExplicitlyRotatesAppCertificate` | PASS |
 | Developer-owned brand clouds | `TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit` | PASS |
 | Brand-cloud owner transfer | `TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession` | PASS |
 | ChipSet SDK provider lifecycle and ACL | `TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit` | PASS |
@@ -131,6 +132,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Database invariants | `TestIntegrationDatabaseSchemaInvariants` plus existing migration tests verify idempotent migrations, normalized email constraint, non-blank organization/device names, owner invariant, critical tables/columns/constraints/indexes, and automatic `updated_at` triggers. |
 | OpenAPI contract | `TestIntegrationResponsesMatchOpenAPIContract` plus OpenAPI schema validation cover representative Claim Token resolve/admin, registry-only provisioning-state with nullable `operation`, provisioned/failed provisioning-state, provisioning, deactivation, quota visibility, audit visibility, public OIDC, current-user identity, and admin identity-provider responses against `openapi.yaml`. |
 | Global user authentication and retired tenant auth | `TestGlobalEmailLoginDoesNotDependOnMembershipNamespace`, `TestIntegrationPlatformAdminCreatesActiveBrandCloudUser`, `TestIntegrationRetiredTenantAuthenticationAndTokensRejected`, and `TestMultiCloudRegisterSignupOnboardingParityIntegration` verify one global human identity across memberships, global login and activation, tenant auth endpoint retirement, legacy JWT rejection, and organization-scoped authorization. |
+| Global app certificate rotation | `TestIntegrationGlobalLoginExplicitlyRotatesAppCertificate` verifies that authenticated global login requires an explicit rotation flag and same-user CSR, atomically revokes the previous active certificate, accepts the replacement, and keeps unflagged CSR login idempotent without any tenant identity input. |
 | Developer-owned brand clouds | `TestDeveloperSignupCreatesDefaultBrandCloudAndEnforcesCloudLimit`, `TestEnsurePlatformAdminCreatesRealtekConnectBrandCloud`, and `TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit` verify global developer signup, default brand cloud creation, root `Realtek Connect+` bootstrap, and developer cloud limits. |
 | Brand-cloud owner transfer | `TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper` and `TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession` verify existing-target checks, email token delivery, target-session acceptance, old-owner downgrade, and replay rejection. |
 | ChipSet SDK information providers | `TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit`, `TestChipsetProviderSnapshotLifecycle`, and manifest fetch security tests verify independent read/edit/publish ACLs, draft/published/unpublished visibility, synchronous and background refresh, ETag 304, atomic snapshots, stale last-known-good fallback, audit correlation, SSRF controls, timeout, redirect, response-size, and JSON-complexity limits. |
@@ -329,6 +331,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationFactoryCoordinationRejectsInvalidProductionJWTs`
 - `rtk_account_manager/internal/api`: `TestIntegrationFleetDeviceQueryAndSummaryAreServerSide`
 - `rtk_account_manager/internal/api`: `TestIntegrationFleetGroupsAndTags`
+- `rtk_account_manager/internal/api`: `TestIntegrationGlobalLoginExplicitlyRotatesAppCertificate`
 - `rtk_account_manager/internal/api`: `TestIntegrationInternalAppTokenAuthorization`
 - `rtk_account_manager/internal/api`: `TestIntegrationInternalDeviceProvisioningResult`
 - `rtk_account_manager/internal/api`: `TestIntegrationLastOwnerCannotBeRemovedOrDowngraded`

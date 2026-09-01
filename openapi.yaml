@@ -4958,6 +4958,7 @@ components:
       additionalProperties: false
     LoginRequest:
       type: object
+      additionalProperties: false
       required: [email, password]
       properties:
         email:
@@ -4965,6 +4966,14 @@ components:
           format: email
         password:
           type: string
+          minLength: 8
+        app_csr_pem:
+          type: string
+          description: Optional app-generated CSR; its private key never leaves the client.
+        rotate_app_certificate:
+          type: boolean
+          default: false
+          description: Explicitly replace the authenticated global user's active app certificate using app_csr_pem; prior active certificates are revoked atomically and Brand Cloud identity is not a rotation input.
     RefreshRequest:
       type: object
       required: [refresh_token]

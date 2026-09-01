@@ -65,8 +65,8 @@ var (
 	errAppCertificateCSRInvalid        = errors.New("app certificate csr invalid")
 )
 
-func (s *Server) loginResponse(ctx context.Context, user model.User, tokens tokenResponse, csrPEM string) (loginResponse, error) {
-	appCert, err := s.appCertificateForLogin(ctx, user.ID, csrPEM)
+func (s *Server) loginResponse(ctx context.Context, user model.User, tokens tokenResponse, csrPEM string, rotate bool) (loginResponse, error) {
+	appCert, err := s.appCertificateForLogin(ctx, user.ID, csrPEM, rotate)
 	if err != nil {
 		return loginResponse{}, err
 	}
@@ -77,25 +77,30 @@ func (s *Server) loginResponse(ctx context.Context, user model.User, tokens toke
 	}, nil
 }
 
-func (s *Server) appCertificateForLogin(ctx context.Context, userID, csrPEM string) (appCertificateResponse, error) {
-	return s.appCertificateForSubject(ctx, "platform", "user", userID, "app-user:"+userID, csrPEM)
+func (s *Server) appCertificateForLogin(ctx context.Context, userID, csrPEM string, rotate bool) (appCertificateResponse, error) {
+	return s.appCertificateForSubject(ctx, "platform", "user", userID, "app-user:"+userID, csrPEM, rotate)
 }
 
 func (s *Server) appCertificateForEndUserLogin(ctx context.Context, endUserID, csrPEM string) (appCertificateResponse, error) {
-	return s.appCertificateForSubject(ctx, "platform", "end_user", endUserID, "app-end-user:"+endUserID, csrPEM)
+	return s.appCertificateForSubject(ctx, "platform", "end_user", endUserID, "app-end-user:"+endUserID, csrPEM, false)
 }
 
-func (s *Server) appCertificateForSubject(ctx context.Context, tenantID, subjectType, subjectID, expectedSubject, csrPEM string) (appCertificateResponse, error) {
+func (s *Server) appCertificateForSubject(ctx context.Context, tenantID, subjectType, subjectID, expectedSubject, csrPEM string, rotate bool) (appCertificateResponse, error) {
 	now := s.now()
-	existing, err := s.store.GetValidAppCertificateForSubject(ctx, subjectType, subjectID, now)
-	if err == nil {
-		return appCertificateFromModel(existing, "issued", tenantID)
-	}
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return appCertificateResponse{}, err
+	if !rotate {
+		existing, err := s.store.GetValidAppCertificateForSubject(ctx, subjectType, subjectID, now)
+		if err == nil {
+			return appCertificateFromModel(existing, "issued", tenantID)
+		}
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return appCertificateResponse{}, err
+		}
 	}
 	csrPEM = strings.TrimSpace(csrPEM)
 	if csrPEM == "" {
+		if rotate {
+			return appCertificateResponse{}, errAppCertificateCSRInvalid
+		}
 		return appCertificateResponse{Status: "csr_required"}, nil
 	}
 	if s.appCertificateIssuer == nil {

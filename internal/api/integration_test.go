@@ -561,6 +561,99 @@ func TestIntegrationLoginWithAppCSRStoresCertificateAndReusesIt(t *testing.T) {
 	}
 }
 
+func TestIntegrationGlobalLoginExplicitlyRotatesAppCertificate(t *testing.T) {
+	env := newIntegrationEnv(t)
+	registered := legacyCustomerForTest(t, env, "app-cert-rotate@example.com", "App Cert Rotate Org")
+	issuer := &fakeAppCertificateIssuer{}
+	env.server.ConfigureAppCertificateIssuer(issuer)
+
+	subject := "app-user:" + registered.User.ID
+	firstRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":       "app-cert-rotate@example.com",
+		"password":    "password123",
+		"app_csr_pem": generateTestCSR(t, subject),
+	}, "")
+	if firstRes.Code != http.StatusOK {
+		t.Fatalf("initial certificate login = %d: %s", firstRes.Code, firstRes.Body.String())
+	}
+	first := decodeBody[tokenBody](t, firstRes)
+	refreshTokensBeforeInvalid := refreshTokenCount(t, env, registered.User.ID)
+
+	missingCSR := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":                  "app-cert-rotate@example.com",
+		"password":               "password123",
+		"rotate_app_certificate": true,
+	}, "")
+	assertErrorCode(t, missingCSR, http.StatusBadRequest, "app_certificate_csr_invalid")
+	assertRefreshTokenCount(t, env, registered.User.ID, refreshTokensBeforeInvalid)
+
+	wrongSubject := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":                  "app-cert-rotate@example.com",
+		"password":               "password123",
+		"app_csr_pem":            generateTestCSR(t, "app-user:someone-else"),
+		"rotate_app_certificate": true,
+	}, "")
+	assertErrorCode(t, wrongSubject, http.StatusBadRequest, "app_certificate_csr_invalid")
+	assertRefreshTokenCount(t, env, registered.User.ID, refreshTokensBeforeInvalid)
+
+	rotateRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":                  "app-cert-rotate@example.com",
+		"password":               "password123",
+		"app_csr_pem":            generateTestCSR(t, subject),
+		"rotate_app_certificate": true,
+	}, "")
+	if rotateRes.Code != http.StatusOK {
+		t.Fatalf("rotation login = %d: %s", rotateRes.Code, rotateRes.Body.String())
+	}
+	rotated := decodeBody[tokenBody](t, rotateRes)
+	if rotated.AppCertificate.Subject != subject || rotated.AppCertificate.FingerprintSHA256 == "" || rotated.AppCertificate.FingerprintSHA256 == first.AppCertificate.FingerprintSHA256 {
+		t.Fatalf("rotation did not replace the same global subject: first=%+v rotated=%+v", first.AppCertificate, rotated.AppCertificate)
+	}
+	if len(issuer.calls) != 2 {
+		t.Fatalf("issuer calls = %d, want initial plus replacement", len(issuer.calls))
+	}
+	if err := env.store.AuthorizeActiveAppCertificateForSubject(context.Background(), "user", registered.User.ID, first.AppCertificate.FingerprintSHA256, time.Now()); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("replaced certificate remains active: %v", err)
+	}
+	if err := env.store.AuthorizeActiveAppCertificateForSubject(context.Background(), "user", registered.User.ID, rotated.AppCertificate.FingerprintSHA256, time.Now()); err != nil {
+		t.Fatalf("replacement certificate is not active: %v", err)
+	}
+
+	reuseRes := performJSON(env.router, http.MethodPost, "/v1/auth/login", map[string]any{
+		"email":       "app-cert-rotate@example.com",
+		"password":    "password123",
+		"app_csr_pem": generateTestCSR(t, subject),
+	}, "")
+	if reuseRes.Code != http.StatusOK {
+		t.Fatalf("reuse login = %d: %s", reuseRes.Code, reuseRes.Body.String())
+	}
+	reused := decodeBody[tokenBody](t, reuseRes)
+	if reused.AppCertificate.FingerprintSHA256 != rotated.AppCertificate.FingerprintSHA256 || len(issuer.calls) != 2 {
+		t.Fatalf("unflagged CSR rotated active certificate: %+v calls=%d", reused.AppCertificate, len(issuer.calls))
+	}
+	var active, revoked int
+	if err := env.db.QueryRow(context.Background(), `SELECT count(*) FILTER (WHERE revoked_at IS NULL), count(*) FILTER (WHERE revoked_at IS NOT NULL) FROM app_certificates WHERE subject_type='user' AND subject_id=$1`, registered.User.ID).Scan(&active, &revoked); err != nil || active != 1 || revoked != 1 {
+		t.Fatalf("certificate rotation rows active=%d revoked=%d err=%v", active, revoked, err)
+	}
+}
+
+func assertRefreshTokenCount(t *testing.T, env integrationEnv, userID string, want int) {
+	t.Helper()
+	got := refreshTokenCount(t, env, userID)
+	if got != want {
+		t.Fatalf("refresh token count = %d, want %d", got, want)
+	}
+}
+
+func refreshTokenCount(t *testing.T, env integrationEnv, userID string) int {
+	t.Helper()
+	var got int
+	if err := env.db.QueryRow(context.Background(), `SELECT count(*) FROM refresh_tokens WHERE user_id=$1`, userID).Scan(&got); err != nil {
+		t.Fatalf("count refresh tokens: %v", err)
+	}
+	return got
+}
+
 func TestIntegrationInternalAppTokenAuthorization(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
