@@ -56,7 +56,10 @@ if [ -s "$FORMAT_OUT" ]; then
 	format_status=1
 fi
 
-TEST_DATABASE_URL="$TEST_DATABASE_URL" go test -json -count=1 ./... -coverpkg=./internal/... -coverprofile="$COVERAGE_OUT" -covermode=atomic | tee "$TEST_EVENTS" >/dev/null
+# Integration packages intentionally share TEST_DATABASE_URL. Run packages one at
+# a time so a slow package cannot spend its entire per-package test timeout queued
+# behind another package's database-wide advisory lock.
+TEST_DATABASE_URL="$TEST_DATABASE_URL" go test -p=1 -json -count=1 ./... -coverpkg=./internal/... -coverprofile="$COVERAGE_OUT" -covermode=atomic | tee "$TEST_EVENTS" >/dev/null
 test_status=${PIPESTATUS[0]}
 if [ "$test_status" -ne 0 ]; then
 	echo "go test failed with status $test_status. Failed test events:" >&2
@@ -294,7 +297,7 @@ $(if [ -s "$TEST_CASES_MD" ]; then cat "$TEST_CASES_MD"; else echo "No test case
 
 \`\`\`sh
 gofmt -l .
-TEST_DATABASE_URL='***' go test -json -count=1 ./... -coverpkg=./internal/... -coverprofile=$COVERAGE_OUT -covermode=atomic
+TEST_DATABASE_URL='***' go test -p=1 -json -count=1 ./... -coverpkg=./internal/... -coverprofile=$COVERAGE_OUT -covermode=atomic
 go tool cover -func=$COVERAGE_OUT
 go tool cover -html=$COVERAGE_OUT -o $COVERAGE_HTML
 go build ./...

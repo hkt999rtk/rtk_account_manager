@@ -1521,7 +1521,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 
 ```sh
 gofmt -l .
-TEST_DATABASE_URL='***' go test -json -count=1 ./... -coverpkg=./internal/... -coverprofile=reports/coverage.out -covermode=atomic
+TEST_DATABASE_URL='***' go test -p=1 -json -count=1 ./... -coverpkg=./internal/... -coverprofile=reports/coverage.out -covermode=atomic
 go tool cover -func=reports/coverage.out
 go tool cover -html=reports/coverage.out -o reports/coverage.html
 go build ./...
