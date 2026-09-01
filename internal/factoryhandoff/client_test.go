@@ -91,6 +91,55 @@ func TestVideoControlPlaneDeletionObserverBindsScopeAndEvidence(t *testing.T) {
 	}
 }
 
+func TestVideoControlPlaneDeletionObserverRejectsUntrustedEvidence(t *testing.T) {
+	scope := store.CloudDeletionResourceScope{CloudDeletionScope: billinghandoff.CloudDeletionScope{CloudID: fixtureBinding().CloudID, OwnerUserID: fixtureBinding().SourceUserID, OwnershipVersion: 2}, AuthorizationVersion: 9}
+	for _, fault := range []string{"status", "cache", "scope", "digest", "blocker", "unknown", "extra"} {
+		t.Run(fault, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				var got deletionScope
+				_ = json.NewDecoder(req.Body).Decode(&got)
+				now := time.Now().UTC().Truncate(time.Microsecond)
+				evidence := deletionEvidence{deletionScope: got, Complete: true, ReceiptID: "55555555-5555-4555-8555-555555555555", Blockers: []string{}, ObservedAt: now, ExpiresAt: now.Add(time.Minute)}
+				if fault == "scope" {
+					evidence.AuthorizationVersion++
+				}
+				if fault == "blocker" {
+					evidence.Blockers = []string{"unknown"}
+				}
+				evidence.EvidenceSHA256 = evidence.digest()
+				if fault == "digest" {
+					evidence.EvidenceSHA256 = strings.Repeat("f", 64)
+				}
+				if fault != "cache" {
+					w.Header().Set("Cache-Control", "no-store")
+				}
+				if fault == "status" {
+					w.WriteHeader(http.StatusServiceUnavailable)
+				}
+				raw, _ := json.Marshal(evidence)
+				if fault == "unknown" {
+					var object map[string]any
+					_ = json.Unmarshal(raw, &object)
+					object["private"] = true
+					raw, _ = json.Marshal(object)
+				}
+				_, _ = w.Write(raw)
+				if fault == "extra" {
+					_, _ = w.Write([]byte(` {}`))
+				}
+			}))
+			defer server.Close()
+			client, err := NewParticipant(ParticipantVideoControlPlane, Config{BaseURL: server.URL, Token: testToken})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = client.ObserveCloudDeletion(context.Background(), scope); !errors.Is(err, ErrUnavailable) {
+				t.Fatalf("untrusted evidence accepted: %v", err)
+			}
+		})
+	}
+}
+
 func TestFactoryHandoffClientValidatesConfigurationAndExactReceipts(t *testing.T) {
 	for _, base := range []string{"", "http://cloud.example", "http://localhost:123", "ftp://127.0.0.1", "https://user:secret@example.com", "https://example.com/path", "https://example.com?", "https://example.com?q=1", "https://example.com#fragment", "https://example.com/%2f"} {
 		if _, err := New(Config{BaseURL: base, Token: testToken}); !errors.Is(err, ErrInvalid) {
