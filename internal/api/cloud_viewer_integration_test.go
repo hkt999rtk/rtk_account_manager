@@ -103,6 +103,13 @@ func TestIntegrationCloudViewerScopeAndCollections(t *testing.T) {
 	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"device_count":1`) {
 		t.Fatalf("group count leaked: %d %s", res.Code, res.Body.String())
 	}
+	if _, err := env.store.ListDeviceGroupAggregatesForUser(ctx, cloud, viewer.UserID, 50, 0); err != nil {
+		t.Fatalf("list scoped group aggregates: %v", err)
+	}
+	res = performJSON(env.router, http.MethodGet, "/v1/orgs/"+cloud+"/device-groups/aggregates", nil, viewer.AccessToken)
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"member_count":1`) || strings.Contains(res.Body.String(), hidden.ID) {
+		t.Fatalf("group aggregate leaked: %d %s", res.Code, res.Body.String())
+	}
 	res = performJSON(env.router, http.MethodGet, "/v1/orgs/"+cloud+"/device-groups/"+hidden.ID, nil, viewer.AccessToken)
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("hidden group: %d %s", res.Code, res.Body.String())
