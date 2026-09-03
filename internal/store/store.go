@@ -636,6 +636,21 @@ func (s *Store) EnsurePlatformAdmin(ctx context.Context, email, passwordHash str
 	if err != nil {
 		return model.User{}, err
 	}
+	var platformAdminRoleID string
+	if err := tx.QueryRow(ctx, `
+		SELECT id::text
+		FROM roles
+		WHERE name = 'platform_admin' AND disabled_at IS NULL
+	`).Scan(&platformAdminRoleID); err != nil {
+		return model.User{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO role_assignments (role_id, actor_type, actor_id, scope_type)
+		VALUES ($1, 'user', $2, 'platform')
+		ON CONFLICT DO NOTHING
+	`, platformAdminRoleID, user.ID); err != nil {
+		return model.User{}, err
+	}
 	count, err := countDeveloperBrandCloudsTx(ctx, tx, user.ID)
 	if err != nil {
 		return model.User{}, err

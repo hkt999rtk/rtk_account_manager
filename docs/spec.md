@@ -326,6 +326,10 @@ account authenticated by email and password or configured OIDC, stored in
 global `/v1/auth/*` flows; platform-admin authority is represented by
 `users.platform_admin=true` and platform-scoped ACL role assignments. Platform
 users may also hold Brand Cloud memberships without creating another identity.
+Platform-admin bootstrap atomically ensures both the compatibility flag and one
+active `platform_admin` role assignment, so `/v1/me.platform_capabilities` and
+platform/customer view switching use the canonical ACL state immediately after
+bootstrap or restart.
 
 The `users` table is also the global developer identity table. A developer can
 own or join multiple brand clouds, defaults to `developer_cloud_limit=8`, and
