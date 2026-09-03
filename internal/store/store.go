@@ -425,6 +425,20 @@ type DeviceGroupPage struct {
 	Page   Page
 }
 
+type DeviceGroupAggregate struct {
+	GroupID              string         `json:"group_id"`
+	MemberCount          int            `json:"member_count"`
+	OnlineCount          int            `json:"online_count"`
+	OfflineCount         int            `json:"offline_count"`
+	HealthDistribution   map[string]int `json:"health_distribution"`
+	FirmwareDistribution map[string]int `json:"firmware_distribution"`
+}
+
+type DeviceGroupAggregatePage struct {
+	Aggregates []DeviceGroupAggregate `json:"aggregates"`
+	Page       Page                   `json:"pagination"`
+}
+
 type DeviceTagPage struct {
 	Tags []model.DeviceTag
 	Page Page
@@ -2125,6 +2139,9 @@ func (s *Store) AddDeviceTag(ctx context.Context, orgID, deviceID, tag string) (
 	if _, err := s.GetDevice(ctx, orgID, deviceID); err != nil {
 		return model.DeviceTag{}, err
 	}
+	if _, err := s.db.Exec(ctx, `INSERT INTO device_tag_catalog (organization_id, tag) VALUES ($1,$2) ON CONFLICT DO NOTHING`, orgID, tag); err != nil {
+		return model.DeviceTag{}, err
+	}
 	return scanDeviceTag(s.db.QueryRow(ctx, `
 		INSERT INTO device_tags (organization_id, device_id, tag)
 		VALUES ($1, $2, $3)
@@ -2186,13 +2203,14 @@ func (s *Store) ListDeviceTags(ctx context.Context, orgID, deviceID string, limi
 
 func (s *Store) ListOrganizationTags(ctx context.Context, orgID string, limit, offset int) (DeviceTagSummaryPage, error) {
 	var total int
-	if err := s.db.QueryRow(ctx, `SELECT count(DISTINCT tag)::int FROM device_tags WHERE organization_id = $1`, orgID).Scan(&total); err != nil {
+	if err := s.db.QueryRow(ctx, `SELECT count(*)::int FROM device_tag_catalog WHERE organization_id = $1`, orgID).Scan(&total); err != nil {
 		return DeviceTagSummaryPage{}, err
 	}
 	rows, err := s.db.Query(ctx, `
-		SELECT tag, count(DISTINCT device_id)::int
-		FROM device_tags WHERE organization_id = $1
-		GROUP BY tag ORDER BY tag ASC LIMIT $2 OFFSET $3
+		SELECT catalog.tag, count(DISTINCT tags.device_id)::int
+		FROM device_tag_catalog catalog LEFT JOIN device_tags tags ON tags.organization_id=catalog.organization_id AND tags.tag=catalog.tag
+		WHERE catalog.organization_id = $1
+		GROUP BY catalog.tag ORDER BY catalog.tag ASC LIMIT $2 OFFSET $3
 	`, orgID, limit, offset)
 	if err != nil {
 		return DeviceTagSummaryPage{}, err
