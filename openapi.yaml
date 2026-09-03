@@ -63,6 +63,8 @@ tags:
     description: Platform-admin audit event listing.
   - name: ChipSet SDK Providers
     description: Platform-published external ChipSet and SDK information manifests.
+  - name: Job Authorizations
+    description: Cloud-scoped delegated authorization for durable background jobs.
 servers:
   - url: http://localhost:8080
 paths:
@@ -4678,8 +4680,69 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /v1/developer/brand-clouds/{brandCloudId}/job-authorizations:
+    post:
+      operationId: createDeveloperJobAuthorization
+      summary: Admit an immutable cloud-scoped background job authorization
+      x-rtk-feature-id: FEAT-CONTRACT-BATCH-001
+      x-rtk-requirement-ids: [REQ-CONTRACT-BATCH-SCOPE-001, REQ-CONTRACT-BATCH-DELEGATION-001]
+      tags: [Job Authorizations]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/BrandCloudId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [job_id, scope_hash, capability, product_ids, expires_at]
+              properties:
+                job_id: { type: string, minLength: 1, maxLength: 128 }
+                scope_hash: { type: string, pattern: '^sha256:[0-9a-f]{64}$' }
+                capability: { type: string, enum: [provisioning.create] }
+                product_ids: { type: array, minItems: 1, uniqueItems: true, items: { type: string, format: uuid } }
+                expires_at: { type: string, format: date-time }
+      responses:
+        '201': { description: Immutable job authorization admitted, content: { application/json: { schema: { $ref: '#/components/schemas/JobAuthorization' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /v1/internal/job-authorizations/{authorizationId}/exchange:
+    post:
+      operationId: exchangeJobAuthorization
+      summary: Exchange a current job authorization for a restricted token
+      x-rtk-feature-id: FEAT-CONTRACT-BATCH-001
+      x-rtk-requirement-ids: [REQ-CONTRACT-BATCH-DELEGATION-001]
+      tags: [Job Authorizations]
+      security: [{ jobAuthorizationService: [] }]
+      parameters: [{ name: authorizationId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false, required: [job_id, scope_hash], properties: { job_id: { type: string }, scope_hash: { type: string } } } } }
+      responses:
+        '200': { description: Five-minute restricted token, content: { application/json: { schema: { $ref: '#/components/schemas/JobAuthorizationExchange' } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '410': { $ref: '#/components/responses/Error' }
+  /v1/internal/job-authorizations/{authorizationId}/revoke:
+    post:
+      operationId: revokeJobAuthorization
+      summary: Revoke a job authorization idempotently
+      x-rtk-feature-id: FEAT-CONTRACT-BATCH-001
+      x-rtk-requirement-ids: [REQ-CONTRACT-BATCH-DELEGATION-001]
+      tags: [Job Authorizations]
+      security: [{ jobAuthorizationService: [] }]
+      parameters: [{ name: authorizationId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '204': { description: Authorization revoked idempotently. }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
+    jobAuthorizationService:
+      type: http
+      scheme: bearer
+      description: Dedicated ACCOUNT_MANAGER_JOB_AUTHORIZATION_TOKEN used only by the Cloud Admin scheduler.
     factoryEnrollmentService:
       type: http
       scheme: bearer
@@ -4896,6 +4959,30 @@ components:
                   code: oidc_provider_misconfigured
                   message: OIDC provider is misconfigured
   schemas:
+    JobAuthorization:
+      type: object
+      required: [id, job_id, brand_cloud_id, actor_user_id, scope_hash, capability, product_ids, authorization_version, ownership_version, status, expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        job_id: { type: string }
+        brand_cloud_id: { type: string, format: uuid }
+        actor_user_id: { type: string, format: uuid }
+        scope_hash: { type: string }
+        capability: { type: string }
+        product_ids: { type: array, items: { type: string, format: uuid } }
+        authorization_version: { type: integer, format: int64 }
+        ownership_version: { type: integer, format: int64 }
+        status: { type: string, enum: [active, revoked, expired] }
+        expires_at: { type: string, format: date-time }
+    JobAuthorizationExchange:
+      type: object
+      required: [access_token, token_type, expires_in, authorization_version, ownership_version]
+      properties:
+        access_token: { type: string, writeOnly: true }
+        token_type: { type: string, enum: [Bearer] }
+        expires_in: { type: integer, minimum: 1, maximum: 300 }
+        authorization_version: { type: integer, format: int64 }
+        ownership_version: { type: integer, format: int64 }
     FactoryEnrollmentScope:
       type: object
       required: [production_run_id, brand_cloud_id, device_item_profile_id, request_id, devid, request_sha256]

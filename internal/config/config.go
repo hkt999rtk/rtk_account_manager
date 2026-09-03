@@ -81,6 +81,7 @@ type Config struct {
 	AppCertIssuerCAFile             string
 	AppCertIssuerTimeout            time.Duration
 	InternalAuthToken               string
+	JobAuthorizationToken           string
 	BillingHandoffBaseURL           string
 	BillingHandoffToken             string
 	FactoryHandoffBaseURL           string
@@ -161,7 +162,26 @@ func Load() (Config, error) {
 	if err := validateFactoryEnrollmentConfig(cfg); err != nil {
 		return Config{}, err
 	}
+	if err := validateJobAuthorizationConfig(cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+func validateJobAuthorizationConfig(cfg Config) error {
+	token := cfg.JobAuthorizationToken
+	if token == "" {
+		return nil
+	}
+	if len(token) < 32 || strings.TrimSpace(token) != token || strings.ContainsAny(token, "\r\n\t") {
+		return fmt.Errorf("ACCOUNT_MANAGER_JOB_AUTHORIZATION_TOKEN requires a dedicated token of at least 32 bytes")
+	}
+	for _, secret := range []string{cfg.AccessSecret, cfg.RefreshSecret, cfg.InternalAuthToken, cfg.FactoryEnrollmentToken, cfg.FactoryProductionJWTSecret, cfg.BillingHandoffToken, cfg.FactoryHandoffToken, cfg.VideoControlPlaneHandoffToken, cfg.MQTTUsageHandoffToken, cfg.SendMailHTTPBearerToken, cfg.EmailOutboxEncryptionKey, cfg.OIDCClientSecret} {
+		if secret != "" && secret == token {
+			return fmt.Errorf("ACCOUNT_MANAGER_JOB_AUTHORIZATION_TOKEN must not reuse another credential")
+		}
+	}
+	return nil
 }
 
 func validateFactoryEnrollmentConfig(cfg Config) error {
@@ -521,6 +541,7 @@ func load() (Config, error) {
 		AppCertIssuerCAFile:             os.Getenv("APP_CERT_ISSUER_CA_FILE"),
 		AppCertIssuerTimeout:            duration("APP_CERT_ISSUER_TIMEOUT", 10*time.Second),
 		InternalAuthToken:               os.Getenv("ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN"),
+		JobAuthorizationToken:           os.Getenv("ACCOUNT_MANAGER_JOB_AUTHORIZATION_TOKEN"),
 		BillingHandoffBaseURL:           strings.TrimSpace(os.Getenv("BILLING_HANDOFF_BASE_URL")),
 		BillingHandoffToken:             strings.TrimSpace(os.Getenv("BILLING_HANDOFF_TOKEN")),
 		FactoryHandoffBaseURL:           strings.TrimSpace(os.Getenv("FACTORY_HANDOFF_BASE_URL")),

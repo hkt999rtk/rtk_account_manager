@@ -25,6 +25,8 @@ implemented by this repository. The normative product boundary lives in
 `docs/rtk_cloud_contracts_doc/provision.md` and
 `docs/rtk_cloud_contracts_doc/cross_service_channel.md`;
 [provisioning_and_event_channel_plan.md](provisioning_and_event_channel_plan.md)
+[job_authorization.md](job_authorization.md) defines restricted background-job
+delegation used by Cloud Admin batch orchestration.
 tracks rollout history and verification status.
 
 ## 2. V1 Scope

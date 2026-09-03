@@ -40,6 +40,42 @@ func TestTokenKindValidation(t *testing.T) {
 	}
 }
 
+func TestDelegatedJobTokenIsRestrictedAndShortLived(t *testing.T) {
+	svc := NewService("access-secret", "refresh-secret", time.Hour, 24*time.Hour)
+	token, expiresAt, err := svc.IssueDelegatedJobAccessToken(Claims{
+		UserID: "user-1", BrandCloudID: "cloud-1", JobAuthorizationID: "grant-1", JobID: "job-1",
+		ScopeHash: "abc", Capability: "provisioning.create", ProductIDs: []string{"product-1"},
+		AuthorizationVersion: 4, OwnershipVersion: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remaining := time.Until(expiresAt); remaining > 5*time.Minute || remaining < 4*time.Minute+50*time.Second {
+		t.Fatalf("unexpected delegated token TTL %s", remaining)
+	}
+	claims, err := svc.ParseAccessToken(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claims.SubjectType != SubjectTypeDelegatedJob || claims.JobAuthorizationID != "grant-1" || claims.BrandCloudID != "cloud-1" || len(claims.ProductIDs) != 1 {
+		t.Fatalf("unexpected claims: %+v", claims)
+	}
+	if _, err := svc.ParseRefreshToken(token); err == nil {
+		t.Fatal("delegated access token must not be refreshable")
+	}
+}
+
+func TestDelegatedJobTokenRequiresCompleteBinding(t *testing.T) {
+	svc := NewService("access-secret", "refresh-secret", time.Hour, 24*time.Hour)
+	token, _, err := svc.IssueDelegatedJobAccessToken(Claims{UserID: "user-1", JobAuthorizationID: "grant-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ParseAccessToken(token); err == nil {
+		t.Fatal("incomplete delegated binding was accepted")
+	}
+}
+
 func TestTokenKindValidationWithRSASigners(t *testing.T) {
 	accessKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {

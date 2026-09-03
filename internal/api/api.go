@@ -33,6 +33,8 @@ type Server struct {
 	oidcEnvClientSecretRef      string
 	appCertificateIssuer        AppCertificateIssuer
 	internalAuthToken           string
+	jobAuthorizationToken       string
+	jobAuthorizations           jobAuthorizationPersistence
 	factoryEnrollmentToken      string
 	productionJWTSecret         string
 	productionJWTAudience       string
@@ -114,6 +116,11 @@ func (s *Server) ConfigureAppCertificateIssuer(issuer AppCertificateIssuer) {
 
 func (s *Server) ConfigureInternalAuthToken(token string) {
 	s.internalAuthToken = strings.TrimSpace(token)
+}
+
+func (s *Server) ConfigureJobAuthorizations(repository jobAuthorizationPersistence, serviceToken string) {
+	s.jobAuthorizations = repository
+	s.jobAuthorizationToken = strings.TrimSpace(serviceToken)
 }
 
 func (s *Server) ConfigureFactoryEnrollmentToken(token string) {
@@ -250,6 +257,8 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/app/end-users/auth/login", s.appEndUserLogin)
 	v1.POST("/app/end-users/auth/refresh", s.appEndUserRefresh)
 	v1.POST("/internal/app-token-authorizations", s.handleInternalAppTokenAuthorization)
+	v1.POST("/internal/job-authorizations/:authorizationId/exchange", s.exchangeJobAuthorization)
+	v1.POST("/internal/job-authorizations/:authorizationId/revoke", s.revokeJobAuthorization)
 	v1.POST("/internal/device-provisioning-results", s.handleInternalDeviceProvisioningResult)
 	v1.POST("/internal/factory-enrollments/reserve", s.reserveFactoryEnrollment)
 	v1.POST("/internal/factory-enrollments/lookup", s.lookupFactoryEnrollment)
@@ -270,6 +279,7 @@ func (s *Server) Router() *gin.Engine {
 
 	protected.GET("/developer/brand-clouds", s.listDeveloperBrandClouds)
 	protected.GET("/developer/brand-clouds/:brandCloudId", s.getDeveloperBrandCloud)
+	protected.POST("/developer/brand-clouds/:brandCloudId/job-authorizations", s.createDeveloperJobAuthorization)
 	protected.POST("/developer/brand-clouds", s.createDeveloperBrandCloud)
 	protected.PATCH("/developer/brand-clouds/:brandCloudId", s.updateDeveloperBrandCloud)
 	protected.GET("/developer/brand-clouds/:brandCloudId/deletion-preflight", s.preflightDeveloperBrandCloudDeletion)
@@ -1700,6 +1710,11 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 					c.Abort()
 					return
 				}
+			case auth.SubjectTypeDelegatedJob:
+				if !s.validateDelegatedJobRequest(c, claims) {
+					c.Abort()
+					return
+				}
 			default:
 				writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
 				c.Abort()
@@ -1709,6 +1724,7 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 		c.Set("subjectType", claims.SubjectType)
 		c.Set("userID", claims.UserID)
 		c.Set("endUserID", claims.EndUserID)
+		c.Set("jobAuthorizationID", claims.JobAuthorizationID)
 		c.Next()
 	}
 }
