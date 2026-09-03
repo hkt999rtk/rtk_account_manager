@@ -63,6 +63,7 @@ func TestEnsurePlatformAdminCreatesAndReenablesUser(t *testing.T) {
 	if !isAdmin {
 		t.Fatal("expected ensured user to be platform admin")
 	}
+	assertPlatformAdminRoleAssignment(t, ctx, env, created.ID)
 
 	if _, err := env.db.Exec(ctx, `UPDATE users SET disabled_at = now(), platform_admin = false WHERE id = $1`, created.ID); err != nil {
 		t.Fatal(err)
@@ -83,6 +84,43 @@ func TestEnsurePlatformAdminCreatesAndReenablesUser(t *testing.T) {
 	}
 	if !isAdmin {
 		t.Fatal("expected reenabled user to be platform admin")
+	}
+	assertPlatformAdminRoleAssignment(t, ctx, env, updated.ID)
+}
+
+func assertPlatformAdminRoleAssignment(t *testing.T, ctx context.Context, env storeIntegrationEnv, userID string) {
+	t.Helper()
+
+	permissions, err := env.store.ListUserPlatformPermissions(ctx, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasACLManage := false
+	for _, permission := range permissions {
+		if permission == "acl.manage" {
+			hasACLManage = true
+			break
+		}
+	}
+	if !hasACLManage {
+		t.Fatalf("expected canonical platform capabilities after bootstrap, got %v", permissions)
+	}
+
+	var activeAssignments int
+	if err := env.db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM role_assignments ra
+		JOIN roles r ON r.id = ra.role_id
+		WHERE r.name = 'platform_admin'
+		  AND ra.actor_type = 'user'
+		  AND ra.actor_id = $1
+		  AND ra.scope_type = 'platform'
+		  AND ra.disabled_at IS NULL
+	`, userID).Scan(&activeAssignments); err != nil {
+		t.Fatal(err)
+	}
+	if activeAssignments != 1 {
+		t.Fatalf("expected exactly one active platform_admin assignment, got %d", activeAssignments)
 	}
 }
 
