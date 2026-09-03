@@ -3414,6 +3414,29 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/tags:
+    post:
+      tags: [Devices]
+      operationId: createOrganizationTag
+      x-rtk-feature-id: FEAT-P1-TAGS-001
+      x-rtk-requirement-ids: [REQ-P1-TAGS-001]
+      summary: Create an organization tag catalog entry.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tag]
+              properties:
+                tag: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        "201": { description: Tag created. }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
     get:
       tags: [Devices]
       operationId: listOrganizationTags
@@ -3448,6 +3471,45 @@ paths:
                   pagination: { $ref: "#/components/schemas/Pagination" }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+  /v1/orgs/{orgId}/tags/{tag}:
+    patch:
+      tags: [Devices]
+      operationId: renameOrganizationTag
+      x-rtk-feature-id: FEAT-P1-TAGS-001
+      x-rtk-requirement-ids: [REQ-P1-TAGS-001]
+      summary: Rename an organization tag.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/Tag"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+      responses:
+        "200": { description: Tag renamed. }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Devices]
+      operationId: deleteOrganizationTag
+      x-rtk-feature-id: FEAT-P1-TAGS-001
+      x-rtk-requirement-ids: [REQ-P1-TAGS-001]
+      summary: Delete an organization tag and its assignments.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/Tag"
+      responses:
+        "204": { description: Tag deleted. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
 
   /v1/orgs/{orgId}/access/check:
     get:
@@ -3648,6 +3710,20 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
 
+  /v1/orgs/{orgId}/device-groups/aggregates:
+    get:
+      tags: [Device Groups]
+      operationId: listDeviceGroupAggregates
+      x-rtk-feature-id: FEAT-P1-TAGS-001
+      x-rtk-requirement-ids: [REQ-P1-TAGS-002]
+      security: [{ bearerAuth: [] }]
+      summary: List server-side group aggregates.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200": { description: "Group member, status, health, and firmware aggregates." }
   /v1/orgs/{orgId}/device-groups:
     get:
       tags:
