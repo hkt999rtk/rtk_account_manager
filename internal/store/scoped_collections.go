@@ -72,19 +72,22 @@ func (s *Store) ListDeviceGroupAggregatesForUser(ctx context.Context, org, user 
 		return DeviceGroupAggregatePage{}, err
 	}
 	result := DeviceGroupAggregatePage{Aggregates: make([]DeviceGroupAggregate, 0, len(groups.Groups)), Page: groups.Page}
+	cte, actorArgs := scopedDevicesCTE(user, "device_group.read")
 	for _, group := range groups.Groups {
-		row := s.db.QueryRow(ctx, `
+		args := append([]any{org}, actorArgs...)
+		args = append(args, group.ID)
+		row := s.db.QueryRow(ctx, cte+`
 			SELECT count(d.id)::int,
 				count(d.id) FILTER (WHERE d.status='online')::int,
 				count(d.id) FILTER (WHERE d.status='offline')::int,
-				COALESCE((SELECT jsonb_object_agg(COALESCE(d2.metadata->>'health','unknown'), d2.n)
-					FROM (SELECT d.metadata, count(*)::int AS n FROM device_group_members gm JOIN devices d ON d.id=gm.device_id
-						WHERE gm.organization_id=$1 AND gm.group_id=$2 GROUP BY d.metadata->>'health') d2), '{}'::jsonb),
-				COALESCE((SELECT jsonb_object_agg(COALESCE(d2.metadata->>'firmware','unknown'), d2.n)
-					FROM (SELECT d.metadata, count(*)::int AS n FROM device_group_members gm JOIN devices d ON d.id=gm.device_id
-						WHERE gm.organization_id=$1 AND gm.group_id=$2 GROUP BY d.metadata->>'firmware') d2), '{}'::jsonb)
-			FROM device_group_members gm JOIN devices d ON d.id=gm.device_id
-			WHERE gm.organization_id=$1 AND gm.group_id=$2`, org, group.ID)
+				COALESCE((SELECT jsonb_object_agg(d2.key, d2.n)
+					FROM (SELECT COALESCE(d.metadata->>'health','unknown') AS key, count(*)::int AS n FROM device_group_members gm JOIN visible_devices vd ON vd.id=gm.device_id JOIN devices d ON d.id=vd.id
+						WHERE gm.organization_id::text=$1 AND gm.group_id::text=$5 GROUP BY COALESCE(d.metadata->>'health','unknown')) d2), '{}'::jsonb),
+				COALESCE((SELECT jsonb_object_agg(d2.key, d2.n)
+					FROM (SELECT COALESCE(d.metadata->>'firmware','unknown') AS key, count(*)::int AS n FROM device_group_members gm JOIN visible_devices vd ON vd.id=gm.device_id JOIN devices d ON d.id=vd.id
+						WHERE gm.organization_id::text=$1 AND gm.group_id::text=$5 GROUP BY COALESCE(d.metadata->>'firmware','unknown')) d2), '{}'::jsonb)
+			FROM device_group_members gm JOIN visible_devices vd ON vd.id=gm.device_id JOIN devices d ON d.id=vd.id
+			WHERE gm.organization_id::text=$1 AND gm.group_id::text=$5`, args...)
 		var item DeviceGroupAggregate
 		var health, firmware []byte
 		if err := row.Scan(&item.MemberCount, &item.OnlineCount, &item.OfflineCount, &health, &firmware); err != nil {
@@ -105,7 +108,8 @@ func (s *Store) ListDeviceGroupAggregatesForUser(ctx context.Context, org, user 
 func (s *Store) ListOrganizationTagsForUser(ctx context.Context, org, user string, limit, offset int) (DeviceTagSummaryPage, error) {
 	cte, actorArgs := scopedDevicesCTE(user, "device_tag.read")
 	args := append([]any{org}, actorArgs...)
-	visible := ` FROM device_tag_catalog catalog LEFT JOIN device_tags tags ON tags.organization_id=catalog.organization_id AND tags.tag=catalog.tag LEFT JOIN visible_devices vd ON vd.id=tags.device_id WHERE catalog.organization_id::text=$1`
+	visible := ` FROM device_tag_catalog catalog LEFT JOIN device_tags tags ON tags.organization_id=catalog.organization_id AND tags.tag=catalog.tag LEFT JOIN visible_devices vd ON vd.id=tags.device_id WHERE catalog.organization_id::text=$1 AND (
+		vd.id IS NOT NULL OR EXISTS (SELECT 1 FROM organization_members om WHERE om.organization_id=catalog.organization_id AND om.user_id::text=$2 AND om.disabled_at IS NULL AND (om.role<>'viewer' OR om.access_scope->>'kind'='all_products')))`
 	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return DeviceTagSummaryPage{}, err
