@@ -492,6 +492,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/user_not_provisioned`
 - `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures`
 - `rtk_account_manager/internal/api`: `TestWriteStatusMetricsSortsStatuses`
+- `rtk_account_manager/internal/auth`: `TestDelegatedJobTokenIsRestrictedAndShortLived`
+- `rtk_account_manager/internal/auth`: `TestDelegatedJobTokenRequiresCompleteBinding`
 - `rtk_account_manager/internal/auth`: `TestEndUserTokenClaimsCarryGlobalSubject`
 - `rtk_account_manager/internal/auth`: `TestExpiredAndWrongSecretTokensFailParsing`
 - `rtk_account_manager/internal/auth`: `TestLoadPEMTokenSignerRejectsInvalidMaterial`
@@ -781,6 +783,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/config`: `TestFactoryEnrollmentCredentialIsDedicated`
 - `rtk_account_manager/internal/config`: `TestFactoryHandoffConfigurationIsPairedAndIsolated`
 - `rtk_account_manager/internal/config`: `TestHandoffBillingConfigurationIsPairedAndIsolated`
+- `rtk_account_manager/internal/config`: `TestJobAuthorizationCredentialMustBeDedicated/reused`
+- `rtk_account_manager/internal/config`: `TestJobAuthorizationCredentialMustBeDedicated/too_short`
+- `rtk_account_manager/internal/config`: `TestJobAuthorizationCredentialMustBeDedicated/whitespace`
+- `rtk_account_manager/internal/config`: `TestJobAuthorizationCredentialMustBeDedicated`
 - `rtk_account_manager/internal/config`: `TestLoadAcceptsPEMJWTSignerWithoutSharedSecrets`
 - `rtk_account_manager/internal/config`: `TestLoadAcceptsPKCS11JWTSignerWithoutSharedSecrets`
 - `rtk_account_manager/internal/config`: `TestLoadDotEnvSetsMissingValuesAndPreservesExistingEnv`
