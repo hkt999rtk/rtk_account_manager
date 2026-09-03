@@ -125,6 +125,7 @@ func main() {
 	server.ConfigureEmailOutbox(accountStore)
 	server.SetLogger(logger)
 	server.ConfigureInternalAuthToken(cfg.InternalAuthToken)
+	server.ConfigureJobAuthorizations(accountStore, cfg.JobAuthorizationToken)
 	server.ConfigureImmediateBrandAccountProvisioning(cfg.AllowImmediateBrandAccounts)
 	server.ConfigureProductionJWT(cfg.FactoryProductionJWTSecret, cfg.FactoryProductionJWTAudience)
 	server.ConfigureFactoryEnrollmentToken(cfg.FactoryEnrollmentToken)

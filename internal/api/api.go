@@ -33,6 +33,8 @@ type Server struct {
 	oidcEnvClientSecretRef      string
 	appCertificateIssuer        AppCertificateIssuer
 	internalAuthToken           string
+	jobAuthorizationToken       string
+	jobAuthorizations           jobAuthorizationPersistence
 	factoryEnrollmentToken      string
 	productionJWTSecret         string
 	productionJWTAudience       string
@@ -114,6 +116,11 @@ func (s *Server) ConfigureAppCertificateIssuer(issuer AppCertificateIssuer) {
 
 func (s *Server) ConfigureInternalAuthToken(token string) {
 	s.internalAuthToken = strings.TrimSpace(token)
+}
+
+func (s *Server) ConfigureJobAuthorizations(repository jobAuthorizationPersistence, serviceToken string) {
+	s.jobAuthorizations = repository
+	s.jobAuthorizationToken = strings.TrimSpace(serviceToken)
 }
 
 func (s *Server) ConfigureFactoryEnrollmentToken(token string) {
@@ -250,6 +257,8 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/app/end-users/auth/login", s.appEndUserLogin)
 	v1.POST("/app/end-users/auth/refresh", s.appEndUserRefresh)
 	v1.POST("/internal/app-token-authorizations", s.handleInternalAppTokenAuthorization)
+	v1.POST("/internal/job-authorizations/:authorizationId/exchange", s.exchangeJobAuthorization)
+	v1.POST("/internal/job-authorizations/:authorizationId/revoke", s.revokeJobAuthorization)
 	v1.POST("/internal/device-provisioning-results", s.handleInternalDeviceProvisioningResult)
 	v1.POST("/internal/factory-enrollments/reserve", s.reserveFactoryEnrollment)
 	v1.POST("/internal/factory-enrollments/lookup", s.lookupFactoryEnrollment)
@@ -270,6 +279,7 @@ func (s *Server) Router() *gin.Engine {
 
 	protected.GET("/developer/brand-clouds", s.listDeveloperBrandClouds)
 	protected.GET("/developer/brand-clouds/:brandCloudId", s.getDeveloperBrandCloud)
+	protected.POST("/developer/brand-clouds/:brandCloudId/job-authorizations", s.createDeveloperJobAuthorization)
 	protected.POST("/developer/brand-clouds", s.createDeveloperBrandCloud)
 	protected.PATCH("/developer/brand-clouds/:brandCloudId", s.updateDeveloperBrandCloud)
 	protected.GET("/developer/brand-clouds/:brandCloudId/deletion-preflight", s.preflightDeveloperBrandCloudDeletion)
@@ -316,6 +326,9 @@ func (s *Server) Router() *gin.Engine {
 	protected.PATCH("/orgs/:orgId/members/:userId/enable", s.requirePermission("membership.manage"), s.enableMemberUser)
 	protected.DELETE("/orgs/:orgId/members/:userId", s.requirePermission("membership.manage"), s.removeMember)
 	protected.GET("/orgs/:orgId/tags", s.requirePermission("device_tag.read"), s.listOrganizationTags)
+	protected.POST("/orgs/:orgId/tags", s.requirePermission("device_tag.assign"), s.createOrganizationTag)
+	protected.PATCH("/orgs/:orgId/tags/:tag", s.requirePermission("device_tag.assign"), s.renameOrganizationTag)
+	protected.DELETE("/orgs/:orgId/tags/:tag", s.requirePermission("device_tag.assign"), s.deleteOrganizationTag)
 	protected.GET("/orgs/:orgId/access/check", s.checkOrganizationAccess)
 	protected.GET("/orgs/:orgId/roles", s.requirePermission("role_assignment.read"), s.listCustomerACLRoles)
 	protected.GET("/orgs/:orgId/permissions", s.requirePermission("role_assignment.read"), s.listCustomerACLPermissions)
@@ -324,6 +337,7 @@ func (s *Server) Router() *gin.Engine {
 	protected.DELETE("/orgs/:orgId/role-assignments/:assignmentId", s.requirePermission("role_assignment.manage"), s.deleteCustomerACLAssignment)
 
 	protected.GET("/orgs/:orgId/device-groups", s.requirePermission("device_group.read"), s.listDeviceGroups)
+	protected.GET("/orgs/:orgId/device-groups/aggregates", s.requirePermission("device_group.read"), s.listDeviceGroupAggregates)
 	protected.POST("/orgs/:orgId/device-groups", s.requirePermission("device_group.manage"), s.createDeviceGroup)
 	protected.GET("/orgs/:orgId/device-groups/:groupId", s.requirePermission("device_group.read"), s.getDeviceGroup)
 	protected.PATCH("/orgs/:orgId/device-groups/:groupId", s.requirePermission("device_group.manage"), s.updateDeviceGroup)
@@ -1563,6 +1577,16 @@ func (s *Server) listDeviceGroups(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"groups": groupPage.Groups, "pagination": groupPage.Page})
 }
 
+func (s *Server) listDeviceGroupAggregates(c *gin.Context) {
+	limit, offset := pagination(c)
+	page, err := s.store.ListDeviceGroupAggregatesForUser(c.Request.Context(), c.Param("orgId"), currentUserID(c), limit, offset)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"aggregates": page.Aggregates, "pagination": page.Page})
+}
+
 func (s *Server) getDeviceGroup(c *gin.Context) {
 	group, err := s.store.GetDeviceGroupForUser(c.Request.Context(), c.Param("orgId"), currentUserID(c), c.Param("groupId"))
 	if err != nil {
@@ -1671,6 +1695,44 @@ func (s *Server) listOrganizationTags(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"tags": page.Tags, "pagination": page.Page})
 }
 
+func (s *Server) createOrganizationTag(c *gin.Context) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if !bind(c, &req) || strings.TrimSpace(req.Name) == "" {
+		writeError(c, http.StatusBadRequest, "invalid_tag", "Tag name is required")
+		return
+	}
+	if err := s.store.CreateOrganizationTag(c.Request.Context(), c.Param("orgId"), strings.TrimSpace(req.Name)); err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"tag": strings.TrimSpace(req.Name)})
+}
+
+func (s *Server) renameOrganizationTag(c *gin.Context) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if !bind(c, &req) || strings.TrimSpace(req.Name) == "" {
+		writeError(c, http.StatusBadRequest, "invalid_tag", "Tag name is required")
+		return
+	}
+	if err := s.store.RenameOrganizationTag(c.Request.Context(), c.Param("orgId"), c.Param("tag"), strings.TrimSpace(req.Name)); err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"tag": strings.TrimSpace(req.Name)})
+}
+
+func (s *Server) deleteOrganizationTag(c *gin.Context) {
+	if err := s.store.DeleteOrganizationTag(c.Request.Context(), c.Param("orgId"), c.Param("tag")); err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 func (s *Server) requireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
@@ -1700,6 +1762,11 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 					c.Abort()
 					return
 				}
+			case auth.SubjectTypeDelegatedJob:
+				if !s.validateDelegatedJobRequest(c, claims) {
+					c.Abort()
+					return
+				}
 			default:
 				writeError(c, http.StatusUnauthorized, "invalid_token", "Invalid bearer token")
 				c.Abort()
@@ -1709,6 +1776,7 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 		c.Set("subjectType", claims.SubjectType)
 		c.Set("userID", claims.UserID)
 		c.Set("endUserID", claims.EndUserID)
+		c.Set("jobAuthorizationID", claims.JobAuthorizationID)
 		c.Next()
 	}
 }

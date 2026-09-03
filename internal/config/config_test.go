@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -287,6 +288,24 @@ func TestLoadRequiresJWTSecrets(t *testing.T) {
 	t.Setenv("JWT_REFRESH_SECRET", "")
 	if _, err := Load(); err == nil {
 		t.Fatal("expected missing refresh secret error")
+	}
+}
+
+func TestJobAuthorizationCredentialMustBeDedicated(t *testing.T) {
+	valid := strings.Repeat("j", 32)
+	if err := validateJobAuthorizationConfig(Config{JobAuthorizationToken: valid, AccessSecret: "access"}); err != nil {
+		t.Fatalf("valid dedicated credential rejected: %v", err)
+	}
+	for name, cfg := range map[string]Config{
+		"too short":  {JobAuthorizationToken: "short"},
+		"whitespace": {JobAuthorizationToken: valid + "\n"},
+		"reused":     {JobAuthorizationToken: valid, InternalAuthToken: valid},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateJobAuthorizationConfig(cfg); err == nil {
+				t.Fatal("unsafe job authorization credential accepted")
+			}
+		})
 	}
 }
 

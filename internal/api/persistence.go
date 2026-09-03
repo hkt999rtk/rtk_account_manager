@@ -111,6 +111,7 @@ type deviceGroupPersistence interface {
 	CreateDeviceGroup(ctx context.Context, orgID string, in store.DeviceGroupInput) (model.DeviceGroup, error)
 	ListDeviceGroups(ctx context.Context, orgID string, limit, offset int) (store.DeviceGroupPage, error)
 	ListDeviceGroupsForUser(ctx context.Context, orgID, userID, groupID string, limit, offset int) (store.DeviceGroupPage, error)
+	ListDeviceGroupAggregatesForUser(ctx context.Context, orgID, userID string, limit, offset int) (store.DeviceGroupAggregatePage, error)
 	GetDeviceGroupForUser(ctx context.Context, orgID, userID, groupID string) (model.DeviceGroup, error)
 	ListOrganizationTagsForUser(ctx context.Context, orgID, userID string, limit, offset int) (store.DeviceTagSummaryPage, error)
 	GetDeviceGroup(ctx context.Context, orgID, groupID string) (model.DeviceGroup, error)
@@ -122,10 +123,13 @@ type deviceGroupPersistence interface {
 }
 
 type deviceTagPersistence interface {
+	CreateOrganizationTag(ctx context.Context, orgID, tag string) error
 	AddDeviceTag(ctx context.Context, orgID, deviceID, tag string) (model.DeviceTag, error)
 	DeleteDeviceTag(ctx context.Context, orgID, deviceID, tag string) error
 	ListDeviceTags(ctx context.Context, orgID, deviceID string, limit, offset int) (store.DeviceTagPage, error)
 	ListOrganizationTags(ctx context.Context, orgID string, limit, offset int) (store.DeviceTagSummaryPage, error)
+	RenameOrganizationTag(ctx context.Context, orgID, oldTag, newTag string) error
+	DeleteOrganizationTag(ctx context.Context, orgID, tag string) error
 }
 
 type appCertificatePersistence interface {

@@ -29,16 +29,24 @@ const (
 	SubjectTypeUser           SubjectType = "user"
 	SubjectTypeBrandCloudUser SubjectType = "brand_cloud_user"
 	SubjectTypeEndUser        SubjectType = "end_user"
+	SubjectTypeDelegatedJob   SubjectType = "delegated_job"
 )
 
 type Claims struct {
-	UserID           string      `json:"user_id,omitempty"`
-	SubjectType      SubjectType `json:"subject_type"`
-	BrandCloudUserID string      `json:"brand_cloud_user_id,omitempty"`
-	BrandCloudID     string      `json:"brand_cloud_id,omitempty"`
-	TenantSlug       string      `json:"tenant_slug,omitempty"`
-	EndUserID        string      `json:"end_user_id,omitempty"`
-	Kind             TokenKind   `json:"kind"`
+	UserID               string      `json:"user_id,omitempty"`
+	SubjectType          SubjectType `json:"subject_type"`
+	BrandCloudUserID     string      `json:"brand_cloud_user_id,omitempty"`
+	BrandCloudID         string      `json:"brand_cloud_id,omitempty"`
+	TenantSlug           string      `json:"tenant_slug,omitempty"`
+	EndUserID            string      `json:"end_user_id,omitempty"`
+	JobAuthorizationID   string      `json:"job_authorization_id,omitempty"`
+	JobID                string      `json:"job_id,omitempty"`
+	ScopeHash            string      `json:"scope_hash,omitempty"`
+	Capability           string      `json:"capability,omitempty"`
+	ProductIDs           []string    `json:"product_ids,omitempty"`
+	AuthorizationVersion int64       `json:"authorization_version,omitempty"`
+	OwnershipVersion     int64       `json:"ownership_version,omitempty"`
+	Kind                 TokenKind   `json:"kind"`
 	jwt.RegisteredClaims
 }
 
@@ -118,6 +126,14 @@ func (s *Service) IssueEndUserRefreshToken(endUserID string) (string, time.Time,
 	return s.issueEndUser(endUserID, TokenKindRefresh, s.refreshSecret, s.refreshSigner, s.refreshTTL)
 }
 
+// IssueDelegatedJobAccessToken issues a non-refreshable, five-minute token for
+// one persisted background-job grant. Callers must revalidate the grant before
+// every issuance and every use.
+func (s *Service) IssueDelegatedJobAccessToken(claims Claims) (string, time.Time, error) {
+	claims.SubjectType = SubjectTypeDelegatedJob
+	return s.issue(claims, "delegated_job:"+claims.JobAuthorizationID, TokenKindAccess, s.accessSecret, s.accessSigner, 5*time.Minute)
+}
+
 func (s *Service) ParseAccessToken(tokenString string) (*Claims, error) {
 	return s.parse(tokenString, TokenKindAccess, s.accessSecret, s.accessSigner)
 }
@@ -189,13 +205,19 @@ func (s *Service) parse(tokenString string, expectedKind TokenKind, secret []byt
 	// Tenant authentication is retired at the shared boundary, including callers
 	// without an API persistence layer. Keep legacy fields only to recognize and
 	// reject old or mixed credentials, never to select a human identity/scope.
-	if claims.SubjectType == SubjectTypeBrandCloudUser || claims.BrandCloudUserID != "" || claims.BrandCloudID != "" || claims.TenantSlug != "" || strings.HasPrefix(claims.Subject, "brand_cloud_user:") {
+	if claims.SubjectType == SubjectTypeBrandCloudUser || claims.BrandCloudUserID != "" || claims.TenantSlug != "" || strings.HasPrefix(claims.Subject, "brand_cloud_user:") {
 		return nil, fmt.Errorf("retired tenant identity")
 	}
 	if claims.SubjectType == "" {
 		claims.SubjectType = SubjectTypeUser
 	}
-	if claims.SubjectType != SubjectTypeUser && claims.SubjectType != SubjectTypeEndUser {
+	if claims.SubjectType == SubjectTypeDelegatedJob {
+		if claims.UserID == "" || claims.BrandCloudID == "" || claims.JobAuthorizationID == "" || claims.JobID == "" || claims.ScopeHash == "" || claims.Capability == "" || claims.AuthorizationVersion <= 0 || claims.OwnershipVersion <= 0 {
+			return nil, fmt.Errorf("invalid delegated job token")
+		}
+		return claims, nil
+	}
+	if claims.BrandCloudID != "" || claims.SubjectType != SubjectTypeUser && claims.SubjectType != SubjectTypeEndUser {
 		return nil, fmt.Errorf("unsupported token subject")
 	}
 	return claims, nil
