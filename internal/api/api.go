@@ -1369,24 +1369,26 @@ func (s *Server) enableMemberUser(c *gin.Context) {
 }
 
 type deviceRequest struct {
-	Name         string               `json:"name" binding:"required"`
-	Category     model.DeviceCategory `json:"category" binding:"required"`
-	SerialNumber *string              `json:"serial_number"`
-	MACAddress   *string              `json:"mac_address"`
-	Manufacturer *string              `json:"manufacturer"`
-	Model        *string              `json:"model"`
-	Metadata     map[string]any       `json:"metadata"`
+	Name                string               `json:"name" binding:"required"`
+	Category            model.DeviceCategory `json:"category" binding:"required"`
+	SerialNumber        *string              `json:"serial_number"`
+	MACAddress          *string              `json:"mac_address"`
+	Manufacturer        *string              `json:"manufacturer"`
+	Model               *string              `json:"model"`
+	Metadata            map[string]any       `json:"metadata"`
+	DeviceItemProfileID *string              `json:"device_item_profile_id"`
 }
 
 func (r deviceRequest) input() store.DeviceInput {
 	return store.DeviceInput{
-		Name:         strings.TrimSpace(r.Name),
-		Category:     r.Category,
-		SerialNumber: trimPtr(r.SerialNumber),
-		MACAddress:   trimPtr(r.MACAddress),
-		Manufacturer: trimPtr(r.Manufacturer),
-		Model:        trimPtr(r.Model),
-		Metadata:     r.Metadata,
+		Name:                strings.TrimSpace(r.Name),
+		Category:            r.Category,
+		SerialNumber:        trimPtr(r.SerialNumber),
+		MACAddress:          trimPtr(r.MACAddress),
+		Manufacturer:        trimPtr(r.Manufacturer),
+		Model:               trimPtr(r.Model),
+		Metadata:            r.Metadata,
+		DeviceItemProfileID: trimPtr(r.DeviceItemProfileID),
 	}
 }
 

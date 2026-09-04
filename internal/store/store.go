@@ -1629,13 +1629,14 @@ func ensureNotLastActiveOwnerTx(ctx context.Context, tx pgx.Tx, orgID, userID st
 }
 
 type DeviceInput struct {
-	Name         string
-	Category     model.DeviceCategory
-	SerialNumber *string
-	MACAddress   *string
-	Manufacturer *string
-	Model        *string
-	Metadata     map[string]any
+	Name                string
+	Category            model.DeviceCategory
+	SerialNumber        *string
+	MACAddress          *string
+	Manufacturer        *string
+	Model               *string
+	Metadata            map[string]any
+	DeviceItemProfileID *string
 }
 
 type DeviceGroupInput struct {
@@ -1684,15 +1685,25 @@ func createDeviceTx(ctx context.Context, tx pgx.Tx, orgID string, in DeviceInput
 			return model.Device{}, ErrEvaluationQuotaExceeded
 		}
 	}
+	if in.DeviceItemProfileID != nil {
+		var active bool
+		err := tx.QueryRow(ctx, `SELECT status='active' FROM device_item_profiles WHERE id=$1 AND brand_cloud_id=$2`, *in.DeviceItemProfileID, orgID).Scan(&active)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && !active) {
+			return model.Device{}, ErrNotFound
+		}
+		if err != nil {
+			return model.Device{}, err
+		}
+	}
 	metadata, err := json.Marshal(defaultMetadata(in.Metadata))
 	if err != nil {
 		return model.Device{}, err
 	}
 	device, err := scanDevice(tx.QueryRow(ctx, `
-		INSERT INTO devices (organization_id, name, category, serial_number, mac_address, manufacturer, model, metadata)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO devices (organization_id, name, category, serial_number, mac_address, manufacturer, model, metadata, device_item_profile_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
-	`, orgID, in.Name, in.Category, in.SerialNumber, in.MACAddress, in.Manufacturer, in.Model, metadata))
+	`, orgID, in.Name, in.Category, in.SerialNumber, in.MACAddress, in.Manufacturer, in.Model, metadata, in.DeviceItemProfileID))
 	if err != nil {
 		return model.Device{}, err
 	}
