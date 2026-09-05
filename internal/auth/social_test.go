@@ -39,6 +39,24 @@ func TestGitHubAuthorizationURLUsesPKCEAndEmailScope(t *testing.T) {
 	}
 }
 
+func TestGitHubAppAuthorizationURLUsesConfiguredPermissions(t *testing.T) {
+	provider := SocialProvider{ID: "github", Name: "GitHub", Protocol: "oauth2", IssuerURL: "https://github.com", ClientID: "Iv23liExampleClient", ClientSecret: "secret", RedirectURL: "https://admin.example.test/api/auth/social/callback", Enabled: true}
+	location, err := (SocialClient{}).AuthorizationURL(context.Background(), provider, "state", "nonce", "challenge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(location)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scope := parsed.Query().Get("scope"); scope != "" {
+		t.Fatalf("GitHub App authorization must use configured permissions, got scope %q", scope)
+	}
+	if parsed.Query().Get("code_challenge") != "challenge" || parsed.Query().Get("code_challenge_method") != "S256" {
+		t.Fatalf("GitHub App authorization URL is missing PKCE: %s", location)
+	}
+}
+
 func TestGitHubExchangeUsesStableIDAndVerifiedPrimaryEmail(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		body := `{}`

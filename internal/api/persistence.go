@@ -69,6 +69,7 @@ type authPersistence interface {
 type userPersistence interface {
 	GetUser(ctx context.Context, userID string) (model.User, error)
 	GetUserByEmail(ctx context.Context, email string) (model.User, error)
+	ActivateUserFromVerifiedSocialEmail(ctx context.Context, userID, providerKey string) (model.User, error)
 	DisableCurrentUser(ctx context.Context, userID string) error
 }
 

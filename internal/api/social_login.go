@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	"rtk_account_manager/internal/auth"
 	"rtk_account_manager/internal/model"
@@ -134,6 +135,7 @@ func (s *Server) handleSocialCallback(c *gin.Context) {
 	}
 	identity, err := s.socialClient.ExchangeAndIdentify(c.Request.Context(), provider, code, loginState.NonceHash, verifier)
 	if err != nil {
+		s.logger.Warn("social identity verification failed", zap.String("provider", provider.ID), zap.Error(err))
 		writeSocialLoginError(c, err)
 		return
 	}
@@ -197,8 +199,17 @@ func (s *Server) resolveSocialUser(c *gin.Context, provider model.IdentityProvid
 	linked, err := s.store.GetUserIdentityByProviderSubject(c.Request.Context(), provider.ID, identity.Subject)
 	if err == nil {
 		user, getErr := s.store.GetUser(c.Request.Context(), linked.UserID)
-		if getErr != nil || user.DisabledAt != nil || user.SignupPendingVerification || !user.EmailVerified {
+		if getErr != nil || user.DisabledAt != nil {
 			return model.User{}, errOIDCUserNotProvisioned
+		}
+		if user.SignupPendingVerification || !user.EmailVerified {
+			if !strings.EqualFold(strings.TrimSpace(user.Email), strings.TrimSpace(identity.Email)) {
+				return model.User{}, errOIDCUserNotProvisioned
+			}
+			user, getErr = s.store.ActivateUserFromVerifiedSocialEmail(c.Request.Context(), user.ID, provider.ProviderID)
+			if getErr != nil {
+				return model.User{}, getErr
+			}
 		}
 		_, err = s.store.UpdateUserIdentityLastLogin(c.Request.Context(), linked.ID, s.now())
 		return user, err
@@ -231,8 +242,14 @@ func (s *Server) resolveSocialUser(c *gin.Context, provider model.IdentityProvid
 			return model.User{}, createErr
 		}
 	}
-	if err != nil || user.DisabledAt != nil || user.SignupPendingVerification || !user.EmailVerified {
+	if err != nil || user.DisabledAt != nil {
 		return model.User{}, errOIDCUserNotProvisioned
+	}
+	if user.SignupPendingVerification || !user.EmailVerified {
+		user, err = s.store.ActivateUserFromVerifiedSocialEmail(c.Request.Context(), user.ID, provider.ProviderID)
+		if err != nil {
+			return model.User{}, err
+		}
 	}
 	if _, err := s.store.CreateUserIdentity(c.Request.Context(), store.UserIdentityCreateInput{
 		UserID: user.ID, ProviderID: provider.ID, IssuerURL: identity.Issuer, Subject: identity.Subject,

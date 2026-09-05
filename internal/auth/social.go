@@ -82,10 +82,15 @@ func (c SocialClient) AuthorizationURL(ctx context.Context, provider SocialProvi
 		values := url.Values{
 			"client_id":             {provider.ClientID},
 			"redirect_uri":          {provider.RedirectURL},
-			"scope":                 {"user:email"},
 			"state":                 {state},
 			"code_challenge":        {challenge},
 			"code_challenge_method": {"S256"},
+		}
+		// GitHub Apps use their configured fine-grained account permissions and
+		// do not accept OAuth App scopes at authorization time. OAuth Apps still
+		// require user:email so private verified addresses can be discovered.
+		if !strings.HasPrefix(provider.ClientID, "Iv") {
+			values.Set("scope", "user:email")
 		}
 		return "https://github.com/login/oauth/authorize?" + values.Encode(), nil
 	default:
@@ -135,16 +140,22 @@ func (c SocialClient) exchangeGitHub(ctx context.Context, provider SocialProvide
 		AccessToken string `json:"access_token"`
 		Error       string `json:"error"`
 	}
-	if err := c.doJSON(req, &token); err != nil || token.AccessToken == "" || token.Error != "" {
-		return OIDCIdentity{}, ErrInvalidSocialIdentity
+	if err := c.doJSON(req, &token); err != nil {
+		return OIDCIdentity{}, fmt.Errorf("%w: github token exchange: %v", ErrInvalidSocialIdentity, err)
+	}
+	if token.AccessToken == "" || token.Error != "" {
+		return OIDCIdentity{}, fmt.Errorf("%w: github token exchange: provider error %s", ErrInvalidSocialIdentity, token.Error)
 	}
 	var user struct {
 		ID    int64  `json:"id"`
 		Login string `json:"login"`
 		Name  string `json:"name"`
 	}
-	if err := c.githubGET(ctx, "https://api.github.com/user", token.AccessToken, &user); err != nil || user.ID == 0 {
-		return OIDCIdentity{}, ErrInvalidSocialIdentity
+	if err := c.githubGET(ctx, "https://api.github.com/user", token.AccessToken, &user); err != nil {
+		return OIDCIdentity{}, fmt.Errorf("%w: github user lookup: %v", ErrInvalidSocialIdentity, err)
+	}
+	if user.ID == 0 {
+		return OIDCIdentity{}, fmt.Errorf("%w: github user lookup: missing user id", ErrInvalidSocialIdentity)
 	}
 	var emails []struct {
 		Email    string `json:"email"`
@@ -152,7 +163,7 @@ func (c SocialClient) exchangeGitHub(ctx context.Context, provider SocialProvide
 		Verified bool   `json:"verified"`
 	}
 	if err := c.githubGET(ctx, "https://api.github.com/user/emails", token.AccessToken, &emails); err != nil {
-		return OIDCIdentity{}, ErrInvalidSocialIdentity
+		return OIDCIdentity{}, fmt.Errorf("%w: github email lookup: %v", ErrInvalidSocialIdentity, err)
 	}
 	primary := ""
 	for _, candidate := range emails {
