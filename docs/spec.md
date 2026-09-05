@@ -1436,6 +1436,37 @@ migration and retains the owner/refusal and matched-backup rollback boundaries.
   Manager with the target device identity and must be denied unless an active
   `device_user_bindings` row authorizes that `end_user_id` for that device.
 
+### [REQ-AM-TEST-LAB-001] Developer Test Lab grants temporary device access without creating a production App
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"workflow","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+The Developer Console Test Lab is an opt-in, non-production workflow that lets
+an authenticated developer validate MQTT, IoT Shadow, and video streaming
+without first implementing an App or Viewer. It must fail closed in production
+and whenever its Account Manager or Video Cloud runtime integration is missing.
+
+The signed-in developer identity authorizes both the Brand Cloud and an internal,
+passwordless App test identity. The test identity must not adopt or expose an
+existing end-user account by matching email. Only a device created for testing,
+associated with the selected active Product, and backed by a completed issuance
+reservation from the dedicated Developer Console factory run may enter the Test
+Lab device list.
+
+Binding requires a fresh, short-lived, device- and test-account-scoped grant.
+Provisioning reuses the normal lifecycle outbox and must be complete before live
+runtime access is issued. A Test Lab authorization lease revalidates the current
+developer, Cloud, Product, device, App-account binding, activation state, and
+service options. Runtime credentials last at most 30 seconds and cannot use the
+public refresh endpoint.
+
+Unbind disables only the selected test identity's device binding and revokes its
+grants and authorization leases. It preserves the registry device, its Product
+association, certificates, and bindings owned by other end users. Device private
+keys and browser-generated clip keys remain one-time downloads and are never
+persisted by Account Manager.
+
 ### Keycloak / OIDC Authentication
 
 The Keycloak integration treats account manager as an OIDC client and
