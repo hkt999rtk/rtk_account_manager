@@ -1439,7 +1439,7 @@ migration and retains the owner/refusal and matched-backup rollback boundaries.
 ### [REQ-AM-TEST-LAB-001] Developer Test Lab grants temporary device access without creating a production App
 
 <!-- rtk-requirement
-{"acceptance_layer":"integration","operation_model":"workflow","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
 -->
 
 The Developer Console Test Lab is an opt-in, non-production workflow that lets
