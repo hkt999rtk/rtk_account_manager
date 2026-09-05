@@ -34,6 +34,16 @@ func (s *Server) handleInternalAppTokenAuthorization(c *gin.Context) {
 	certificateFingerprint := strings.ToLower(strings.TrimSpace(req.CertificateFingerprintSHA256))
 	var err error
 	switch subjectType {
+	case "test_lab":
+		if !testLabEnabled() || s.testLab == nil {
+			writeError(c, 403, "test_lab_disabled", "Test Lab is unavailable")
+			return
+		}
+		var session store.TestLabSession
+		session, err = s.testLab.store.GetTestLabSession(c.Request.Context(), strings.TrimSpace(req.UserID))
+		if err == nil && session.Devid != strings.TrimSpace(req.Devid) {
+			err = store.ErrNotFound
+		}
 	case "", auth.SubjectTypeUser:
 		userID := strings.TrimSpace(req.UserID)
 		if userID == "" {

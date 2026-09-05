@@ -76,6 +76,18 @@ func authorizeDeviceUserMutationTx(ctx context.Context, tx pgx.Tx, actor, org, d
 
 func (s *Store) CreateDeviceAsUser(ctx context.Context, actor, org string, in DeviceInput) (model.Device, error) {
 	return s.mutateDeviceAsUser(ctx, actor, org, "", "device.created", func(tx pgx.Tx) (model.Device, error) {
+		if product := stringValue(in.DeviceItemProfileID); product != "" {
+			if err := authorizeProductUserMutationTx(ctx, tx, actor, org, product, false); err != nil {
+				return model.Device{}, err
+			}
+			profile, err := getDeviceItemProfileByID(ctx, tx, product)
+			if err != nil {
+				return model.Device{}, err
+			}
+			if profile.BrandCloudID != org || profile.Status != model.DeviceItemProfileStatusActive {
+				return model.Device{}, ErrNotFound
+			}
+		}
 		return createDeviceTx(ctx, tx, org, in)
 	})
 }

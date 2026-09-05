@@ -22,6 +22,7 @@ import (
 )
 
 type Server struct {
+	testLab                     *testLabRuntime
 	store                       Store
 	auth                        *auth.Service
 	authTokenQueuedHook         func(AuthTokenDelivery)
@@ -312,6 +313,14 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/developer/brand-clouds", s.listDeveloperBrandClouds)
 	protected.GET("/developer/brand-clouds/:brandCloudId", s.getDeveloperBrandCloud)
 	protected.POST("/developer/brand-clouds/:brandCloudId/job-authorizations", s.createDeveloperJobAuthorization)
+	protected.POST("/developer/brand-clouds/:brandCloudId/test-lab/sessions", s.createTestLabSession)
+	protected.POST("/developer/brand-clouds/:brandCloudId/test-lab/accounts", s.testLabAccount)
+	protected.DELETE("/developer/brand-clouds/:brandCloudId/test-lab/accounts/:accountId", s.testLabAccount)
+	protected.GET("/developer/brand-clouds/:brandCloudId/test-lab/devices", s.testLabDevices)
+	protected.GET("/developer/brand-clouds/:brandCloudId/test-lab/devices/:deviceId", s.testLabDevices)
+	protected.POST("/developer/brand-clouds/:brandCloudId/test-lab/devices/:deviceId/:action", s.testLabDevices)
+	protected.POST("/developer/brand-clouds/:brandCloudId/test-lab/sessions/:sessionId/credentials", s.testLabCredentials)
+	protected.DELETE("/developer/brand-clouds/:brandCloudId/test-lab/sessions/:sessionId", s.closeTestLabSession)
 	protected.POST("/developer/brand-clouds", s.createDeveloperBrandCloud)
 	protected.PATCH("/developer/brand-clouds/:brandCloudId", s.updateDeveloperBrandCloud)
 	protected.GET("/developer/brand-clouds/:brandCloudId/deletion-preflight", s.preflightDeveloperBrandCloudDeletion)
