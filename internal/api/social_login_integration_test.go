@@ -2,8 +2,13 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +18,171 @@ import (
 	"rtk_account_manager/internal/model"
 	"rtk_account_manager/internal/store"
 )
+
+func TestSocialLoginHTTPRoundTripCreatesAndReusesAccount(t *testing.T) {
+	env := newIntegrationEnv(t)
+	providerClient := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body := ""
+		switch req.URL.String() {
+		case "https://github.com/login/oauth/access_token":
+			body = `{"access_token":"fixture-token"}`
+		case "https://api.github.com/user":
+			body = `{"id":42,"login":"fixture-user","name":"Fixture User"}`
+		case "https://api.github.com/user/emails":
+			body = `[{"email":"social-login@example.test","primary":true,"verified":true}]`
+		default:
+			t.Fatalf("unexpected social provider request: %s %s", req.Method, req.URL)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    req,
+		}, nil
+	})}
+	env.server.ConfigureSocialLogin(SocialLoginOptions{
+		Providers: []auth.SocialProvider{{
+			ID: "github", Name: "GitHub", Protocol: "oauth2", IssuerURL: "https://github.com",
+			ClientID: "fixture-client", ClientSecret: "fixture-secret",
+			RedirectURL: "https://console.example.test/v1/auth/social/callback", Enabled: true,
+		}},
+		HTTPClient: providerClient, StateSecret: strings.Repeat("s", 32),
+	})
+
+	for attempt := 0; attempt < 2; attempt++ {
+		start := performJSON(env.router, http.MethodPost, "/v1/auth/social/start", map[string]any{
+			"provider_id": "GITHUB",
+			"next":        "/console/clouds/cloud-1/test-lab",
+		}, "")
+		if start.Code != http.StatusOK {
+			t.Fatalf("attempt %d start status = %d: %s", attempt, start.Code, start.Body.String())
+		}
+		var startBody struct {
+			RedirectURL string `json:"redirect_url"`
+		}
+		if err := json.Unmarshal(start.Body.Bytes(), &startBody); err != nil {
+			t.Fatal(err)
+		}
+		redirect, err := url.Parse(startBody.RedirectURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		state := redirect.Query().Get("state")
+		if state == "" || redirect.Query().Get("code_challenge") == "" {
+			t.Fatalf("start response is missing OAuth state or PKCE challenge: %s", startBody.RedirectURL)
+		}
+
+		callback := performJSON(env.router, http.MethodPost, "/v1/auth/social/callback", map[string]any{
+			"code": "fixture-code", "state": state,
+		}, "")
+		if callback.Code != http.StatusOK {
+			t.Fatalf("attempt %d callback status = %d: %s", attempt, callback.Code, callback.Body.String())
+		}
+		var callbackBody struct {
+			User struct {
+				Email         string `json:"email"`
+				EmailVerified bool   `json:"email_verified"`
+			} `json:"user"`
+			ReturnPath string `json:"return_path"`
+		}
+		if err := json.Unmarshal(callback.Body.Bytes(), &callbackBody); err != nil {
+			t.Fatal(err)
+		}
+		if callbackBody.User.Email != "social-login@example.test" || !callbackBody.User.EmailVerified {
+			t.Fatalf("unexpected social user: %+v", callbackBody.User)
+		}
+		if callbackBody.ReturnPath != "/console/clouds/cloud-1/test-lab" {
+			t.Fatalf("return path = %q", callbackBody.ReturnPath)
+		}
+	}
+}
+
+func TestSocialLoginPublicValidationAndHelpers(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	server := New(nil, nil)
+	server.ConfigureSocialLogin(SocialLoginOptions{Providers: []auth.SocialProvider{
+		{ID: "github", Name: "GitHub", Protocol: "oauth2", ClientID: "client", ClientSecret: "secret", RedirectURL: "https://console.example.test/callback", Enabled: true},
+		{ID: "google", Name: "Google", Enabled: false},
+	}, StateSecret: strings.Repeat("s", 32), StateTTL: time.Minute})
+	router := server.Router()
+
+	providers := performJSON(router, http.MethodGet, "/v1/auth/social/providers", nil, "")
+	if providers.Code != http.StatusOK || !strings.Contains(providers.Body.String(), `"id":"github"`) || strings.Contains(providers.Body.String(), `"id":"google"`) {
+		t.Fatalf("unexpected provider catalog: status=%d body=%s", providers.Code, providers.Body.String())
+	}
+	malformed := performRaw(router, http.MethodPost, "/v1/auth/social/start", []byte(`{`), "")
+	if malformed.Code != http.StatusBadRequest {
+		t.Fatalf("malformed start status = %d", malformed.Code)
+	}
+	unknown := performJSON(router, http.MethodPost, "/v1/auth/social/start", map[string]any{"provider_id": "unknown"}, "")
+	if unknown.Code != http.StatusNotFound {
+		t.Fatalf("unknown provider status = %d", unknown.Code)
+	}
+	cancelled := performJSON(router, http.MethodPost, "/v1/auth/social/callback", map[string]any{"error": "access_denied"}, "")
+	if cancelled.Code != http.StatusBadRequest || !strings.Contains(cancelled.Body.String(), "social_login_cancelled") {
+		t.Fatalf("cancelled callback: status=%d body=%s", cancelled.Code, cancelled.Body.String())
+	}
+	invalidState := performJSON(router, http.MethodPost, "/v1/auth/social/callback", map[string]any{"state": "state-only"}, "")
+	if invalidState.Code != http.StatusBadRequest || !strings.Contains(invalidState.Body.String(), "invalid_social_state") {
+		t.Fatalf("invalid callback: status=%d body=%s", invalidState.Code, invalidState.Body.String())
+	}
+
+	for raw, want := range map[string]string{
+		" /console/clouds/cloud-1/test-lab?ignored=1 ": "/console/clouds/cloud-1/test-lab",
+		"/admin/../admin/members":                      "/admin/members",
+		"https://attacker.example/console":             "",
+		"//attacker.example/console":                   "",
+		`/console\redirect`:                            "",
+		"/untrusted":                                   "",
+	} {
+		if got := safeSocialNext(raw); got != want {
+			t.Errorf("safeSocialNext(%q) = %q, want %q", raw, got, want)
+		}
+	}
+	if got := socialDisplayName(map[string]any{"name": "  Fixture User  "}); got == nil || *got != "Fixture User" {
+		t.Fatalf("display name = %v", got)
+	}
+	if got := socialDisplayName(map[string]any{"name": "", "login": " fixture-login "}); got == nil || *got != "fixture-login" {
+		t.Fatalf("fallback display name = %v", got)
+	}
+	if socialDisplayName(map[string]any{"name": 42}) != nil {
+		t.Fatal("non-string display name should be ignored")
+	}
+	value := "value"
+	if stringValue(nil) != "" || stringValue(&value) != value {
+		t.Fatal("stringValue did not preserve pointer semantics")
+	}
+}
+
+func TestWriteSocialLoginErrorMapsPublicFailures(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{name: "provider missing", err: auth.ErrSocialProviderNotFound, status: http.StatusNotFound, code: "social_provider_not_found"},
+		{name: "provider invalid", err: auth.ErrSocialProviderMisconfigured, status: http.StatusServiceUnavailable, code: "social_provider_misconfigured"},
+		{name: "state invalid", err: store.ErrOIDCStateInvalid, status: http.StatusBadRequest, code: "invalid_social_state"},
+		{name: "state expired", err: store.ErrOIDCStateExpired, status: http.StatusBadRequest, code: "invalid_social_state"},
+		{name: "email unverified", err: auth.ErrSocialEmailUnverified, status: http.StatusForbidden, code: "social_email_unverified"},
+		{name: "oidc email unverified", err: auth.ErrUnverifiedOIDCEmail, status: http.StatusForbidden, code: "social_email_unverified"},
+		{name: "user unavailable", err: errOIDCUserNotProvisioned, status: http.StatusForbidden, code: "user_not_provisioned"},
+		{name: "identity invalid", err: auth.ErrInvalidSocialIdentity, status: http.StatusUnauthorized, code: "invalid_social_identity"},
+		{name: "token invalid", err: auth.ErrInvalidOIDCToken, status: http.StatusUnauthorized, code: "invalid_social_identity"},
+		{name: "store conflict", err: store.ErrConflict, status: http.StatusConflict, code: "conflict"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(response)
+			writeSocialLoginError(ctx, tc.err)
+			if response.Code != tc.status || !strings.Contains(response.Body.String(), `"code":"`+tc.code+`"`) {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
 
 func TestSocialLoginActivatesExistingPendingUser(t *testing.T) {
 	for _, linkedBeforeLogin := range []bool{false, true} {
