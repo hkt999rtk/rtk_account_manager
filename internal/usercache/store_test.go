@@ -535,6 +535,10 @@ func (f *fakeBacking) GetUserByEmail(_ context.Context, email string) (model.Use
 	return user, nil
 }
 
+func (f *fakeBacking) ActivateUserFromVerifiedSocialEmail(context.Context, string, string) (model.User, error) {
+	return f.activateUser, nil
+}
+
 func (f *fakeBacking) DisableCurrentUser(context.Context, string) error {
 	return nil
 }

@@ -195,7 +195,6 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		"devices_org_serial_unique",
 		"organizations_brand_tenant_slug_key",
 		"organizations_kind_status_idx",
-		"identity_providers_enabled_unique_idx",
 		"oidc_login_states_provider_created_idx",
 		"oidc_login_states_active_idx",
 		"role_assignments_active_unique_idx",

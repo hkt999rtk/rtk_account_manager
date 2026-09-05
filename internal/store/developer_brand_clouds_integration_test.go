@@ -71,6 +71,39 @@ func TestDeveloperSignupCreatesDefaultBrandCloudAndEnforcesCloudLimit(t *testing
 	}
 }
 
+func TestDeveloperSignupCanCreateVerifiedSocialAccountWithoutVerificationEmail(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+
+	result, err := env.store.SignupDeveloper(ctx, DeveloperSignupInput{
+		Email:                     "social-user@example.com",
+		PasswordHash:              "unusable-random-social-password-hash",
+		OrganizationName:          "social-user@example.com",
+		EmailVerified:             true,
+		SignupPendingVerification: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.User.EmailVerified || result.User.EmailVerifiedAt == nil || result.User.SignupPendingVerification {
+		t.Fatalf("social account must be active and verified: %+v", result.User)
+	}
+	var verificationTokens, verificationEmails int
+	if err := env.db.QueryRow(ctx, `
+		SELECT
+			(SELECT count(*) FROM auth_tokens WHERE user_id=$1 AND purpose='email_verification'),
+			(SELECT count(*) FROM email_outbox)
+	`, result.User.ID).Scan(&verificationTokens, &verificationEmails); err != nil {
+		t.Fatal(err)
+	}
+	if verificationTokens != 0 || verificationEmails != 0 {
+		t.Fatalf("social account must not create verification work: tokens=%d emails=%d", verificationTokens, verificationEmails)
+	}
+	if result.BrandCloud.ID == "" || result.BrandCloud.Role != model.RoleOwner {
+		t.Fatalf("social account must own a default Brand Cloud: %+v", result.BrandCloud)
+	}
+}
+
 func TestDeveloperBrandCloudErrorPaths(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()

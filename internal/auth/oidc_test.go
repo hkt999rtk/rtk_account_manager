@@ -387,7 +387,7 @@ type fakeProviderStore struct {
 	err      error
 }
 
-func (s fakeProviderStore) GetEnabledIdentityProvider(context.Context) (model.IdentityProvider, error) {
+func (s fakeProviderStore) GetIdentityProviderByProviderID(context.Context, string) (model.IdentityProvider, error) {
 	if s.err != nil {
 		return model.IdentityProvider{}, s.err
 	}

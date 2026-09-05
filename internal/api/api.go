@@ -32,6 +32,10 @@ type Server struct {
 	oidcClient                  auth.OIDCClient
 	oidcStateTTL                time.Duration
 	oidcEnvClientSecretRef      string
+	socialProviders             map[string]auth.SocialProvider
+	socialClient                auth.SocialClient
+	socialStateSecret           string
+	socialStateTTL              time.Duration
 	appCertificateIssuer        AppCertificateIssuer
 	internalAuthToken           string
 	jobAuthorizationToken       string
@@ -101,6 +105,31 @@ func (s *Server) ConfigureOIDC(options OIDCOptions) {
 	s.oidcEnvClientSecretRef = options.ClientSecretRef
 	if s.oidcEnvClientSecretRef == "" {
 		s.oidcEnvClientSecretRef = "env:OIDC_CLIENT_SECRET"
+	}
+}
+
+type SocialLoginOptions struct {
+	Providers   []auth.SocialProvider
+	HTTPClient  *http.Client
+	StateSecret string
+	StateTTL    time.Duration
+}
+
+func (s *Server) ConfigureSocialLogin(options SocialLoginOptions) {
+	s.socialProviders = make(map[string]auth.SocialProvider, len(options.Providers))
+	for _, provider := range options.Providers {
+		if provider.Enabled {
+			s.socialProviders[provider.ID] = provider
+		}
+	}
+	s.socialClient = auth.SocialClient{
+		HTTPClient: options.HTTPClient,
+		OIDC:       auth.OIDCClient{HTTPClient: options.HTTPClient},
+	}
+	s.socialStateSecret = options.StateSecret
+	s.socialStateTTL = options.StateTTL
+	if s.socialStateTTL <= 0 {
+		s.socialStateTTL = 10 * time.Minute
 	}
 }
 
@@ -255,6 +284,9 @@ func (s *Server) Router() *gin.Engine {
 	v1.GET("/auth/oidc/providers", s.listOIDCProviders)
 	v1.GET("/auth/oidc/:providerId/login", s.startOIDCLogin)
 	v1.GET("/auth/oidc/:providerId/callback", s.handleOIDCCallback)
+	v1.GET("/auth/social/providers", s.listSocialProviders)
+	v1.POST("/auth/social/start", s.startSocialLogin)
+	v1.POST("/auth/social/callback", s.handleSocialCallback)
 	v1.POST("/app/end-users/auth/login", s.appEndUserLogin)
 	v1.POST("/app/end-users/auth/refresh", s.appEndUserRefresh)
 	v1.POST("/internal/app-token-authorizations", s.handleInternalAppTokenAuthorization)
