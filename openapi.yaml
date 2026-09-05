@@ -79,7 +79,7 @@ paths:
       tags: [Developer Brand Clouds]
       description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. See docs/test-lab.md for exact request, response and revocation contracts. Unbind preserves the device and certificates.
       x-rtk-feature-id: FEAT-AM-IDENTITY-001
-      x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001]
+      x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001, REQ-AM-TEST-LAB-WORKFLOW-001]
       requestBody:
         required: true
         content:
@@ -105,7 +105,7 @@ paths:
       tags: [Developer Brand Clouds]
       description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. See docs/test-lab.md for exact request, response and revocation contracts. Unbind preserves the device and certificates.
       x-rtk-feature-id: FEAT-AM-IDENTITY-001
-      x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001]
+      x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001, REQ-AM-TEST-LAB-WORKFLOW-001]
       responses:
         '204': {description: Success}
         '201': {description: Created binding grant}
@@ -125,7 +125,7 @@ paths:
       tags: [Developer Brand Clouds]
       description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. See docs/test-lab.md for exact request, response and revocation contracts. Unbind preserves the device and certificates.
       x-rtk-feature-id: FEAT-AM-IDENTITY-001
-      x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001]
+      x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001, REQ-AM-TEST-LAB-WORKFLOW-001]
       responses:
         '200': {description: Success}
         '201': {description: Created binding grant}
@@ -146,7 +146,7 @@ paths:
       tags: [Developer Brand Clouds]
       description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. See docs/test-lab.md for exact request, response and revocation contracts. Unbind preserves the device and certificates.
       x-rtk-feature-id: FEAT-AM-IDENTITY-001
-      x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001]
+      x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001, REQ-AM-TEST-LAB-WORKFLOW-001]
       responses:
         '200': {description: Success}
         '201': {description: Created binding grant}
@@ -168,7 +168,7 @@ paths:
       tags: [Developer Brand Clouds]
       description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. See docs/test-lab.md for exact request, response and revocation contracts. Unbind preserves the device and certificates.
       x-rtk-feature-id: FEAT-AM-IDENTITY-001
-      x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001]
+      x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001, REQ-AM-TEST-LAB-WORKFLOW-001]
       requestBody:
         required: true
         content:
@@ -196,7 +196,7 @@ paths:
       summary: createDeveloperTestLabSession
       description: Opt-in non-production device testing. A live global-user session and current device-management authority are required. Credentials last 30 seconds and cannot use the public refresh endpoint.
       x-rtk-feature-id: FEAT-AM-IDENTITY-001
-      x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001]
+      x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001, REQ-AM-TEST-LAB-WORKFLOW-001]
       security: [{bearerAuth: []}]
       requestBody:
         content:
@@ -226,7 +226,7 @@ paths:
       summary: issueDeveloperTestLabCredentials
       description: Opt-in non-production device testing. A live global-user session and current device-management authority are required. Credentials last 30 seconds and cannot use the public refresh endpoint.
       x-rtk-feature-id: FEAT-AM-IDENTITY-001
-      x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001]
+      x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001, REQ-AM-TEST-LAB-WORKFLOW-001]
       security: [{bearerAuth: []}]
       requestBody:
         content:
@@ -256,7 +256,7 @@ paths:
       summary: closeDeveloperTestLabSession
       description: Opt-in non-production device testing. A live global-user session and current device-management authority are required. Credentials last 30 seconds and cannot use the public refresh endpoint.
       x-rtk-feature-id: FEAT-AM-IDENTITY-001
-      x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001]
+      x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001, REQ-AM-TEST-LAB-WORKFLOW-001]
       security: [{bearerAuth: []}]
       responses:
         '204': {description: Success}
