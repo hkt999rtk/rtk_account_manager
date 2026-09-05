@@ -1394,6 +1394,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestHandoffWorkerRejectsUnavailableOrUnboundSettlement/wrong_cutoff`
 - `rtk_account_manager/internal/store`: `TestHandoffWorkerRejectsUnavailableOrUnboundSettlement/wrong_operation`
 - `rtk_account_manager/internal/store`: `TestHandoffWorkerRejectsUnavailableOrUnboundSettlement`
+- `rtk_account_manager/internal/store`: `TestIdentityProviderDefaultLookupAndMissingPaths`
 - `rtk_account_manager/internal/store`: `TestIdentityProviderRejectsRawClientSecretRef`
 - `rtk_account_manager/internal/store`: `TestIdentityProviderStoreCRUDAndMultipleEnabledProviders`
 - `rtk_account_manager/internal/store`: `TestIntegrationDatabaseSchemaInvariants`
