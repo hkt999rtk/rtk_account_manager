@@ -68,6 +68,186 @@ tags:
 servers:
   - url: http://localhost:8080
 paths:
+  /v1/developer/brand-clouds/{brandCloudId}/test-lab/accounts:
+    parameters:
+      - {name: brandCloudId, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      operationId: developerTestLabpostaccounts
+      summary: POST test-only /accounts
+      tags: [Developer Brand Clouds]
+      description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. See docs/test-lab.md for exact request, response and revocation contracts. Unbind preserves the device and certificates.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200': {description: Success}
+        '201': {description: Created binding grant}
+        '202': {description: Provision queued}
+        '400': {description: Invalid input}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Disabled or inaccessible scope}
+        '409': {description: Binding or lifecycle conflict}
+        '429': {description: Login attempt limit}
+  /v1/developer/brand-clouds/{brandCloudId}/test-lab/accounts/{accountId}:
+    parameters:
+      - {name: brandCloudId, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: accountId, in: path, required: true, schema: {type: string, format: uuid}}
+    delete:
+      operationId: developerTestLabdeleteaccountsaccountId
+      summary: DELETE test-only /accounts/{accountId}
+      tags: [Developer Brand Clouds]
+      description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. See docs/test-lab.md for exact request, response and revocation contracts. Unbind preserves the device and certificates.
+      responses:
+        '204': {description: Success}
+        '201': {description: Created binding grant}
+        '202': {description: Provision queued}
+        '400': {description: Invalid input}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Disabled or inaccessible scope}
+        '409': {description: Binding or lifecycle conflict}
+        '429': {description: Login attempt limit}
+  /v1/developer/brand-clouds/{brandCloudId}/test-lab/devices:
+    parameters:
+      - {name: brandCloudId, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      operationId: developerTestLabgetdevices
+      summary: GET test-only /devices
+      tags: [Developer Brand Clouds]
+      description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. See docs/test-lab.md for exact request, response and revocation contracts. Unbind preserves the device and certificates.
+      responses:
+        '200': {description: Success}
+        '201': {description: Created binding grant}
+        '202': {description: Provision queued}
+        '400': {description: Invalid input}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Disabled or inaccessible scope}
+        '409': {description: Binding or lifecycle conflict}
+        '429': {description: Login attempt limit}
+  /v1/developer/brand-clouds/{brandCloudId}/test-lab/devices/{deviceId}:
+    parameters:
+      - {name: brandCloudId, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: deviceId, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      operationId: developerTestLabgetdevicesdeviceId
+      summary: GET test-only /devices/{deviceId}
+      tags: [Developer Brand Clouds]
+      description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. See docs/test-lab.md for exact request, response and revocation contracts. Unbind preserves the device and certificates.
+      responses:
+        '200': {description: Success}
+        '201': {description: Created binding grant}
+        '202': {description: Provision queued}
+        '400': {description: Invalid input}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Disabled or inaccessible scope}
+        '409': {description: Binding or lifecycle conflict}
+        '429': {description: Login attempt limit}
+  /v1/developer/brand-clouds/{brandCloudId}/test-lab/devices/{deviceId}/{action}:
+    parameters:
+      - {name: brandCloudId, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: deviceId, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: action, in: path, required: true, schema: {type: string, enum: [grant, bind, unbind, provision]}}
+    post:
+      operationId: developerTestLabpostdevicesdeviceIdaction
+      summary: POST test-only /devices/{deviceId}/{action}
+      tags: [Developer Brand Clouds]
+      description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. See docs/test-lab.md for exact request, response and revocation contracts. Unbind preserves the device and certificates.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200': {description: Success}
+        '201': {description: Created binding grant}
+        '202': {description: Provision queued}
+        '400': {description: Invalid input}
+        '401': {description: Authentication required}
+        '403': {description: Permission denied}
+        '404': {description: Disabled or inaccessible scope}
+        '409': {description: Binding or lifecycle conflict}
+        '429': {description: Login attempt limit}
+  /v1/developer/brand-clouds/{brandCloudId}/test-lab/sessions:
+    parameters:
+      - name: brandCloudId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      operationId: createDeveloperTestLabSession
+      tags: [Developer Brand Clouds]
+      summary: createDeveloperTestLabSession
+      description: Opt-in non-production device testing. A live global-user session and current device-management authority are required. Credentials last 30 seconds and cannot use the public refresh endpoint.
+      security: [{bearerAuth: []}]
+      requestBody:
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '201': {description: Success}
+        '400': {description: Invalid scope}
+        '401': {description: Authentication required}
+        '403': {description: Authorization denied}
+        '404': {description: Disabled or inaccessible resource}
+        '429': {description: Session quota exceeded}
+        '503': {description: Runtime unavailable}
+  /v1/developer/brand-clouds/{brandCloudId}/test-lab/sessions/{sessionId}/credentials:
+    parameters:
+      - name: brandCloudId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      - name: sessionId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      operationId: issueDeveloperTestLabCredentials
+      tags: [Developer Brand Clouds]
+      summary: issueDeveloperTestLabCredentials
+      description: Opt-in non-production device testing. A live global-user session and current device-management authority are required. Credentials last 30 seconds and cannot use the public refresh endpoint.
+      security: [{bearerAuth: []}]
+      requestBody:
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '200': {description: Success}
+        '400': {description: Invalid scope}
+        '401': {description: Authentication required}
+        '403': {description: Authorization denied}
+        '404': {description: Disabled or inaccessible resource}
+        '429': {description: Session quota exceeded}
+        '503': {description: Runtime unavailable}
+  /v1/developer/brand-clouds/{brandCloudId}/test-lab/sessions/{sessionId}:
+    parameters:
+      - name: brandCloudId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      - name: sessionId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    delete:
+      operationId: closeDeveloperTestLabSession
+      tags: [Developer Brand Clouds]
+      summary: closeDeveloperTestLabSession
+      description: Opt-in non-production device testing. A live global-user session and current device-management authority are required. Credentials last 30 seconds and cannot use the public refresh endpoint.
+      security: [{bearerAuth: []}]
+      responses:
+        '204': {description: Success}
+        '400': {description: Invalid scope}
+        '401': {description: Authentication required}
+        '403': {description: Authorization denied}
+        '404': {description: Disabled or inaccessible resource}
+        '429': {description: Session quota exceeded}
+        '503': {description: Runtime unavailable}
   /v1/internal/factory-enrollments/reserve:
     post:
       operationId: reserveFactoryEnrollment

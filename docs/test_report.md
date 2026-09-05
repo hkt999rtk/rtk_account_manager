@@ -245,6 +245,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestDeveloperPKITestIssuanceEnabled/production`
 - `rtk_account_manager/internal/api`: `TestDeveloperPKITestIssuanceEnabled/staging`
 - `rtk_account_manager/internal/api`: `TestDeveloperPKITestIssuanceEnabled`
+- `rtk_account_manager/internal/api`: `TestDeviceCreateRequestRetainsProductAssociation`
 - `rtk_account_manager/internal/api`: `TestEmailIssuanceRequiresOutbox`
 - `rtk_account_manager/internal/api`: `TestFailureFromMetadataUsesProjectedErrorFacts`
 - `rtk_account_manager/internal/api`: `TestHTTPAppCertificateIssuerIssuesAndReportsErrors`
@@ -396,6 +397,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests/member_lookup`
 - `rtk_account_manager/internal/api`: `TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests/member_role`
 - `rtk_account_manager/internal/api`: `TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests`
+- `rtk_account_manager/internal/api`: `TestLabConsoleIdentityAPI`
 - `rtk_account_manager/internal/api`: `TestLoadSignupPolicyHonorsEnvironmentOverrides`
 - `rtk_account_manager/internal/api`: `TestManagedCloudListHandler`
 - `rtk_account_manager/internal/api`: `TestManagedCloudNonHumanSessionRejected`
@@ -1442,6 +1444,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationUsesProjectedMetadata`
 - `rtk_account_manager/internal/store`: `TestStartDeviceLifecycleOperationPersistsPendingProvisionMetadata`
 - `rtk_account_manager/internal/store`: `TestStoreOperationsRespectCanceledContextIntegration`
+- `rtk_account_manager/internal/store`: `TestTestLabBindingLifecycleIsolationAndRevocation`
 - `rtk_account_manager/internal/store`: `TestUnprovisionDeviceRetainsClaimHistoryAndAllowsReplacementClaim`
 - `rtk_account_manager/internal/store`: `TestUnprovisionFailureKeepsDeviceAndDoesNotQueueWork/actor`
 - `rtk_account_manager/internal/store`: `TestUnprovisionFailureKeepsDeviceAndDoesNotQueueWork/canceled`
