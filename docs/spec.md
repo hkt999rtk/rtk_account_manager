@@ -300,7 +300,7 @@ plus `organization_members`:
 ### [REQ-AM-SOCIAL-LOGIN-001] Verified social identity activates eligible local accounts
 
 <!-- rtk-requirement
-{"acceptance_layer":"integration","operation_model":"workflow","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
 -->
 
 Cloud Admin may offer Google OIDC and GitHub OAuth login when each provider is
