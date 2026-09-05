@@ -9,7 +9,7 @@ import (
 	"rtk_account_manager/internal/model"
 )
 
-func TestIdentityProviderStoreCRUDAndEnabledInvariant(t *testing.T) {
+func TestIdentityProviderStoreCRUDAndMultipleEnabledProviders(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Microsecond)
@@ -83,10 +83,10 @@ func TestIdentityProviderStoreCRUDAndEnabledInvariant(t *testing.T) {
 		t.Fatalf("expected enabled provider, got %+v", enabled)
 	}
 
-	_, err = env.store.CreateIdentityProvider(ctx, IdentityProviderCreateInput{
+	second, err := env.store.CreateIdentityProvider(ctx, IdentityProviderCreateInput{
 		ProviderID:      "second",
 		Name:            "Second",
-		Type:            model.IdentityProviderTypeOIDC,
+		Type:            model.IdentityProviderTypeOAuth2,
 		IssuerURL:       "https://second.example.test/realms/account",
 		ClientID:        "account-manager",
 		ClientSecretRef: &secretRef,
@@ -94,8 +94,8 @@ func TestIdentityProviderStoreCRUDAndEnabledInvariant(t *testing.T) {
 		Enabled:         true,
 		Now:             now,
 	})
-	if err == nil {
-		t.Fatal("expected second enabled provider to be rejected")
+	if err != nil || !second.Enabled || second.Type != model.IdentityProviderTypeOAuth2 {
+		t.Fatalf("expected second enabled provider, got %+v err=%v", second, err)
 	}
 
 	var rawSecretCount int

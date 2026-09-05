@@ -72,6 +72,14 @@ type Config struct {
 	OIDCRedirectURL                 string
 	OIDCScopes                      []string
 	OIDCAutoLinkEmail               bool
+	SocialLoginCallbackURL          string
+	SocialOAuthStateSecret          string
+	GoogleLoginEnabled              bool
+	GoogleOAuthClientID             string
+	GoogleOAuthClientSecret         string
+	GitHubLoginEnabled              bool
+	GitHubOAuthClientID             string
+	GitHubOAuthClientSecret         string
 	UserCacheEnabled                bool
 	UserCacheAddr                   string
 	UserCachePrefix                 string
@@ -165,7 +173,33 @@ func Load() (Config, error) {
 	if err := validateJobAuthorizationConfig(cfg); err != nil {
 		return Config{}, err
 	}
+	if err := validateSocialLoginConfig(cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+func validateSocialLoginConfig(cfg Config) error {
+	if !cfg.GoogleLoginEnabled && !cfg.GitHubLoginEnabled {
+		return nil
+	}
+	callback, err := url.Parse(strings.TrimSpace(cfg.SocialLoginCallbackURL))
+	if err != nil || callback.Scheme == "" || callback.Host == "" || callback.User != nil || callback.Fragment != "" {
+		return fmt.Errorf("SOCIAL_LOGIN_CALLBACK_URL must be an absolute credential-free URL")
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.LogEnv), "production") && callback.Scheme != "https" {
+		return fmt.Errorf("SOCIAL_LOGIN_CALLBACK_URL must use https in production")
+	}
+	if len(cfg.SocialOAuthStateSecret) < 32 || strings.TrimSpace(cfg.SocialOAuthStateSecret) != cfg.SocialOAuthStateSecret {
+		return fmt.Errorf("SOCIAL_OAUTH_STATE_SECRET must contain at least 32 characters")
+	}
+	if cfg.GoogleLoginEnabled && (strings.TrimSpace(cfg.GoogleOAuthClientID) == "" || strings.TrimSpace(cfg.GoogleOAuthClientSecret) == "") {
+		return fmt.Errorf("GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET are required when Google login is enabled")
+	}
+	if cfg.GitHubLoginEnabled && (strings.TrimSpace(cfg.GitHubOAuthClientID) == "" || strings.TrimSpace(cfg.GitHubOAuthClientSecret) == "") {
+		return fmt.Errorf("GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET are required when GitHub login is enabled")
+	}
+	return nil
 }
 
 func validateJobAuthorizationConfig(cfg Config) error {
@@ -532,6 +566,14 @@ func load() (Config, error) {
 		OIDCRedirectURL:                 os.Getenv("OIDC_REDIRECT_URL"),
 		OIDCScopes:                      stringList("OIDC_SCOPES", []string{"openid", "email", "profile"}),
 		OIDCAutoLinkEmail:               boolValue("OIDC_AUTO_LINK_EMAIL", false),
+		SocialLoginCallbackURL:          strings.TrimSpace(os.Getenv("SOCIAL_LOGIN_CALLBACK_URL")),
+		SocialOAuthStateSecret:          os.Getenv("SOCIAL_OAUTH_STATE_SECRET"),
+		GoogleLoginEnabled:              boolValue("GOOGLE_LOGIN_ENABLED", false),
+		GoogleOAuthClientID:             strings.TrimSpace(os.Getenv("GOOGLE_OAUTH_CLIENT_ID")),
+		GoogleOAuthClientSecret:         os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
+		GitHubLoginEnabled:              boolValue("GITHUB_LOGIN_ENABLED", false),
+		GitHubOAuthClientID:             strings.TrimSpace(os.Getenv("GITHUB_OAUTH_CLIENT_ID")),
+		GitHubOAuthClientSecret:         os.Getenv("GITHUB_OAUTH_CLIENT_SECRET"),
 		UserCacheEnabled:                boolValue("ACCOUNT_MANAGER_USER_CACHE_ENABLED", false),
 		UserCacheAddr:                   getenv("ACCOUNT_MANAGER_USER_CACHE_ADDR", "127.0.0.1:6379"),
 		UserCachePrefix:                 getenv("ACCOUNT_MANAGER_USER_CACHE_PREFIX", "account_manager:user"),

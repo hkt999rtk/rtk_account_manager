@@ -209,6 +209,7 @@ type identityProviderPersistence interface {
 	CreateIdentityProvider(ctx context.Context, in store.IdentityProviderCreateInput) (model.IdentityProvider, error)
 	ListIdentityProviders(ctx context.Context, in store.IdentityProviderListFilter) (store.IdentityProviderPage, error)
 	GetIdentityProviderByProviderID(ctx context.Context, providerID string) (model.IdentityProvider, error)
+	GetIdentityProviderByID(ctx context.Context, id string) (model.IdentityProvider, error)
 	GetEnabledIdentityProvider(ctx context.Context) (model.IdentityProvider, error)
 	UpdateIdentityProvider(ctx context.Context, in store.IdentityProviderUpdateInput) (model.IdentityProvider, error)
 	DisableIdentityProvider(ctx context.Context, providerID string, now time.Time) (model.IdentityProvider, error)

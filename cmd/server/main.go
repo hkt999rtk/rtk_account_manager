@@ -146,6 +146,21 @@ func main() {
 			AutoLinkEmail: cfg.OIDCAutoLinkEmail,
 		},
 	})
+	server.ConfigureSocialLogin(api.SocialLoginOptions{
+		StateSecret: cfg.SocialOAuthStateSecret,
+		Providers: []auth.SocialProvider{
+			{
+				ID: "google", Name: "Google", Protocol: "oidc", IssuerURL: "https://accounts.google.com",
+				ClientID: cfg.GoogleOAuthClientID, ClientSecret: cfg.GoogleOAuthClientSecret,
+				RedirectURL: cfg.SocialLoginCallbackURL, Enabled: cfg.GoogleLoginEnabled,
+			},
+			{
+				ID: "github", Name: "GitHub", Protocol: "oauth2", IssuerURL: "https://github.com",
+				ClientID: cfg.GitHubOAuthClientID, ClientSecret: cfg.GitHubOAuthClientSecret,
+				RedirectURL: cfg.SocialLoginCallbackURL, Enabled: cfg.GitHubLoginEnabled,
+			},
+		},
+	})
 	if strings.TrimSpace(cfg.AppCertIssuerBaseURL) != "" {
 		issuer, err := api.NewHTTPAppCertificateIssuer(api.HTTPAppCertificateIssuerConfig{
 			BaseURL:    cfg.AppCertIssuerBaseURL,

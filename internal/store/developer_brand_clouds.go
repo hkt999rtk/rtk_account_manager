@@ -23,10 +23,10 @@ func (s *Store) SignupDeveloper(ctx context.Context, in DeveloperSignupInput) (D
 
 	email := strings.ToLower(strings.TrimSpace(in.Email))
 	user, err := scanDeveloperUser(tx.QueryRow(ctx, `
-		INSERT INTO users (email, password_hash, display_name, signup_pending_verification, developer_cloud_limit)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO users (email, password_hash, display_name, email_verified, email_verified_at, signup_pending_verification, developer_cloud_limit)
+		VALUES ($1, $2, $3, $4, CASE WHEN $4 THEN $5 ELSE NULL END, $6, $7)
 		RETURNING id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, developer_cloud_limit, created_at, updated_at, disabled_at
-	`, email, in.PasswordHash, in.DisplayName, in.SignupPendingVerification, defaultDeveloperCloudLimit))
+	`, email, in.PasswordHash, in.DisplayName, in.EmailVerified, time.Now().UTC(), in.SignupPendingVerification, defaultDeveloperCloudLimit))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return DeveloperSignupResult{}, ErrConflict

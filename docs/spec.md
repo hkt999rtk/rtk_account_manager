@@ -80,7 +80,7 @@ Runtime delivery follows the reviewed docs-only gate.
 - Device command dispatch.
 - Device self-registration or provisioning flows in v1.
 - Device certificate management.
-- Third-party/social login outside the supported Keycloak/OIDC integration path.
+- Third-party login providers other than the supported Google and GitHub paths.
 - Executable batch operations, OTA campaign execution, and firmware rollout policy.
 - Custom RBAC permissions.
 - Multi-region deployment concerns.
@@ -200,6 +200,21 @@ This scope does not:
   membership, role, or device access policy.
 - Auto-link an arbitrary external identity to a local user without the configured
   account-manager policy allowing that link.
+
+## 2.4 Google and GitHub Social Login
+
+Cloud Admin may offer Google OIDC and GitHub OAuth login when each provider is
+explicitly enabled with complete runtime credentials. Provider discovery keeps
+unconfigured buttons out of the WebUI. The authorization-code flow uses
+single-use hashed state, nonce where supported, and PKCE; provider tokens are
+not persisted.
+
+A provider identity must supply a verified email address. Account Manager first
+resolves a provider-subject link, then an existing user with the same verified
+email. If neither exists, it creates an active evaluation Connect+ user and
+default Brand Cloud, marks the email verified, and skips the email-verification
+outbox entirely. Existing disabled, pending, or unverified local users are not
+silently activated by social login.
 
 ## [FEAT-AM-SIGNUP-001] Account signup, email activation, and session
 
@@ -1331,7 +1346,8 @@ Constraints:
 {"acceptance_layer":"integration","operation_model":"workflow","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
 -->
 
-- Users authenticate with email and password.
+- Users authenticate with email and password, configured Keycloak/OIDC, Google,
+  or GitHub.
 - `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout`, `/v1/me`, OIDC
   login, email verification, and password reset are the only human-account
   flows.
@@ -1629,6 +1645,9 @@ All endpoints are versioned under `/v1`.
 | `GET` | `/v1/auth/oidc/providers` | No | List enabled public OIDC provider metadata without secrets. |
 | `GET` | `/v1/auth/oidc/:providerId/login` | No | Start Keycloak/OIDC login and redirect to the provider authorization endpoint. |
 | `GET` | `/v1/auth/oidc/:providerId/callback` | No | Handle backend OIDC callback and return the existing token response shape. |
+| `GET` | `/v1/auth/social/providers` | No | List configured Google and GitHub login providers without secrets. |
+| `POST` | `/v1/auth/social/start` | No | Create state, nonce, and PKCE material and return the provider authorization URL. |
+| `POST` | `/v1/auth/social/callback` | No | Complete social login, link or create the verified local account, and return session material. |
 | `POST` | `/v1/auth/logout` | Yes | Revoke current refresh token/session. |
 | `GET` | `/v1/me` | Yes | Return current user and memberships. |
 | `DELETE` | `/v1/me` | Yes | Disable current user account and revoke refresh tokens. |

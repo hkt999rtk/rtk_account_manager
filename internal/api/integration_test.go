@@ -5394,7 +5394,9 @@ func TestIntegrationAdminIdentityProviderWorkflow(t *testing.T) {
 		"client_secret_ref": "env:SECOND_OIDC_SECRET",
 		"enabled":           true,
 	}, admin.Tokens.AccessToken)
-	assertErrorCode(t, createSecondEnabledRes, http.StatusConflict, "conflict")
+	if createSecondEnabledRes.Code != http.StatusCreated {
+		t.Fatalf("expected second enabled provider create 201, got %d: %s", createSecondEnabledRes.Code, createSecondEnabledRes.Body.String())
+	}
 
 	createSecondDisabledRes := performJSON(env.router, http.MethodPost, "/v1/admin/identity-providers", map[string]any{
 		"provider_id":       "second-disabled",
@@ -5411,14 +5413,16 @@ func TestIntegrationAdminIdentityProviderWorkflow(t *testing.T) {
 	patchSecondEnabledRes := performJSON(env.router, http.MethodPatch, "/v1/admin/identity-providers/second-disabled", map[string]any{
 		"enabled": true,
 	}, admin.Tokens.AccessToken)
-	assertErrorCode(t, patchSecondEnabledRes, http.StatusConflict, "conflict")
+	if patchSecondEnabledRes.Code != http.StatusOK {
+		t.Fatalf("expected enabling another provider to succeed, got %d: %s", patchSecondEnabledRes.Code, patchSecondEnabledRes.Body.String())
+	}
 
 	listRes := performJSON(env.router, http.MethodGet, "/v1/admin/identity-providers?limit=1&offset=0", nil, admin.Tokens.AccessToken)
 	if listRes.Code != http.StatusOK {
 		t.Fatalf("expected identity provider list 200, got %d: %s", listRes.Code, listRes.Body.String())
 	}
 	listBody := decodeBody[identityProvidersAdminBody](t, listRes)
-	if listBody.Pagination.Total != 2 || len(listBody.IdentityProviders) != 1 {
+	if listBody.Pagination.Total != 3 || len(listBody.IdentityProviders) != 1 {
 		t.Fatalf("unexpected provider list: %+v", listBody)
 	}
 
