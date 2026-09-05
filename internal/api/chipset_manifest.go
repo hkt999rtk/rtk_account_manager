@@ -230,6 +230,8 @@ type chipsetManifestV1 struct {
 		UpdatedAt string `json:"updated_at"`
 	} `json:"provider"`
 	Chipsets []struct {
+		ICModel     string                    `json:"ic_model"`
+		Boards      []model.ChipsetBoard      `json:"boards"`
 		ChipsetKey  string                    `json:"chipset_key"`
 		Vendor      string                    `json:"vendor"`
 		Name        string                    `json:"name"`
@@ -256,6 +258,13 @@ func ValidateChipsetResourcePackage(raw []byte) error {
 	for _, resource := range manifest.Chipsets[0].Resources {
 		if err := validateChipsetLinkGovernance(resource); err != nil {
 			return err
+		}
+	}
+	for _, board := range manifest.Chipsets[0].Boards {
+		for _, resource := range board.Resources {
+			if err := validateChipsetLinkGovernance(resource); err != nil {
+				return err
+			}
 		}
 	}
 	for _, release := range manifest.Chipsets[0].SDKReleases {
@@ -371,7 +380,7 @@ func parseChipsetManifest(providerID string, raw []byte) ([]model.DeveloperChips
 	result := make([]model.DeveloperChipset, 0, len(manifest.Chipsets))
 	for _, source := range manifest.Chipsets {
 		key := strings.TrimSpace(source.ChipsetKey)
-		if key == "" || blank(source.Vendor) || blank(source.Name) || len(source.SDKReleases) > chipsetManifestMaxReleases {
+		if len(source.ICModel) > 200 || key == "" || blank(source.Vendor) || blank(source.Name) || len(source.SDKReleases) > chipsetManifestMaxReleases {
 			return nil, "", errChipsetManifestInvalid
 		}
 		if _, exists := seenChipsets[key]; exists {
@@ -383,6 +392,9 @@ func parseChipsetManifest(providerID string, raw []byte) ([]model.DeveloperChips
 			return nil, "", errChipsetManifestInvalid
 		}
 		if err := normalizeChipsetLinks(source.Resources); err != nil {
+			return nil, "", err
+		}
+		if err := normalizeChipsetBoards(source.Boards, source.SDKReleases); err != nil {
 			return nil, "", err
 		}
 		recommended := 0
@@ -416,6 +428,7 @@ func parseChipsetManifest(providerID string, raw []byte) ([]model.DeveloperChips
 		}
 		result = append(result, model.DeveloperChipset{
 			ID: stableChipsetID(providerID, key), ChipsetKey: key,
+			ICModel: strings.TrimSpace(source.ICModel), Boards: source.Boards,
 			Vendor: strings.TrimSpace(source.Vendor), Name: strings.TrimSpace(source.Name),
 			Family: strings.TrimSpace(source.Family), Description: strings.TrimSpace(source.Description),
 			Resources:   source.Resources,

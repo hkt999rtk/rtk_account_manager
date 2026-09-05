@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -174,6 +175,13 @@ func TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit(t *testing.T) {
 	if detail.Code != http.StatusOK || !bytes.Contains(detail.Body.Bytes(), []byte(`"version":"1.0.0"`)) || bytes.Contains(detail.Body.Bytes(), []byte("manifest_url")) {
 		t.Fatalf("developer chipset detail = %d: %s", detail.Code, detail.Body.String())
 	}
+	var boardDetail struct {
+		Chipset model.DeveloperChipset `json:"chipset"`
+	}
+	decodeRecorder(t, detail, &boardDetail)
+	if boardDetail.Chipset.ICModel != "RTL8735B" || len(boardDetail.Chipset.Boards) != 1 || !reflect.DeepEqual(boardDetail.Chipset.Boards[0], validChipsetBoard()) || !reflect.DeepEqual(boardDetail.Chipset.SDKReleases[0].SupportedBoardKeys, []string{"amb82-mini"}) {
+		t.Fatalf("database/API round-trip lost board fields: %#v", boardDetail.Chipset)
+	}
 	missingDetail := chipsetRequest(env.router, http.MethodGet, "/v1/developer/chipsets/missing", nil, developer.Tokens.AccessToken, "", "")
 	if missingDetail.Code != http.StatusNotFound {
 		t.Fatalf("missing developer chipset detail = %d: %s", missingDetail.Code, missingDetail.Body.String())
@@ -314,8 +322,10 @@ func integrationManifestResult(version string) ChipsetManifestFetchResult {
 			ID:          "9b4a572f-3e66-5ea6-a355-22f3221b8909",
 			ChipsetKey:  "realtek-amebapro2",
 			Vendor:      "Realtek",
-			Name:        "AmebaPro2",
-			SDKReleases: []model.ChipsetSDKRelease{{Name: "Ameba Arduino Pro2", Version: version, Recommended: true, SupportedModels: []string{}, Endpoints: []model.ChipsetEndpoint{{Type: "github", Title: "GitHub", URL: "https://github.com/Ameba-AIoT/ameba-arduino-pro2"}}}},
+			Name:        "AmebaPRO2",
+			ICModel:     "RTL8735B",
+			Boards:      []model.ChipsetBoard{validChipsetBoard()},
+			SDKReleases: []model.ChipsetSDKRelease{{Name: "Ameba Arduino Pro2", Version: version, SupportedBoardKeys: []string{"amb82-mini"}, Recommended: true, SupportedModels: []string{}, Endpoints: []model.ChipsetEndpoint{{Type: "github", Title: "GitHub", URL: "https://github.com/Ameba-AIoT/ameba-arduino-pro2"}}}},
 		}},
 	}
 }
