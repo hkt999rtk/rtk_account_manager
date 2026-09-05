@@ -491,6 +491,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestSocialLoginActivatesExistingPendingUser/matched_by_existing_identity`
 - `rtk_account_manager/internal/api`: `TestSocialLoginActivatesExistingPendingUser`
 - `rtk_account_manager/internal/api`: `TestSocialLoginDoesNotReactivateDisabledUser`
+- `rtk_account_manager/internal/api`: `TestSocialLoginHTTPRoundTripCreatesAndReusesAccount`
+- `rtk_account_manager/internal/api`: `TestSocialLoginPublicValidationAndHelpers`
 - `rtk_account_manager/internal/api`: `TestSplitCSVQuery`
 - `rtk_account_manager/internal/api`: `TestTestLabEnabledOnlyInNonProductionEnvironments/dev`
 - `rtk_account_manager/internal/api`: `TestTestLabEnabledOnlyInNonProductionEnvironments/development`
@@ -537,6 +539,17 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/unverified_email`
 - `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures/user_not_provisioned`
 - `rtk_account_manager/internal/api`: `TestWriteOIDCErrorMapsPublicFailures`
+- `rtk_account_manager/internal/api`: `TestWriteSocialLoginErrorMapsPublicFailures/email_unverified`
+- `rtk_account_manager/internal/api`: `TestWriteSocialLoginErrorMapsPublicFailures/identity_invalid`
+- `rtk_account_manager/internal/api`: `TestWriteSocialLoginErrorMapsPublicFailures/oidc_email_unverified`
+- `rtk_account_manager/internal/api`: `TestWriteSocialLoginErrorMapsPublicFailures/provider_invalid`
+- `rtk_account_manager/internal/api`: `TestWriteSocialLoginErrorMapsPublicFailures/provider_missing`
+- `rtk_account_manager/internal/api`: `TestWriteSocialLoginErrorMapsPublicFailures/state_expired`
+- `rtk_account_manager/internal/api`: `TestWriteSocialLoginErrorMapsPublicFailures/state_invalid`
+- `rtk_account_manager/internal/api`: `TestWriteSocialLoginErrorMapsPublicFailures/store_conflict`
+- `rtk_account_manager/internal/api`: `TestWriteSocialLoginErrorMapsPublicFailures/token_invalid`
+- `rtk_account_manager/internal/api`: `TestWriteSocialLoginErrorMapsPublicFailures/user_unavailable`
+- `rtk_account_manager/internal/api`: `TestWriteSocialLoginErrorMapsPublicFailures`
 - `rtk_account_manager/internal/api`: `TestWriteStatusMetricsSortsStatuses`
 - `rtk_account_manager/internal/auth`: `TestDelegatedJobTokenIsRestrictedAndShortLived`
 - `rtk_account_manager/internal/auth`: `TestDelegatedJobTokenRequiresCompleteBinding`
