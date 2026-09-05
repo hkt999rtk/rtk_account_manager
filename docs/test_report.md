@@ -39,6 +39,8 @@ Generated: ci-candidate
 | Behavior group | Required test | Result |
 | --- | --- | --- |
 | Auth and sessions | `TestIntegrationRegisterLoginRefreshAndLogout` | PASS |
+| Social login pending-account activation | `TestSocialLoginActivatesExistingPendingUser` | PASS |
+| Social login disabled-account policy | `TestSocialLoginDoesNotReactivateDisabledUser` | PASS |
 | Email outbox required | `TestEmailIssuanceRequiresOutbox` | PASS |
 | Disabled users | `TestIntegrationDisabledUserCannotUseExistingTokens` | PASS |
 | Organization access | `TestIntegrationOwnerCanUpdateOrganization` | PASS |
@@ -74,7 +76,7 @@ Generated: ci-candidate
 | Developer-owned brand clouds | `TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit` | PASS |
 | Brand-cloud owner transfer | `TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession` | PASS |
 | ChipSet SDK provider lifecycle and ACL | `TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit` | PASS |
-| OIDC provider persistence | `TestIdentityProviderStoreCRUDAndEnabledInvariant` | PASS |
+| OIDC provider persistence | `TestIdentityProviderStoreCRUDAndMultipleEnabledProviders` | PASS |
 | OIDC provider admin CRUD | `TestIntegrationAdminIdentityProviderWorkflow` | PASS |
 | OIDC state and nonce replay guards | `TestOIDCLoginStateStoresHashesAndRejectsReplay` | PASS |
 | OIDC public login callback | `TestIntegrationOIDCProviderLoginAndCallback` | PASS |
@@ -94,6 +96,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Behavior group | Evidence |
 | --- | --- |
 | Auth and sessions | Register, login, invalid login, password change with current-password validation, refresh-token revocation after password change, refresh rotation, old refresh rejection, logout revocation, expired token parsing, wrong-secret parsing. |
+| Social login account activation | `TestSocialLoginActivatesExistingPendingUser` verifies a Google or GitHub verified email activates the matching pending account whether matched by email or an existing identity, links the identity to that account, and invalidates outstanding email-verification tokens. `TestSocialLoginDoesNotReactivateDisabledUser` verifies social login cannot bypass an administrator-disabled account. |
 | Disabled users | Disabled users cannot use existing access tokens, refresh tokens, or login until re-enabled. |
 | Organization access | Current-user organization listing, organization create/get/update, cross-organization organization access rejection. |
 | Member management | Owner add/update/remove/disable/enable member flows, admin/member forbidden paths, last-owner downgrade/remove/disable protection. |
@@ -136,8 +139,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Developer-owned brand clouds | `TestDeveloperSignupCreatesDefaultBrandCloudAndEnforcesCloudLimit`, `TestEnsurePlatformAdminCreatesRealtekConnectBrandCloud`, and `TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit` verify global developer signup, default brand cloud creation, root `Realtek Connect+` bootstrap, and developer cloud limits. |
 | Brand-cloud owner transfer | `TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper` and `TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession` verify existing-target checks, email token delivery, target-session acceptance, old-owner downgrade, and replay rejection. |
 | ChipSet SDK information providers | `TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit`, `TestChipsetProviderSnapshotLifecycle`, and manifest fetch security tests verify independent read/edit/publish ACLs, draft/published/unpublished visibility, synchronous and background refresh, ETag 304, atomic snapshots, stale last-known-good fallback, audit correlation, SSRF controls, timeout, redirect, response-size, and JSON-complexity limits. |
-| OIDC provider persistence | `TestIdentityProviderStoreCRUDAndEnabledInvariant`, `TestIdentityProviderRejectsRawClientSecretRef`, and `TestIntegrationDatabaseSchemaInvariants` verify provider CRUD, the one-enabled-provider invariant, secret-reference-only storage, identity link uniqueness, and OIDC schema/index presence. |
-| OIDC provider admin CRUD | `TestIntegrationAdminIdentityProviderWorkflow` verifies platform-admin-only create/list/show/update/disable, pagination, second-enabled-provider conflict handling, audit events, `env:VAR_NAME` secret references, and raw-secret non-persistence/non-response behavior. |
+| OIDC provider persistence | `TestIdentityProviderStoreCRUDAndMultipleEnabledProviders`, `TestIdentityProviderRejectsRawClientSecretRef`, and `TestIntegrationDatabaseSchemaInvariants` verify provider CRUD, multiple enabled providers, secret-reference-only storage, identity link uniqueness, and OIDC schema/index presence. |
+| OIDC provider admin CRUD | `TestIntegrationAdminIdentityProviderWorkflow` verifies platform-admin-only create/list/show/update/disable, pagination, multiple enabled providers, audit events, `env:VAR_NAME` secret references, and raw-secret non-persistence/non-response behavior. |
 | OIDC state and nonce replay guards | `TestOIDCLoginStateStoresHashesAndRejectsReplay`, `TestOIDCLoginStateRejectsExpiredState`, and `TestIntegrationOIDCProviderLoginAndCallback` verify raw state/nonce non-persistence, one-time state consumption, replay rejection, and callback nonce validation through hashed state records. |
 | OIDC public login callback | `TestIntegrationOIDCProviderLoginAndCallback` verifies discovery, login redirect, state/nonce creation, callback success, verified-email auto-link to an existing local user, external group mapping to scoped product role assignment, Account Manager JWT issuance, identity persistence, replay rejection, and local email/password login compatibility. |
 | OIDC user rejection policy | `TestIntegrationOIDCCallbackRejectsUnknownDisabledAndUnverifiedUsers` verifies unknown users return `user_not_provisioned`, disabled linked users cannot login through SSO, and unverified provider emails return `unverified_oidc_email`. |
@@ -473,6 +476,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestRetiredTenantTokenRejectedWithoutPersistence`
 - `rtk_account_manager/internal/api`: `TestRootRouteDescribesAPIService`
 - `rtk_account_manager/internal/api`: `TestSignupLimiterEvictsStaleEntries`
+- `rtk_account_manager/internal/api`: `TestSocialLoginActivatesExistingPendingUser/matched_by_email`
+- `rtk_account_manager/internal/api`: `TestSocialLoginActivatesExistingPendingUser/matched_by_existing_identity`
+- `rtk_account_manager/internal/api`: `TestSocialLoginActivatesExistingPendingUser`
+- `rtk_account_manager/internal/api`: `TestSocialLoginDoesNotReactivateDisabledUser`
 - `rtk_account_manager/internal/api`: `TestSplitCSVQuery`
 - `rtk_account_manager/internal/api`: `TestTrimPtrNormalizesOptionalStrings`
 - `rtk_account_manager/internal/api`: `TestUnknownRouteStillReturnsNotFound`
@@ -494,8 +501,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestWriteStatusMetricsSortsStatuses`
 - `rtk_account_manager/internal/auth`: `TestDelegatedJobTokenIsRestrictedAndShortLived`
 - `rtk_account_manager/internal/auth`: `TestDelegatedJobTokenRequiresCompleteBinding`
+- `rtk_account_manager/internal/auth`: `TestDerivePKCEIsStableAndStateBound`
 - `rtk_account_manager/internal/auth`: `TestEndUserTokenClaimsCarryGlobalSubject`
 - `rtk_account_manager/internal/auth`: `TestExpiredAndWrongSecretTokensFailParsing`
+- `rtk_account_manager/internal/auth`: `TestGitHubAppAuthorizationURLUsesConfiguredPermissions`
+- `rtk_account_manager/internal/auth`: `TestGitHubAuthorizationURLUsesPKCEAndEmailScope`
+- `rtk_account_manager/internal/auth`: `TestGitHubExchangeUsesStableIDAndVerifiedPrimaryEmail`
 - `rtk_account_manager/internal/auth`: `TestLoadPEMTokenSignerRejectsInvalidMaterial`
 - `rtk_account_manager/internal/auth`: `TestLoadPEMTokenSignerSupportsPKCS8`
 - `rtk_account_manager/internal/auth`: `TestLoadPEMTokenSigner`
@@ -820,6 +831,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration/zero_timeout`
 - `rtk_account_manager/internal/config`: `TestProductionSendMailHTTPConfiguration`
 - `rtk_account_manager/internal/config`: `TestResourceHandoffConfigurationIsPairedDistinctAndReviewed`
+- `rtk_account_manager/internal/config`: `TestSocialLoginConfigAllowsDisabledProvidersWithoutCredentials`
+- `rtk_account_manager/internal/config`: `TestSocialLoginConfigRequiresCompleteEnabledProvider`
 - `rtk_account_manager/internal/database`: `TestBillingCreationMigrationDoesNotInferHistoricalResponsibility`
 - `rtk_account_manager/internal/database`: `TestConnectAppliesPoolTuningIntegration`
 - `rtk_account_manager/internal/database`: `TestConnectRejectsInvalidConfig`
@@ -1112,6 +1125,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestDeletionPreflightRejectsScopeAndDependencyChanges`
 - `rtk_account_manager/internal/store`: `TestDeletionPreflightResourceCountsAndNoSideEffects`
 - `rtk_account_manager/internal/store`: `TestDeveloperBrandCloudErrorPaths`
+- `rtk_account_manager/internal/store`: `TestDeveloperSignupCanCreateVerifiedSocialAccountWithoutVerificationEmail`
 - `rtk_account_manager/internal/store`: `TestDeveloperSignupCreatesDefaultBrandCloudAndEnforcesCloudLimit`
 - `rtk_account_manager/internal/store`: `TestDeviceClaimReclaimRequiresEvidenceAndRejectsInvalidTransitions`
 - `rtk_account_manager/internal/store`: `TestDeviceClaimTokenAdminLifecycle`
@@ -1312,7 +1326,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestHandoffWorkerRejectsUnavailableOrUnboundSettlement/wrong_operation`
 - `rtk_account_manager/internal/store`: `TestHandoffWorkerRejectsUnavailableOrUnboundSettlement`
 - `rtk_account_manager/internal/store`: `TestIdentityProviderRejectsRawClientSecretRef`
-- `rtk_account_manager/internal/store`: `TestIdentityProviderStoreCRUDAndEnabledInvariant`
+- `rtk_account_manager/internal/store`: `TestIdentityProviderStoreCRUDAndMultipleEnabledProviders`
 - `rtk_account_manager/internal/store`: `TestIntegrationDatabaseSchemaInvariants`
 - `rtk_account_manager/internal/store`: `TestJSONHelpers`
 - `rtk_account_manager/internal/store`: `TestLifecycleMetricsAggregatesQueueAndOperationHealth`

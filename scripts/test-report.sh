@@ -137,6 +137,8 @@ require_passed_test() {
 }
 
 require_passed_test "Auth and sessions" "TestIntegrationRegisterLoginRefreshAndLogout"
+require_passed_test "Social login pending-account activation" "TestSocialLoginActivatesExistingPendingUser"
+require_passed_test "Social login disabled-account policy" "TestSocialLoginDoesNotReactivateDisabledUser"
 require_passed_test "Email outbox required" "TestEmailIssuanceRequiresOutbox"
 require_passed_test "Disabled users" "TestIntegrationDisabledUserCannotUseExistingTokens"
 require_passed_test "Organization access" "TestIntegrationOwnerCanUpdateOrganization"
@@ -172,7 +174,7 @@ require_passed_test "Global app certificate rotation" "TestIntegrationGlobalLogi
 require_passed_test "Developer-owned brand clouds" "TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit"
 require_passed_test "Brand-cloud owner transfer" "TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession"
 require_passed_test "ChipSet SDK provider lifecycle and ACL" "TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit"
-require_passed_test "OIDC provider persistence" "TestIdentityProviderStoreCRUDAndEnabledInvariant"
+require_passed_test "OIDC provider persistence" "TestIdentityProviderStoreCRUDAndMultipleEnabledProviders"
 require_passed_test "OIDC provider admin CRUD" "TestIntegrationAdminIdentityProviderWorkflow"
 require_passed_test "OIDC state and nonce replay guards" "TestOIDCLoginStateStoresHashesAndRejectsReplay"
 require_passed_test "OIDC public login callback" "TestIntegrationOIDCProviderLoginAndCallback"
@@ -238,6 +240,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Behavior group | Evidence |
 | --- | --- |
 | Auth and sessions | Register, login, invalid login, password change with current-password validation, refresh-token revocation after password change, refresh rotation, old refresh rejection, logout revocation, expired token parsing, wrong-secret parsing. |
+| Social login account activation | \`TestSocialLoginActivatesExistingPendingUser\` verifies a Google or GitHub verified email activates the matching pending account whether matched by email or an existing identity, links the identity to that account, and invalidates outstanding email-verification tokens. \`TestSocialLoginDoesNotReactivateDisabledUser\` verifies social login cannot bypass an administrator-disabled account. |
 | Disabled users | Disabled users cannot use existing access tokens, refresh tokens, or login until re-enabled. |
 | Organization access | Current-user organization listing, organization create/get/update, cross-organization organization access rejection. |
 | Member management | Owner add/update/remove/disable/enable member flows, admin/member forbidden paths, last-owner downgrade/remove/disable protection. |
@@ -280,8 +283,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 | Developer-owned brand clouds | \`TestDeveloperSignupCreatesDefaultBrandCloudAndEnforcesCloudLimit\`, \`TestEnsurePlatformAdminCreatesRealtekConnectBrandCloud\`, and \`TestIntegrationDeveloperSignupCreatesDefaultBrandCloudAndDeveloperCanCreateWithinLimit\` verify global developer signup, default brand cloud creation, root \`Realtek Connect+\` bootstrap, and developer cloud limits. |
 | Brand-cloud owner transfer | \`TestBrandCloudOwnerTransferRequiresExistingTargetAndAcceptsWithLoggedInDeveloper\` and \`TestIntegrationBrandCloudOwnerTransferRequiresEmailTokenAndTargetSession\` verify existing-target checks, email token delivery, target-session acceptance, old-owner downgrade, and replay rejection. |
 | ChipSet SDK information providers | \`TestIntegrationChipsetProviderACLRefreshVisibilityAndAudit\`, \`TestChipsetProviderSnapshotLifecycle\`, and manifest fetch security tests verify independent read/edit/publish ACLs, draft/published/unpublished visibility, synchronous and background refresh, ETag 304, atomic snapshots, stale last-known-good fallback, audit correlation, SSRF controls, timeout, redirect, response-size, and JSON-complexity limits. |
-| OIDC provider persistence | \`TestIdentityProviderStoreCRUDAndEnabledInvariant\`, \`TestIdentityProviderRejectsRawClientSecretRef\`, and \`TestIntegrationDatabaseSchemaInvariants\` verify provider CRUD, the one-enabled-provider invariant, secret-reference-only storage, identity link uniqueness, and OIDC schema/index presence. |
-| OIDC provider admin CRUD | \`TestIntegrationAdminIdentityProviderWorkflow\` verifies platform-admin-only create/list/show/update/disable, pagination, second-enabled-provider conflict handling, audit events, \`env:VAR_NAME\` secret references, and raw-secret non-persistence/non-response behavior. |
+| OIDC provider persistence | \`TestIdentityProviderStoreCRUDAndMultipleEnabledProviders\`, \`TestIdentityProviderRejectsRawClientSecretRef\`, and \`TestIntegrationDatabaseSchemaInvariants\` verify provider CRUD, multiple enabled providers, secret-reference-only storage, identity link uniqueness, and OIDC schema/index presence. |
+| OIDC provider admin CRUD | \`TestIntegrationAdminIdentityProviderWorkflow\` verifies platform-admin-only create/list/show/update/disable, pagination, multiple enabled providers, audit events, \`env:VAR_NAME\` secret references, and raw-secret non-persistence/non-response behavior. |
 | OIDC state and nonce replay guards | \`TestOIDCLoginStateStoresHashesAndRejectsReplay\`, \`TestOIDCLoginStateRejectsExpiredState\`, and \`TestIntegrationOIDCProviderLoginAndCallback\` verify raw state/nonce non-persistence, one-time state consumption, replay rejection, and callback nonce validation through hashed state records. |
 | OIDC public login callback | \`TestIntegrationOIDCProviderLoginAndCallback\` verifies discovery, login redirect, state/nonce creation, callback success, verified-email auto-link to an existing local user, external group mapping to scoped product role assignment, Account Manager JWT issuance, identity persistence, replay rejection, and local email/password login compatibility. |
 | OIDC user rejection policy | \`TestIntegrationOIDCCallbackRejectsUnknownDisabledAndUnverifiedUsers\` verifies unknown users return \`user_not_provisioned\`, disabled linked users cannot login through SSO, and unverified provider emails return \`unverified_oidc_email\`. |
