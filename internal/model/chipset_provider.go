@@ -65,16 +65,53 @@ func (e *ChipsetEndpoint) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type ChipsetBoardDimensions struct {
+	LengthMM float64 `json:"length_mm"`
+	WidthMM  float64 `json:"width_mm"`
+}
+
+type ChipsetBoardSpec struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+type ChipsetBoardModel struct {
+	AssetPath  string `json:"asset_path"`
+	PosterPath string `json:"poster_path"`
+	Note       string `json:"note"`
+}
+
+type ChipsetBoardComponent struct {
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type ChipsetBoard struct {
+	BoardKey   string                  `json:"board_key"`
+	Name       string                  `json:"name"`
+	Vendor     string                  `json:"vendor"`
+	Summary    string                  `json:"summary,omitempty"`
+	Dimensions *ChipsetBoardDimensions `json:"dimensions,omitempty"`
+	Specs      []ChipsetBoardSpec      `json:"specs,omitempty"`
+	Resources  []ChipsetEndpoint       `json:"resources,omitempty"`
+	Model      *ChipsetBoardModel      `json:"model,omitempty"`
+	Components []ChipsetBoardComponent `json:"components,omitempty"`
+}
+
 type ChipsetSDKRelease struct {
-	Name            string            `json:"name"`
-	Version         string            `json:"version"`
-	Summary         string            `json:"summary,omitempty"`
-	Recommended     bool              `json:"recommended"`
-	SupportedModels []string          `json:"supported_models"`
-	Endpoints       []ChipsetEndpoint `json:"endpoints"`
+	SupportedBoardKeys []string          `json:"supported_board_keys,omitempty"`
+	Name               string            `json:"name"`
+	Version            string            `json:"version"`
+	Summary            string            `json:"summary,omitempty"`
+	Recommended        bool              `json:"recommended"`
+	SupportedModels    []string          `json:"supported_models"`
+	Endpoints          []ChipsetEndpoint `json:"endpoints"`
 }
 
 type DeveloperChipset struct {
+	ICModel                 string              `json:"ic_model,omitempty"`
+	Boards                  []ChipsetBoard      `json:"boards,omitempty"`
 	ID                      string              `json:"id"`
 	ProviderID              string              `json:"-"`
 	ProviderName            string              `json:"provider_name"`

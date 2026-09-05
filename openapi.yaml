@@ -6567,6 +6567,120 @@ components:
         validation_error: { type: string }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    ChipsetBoardDimensions:
+      type: object
+      required:
+        - length_mm
+        - width_mm
+      properties:
+        length_mm:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          maximum: 10000
+        width_mm:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          maximum: 10000
+      additionalProperties: false
+    ChipsetBoardSpec:
+      type: object
+      required:
+        - label
+        - value
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 200
+        value:
+          type: string
+          minLength: 1
+          maxLength: 1000
+      additionalProperties: false
+    ChipsetBoardModel:
+      type: object
+      required:
+        - asset_path
+        - poster_path
+        - note
+      properties:
+        asset_path:
+          type: string
+          pattern: ^/assets/boards/[a-z0-9-]+/v[0-9]+/[a-z0-9-]+\.glb$
+        poster_path:
+          type: string
+          pattern: ^/assets/boards/[a-z0-9-]+/v[0-9]+/[a-z0-9-]+\.(webp|png)$
+        note:
+          type: string
+          minLength: 1
+          maxLength: 1000
+      additionalProperties: false
+    ChipsetBoardComponent:
+      type: object
+      required:
+        - key
+        - name
+        - description
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 200
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          minLength: 1
+          maxLength: 1000
+      additionalProperties: false
+    ChipsetBoard:
+      type: object
+      required:
+        - board_key
+        - name
+        - vendor
+      properties:
+        board_key:
+          type: string
+          minLength: 1
+          maxLength: 200
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        vendor:
+          type: string
+          minLength: 1
+          maxLength: 200
+        summary:
+          type: string
+          maxLength: 4000
+        dimensions:
+          $ref: "#/components/schemas/ChipsetBoardDimensions"
+        specs:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/ChipsetBoardSpec"
+        resources:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/ChipsetEndpoint"
+        model:
+          $ref: "#/components/schemas/ChipsetBoardModel"
+        components:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/ChipsetBoardComponent"
+      additionalProperties: false
     ChipsetEndpoint:
       type: object
       additionalProperties: false
@@ -6584,6 +6698,7 @@ components:
       type: object
       required: [name, version, recommended, supported_models, endpoints]
       properties:
+        supported_board_keys: {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"}, "uniqueItems": true}
         name: { type: string }
         version: { type: string }
         summary: { type: string }
@@ -6594,6 +6709,8 @@ components:
       type: object
       required: [id, provider_name, chipset_key, vendor, name, sdk_releases, stale, last_successful_refresh_at]
       properties:
+        ic_model: { type: string, maxLength: 200 }
+        boards: { type: array, maxItems: 64, items: { $ref: "#/components/schemas/ChipsetBoard" } }
         id: { type: string, format: uuid }
         provider_name: { type: string }
         chipset_key: { type: string }
