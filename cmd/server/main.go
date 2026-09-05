@@ -126,6 +126,7 @@ func main() {
 	server.SetLogger(logger)
 	server.ConfigureInternalAuthToken(cfg.InternalAuthToken)
 	server.ConfigureJobAuthorizations(accountStore, cfg.JobAuthorizationToken)
+	server.ConfigureTestLab(accountStore, cfg.VideoCloudLifecycleBaseURL, cfg.VideoCloudLifecycleToken)
 	server.ConfigureImmediateBrandAccountProvisioning(cfg.AllowImmediateBrandAccounts)
 	server.ConfigureProductionJWT(cfg.FactoryProductionJWTSecret, cfg.FactoryProductionJWTAudience)
 	server.ConfigureFactoryEnrollmentToken(cfg.FactoryEnrollmentToken)
