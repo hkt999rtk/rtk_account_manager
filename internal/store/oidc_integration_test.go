@@ -111,6 +111,92 @@ func TestIdentityProviderStoreCRUDAndMultipleEnabledProviders(t *testing.T) {
 	}
 }
 
+func TestIdentityProviderDefaultLookupAndMissingPaths(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	secretRef := "env:SOCIAL_CLIENT_SECRET"
+
+	provider, err := env.store.CreateIdentityProvider(ctx, IdentityProviderCreateInput{
+		ProviderID: "social-default", Name: "Social Default", IssuerURL: "https://social.example.test",
+		ClientID: "social-client", ClientSecretRef: &secretRef, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.Type != model.IdentityProviderTypeOIDC || len(provider.Scopes) != 3 {
+		t.Fatalf("expected OIDC defaults, got %+v", provider)
+	}
+	byID, err := env.store.GetIdentityProviderByID(ctx, provider.ID)
+	if err != nil || byID.ProviderID != provider.ProviderID {
+		t.Fatalf("expected provider lookup by ID, got %+v err=%v", byID, err)
+	}
+	enabled, err := env.store.GetEnabledIdentityProvider(ctx)
+	if err != nil || enabled.ID != provider.ID {
+		t.Fatalf("expected enabled provider, got %+v err=%v", enabled, err)
+	}
+
+	missingID := "00000000-0000-0000-0000-000000000000"
+	if _, err := env.store.GetIdentityProviderByID(ctx, missingID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing provider by ID, got %v", err)
+	}
+	if _, err := env.store.UpdateIdentityProvider(ctx, IdentityProviderUpdateInput{ProviderID: "missing"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing provider update, got %v", err)
+	}
+	if _, err := env.store.UpdateUserIdentityLastLogin(ctx, missingID, time.Now().UTC()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing identity update, got %v", err)
+	}
+	invalidMetadata := map[string]any{"unsupported": func() {}}
+	registered, err := env.store.Register(ctx, RegisterInput{
+		Email: "social-default@example.test", PasswordHash: "hash", OrganizationName: "Social Default",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := env.store.CreateOrganizationTag(ctx, registered.Organization.ID, " social-login "); err != nil {
+		t.Fatal(err)
+	}
+	tags, err := env.store.ListOrganizationTags(ctx, registered.Organization.ID, 10, 0)
+	if err != nil || tags.Page.Total != 1 || len(tags.Tags) != 1 || tags.Tags[0].Tag != "social-login" {
+		t.Fatalf("expected organization tag catalog entry, got %+v err=%v", tags, err)
+	}
+	if _, err := env.store.CreateUserIdentity(ctx, UserIdentityCreateInput{
+		UserID: registered.User.ID, ProviderID: provider.ID, IssuerURL: provider.IssuerURL,
+		Subject: "social-default-subject", Email: registered.User.Email, EmailVerified: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.store.DeleteUserIdentity(ctx, registered.User.ID, "invalid-identity-id"); err == nil {
+		t.Fatal("expected invalid identity ID to fail")
+	}
+	if _, err := env.store.CreateUserIdentity(ctx, UserIdentityCreateInput{Claims: invalidMetadata}); err == nil {
+		t.Fatal("expected invalid identity claims to fail")
+	}
+	loginState, err := env.store.CreateOIDCLoginState(ctx, OIDCLoginStateCreateInput{
+		ProviderID: provider.ID, StateHash: "social-default-state", NonceHash: "social-default-nonce",
+		RedirectURL: "https://social.example.test/callback", ExpiresAt: time.Now().UTC().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.ConsumeOIDCLoginState(ctx, loginState.StateHash, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := env.store.DisableIdentityProvider(ctx, provider.ProviderID, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.GetEnabledIdentityProvider(ctx); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected no enabled provider, got %v", err)
+	}
+
+	if _, err := env.store.CreateIdentityProvider(ctx, IdentityProviderCreateInput{Metadata: invalidMetadata}); err == nil {
+		t.Fatal("expected invalid create metadata to fail")
+	}
+	if _, err := env.store.UpdateIdentityProvider(ctx, IdentityProviderUpdateInput{ProviderID: provider.ProviderID, Metadata: invalidMetadata}); err == nil {
+		t.Fatal("expected invalid update metadata to fail")
+	}
+}
+
 func TestIdentityProviderRejectsRawClientSecretRef(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()
