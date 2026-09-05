@@ -1467,6 +1467,21 @@ association, certificates, and bindings owned by other end users. Device private
 keys and browser-generated clip keys remain one-time downloads and are never
 persisted by Account Manager.
 
+### [REQ-AM-TEST-LAB-WORKFLOW-001] Developer Test Lab completes its governed device-test workflow in order
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"workflow","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+The Developer Console must orchestrate Test Lab setup and cleanup as one
+governed workflow: create the dedicated test identity, select an eligible test
+device, grant and bind it, provision it to runtime readiness, create a temporary
+authorization lease, issue short-lived service credentials, close the lease,
+unbind the device, and finally revoke the test identity. A later step must not
+run before its required data or state dependency is satisfied, and cleanup must
+preserve the registry device, Product association, certificates, and bindings
+owned by other end users.
+
 ### Keycloak / OIDC Authentication
 
 The Keycloak integration treats account manager as an OIDC client and
