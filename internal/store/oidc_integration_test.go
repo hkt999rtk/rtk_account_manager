@@ -152,6 +152,13 @@ func TestIdentityProviderDefaultLookupAndMissingPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := env.store.CreateOrganizationTag(ctx, registered.Organization.ID, " social-login "); err != nil {
+		t.Fatal(err)
+	}
+	tags, err := env.store.ListOrganizationTags(ctx, registered.Organization.ID, 10, 0)
+	if err != nil || tags.Page.Total != 1 || len(tags.Tags) != 1 || tags.Tags[0].Tag != "social-login" {
+		t.Fatalf("expected organization tag catalog entry, got %+v err=%v", tags, err)
+	}
 	if _, err := env.store.CreateUserIdentity(ctx, UserIdentityCreateInput{
 		UserID: registered.User.ID, ProviderID: provider.ID, IssuerURL: provider.IssuerURL,
 		Subject: "social-default-subject", Email: registered.User.Email, EmailVerified: true,
