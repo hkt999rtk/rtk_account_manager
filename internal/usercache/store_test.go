@@ -178,6 +178,31 @@ func TestStoreDisableCurrentUserDeletesCachedUser(t *testing.T) {
 	}
 }
 
+func TestStoreActivateUserFromVerifiedSocialEmailRefreshesCachedUser(t *testing.T) {
+	ctx := context.Background()
+	user := testUser("user-1", "owner@example.com")
+	backing := &fakeBacking{activateUser: user}
+	cache := newFakeCache()
+	stale := user
+	stale.Email = "stale@example.com"
+	if err := cache.PutPlatformUser(ctx, stale); err != nil {
+		t.Fatal(err)
+	}
+	cached := &Store{backing: backing, cache: cache}
+
+	got, err := cached.ActivateUserFromVerifiedSocialEmail(ctx, user.ID, "google:subject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != user.ID {
+		t.Fatalf("unexpected user: %+v", got)
+	}
+	refreshed, ok := cache.platformUsers[user.ID]
+	if !ok || refreshed.Email != user.Email {
+		t.Fatalf("cache was not refreshed: %+v, ok=%v", refreshed, ok)
+	}
+}
+
 func TestStoreGetEndUserPasswordReadThroughCachesLoginProjection(t *testing.T) {
 	ctx := context.Background()
 	user := model.EndUser{
