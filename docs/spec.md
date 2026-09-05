@@ -201,21 +201,6 @@ This scope does not:
 - Auto-link an arbitrary external identity to a local user without the configured
   account-manager policy allowing that link.
 
-## 2.4 Google and GitHub Social Login
-
-Cloud Admin may offer Google OIDC and GitHub OAuth login when each provider is
-explicitly enabled with complete runtime credentials. Provider discovery keeps
-unconfigured buttons out of the WebUI. The authorization-code flow uses
-single-use hashed state, nonce where supported, and PKCE; provider tokens are
-not persisted.
-
-A provider identity must supply a verified email address. Account Manager first
-resolves a provider-subject link, then an existing user with the same verified
-email. If neither exists, it creates an active evaluation Connect+ user and
-default Brand Cloud, marks the email verified, and skips the email-verification
-outbox entirely. Existing disabled, pending, or unverified local users are not
-silently activated by social login.
-
 ## [FEAT-AM-SIGNUP-001] Account signup, email activation, and session
 
 <!-- rtk-feature
@@ -311,6 +296,27 @@ plus `organization_members`:
 <!-- rtk-feature
 {"owner":"rtk_account_manager","risk":"critical","status":"active","change_paths":["repos/rtk_account_manager/**"],"commit_anchors":["workspace","account_manager"],"surfaces":[{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/auth/login"},{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/app/end-users/auth/login"},{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/orgs/{orgId}/devices"}]}
 -->
+
+### [REQ-AM-SOCIAL-LOGIN-001] Verified social identity activates eligible local accounts
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"workflow","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
+-->
+
+Cloud Admin may offer Google OIDC and GitHub OAuth login when each provider is
+explicitly enabled with complete runtime credentials. Provider discovery keeps
+unconfigured buttons out of the WebUI. The authorization-code flow uses
+single-use hashed state, nonce where supported, and PKCE; provider tokens are
+not persisted.
+
+A provider identity must supply a verified email address. Account Manager first
+resolves a provider-subject link, then an existing user with the same verified
+email. If neither exists, it creates an active evaluation Connect+ user and
+default Brand Cloud, marks the email verified, and skips the email-verification
+outbox entirely. A matching pending or unverified local user is activated,
+marked verified, linked to the provider identity, and has outstanding email
+verification tokens invalidated. An administrator-disabled account remains
+disabled and social login is rejected.
 
 ### [REQ-AM-ORG-AUTHORITY-001] Organizations remain authoritative PostgreSQL tenant records
 
