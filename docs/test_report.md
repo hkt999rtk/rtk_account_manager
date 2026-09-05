@@ -153,6 +153,13 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 ## Executed Test Cases
 
 - `rtk_account_manager/cmd/email-worker`: `TestEmailDeliveryUsesSendMailHTTP`
+- `rtk_account_manager/cmd/lifecycle-admin`: `TestLifecycleAdminOutputHelpers`
+- `rtk_account_manager/cmd/lifecycle-admin`: `TestParseInboxStatuses/empty`
+- `rtk_account_manager/cmd/lifecycle-admin`: `TestParseInboxStatuses/unsupported`
+- `rtk_account_manager/cmd/lifecycle-admin`: `TestParseInboxStatuses`
+- `rtk_account_manager/cmd/lifecycle-admin`: `TestParseOutboxStatuses/empty`
+- `rtk_account_manager/cmd/lifecycle-admin`: `TestParseOutboxStatuses/unsupported`
+- `rtk_account_manager/cmd/lifecycle-admin`: `TestParseOutboxStatuses`
 - `rtk_account_manager/cmd/linode-object-storage`: `TestObjectExistsReportsServerError`
 - `rtk_account_manager/cmd/linode-object-storage`: `TestPutDownloadCatAndExistsUseSignedPathStyleRequests`
 - `rtk_account_manager/cmd/linode-object-storage`: `TestStoreFromEnvPrefersLinodeCredentials`
