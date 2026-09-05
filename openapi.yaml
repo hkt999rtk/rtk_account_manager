@@ -75,6 +75,8 @@ paths:
       - {name: brandCloudId, in: path, required: true, schema: {type: string, format: uuid}}
     post:
       operationId: developerTestLabpostaccounts
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids: [REQ-UI-CA-TESTLAB-001]
       summary: POST test-only /accounts
       tags: [Developer Brand Clouds]
       description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. See docs/test-lab.md for exact request, response and revocation contracts. Unbind preserves the device and certificates.
@@ -99,6 +101,8 @@ paths:
       - {name: accountId, in: path, required: true, schema: {type: string, format: uuid}}
     delete:
       operationId: developerTestLabdeleteaccountsaccountId
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids: [REQ-UI-CA-TESTLAB-001]
       summary: DELETE test-only /accounts/{accountId}
       tags: [Developer Brand Clouds]
       description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. See docs/test-lab.md for exact request, response and revocation contracts. Unbind preserves the device and certificates.
@@ -117,6 +121,8 @@ paths:
       - {name: brandCloudId, in: path, required: true, schema: {type: string, format: uuid}}
     get:
       operationId: developerTestLabgetdevices
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids: [REQ-UI-CA-TESTLAB-001]
       summary: GET test-only /devices
       tags: [Developer Brand Clouds]
       description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. See docs/test-lab.md for exact request, response and revocation contracts. Unbind preserves the device and certificates.
@@ -136,6 +142,8 @@ paths:
       - {name: deviceId, in: path, required: true, schema: {type: string, format: uuid}}
     get:
       operationId: developerTestLabgetdevicesdeviceId
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids: [REQ-UI-CA-TESTLAB-001]
       summary: GET test-only /devices/{deviceId}
       tags: [Developer Brand Clouds]
       description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. See docs/test-lab.md for exact request, response and revocation contracts. Unbind preserves the device and certificates.
@@ -156,6 +164,8 @@ paths:
       - {name: action, in: path, required: true, schema: {type: string, enum: [grant, bind, unbind, provision]}}
     post:
       operationId: developerTestLabpostdevicesdeviceIdaction
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids: [REQ-UI-CA-TESTLAB-001]
       summary: POST test-only /devices/{deviceId}/{action}
       tags: [Developer Brand Clouds]
       description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. See docs/test-lab.md for exact request, response and revocation contracts. Unbind preserves the device and certificates.
@@ -182,6 +192,8 @@ paths:
         schema: {type: string, format: uuid}
     post:
       operationId: createDeveloperTestLabSession
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids: [REQ-UI-CA-TESTLAB-001]
       tags: [Developer Brand Clouds]
       summary: createDeveloperTestLabSession
       description: Opt-in non-production device testing. A live global-user session and current device-management authority are required. Credentials last 30 seconds and cannot use the public refresh endpoint.
@@ -210,6 +222,8 @@ paths:
         schema: {type: string, format: uuid}
     post:
       operationId: issueDeveloperTestLabCredentials
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids: [REQ-UI-CA-TESTLAB-001]
       tags: [Developer Brand Clouds]
       summary: issueDeveloperTestLabCredentials
       description: Opt-in non-production device testing. A live global-user session and current device-management authority are required. Credentials last 30 seconds and cannot use the public refresh endpoint.
@@ -238,6 +252,8 @@ paths:
         schema: {type: string, format: uuid}
     delete:
       operationId: closeDeveloperTestLabSession
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids: [REQ-UI-CA-TESTLAB-001]
       tags: [Developer Brand Clouds]
       summary: closeDeveloperTestLabSession
       description: Opt-in non-production device testing. A live global-user session and current device-management authority are required. Credentials last 30 seconds and cannot use the public refresh endpoint.
