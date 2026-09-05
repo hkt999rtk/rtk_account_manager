@@ -698,7 +698,7 @@ func validateClaimServiceOptions(options []string) error {
 	seen := map[string]struct{}{}
 	for _, option := range options {
 		switch option {
-		case "mqtt", "video_streaming", "video_storage":
+		case "mqtt", "iot_shadow", "video_streaming", "video_storage":
 		default:
 			return ErrClaimUnsupportedService
 		}

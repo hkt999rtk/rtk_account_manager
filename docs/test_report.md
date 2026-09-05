@@ -401,6 +401,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests/member_role`
 - `rtk_account_manager/internal/api`: `TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests`
 - `rtk_account_manager/internal/api`: `TestLabConsoleIdentityAPI`
+- `rtk_account_manager/internal/api`: `TestLabDeviceAndSessionAPIHappyPath`
 - `rtk_account_manager/internal/api`: `TestLoadSignupPolicyHonorsEnvironmentOverrides`
 - `rtk_account_manager/internal/api`: `TestManagedCloudListHandler`
 - `rtk_account_manager/internal/api`: `TestManagedCloudNonHumanSessionRejected`
