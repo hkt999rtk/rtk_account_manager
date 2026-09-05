@@ -48,6 +48,9 @@ func TestSocialLoginHTTPRoundTripCreatesAndReusesAccount(t *testing.T) {
 		}},
 		HTTPClient: providerClient, StateSecret: strings.Repeat("s", 32),
 	})
+	if env.server.socialStateTTL != 10*time.Minute {
+		t.Fatalf("expected default social state TTL, got %s", env.server.socialStateTTL)
+	}
 
 	for attempt := 0; attempt < 2; attempt++ {
 		start := performJSON(env.router, http.MethodPost, "/v1/auth/social/start", map[string]any{
