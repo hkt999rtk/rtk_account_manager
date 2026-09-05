@@ -154,8 +154,8 @@ profile is only for local manual integration checks.
 
 | Group | Required evidence |
 | --- | --- |
-| Provider persistence | `identity_providers`, `user_identities`, and `oidc_login_states` persistence supports CRUD, uniqueness, one-enabled-provider policy, hashed state/nonce, and replay rejection. |
-| Provider admin CRUD | Platform-admin-only create/list/show/update/disable enforces `env:VAR_NAME` secret references, rejects non-admin access, rejects a second enabled provider, and emits audit events. |
+| Provider persistence | `identity_providers`, `user_identities`, and `oidc_login_states` persistence supports CRUD, uniqueness, multiple enabled providers, hashed state/nonce, and replay rejection. |
+| Provider admin CRUD | Platform-admin-only create/list/show/update/disable enforces `env:VAR_NAME` secret references, rejects non-admin access, supports multiple enabled providers, and emits audit events. |
 | Provider discovery and login | Disabled OIDC returns no providers and rejects login; enabled OIDC redirects with state and nonce. |
 | Callback success | Successful callback validates token claims, links to an existing local user under policy, returns the existing Account Manager token response shape, and keeps local email/password login working. |
 | Callback rejection policy | Unknown users, disabled linked users, replayed state, invalid nonce, invalid issuer/audience/signature/expiry, unexpected signing method, and unverified email are rejected with typed errors. |

@@ -23,10 +23,10 @@ func (s *Store) SignupDeveloper(ctx context.Context, in DeveloperSignupInput) (D
 
 	email := strings.ToLower(strings.TrimSpace(in.Email))
 	user, err := scanDeveloperUser(tx.QueryRow(ctx, `
-		INSERT INTO users (email, password_hash, display_name, signup_pending_verification, developer_cloud_limit)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO users (email, password_hash, display_name, email_verified, email_verified_at, signup_pending_verification, developer_cloud_limit)
+		VALUES ($1, $2, $3, $4, CASE WHEN $4 THEN $5::timestamptz ELSE NULL END, $6, $7)
 		RETURNING id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, developer_cloud_limit, created_at, updated_at, disabled_at
-	`, email, in.PasswordHash, in.DisplayName, in.SignupPendingVerification, defaultDeveloperCloudLimit))
+	`, email, in.PasswordHash, in.DisplayName, in.EmailVerified, time.Now().UTC(), in.SignupPendingVerification, defaultDeveloperCloudLimit))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return DeveloperSignupResult{}, ErrConflict
@@ -69,6 +69,69 @@ func (s *Store) SignupDeveloper(ctx context.Context, in DeveloperSignupInput) (D
 		return DeveloperSignupResult{}, err
 	}
 	return DeveloperSignupResult{User: user, BrandCloud: brandCloud}, nil
+}
+
+// ActivateUserFromVerifiedSocialEmail accepts Google or GitHub's verified email
+// as proof of email ownership. It intentionally never re-enables disabled users.
+func (s *Store) ActivateUserFromVerifiedSocialEmail(ctx context.Context, userID, providerKey string) (model.User, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return model.User{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	user, err := scanDeveloperUser(tx.QueryRow(ctx, `
+		UPDATE users
+		SET email_verified = true,
+		    email_verified_at = COALESCE(email_verified_at, now()),
+		    signup_pending_verification = false,
+		    updated_at = now()
+		WHERE id = $1 AND disabled_at IS NULL
+		RETURNING id::text, email, display_name, email_verified, email_verified_at,
+		          signup_pending_verification, developer_cloud_limit, created_at, updated_at, disabled_at
+	`, userID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.User{}, ErrNotFound
+	}
+	if err != nil {
+		return model.User{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE auth_tokens
+		SET consumed_at = COALESCE(consumed_at, now())
+		WHERE user_id = $1 AND purpose = 'email_verification' AND consumed_at IS NULL
+	`, userID); err != nil {
+		return model.User{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		WITH consumed_holds AS (
+		    DELETE FROM organization_member_activation_holds WHERE user_id = $1
+		    RETURNING organization_id, user_id, disabled_at, updated_at
+		)
+		UPDATE organization_members m
+		SET disabled_at = NULL, updated_at = now()
+		FROM consumed_holds h
+		WHERE m.organization_id = h.organization_id AND m.user_id = h.user_id
+		  AND m.disabled_at = h.disabled_at AND m.updated_at = h.updated_at
+	`, userID); err != nil {
+		return model.User{}, err
+	}
+	if err := createAuditEventTx(ctx, tx, AuditEventInput{
+		EventType:   "email_verified",
+		ActorUserID: &user.ID,
+		SubjectType: "user",
+		SubjectID:   user.ID,
+		Payload: map[string]any{
+			"verification_source": "social_login",
+			"provider":            strings.TrimSpace(providerKey),
+		},
+	}); err != nil {
+		return model.User{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.User{}, err
+	}
+	return user, nil
 }
 
 func (s *Store) ResumeExpiredDeveloperSignup(ctx context.Context, email string) (DeveloperSignupResult, error) {

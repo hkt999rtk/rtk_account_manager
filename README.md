@@ -98,6 +98,7 @@ The implementation stays aligned with the canonical workspace contracts repo thr
 The local/staging app-certificate smoke-test authorization, idempotency, audit, and production boundary are documented in `docs/developer-pki-test-bundles.md`.
 The local provisioning and worker flow, including the `log` broker adapter runbook, is documented in `docs/provisioning_event_workers_runbook.md`.
 The optional local Keycloak/OIDC login flow is documented in `docs/keycloak_local_runbook.md`; normal local development does not require Keycloak.
+Google and GitHub login setup is documented in `docs/social_login.md`. Both providers are disabled by default, so no buttons are shown until credentials are configured.
 Private-cloud deployment packaging, systemd templates, migration/upgrade/rollback, and backup/restore operations are documented in `docs/private_cloud_deployment_runbook.md`; reference deploy assets live under `deploy/`.
 The service logging migration to `rtk_cloud_logger` zap and central journald forwarding is documented in `docs/service_logging_migration.md`.
 Linode staging runtime is K8s-only and is operated from the workspace; see `docs/linode-staging-k8s.md`.

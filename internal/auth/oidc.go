@@ -54,7 +54,7 @@ type OIDCProvider struct {
 }
 
 type EnabledIdentityProviderLookup interface {
-	GetEnabledIdentityProvider(ctx context.Context) (model.IdentityProvider, error)
+	GetIdentityProviderByProviderID(ctx context.Context, providerID string) (model.IdentityProvider, error)
 }
 
 type ProviderResolver struct {
@@ -69,7 +69,7 @@ func (r ProviderResolver) Resolve(ctx context.Context) (OIDCProvider, error) {
 		return OIDCProvider{}, ErrOIDCDisabled
 	}
 	if r.Store != nil {
-		provider, err := r.Store.GetEnabledIdentityProvider(ctx)
+		provider, err := r.Store.GetIdentityProviderByProviderID(ctx, defaultString(r.Env.ProviderID, "keycloak"))
 		if err == nil {
 			return r.fromModel(provider)
 		}
@@ -205,6 +205,10 @@ type oidcClaims struct {
 }
 
 func (c OIDCClient) AuthorizationURL(ctx context.Context, provider OIDCProvider, state, nonce string) (string, error) {
+	return c.AuthorizationURLWithPKCE(ctx, provider, state, nonce, "")
+}
+
+func (c OIDCClient) AuthorizationURLWithPKCE(ctx context.Context, provider OIDCProvider, state, nonce, codeChallenge string) (string, error) {
 	discovery, err := c.Discover(ctx, provider)
 	if err != nil {
 		return "", err
@@ -216,6 +220,10 @@ func (c OIDCClient) AuthorizationURL(ctx context.Context, provider OIDCProvider,
 	values.Set("scope", strings.Join(provider.Scopes, " "))
 	values.Set("state", state)
 	values.Set("nonce", nonce)
+	if codeChallenge != "" {
+		values.Set("code_challenge", codeChallenge)
+		values.Set("code_challenge_method", "S256")
+	}
 	authURL := discovery.AuthorizationEndpoint
 	separator := "?"
 	if strings.Contains(authURL, "?") {
@@ -249,6 +257,10 @@ func (c OIDCClient) ExchangeAndValidateNonceHash(ctx context.Context, provider O
 }
 
 func (c OIDCClient) ExchangeCode(ctx context.Context, provider OIDCProvider, code string) (OIDCTokenResponse, error) {
+	return c.ExchangeCodeWithPKCE(ctx, provider, code, "")
+}
+
+func (c OIDCClient) ExchangeCodeWithPKCE(ctx context.Context, provider OIDCProvider, code, codeVerifier string) (OIDCTokenResponse, error) {
 	discovery, err := c.Discover(ctx, provider)
 	if err != nil {
 		return OIDCTokenResponse{}, err
@@ -259,6 +271,9 @@ func (c OIDCClient) ExchangeCode(ctx context.Context, provider OIDCProvider, cod
 	values.Set("redirect_uri", provider.RedirectURL)
 	values.Set("client_id", provider.ClientID)
 	values.Set("client_secret", provider.ClientSecret)
+	if codeVerifier != "" {
+		values.Set("code_verifier", codeVerifier)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, discovery.TokenEndpoint, strings.NewReader(values.Encode()))
 	if err != nil {
 		return OIDCTokenResponse{}, err

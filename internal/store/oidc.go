@@ -141,6 +141,18 @@ func (s *Store) GetIdentityProviderByProviderID(ctx context.Context, providerID 
 	return provider, err
 }
 
+func (s *Store) GetIdentityProviderByID(ctx context.Context, id string) (model.IdentityProvider, error) {
+	provider, err := scanIdentityProvider(s.db.QueryRow(ctx, `
+		SELECT id::text, provider_id, name, type, issuer_url, client_id, client_secret_ref, scopes, enabled, metadata, created_at, updated_at
+		FROM identity_providers
+		WHERE id = $1
+	`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.IdentityProvider{}, ErrNotFound
+	}
+	return provider, err
+}
+
 func (s *Store) GetEnabledIdentityProvider(ctx context.Context) (model.IdentityProvider, error) {
 	provider, err := scanIdentityProvider(s.db.QueryRow(ctx, `
 		SELECT id::text, provider_id, name, type, issuer_url, client_id, client_secret_ref, scopes, enabled, metadata, created_at, updated_at

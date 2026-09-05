@@ -106,6 +106,7 @@ type DeveloperSignupInput struct {
 	PasswordHash              string
 	DisplayName               *string
 	OrganizationName          string
+	EmailVerified             bool
 	SignupPendingVerification bool
 	VerificationTokenHash     string
 	VerificationExpiresAt     time.Time

@@ -39,6 +39,7 @@ type backingStore interface {
 	GetEndUser(context.Context, string) (model.EndUser, error)
 	GetUser(context.Context, string) (model.User, error)
 	GetUserByEmail(context.Context, string) (model.User, error)
+	ActivateUserFromVerifiedSocialEmail(context.Context, string, string) (model.User, error)
 	DisableCurrentUser(context.Context, string) error
 }
 
@@ -202,6 +203,16 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (model.User, e
 	if err != nil {
 		return model.User{}, err
 	}
+	s.putPlatformUser(ctx, user)
+	return user, nil
+}
+
+func (s *Store) ActivateUserFromVerifiedSocialEmail(ctx context.Context, userID, providerKey string) (model.User, error) {
+	user, err := s.backing.ActivateUserFromVerifiedSocialEmail(ctx, userID, providerKey)
+	if err != nil {
+		return model.User{}, err
+	}
+	s.deletePlatformUser(ctx, user.ID)
 	s.putPlatformUser(ctx, user)
 	return user, nil
 }

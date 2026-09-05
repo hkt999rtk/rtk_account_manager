@@ -23,6 +23,8 @@ tags:
     description: Email/password authentication, signup, token refresh, and logout.
   - name: OIDC
     description: OpenID Connect discovery and login callback flow.
+  - name: Social Login
+    description: Optional Google OIDC and GitHub OAuth login for console clients.
   - name: Current User
     description: Current-user profile, password, and linked identity management.
   - name: Organizations
@@ -512,6 +514,76 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /v1/auth/social/providers:
+    get:
+      tags: [Social Login]
+      operationId: listSocialLoginProviders
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids: [REQ-UI-CA-ACCESS-003]
+      summary: List configured Google and GitHub login providers.
+      description: Returns public provider metadata only. Disabled or incomplete providers are omitted.
+      responses:
+        "200":
+          description: Social login provider discovery result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialLoginProvidersResponse"
+  /v1/auth/social/start:
+    post:
+      tags: [Social Login]
+      operationId: startSocialLogin
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids: [REQ-UI-CA-ACCESS-003]
+      summary: Start a Google OIDC or GitHub OAuth authorization-code login.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SocialLoginStartRequest"
+      responses:
+        "200":
+          description: Provider authorization URL.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialLoginStartResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /v1/auth/social/callback:
+    post:
+      tags: [Social Login]
+      operationId: completeSocialLogin
+      x-rtk-feature-id: FEAT-CA-AUTHZ-001
+      x-rtk-requirement-ids: [REQ-UI-CA-ACCESS-003]
+      summary: Complete Google or GitHub social login.
+      description: Validates single-use state and provider identity, then links an existing local user or creates an already-verified evaluation account and default Brand Cloud.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SocialLoginCallbackRequest"
+      responses:
+        "200":
+          description: Social login succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialLoginCallbackResponse"
         "400":
           $ref: "#/components/responses/Error"
         "403":
@@ -5216,6 +5288,65 @@ components:
             type: string
         enabled:
           type: boolean
+    SocialLoginProvidersResponse:
+      type: object
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/SocialLoginProvider"
+    SocialLoginProvider:
+      type: object
+      required: [id, name, protocol]
+      properties:
+        id:
+          type: string
+          enum: [google, github]
+        name:
+          type: string
+        protocol:
+          type: string
+          enum: [oidc, oauth2]
+    SocialLoginStartRequest:
+      type: object
+      required: [provider_id]
+      properties:
+        provider_id:
+          type: string
+          enum: [google, github]
+        next:
+          type: string
+          description: Optional local `/console` or `/admin` post-login destination.
+    SocialLoginStartResponse:
+      type: object
+      required: [redirect_url]
+      properties:
+        redirect_url:
+          type: string
+          format: uri
+    SocialLoginCallbackRequest:
+      type: object
+      required: [code, state]
+      properties:
+        code:
+          type: string
+          minLength: 1
+        state:
+          type: string
+          minLength: 1
+        error:
+          type: string
+        error_description:
+          type: string
+    SocialLoginCallbackResponse:
+      allOf:
+        - $ref: "#/components/schemas/LoginResponse"
+        - type: object
+          required: [return_path]
+          properties:
+            return_path:
+              type: string
     UserIdentity:
       type: object
       required: [id, provider_id, provider_key, issuer_url, subject, email, email_verified, linked_at, created_at, updated_at]

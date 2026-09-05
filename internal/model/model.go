@@ -118,7 +118,8 @@ type AuditEvent struct {
 type IdentityProviderType string
 
 const (
-	IdentityProviderTypeOIDC IdentityProviderType = "oidc"
+	IdentityProviderTypeOIDC   IdentityProviderType = "oidc"
+	IdentityProviderTypeOAuth2 IdentityProviderType = "oauth2"
 )
 
 type IdentityProvider struct {
