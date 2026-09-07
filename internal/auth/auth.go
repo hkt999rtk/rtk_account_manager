@@ -33,6 +33,8 @@ const (
 )
 
 type Claims struct {
+	MFA                  bool        `json:"mfa,omitempty"`
+	AuthenticationTime   int64       `json:"auth_time,omitempty"`
 	UserID               string      `json:"user_id,omitempty"`
 	SubjectType          SubjectType `json:"subject_type"`
 	BrandCloudUserID     string      `json:"brand_cloud_user_id,omitempty"`

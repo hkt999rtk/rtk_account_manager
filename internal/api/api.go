@@ -22,6 +22,7 @@ import (
 )
 
 type Server struct {
+	pkiClient                   *pkiProxy
 	testLab                     *testLabRuntime
 	store                       Store
 	auth                        *auth.Service
@@ -413,6 +414,8 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/admin/quota-raise-requests/:requestId/approve", s.requirePlatformAdmin(), s.approveQuotaRaiseRequest)
 	protected.POST("/admin/quota-raise-requests/:requestId/decline", s.requirePlatformAdmin(), s.declineQuotaRaiseRequest)
 	protected.GET("/admin/metrics", s.requirePlatformAdmin(), s.adminMetrics)
+	protected.GET("/platform/pki/*path", s.proxyPKI)
+	protected.POST("/platform/pki/*path", s.proxyPKI)
 	protected.POST("/admin/brand-clouds", s.requirePlatformAdmin(), s.createBrandCloud)
 	protected.GET("/admin/brand-clouds", s.requirePlatformAdmin(), s.listBrandClouds)
 	protected.GET("/admin/brand-clouds/:brandCloudId", s.requirePlatformAdmin(), s.getBrandCloud)
@@ -612,6 +615,13 @@ func (s *Server) startOIDCLogin(c *gin.Context) {
 		writeOIDCError(c, err)
 		return
 	}
+	if c.Query("pki_step_up") == "true" {
+		location, err = pkiStepUpLocation(location)
+		if err != nil {
+			writeError(c, 503, "pki_unavailable", "PKI MFA assurance is not configured")
+			return
+		}
+	}
 	c.Redirect(http.StatusFound, location)
 }
 
@@ -659,6 +669,9 @@ func (s *Server) handleOIDCCallback(c *gin.Context) {
 		return
 	}
 	tokens, err := s.issueTokens(c, user.ID)
+	if err == nil {
+		tokens, err = s.applyOIDCStepUp(user.ID, identity, tokens)
+	}
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "token_issue_failed", "Could not issue tokens")
 		return
