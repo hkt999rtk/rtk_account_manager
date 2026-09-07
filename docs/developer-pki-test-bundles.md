@@ -18,9 +18,11 @@ certificate test path. The canonical bundle shape is defined by
   Cloud with the effective `pki.test.issue` capability.
 - `Idempotency-Key` is mandatory and reuse with different target/CSR input is a
   conflict.
-- `target_type` is `brand_cloud_user` or `end_user`; `target_id` must exist in
-  the addressed Brand Cloud.
-- Account Manager derives the exact subject (`app-brand-cloud-user:<id>` or
+- `target_type` is `user` or `end_user`; a global `user` target must be a member
+  of the addressed Brand Cloud, and an `end_user` uses its scoped lookup.
+  Unavailable end-user lookup fails explicitly; retired `brand_cloud_user`
+  targets are rejected.
+- Account Manager derives the exact subject (`app-user:<global_user_id>` or
   `app-end-user:<id>`). Callers cannot choose an arbitrary subject or SAN.
 - The CSR must prove possession of its key and match the derived subject.
 - Certificate lifetime is fixed at 30 days.
