@@ -29,6 +29,7 @@ func TestBootstrapSealsOnceWithoutCredentialReset(t *testing.T) {
 	if created.Load() != 1 {
 		t.Fatalf("created %d administrators", created.Load())
 	}
+	seedGuardAdmin(t, env, "backup@example.test")
 	if _, err := env.db.Exec(ctx, `UPDATE users SET disabled_at=now() WHERE email='root@example.test'`); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +50,7 @@ func TestBootstrapSealsOnceWithoutCredentialReset(t *testing.T) {
 	if hash != "original-hash" || !disabled {
 		t.Fatal("startup reset or resurrected administrator")
 	}
-	if err = env.db.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&count); err != nil || count != 1 {
+	if err = env.db.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&count); err != nil || count != 2 {
 		t.Fatalf("extra user: %d %v", count, err)
 	}
 	if _, err = env.store.EnsurePlatformAdmin(ctx, "root@example.test", "reset-hash", nil); err != ErrConflict {

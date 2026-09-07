@@ -5,7 +5,7 @@ active Brand Clouds and Products. It exposes `/v1/platform/pki/*` as an
 authenticated proxy to the separate PKI controller. This integration is opt-in
 and not production-qualified. Startup bootstrap is now sealed after its first successful use.
 
-Apply migrations `074_pki_roles.sql` and `075_sealed_bootstrap.sql`. Migration 074 It creates `pki_admin`,
+Apply migrations `074_pki_roles.sql` through `076_last_platform_admin.sql`. Migration 074 It creates `pki_admin`,
 `security_custodian`, and `pki_auditor` roles but assigns them to nobody.
 Existing Platform Admin permissions do not imply either approval role.
 
@@ -51,8 +51,12 @@ credentials; remove those environment values from the deployment. The legacy
 provisioning helper also refuses to run after sealing.
 
 The seal is immutable; account disablement does not reopen it. This is not an
-administrative recovery mechanism. Two-person recovery and protection against
-removing the last administrator remain required before production qualification.
+administrative recovery mechanism. Migration 076 protects the last active administrator and the canonical Platform
+Admin system role after sealing. It covers user disablement/demotion, pending
+verification, assignment removal and system-role disablement/rename. A database
+write lock serializes removals, including repeatable-read transactions. API
+callers receive a 409 `platform_admin_required` response when the guard rejects
+a change. Two-person administrative recovery remains unfinished.
 
 ## Console MFA callback
 

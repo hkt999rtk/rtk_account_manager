@@ -2015,6 +2015,12 @@ func trimPtr(value *string) *string {
 }
 
 func writeStoreError(c *gin.Context, err error) {
+	var guardError *pgconn.PgError
+	if errors.As(err, &guardError) && guardError.Code == "23514" && guardError.ConstraintName == "platform_admin_preserved" {
+		writeError(c, http.StatusConflict, "platform_admin_required", "Keep an active Platform Administrator and its system role before removing this access")
+		return
+	}
+
 	switch {
 	case errors.Is(err, store.ErrInvalidManagedCloudWrite):
 		writeError(c, http.StatusBadRequest, "invalid_request", "Cloud name must be 1-255 characters, description at most 2000, and a valid Idempotency-Key is required")
