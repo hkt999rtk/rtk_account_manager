@@ -132,3 +132,29 @@ and IdP. Database/IdP loss requires the separate backup and disaster-recovery
 procedure, which is still unfinished. Disabling compromised prior accounts and
 revoking their existing sessions remain separate incident-response steps. Real
 custodian accounts and a live recovery drill remain production acceptance gates.
+
+## Managed controller connection
+
+`PKI_CONTROLLER_SOCKET` opts into the host-local `pkimanagement` owner from Video
+Cloud. Set the same `PKI_CONTROLLER_URL` HTTPS origin and `PKI_ENVIRONMENT` on
+both processes. Leave `PKI_CONTROLLER_CLIENT_CERT`, `PKI_CONTROLLER_CLIENT_KEY`
+and `PKI_CONTROLLER_CA` unset in this mode. The owner holds the registered
+`service:account-manager` key, renews through the certificate issuer, verifies
+both remote Service servers and closes connections when identity/trust is denied.
+Account Manager continues signing exactly the same human authorization assertions;
+MFA remains disabled by default. The socket mode never falls back to static TLS.
+
+Run both processes as the same UID, sharing a dedicated 0700 socket directory.
+Only the owner mounts the private credential-state directory and provisioner
+material. The socket is 0600; no TCP listener is exposed. Configure the two remote
+server pins/CA files, registry verifier grants and provisioner on the owner using
+Video Cloud's `deploy/pki/account-manager-managed.env.example`. Service authorities,
+server receipts and signed CRLs must already exist. The owner serves only after
+initial managed issuance/validation succeeds. Account Manager may start earlier;
+PKI calls fail unavailable until the socket owner is ready. Keep the owner state
+across restarts. After a crash, an existing stale socket is rejected rather than
+silently unlinked; remove it only after verifying the old owner has stopped.
+
+This is local implementation support; live dev rollout and durable consumer CRL
+receipt qualification are separate acceptance items. Public Account Manager
+HTTPS remains on its existing boundary; this only changes controller egress.

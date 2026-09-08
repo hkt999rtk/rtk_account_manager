@@ -52,29 +52,44 @@ func (s *Server) ConfigurePKIFromEnv() error {
 	}
 	raw := os.Getenv("PKI_CONTROLLER_URL")
 	if raw == "" {
+		if os.Getenv("PKI_CONTROLLER_SOCKET") != "" {
+			return fmt.Errorf("PKI socket requires controller HTTPS origin")
+		}
 		return nil
 	}
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
 		return fmt.Errorf("invalid PKI controller URL")
-	}
-	identity, err := tls.LoadX509KeyPair(os.Getenv("PKI_CONTROLLER_CLIENT_CERT"), os.Getenv("PKI_CONTROLLER_CLIENT_KEY"))
-	if err != nil {
-		return fmt.Errorf("load PKI controller client identity: %w", err)
-	}
-	ca, err := os.ReadFile(os.Getenv("PKI_CONTROLLER_CA"))
-	if err != nil {
-		return err
-	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(ca) {
-		return fmt.Errorf("invalid PKI controller trust bundle")
 	}
 	environment := os.Getenv("PKI_ENVIRONMENT")
 	if environment == "" || (requireUserMFA && os.Getenv("PKI_OIDC_MFA_ACR") == "") {
 		return fmt.Errorf("PKI environment required; optional user MFA requires an OIDC assurance class")
 	}
-	s.pkiClient = &pkiProxy{requireUserMFA: requireUserMFA, base: u, environment: environment, client: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{identity}, RootCAs: pool}}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	var client *http.Client
+	if socket := os.Getenv("PKI_CONTROLLER_SOCKET"); socket != "" {
+		if os.Getenv("PKI_CONTROLLER_CLIENT_CERT") != "" || os.Getenv("PKI_CONTROLLER_CLIENT_KEY") != "" || os.Getenv("PKI_CONTROLLER_CA") != "" {
+			return fmt.Errorf("PKI socket and static controller credentials are mutually exclusive")
+		}
+		client, err = newPKISocketClient(u, socket)
+		if err != nil {
+			return err
+		}
+	} else {
+		identity, err := tls.LoadX509KeyPair(os.Getenv("PKI_CONTROLLER_CLIENT_CERT"), os.Getenv("PKI_CONTROLLER_CLIENT_KEY"))
+		if err != nil {
+			return fmt.Errorf("load PKI controller client identity: %w", err)
+		}
+		ca, err := os.ReadFile(os.Getenv("PKI_CONTROLLER_CA"))
+		if err != nil {
+			return err
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(ca) {
+			return fmt.Errorf("invalid PKI controller trust bundle")
+		}
+		client = &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{identity}, RootCAs: pool}}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	}
+	s.pkiClient = &pkiProxy{requireUserMFA: requireUserMFA, base: u, environment: environment, client: client}
 	return nil
 }
 
