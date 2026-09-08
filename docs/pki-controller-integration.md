@@ -5,9 +5,20 @@ active Brand Clouds and Products. It exposes `/v1/platform/pki/*` as an
 authenticated proxy to the separate PKI controller. This integration is opt-in
 and not production-qualified. Startup bootstrap is now sealed after its first successful use.
 
-Apply migrations `074_pki_roles.sql` through `077_admin_recovery.sql`. Migration 074 It creates `pki_admin`,
+Apply migrations `074_pki_roles.sql` through `077_admin_recovery.sql`. Migration 074 creates `pki_admin`,
 `security_custodian`, and `pki_auditor` roles but assigns them to nobody.
 Existing Platform Admin permissions do not imply either approval role.
+
+The migration runner recognizes the historical Test Lab filename sequences
+`068_test_lab_sessions.sql` / `069_test_lab_bindings.sql` /
+`070_test_lab_console_identity.sql`, and `070_test_lab_sessions.sql` /
+`071_test_lab_bindings.sql` / `072_test_lab_console_identity.sql`, as aliases of
+the current 071/072/073 files. It preserves the old markers, adds the canonical
+markers with their original application times, and never replays their session
+revocations. Only exact recorded filenames qualify; unrelated migrations sharing
+the same numbers do not. Adoption checks pinned current SQL digests and fails if
+the files changed. Rehearse against a current dev snapshot before live migration;
+do not drop existing Test Lab tables or manually fake migration completion.
 
 Configure:
 
