@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -52,9 +53,14 @@ func (s *Server) adminRecovery(c *gin.Context) {
 	} else {
 		cmd.Action = c.Param("action")
 	}
-	result, err := backend.AdminRecovery(c.Request.Context(), store.RecoveryPrincipal{UserID: claims.UserID, MFA: claims.MFA, AuthTime: time.Unix(claims.AuthenticationTime, 0)}, cmd, s.now())
+	requireUserMFA, err := pkiUserMFASetting(os.Getenv("PKI_REQUIRE_USER_MFA"))
+	if err != nil {
+		writeError(c, 503, "recovery_unavailable", "Invalid user authentication policy")
+		return
+	}
+	result, err := backend.AdminRecovery(c.Request.Context(), store.RecoveryPrincipal{UserID: claims.UserID, MFA: claims.MFA, AuthTime: time.Unix(claims.AuthenticationTime, 0), AuthenticatedWithoutMFA: !requireUserMFA}, cmd, s.now())
 	if errors.Is(err, store.ErrRecoveryDenied) {
-		writeError(c, 403, "recovery_denied", "Recent MFA, independent approvals, and active recovery roles are required")
+		writeError(c, 403, "recovery_denied", "Authentication policy, independent approvals, and active recovery roles must be satisfied")
 		return
 	}
 	if err != nil {

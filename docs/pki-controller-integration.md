@@ -16,20 +16,26 @@ Configure:
   mTLS identity with CN `account-manager`.
 - `PKI_CONTROLLER_CA`: controller server trust bundle.
 - `PKI_ENVIRONMENT`: exact registry/Video Cloud environment identifier.
-- `PKI_OIDC_MFA_ACR`: the configured IdP assurance class that guarantees MFA.
+- `PKI_REQUIRE_USER_MFA`: optional future human-login MFA enforcement; defaults
+  to `false`. Configure the same policy on the controller. Ordinary authenticated
+  users with current roles may use PKI without MFA when disabled.
+- `PKI_OIDC_MFA_ACR`: required only when optional human MFA is enabled; the
+  configured IdP assurance class must guarantee MFA. Devices never use MFA.
 - The existing Account Manager access-token signer must be RS256; distribute
   only its public key to the controller.
 
-Operators can request fresh authentication through
+If optional human MFA is enabled, operators can request fresh authentication through
 `GET /v1/auth/oidc/{providerId}/login?pki_step_up=true`. The authorization request
 includes `acr_values`, `max_age=0`, and `prompt=login`. The callback uses the
 verified ID-token assurance and authentication time. It never interprets an
 unverified browser claim or the mere presence of an OIDC session as MFA.
 
-The resulting access token carries the original `auth_time`. PKI requests require
-MFA within five minutes. Refresh tokens carry no MFA authority; obtaining an
-ordinary refreshed access token requires a new step-up before PKI administration.
-Local login remains compatible but does not acquire PKI step-up authority.
+The resulting access token carries the original `auth_time`. With optional MFA
+enabled, PKI requests require verified MFA within five minutes. Refresh tokens
+carry no MFA authority; they require a new step-up only under that enabled policy.
+With the default policy, valid ordinary/local user login is sufficient for the
+authentication boundary; current roles and distinct approvals still apply.
+Ordinary assertions carry `mfa=false` and `auth_time=0`, never fabricated assurance.
 
 Each proxy call rechecks exact active local role assignments. Provisioning and
 activation also recheck the current cloud/product relationship. The server signs
@@ -58,7 +64,7 @@ write lock serializes removals, including repeatable-read transactions. API
 callers receive a 409 `platform_admin_required` response when the guard rejects
 a change. Migration 077 adds independently approved administrator recovery.
 
-## Console MFA callback
+## Optional future human-login MFA callback
 
 Configure a dedicated OIDC provider whose registered redirect URL is
 `https://<console-host>/api/pki/oidc/<provider-id>/callback`. The provider must be
@@ -75,7 +81,7 @@ and remains available when the PKI controller is down. It requires sealed
 bootstrap, a verified active requester with `platform_admin` or `pki_admin`, and
 an existing verified active target account distinct from the requester.
 
-1. In `/platform/pki`, authenticate with MFA and use **Recover platform
+1. In `/platform/pki`, sign in (complete MFA only if enabled) and use **Recover platform
    administration** to submit the target account ID and incident reason.
 2. Independently controlled `pki_admin` and `security_custodian` identities review
    the request ID, exact target/reason and request digest. Both approve that digest.
@@ -85,8 +91,9 @@ an existing verified active target account distinct from the requester.
    holds those authorization rows through the transaction, and grants the
    canonical Platform Admin assignment and user flag atomically.
 
-Every operation requires MFA authenticated within five minutes. Refresh grants
-no new MFA assurance. Requests bind their target and reason to a SHA-256 digest;
+Every operation requires an authenticated human with current roles. Optional MFA,
+if enabled, must be authenticated within five minutes; refresh grants no new MFA
+assurance. Requests bind their target and reason to a SHA-256 digest;
 reusing an idempotency key with a different payload conflicts. Completed execution
 replays without granting again. Immutable request/approval/audit records preserve
 the incident evidence, and successful grants also appear in the ACL audit log.
@@ -106,7 +113,7 @@ The equivalent Account Manager API routes are:
 
 Cloud Admin proxies these through `/api/platform/admin-recovery` using its
 server-side session. Browser writes require same-origin JSON and an idempotency
-key. A controller outage does not bypass the Account Manager MFA/role checks.
+key. A controller outage does not bypass role checks or an enabled human MFA policy.
 
 Pre-provision independently controlled recovery approvers before an incident.
 This workflow requires those identities and a working Account Manager database

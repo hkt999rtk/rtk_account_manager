@@ -15,9 +15,11 @@ import (
 var ErrRecoveryDenied = errors.New("administrator recovery denied")
 
 type RecoveryPrincipal struct {
-	UserID   string
-	MFA      bool
-	AuthTime time.Time
+	// API policy only; never populated from a request body or identity claim.
+	AuthenticatedWithoutMFA bool
+	UserID                  string
+	MFA                     bool
+	AuthTime                time.Time
 }
 type RecoveryCommand struct {
 	Action string `json:"-"`
@@ -79,10 +81,10 @@ func recoveryRow(ctx context.Context, tx pgx.Tx, id string) (AdminRecovery, erro
 }
 
 // AdminRecovery performs the sealed recovery workflow. The caller's identity
-// and MFA assurance must come from a verified access token at the API boundary.
+// and any optional MFA assurance must come from a verified access token at the API boundary.
 func (s *Store) AdminRecovery(ctx context.Context, p RecoveryPrincipal, cmd RecoveryCommand, now time.Time) (AdminRecovery, error) {
 	var r AdminRecovery
-	if !p.MFA || p.UserID == "" || p.AuthTime.IsZero() || p.AuthTime.After(now.Add(30*time.Second)) || p.AuthTime.Before(now.Add(-5*time.Minute)) {
+	if p.UserID == "" || (!p.AuthenticatedWithoutMFA && (!p.MFA || p.AuthTime.IsZero() || p.AuthTime.After(now.Add(30*time.Second)) || p.AuthTime.Before(now.Add(-5*time.Minute)))) {
 		return r, ErrRecoveryDenied
 	}
 	if cmd.Action != "create" && (cmd.Target != "" || cmd.Reason != "") {

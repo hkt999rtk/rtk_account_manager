@@ -5,9 +5,37 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"net/http/httptest"
 	"net/url"
+	"rtk_account_manager/internal/auth"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestPKIOptionalUserMFAPolicy(t *testing.T) {
+	now := time.Now()
+	ordinary := &auth.Claims{UserID: "user", SubjectType: auth.SubjectTypeUser}
+	for _, value := range []string{"", "false", "true", "yes"} {
+		enabled, err := pkiUserMFASetting(value)
+		if (err != nil) != (value == "yes") || enabled != (value == "true") {
+			t.Fatal(value, enabled, err)
+		}
+	}
+	p := &pkiProxy{}
+	if !p.acceptsPKISession(ordinary, now) {
+		t.Fatal("ordinary authenticated user rejected by default")
+	}
+	if p.acceptsPKISession(nil, now) || p.acceptsPKISession(&auth.Claims{UserID: "device", SubjectType: auth.SubjectTypeEndUser}, now) {
+		t.Fatal("non-user session accepted")
+	}
+	p.requireUserMFA = true
+	if p.acceptsPKISession(ordinary, now) {
+		t.Fatal("enabled MFA policy bypassed")
+	}
+	ordinary.MFA, ordinary.AuthenticationTime = true, now.Unix()
+	if !p.acceptsPKISession(ordinary, now) || p.acceptsPKISession(ordinary, now.Add(6*time.Minute)) {
+		t.Fatal("MFA assurance window not enforced")
+	}
+}
 
 func TestPKIStepUpPreservesNonceAndRequestsFreshAssurance(t *testing.T) {
 	t.Setenv("PKI_OIDC_MFA_ACR", "urn:rtk:mfa")

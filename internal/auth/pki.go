@@ -31,6 +31,7 @@ func (s *Service) IssueAssuredAccessToken(userID string, authenticationTime time
 }
 
 type PKIAssertionInput struct {
+	MFA                bool
 	UserID             string
 	Roles              []string
 	AuthenticationTime int64
@@ -46,11 +47,14 @@ func (s *Service) SignPKIAssertion(input PKIAssertionInput, now time.Time) (stri
 	if s.accessSigner == nil || s.accessSigner.Alg() != "RS256" {
 		return "", fmt.Errorf("PKI requires an RS256 platform signer")
 	}
-	if input.UserID == "" || input.AuthenticationTime > now.Unix()+30 || input.AuthenticationTime < now.Add(-5*time.Minute).Unix() {
+	if input.UserID == "" || (input.MFA && (input.AuthenticationTime > now.Unix()+30 || input.AuthenticationTime < now.Add(-5*time.Minute).Unix())) {
 		return "", fmt.Errorf("recent MFA authentication required")
 	}
+	if !input.MFA {
+		input.AuthenticationTime = 0
+	}
 	h := sha256.Sum256(input.Body)
-	claims := map[string]any{"sub": input.UserID, "iss": "account-manager", "aud": "pki-controller", "iat": now.Unix(), "exp": now.Add(time.Minute).Unix(), "auth_time": input.AuthenticationTime, "mfa": true, "roles": input.Roles, "environment": input.Environment, "method": input.Method, "path": input.Path, "body_sha256": hex.EncodeToString(h[:]), "idempotency_key": input.IdempotencyKey, "active_context": input.ActiveContext}
+	claims := map[string]any{"sub": input.UserID, "iss": "account-manager", "aud": "pki-controller", "iat": now.Unix(), "exp": now.Add(time.Minute).Unix(), "auth_time": input.AuthenticationTime, "mfa": input.MFA, "roles": input.Roles, "environment": input.Environment, "method": input.Method, "path": input.Path, "body_sha256": hex.EncodeToString(h[:]), "idempotency_key": input.IdempotencyKey, "active_context": input.ActiveContext}
 	raw, err := json.Marshal(claims)
 	if err != nil {
 		return "", err

@@ -1,9 +1,45 @@
 package auth
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/base64"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestPKIAssertionDoesNotManufactureMFA(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := RS256TokenSigner{Signer: key, PublicKey: &key.PublicKey}
+	s := NewServiceWithSigners(signer, signer, time.Minute, time.Hour)
+	now := time.Now()
+	for _, mfa := range []bool{false, true} {
+		input := PKIAssertionInput{UserID: "user", Environment: "dev", MFA: mfa, AuthenticationTime: now.Unix()}
+		token, err := s.SignPKIAssertion(input, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := base64.RawURLEncoding.DecodeString(strings.Split(token, ".")[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		var claims map[string]any
+		if err := json.Unmarshal(raw, &claims); err != nil {
+			t.Fatal(err)
+		}
+		if claims["mfa"] != mfa || (!mfa && claims["auth_time"] != float64(0)) {
+			t.Fatal("fabricated assurance", claims)
+		}
+	}
+	if _, err := s.SignPKIAssertion(PKIAssertionInput{UserID: "user", MFA: true, AuthenticationTime: now.Add(-6 * time.Minute).Unix()}, now); err == nil {
+		t.Fatal("stale assurance signed")
+	}
+}
 
 func TestPKIOIDCStepUpRequiresConfiguredVerifiedAssurance(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)

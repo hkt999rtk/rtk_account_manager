@@ -23,10 +23,41 @@ func (s *recoveryAPIStore) AdminRecovery(_ context.Context, p store.RecoveryPrin
 	s.calls++
 	s.seen = p
 	s.command = cmd
-	if !p.MFA {
+	if !p.MFA && !p.AuthenticatedWithoutMFA {
 		return store.AdminRecovery{}, store.ErrRecoveryDenied
 	}
 	return store.AdminRecovery{ID: "request", Status: "requested"}, nil
+}
+
+func TestAdminRecoveryOptionalMFAPolicyBindsOrdinaryUser(t *testing.T) {
+	tokens := auth.NewService("access", "refresh", time.Hour, time.Hour)
+	token, _, err := tokens.IssueAccessToken("ordinary-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, policy := range []string{"", "false", "true", "invalid"} {
+		t.Setenv("PKI_REQUIRE_USER_MFA", policy)
+		backend := &recoveryAPIStore{}
+		server := New(backend, tokens)
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest("GET", "/v1/platform/admin-recovery", nil)
+		c.Request.Header.Set("Authorization", "Bearer "+token)
+		server.adminRecovery(c)
+		want := 200
+		if policy == "true" {
+			want = 403
+		}
+		if policy == "invalid" {
+			want = 503
+		}
+		if rec.Code != want {
+			t.Fatal(policy, rec.Code, rec.Body.String())
+		}
+		if backend.seen.MFA {
+			t.Fatal("ordinary login relabeled MFA")
+		}
+	}
 }
 func TestAdminRecoveryAPIBindsVerifiedIdentity(t *testing.T) {
 	backend := &recoveryAPIStore{}

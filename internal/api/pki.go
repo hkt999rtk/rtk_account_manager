@@ -19,9 +19,10 @@ import (
 )
 
 type pkiProxy struct {
-	base        *url.URL
-	client      *http.Client
-	environment string
+	requireUserMFA bool
+	base           *url.URL
+	client         *http.Client
+	environment    string
 }
 type pkiRoleStore interface {
 	PKIRoles(context.Context, string) ([]string, error)
@@ -45,6 +46,10 @@ func pkiStepUpLocation(location string) (string, error) {
 }
 
 func (s *Server) ConfigurePKIFromEnv() error {
+	requireUserMFA, err := pkiUserMFASetting(os.Getenv("PKI_REQUIRE_USER_MFA"))
+	if err != nil {
+		return err
+	}
 	raw := os.Getenv("PKI_CONTROLLER_URL")
 	if raw == "" {
 		return nil
@@ -66,11 +71,28 @@ func (s *Server) ConfigurePKIFromEnv() error {
 		return fmt.Errorf("invalid PKI controller trust bundle")
 	}
 	environment := os.Getenv("PKI_ENVIRONMENT")
-	if environment == "" || os.Getenv("PKI_OIDC_MFA_ACR") == "" {
-		return fmt.Errorf("PKI environment and OIDC MFA assurance class required")
+	if environment == "" || (requireUserMFA && os.Getenv("PKI_OIDC_MFA_ACR") == "") {
+		return fmt.Errorf("PKI environment required; optional user MFA requires an OIDC assurance class")
 	}
-	s.pkiClient = &pkiProxy{base: u, environment: environment, client: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{identity}, RootCAs: pool}}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	s.pkiClient = &pkiProxy{requireUserMFA: requireUserMFA, base: u, environment: environment, client: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{identity}, RootCAs: pool}}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	return nil
+}
+
+func pkiUserMFASetting(value string) (bool, error) {
+	if value == "" || value == "false" {
+		return false, nil
+	}
+	if value != "true" {
+		return false, fmt.Errorf("PKI_REQUIRE_USER_MFA must be true or false")
+	}
+	return true, nil
+}
+
+func (p *pkiProxy) acceptsPKISession(claims *auth.Claims, now time.Time) bool {
+	if claims == nil || claims.SubjectType != auth.SubjectTypeUser || claims.UserID == "" {
+		return false
+	}
+	return !p.requireUserMFA || (claims.MFA && claims.AuthenticationTime >= now.Add(-5*time.Minute).Unix() && claims.AuthenticationTime <= now.Unix()+30)
 }
 
 func (s *Server) applyOIDCStepUp(userID string, identity auth.OIDCIdentity, tokens tokenResponse) (tokenResponse, error) {
@@ -94,8 +116,12 @@ func (s *Server) proxyPKI(c *gin.Context) {
 	}
 	claims, err := s.auth.ParseAccessToken(strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "))
 	now := s.now()
-	if err != nil || claims.SubjectType != auth.SubjectTypeUser || !claims.MFA || claims.AuthenticationTime < now.Add(-5*time.Minute).Unix() || claims.AuthenticationTime > now.Unix()+30 {
-		writeError(c, 403, "pki_step_up_required", "Recent OIDC MFA authentication is required")
+	if err != nil || !s.pkiClient.acceptsPKISession(claims, now) {
+		if s.pkiClient.requireUserMFA {
+			writeError(c, 403, "pki_step_up_required", "Recent OIDC MFA authentication is required")
+		} else {
+			writeError(c, 403, "pki_authentication_required", "An authenticated human user session is required")
+		}
 		return
 	}
 	roleStore, ok := s.store.(pkiRoleStore)
@@ -120,6 +146,7 @@ func (s *Server) proxyPKI(c *gin.Context) {
 		return
 	}
 	input := auth.PKIAssertionInput{UserID: claims.UserID, Roles: roles, AuthenticationTime: claims.AuthenticationTime, Environment: s.pkiClient.environment, Method: c.Request.Method, Path: path, Body: body, IdempotencyKey: c.GetHeader("Idempotency-Key")}
+	input.MFA = claims.MFA && claims.AuthenticationTime >= now.Add(-5*time.Minute).Unix() && claims.AuthenticationTime <= now.Unix()+30
 	if c.Request.Method == "POST" && (len(parts) == 1 || (len(parts) == 3 && (parts[2] == "provision" || parts[2] == "activate"))) {
 		var scope struct {
 			CloudID     string `json:"brand_cloud_id"`

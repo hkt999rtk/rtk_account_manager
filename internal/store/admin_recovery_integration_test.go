@@ -22,6 +22,14 @@ func recoveryFixture(t *testing.T, env storeIntegrationEnv, email, role string) 
 }
 
 func TestAdminRecoveryRequiresIndependentLiveApprovals(t *testing.T) {
+	testAdminRecoveryApprovals(t, false)
+}
+
+func TestAdminRecoveryWithoutMFAStillRequiresIndependentLiveApprovals(t *testing.T) {
+	testAdminRecoveryApprovals(t, true)
+}
+
+func testAdminRecoveryApprovals(t *testing.T, optionalMFA bool) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Second)
@@ -32,7 +40,9 @@ func TestAdminRecoveryRequiresIndependentLiveApprovals(t *testing.T) {
 	admin := recoveryFixture(t, env, "approver@example.test", "pki_admin")
 	custodian := recoveryFixture(t, env, "custodian@example.test", "security_custodian")
 	target := recoveryFixture(t, env, "replacement@example.test", "")
-	principal := func(id string) RecoveryPrincipal { return RecoveryPrincipal{UserID: id, MFA: true, AuthTime: now} }
+	principal := func(id string) RecoveryPrincipal {
+		return RecoveryPrincipal{UserID: id, MFA: !optionalMFA, AuthTime: now, AuthenticatedWithoutMFA: optionalMFA}
+	}
 	command := RecoveryCommand{Action: "create", Key: "recovery-1", Target: target, Reason: "Recover administration after a fixture incident"}
 	r, err := env.store.AdminRecovery(ctx, principal(creator), command, now)
 	if err != nil {
@@ -81,10 +91,12 @@ func TestAdminRecoveryRequiresIndependentLiveApprovals(t *testing.T) {
 	if _, err = env.db.Exec(ctx, `UPDATE role_assignments SET disabled_at=NULL WHERE actor_id=$1`, custodian); err != nil {
 		t.Fatal(err)
 	}
-	stale := principal(admin)
-	stale.AuthTime = now.Add(-6 * time.Minute)
-	if _, err = env.store.AdminRecovery(ctx, stale, execute, now); err == nil {
-		t.Fatal("stale MFA accepted")
+	if !optionalMFA {
+		stale := principal(admin)
+		stale.AuthTime = now.Add(-6 * time.Minute)
+		if _, err = env.store.AdminRecovery(ctx, stale, execute, now); err == nil {
+			t.Fatal("stale MFA accepted")
+		}
 	}
 	outcomes := make(chan error, 8)
 	var concurrent sync.WaitGroup
