@@ -17,6 +17,7 @@ import (
 
 type HTTPAppCertificateIssuerConfig struct {
 	BaseURL    string
+	Socket     string
 	ClientCert string
 	ClientKey  string
 	CAFile     string
@@ -30,8 +31,23 @@ type HTTPAppCertificateIssuer struct {
 
 func NewHTTPAppCertificateIssuer(cfg HTTPAppCertificateIssuerConfig) (*HTTPAppCertificateIssuer, error) {
 	baseURL, err := url.Parse(strings.TrimSpace(cfg.BaseURL))
-	if err != nil || baseURL == nil || baseURL.Scheme == "" || baseURL.Host == "" {
+	if err != nil || baseURL == nil || baseURL.Scheme != "https" || baseURL.Host == "" || baseURL.User != nil || baseURL.RawQuery != "" || baseURL.ForceQuery || baseURL.Fragment != "" || (baseURL.Path != "" && baseURL.Path != "/") {
 		return nil, fmt.Errorf("app certissuer base url is invalid")
+	}
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	if cfg.Socket != "" {
+		if cfg.ClientCert != "" || cfg.ClientKey != "" || cfg.CAFile != "" {
+			return nil, fmt.Errorf("app certissuer socket and static credentials are mutually exclusive")
+		}
+		client, err := newPKISocketClient(baseURL, cfg.Socket)
+		if err != nil {
+			return nil, err
+		}
+		client.Timeout = timeout
+		return &HTTPAppCertificateIssuer{baseURL: baseURL, client: client}, nil
 	}
 	cert, err := tls.LoadX509KeyPair(cfg.ClientCert, cfg.ClientKey)
 	if err != nil {
@@ -47,10 +63,6 @@ func NewHTTPAppCertificateIssuer(cfg HTTPAppCertificateIssuerConfig) (*HTTPAppCe
 	}
 	if !roots.AppendCertsFromPEM(caPEM) {
 		return nil, fmt.Errorf("app certissuer ca bundle contains no certificates")
-	}
-	timeout := cfg.Timeout
-	if timeout <= 0 {
-		timeout = 10 * time.Second
 	}
 	return &HTTPAppCertificateIssuer{
 		baseURL: baseURL,

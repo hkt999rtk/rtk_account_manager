@@ -176,6 +176,7 @@ func main() {
 	if strings.TrimSpace(cfg.AppCertIssuerBaseURL) != "" {
 		issuer, err := api.NewHTTPAppCertificateIssuer(api.HTTPAppCertificateIssuerConfig{
 			BaseURL:    cfg.AppCertIssuerBaseURL,
+			Socket:     cfg.AppCertIssuerSocket,
 			ClientCert: cfg.AppCertIssuerClientCert,
 			ClientKey:  cfg.AppCertIssuerClientKey,
 			CAFile:     cfg.AppCertIssuerCAFile,

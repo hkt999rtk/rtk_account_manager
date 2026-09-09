@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -468,6 +469,18 @@ func TestNewHTTPAppCertificateIssuerValidatesConfig(t *testing.T) {
 	}
 	if issuer.client == nil || issuer.baseURL.Host != "issuer.example" {
 		t.Fatalf("unexpected issuer: %+v", issuer)
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(dir, "management.sock")
+	issuer, err = NewHTTPAppCertificateIssuer(HTTPAppCertificateIssuerConfig{BaseURL: "https://issuer.example", Socket: socket})
+	if err != nil || issuer.client == nil {
+		t.Fatal("socket issuer", err)
+	}
+	if _, err = NewHTTPAppCertificateIssuer(HTTPAppCertificateIssuerConfig{BaseURL: "https://issuer.example", Socket: socket, ClientCert: certFile}); err == nil {
+		t.Fatal("socket accepted static credentials")
 	}
 }
 

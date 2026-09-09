@@ -158,3 +158,10 @@ silently unlinked; remove it only after verifying the old owner has stopped.
 This is local implementation support; live dev rollout and durable consumer CRL
 receipt qualification are separate acceptance items. Public Account Manager
 HTTPS remains on its existing boundary; this only changes controller egress.
+
+`APP_CERT_ISSUER_SOCKET` may select the same private socket for App certificate
+issuance. In that mode, leave `APP_CERT_ISSUER_CLIENT_CERT`,
+`APP_CERT_ISSUER_CLIENT_KEY` and `APP_CERT_ISSUER_CA_FILE` unset. The owner accepts
+only `POST /v1/certificates/app/issue` for the configured certissuer origin and
+presents the same registered `service:account-manager` identity. Login and human
+authorization behavior do not change.
