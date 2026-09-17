@@ -170,6 +170,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#4`
 - `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape/seed#5`
 - `rtk_account_manager/internal/api`: `FuzzBindStrictRequestShape`
+- `rtk_account_manager/internal/api`: `TestAdminRecoveryAPIBindsVerifiedIdentity`
+- `rtk_account_manager/internal/api`: `TestAdminRecoveryOptionalMFAPolicyBindsOrdinaryUser`
 - `rtk_account_manager/internal/api`: `TestAllowSignupEnforcesDisposableAndRateLimit`
 - `rtk_account_manager/internal/api`: `TestAppBundleCertificateChainValidation/empty`
 - `rtk_account_manager/internal/api`: `TestAppBundleCertificateChainValidation/invalid_DER`
@@ -467,6 +469,11 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestOwnerHandoffRequiresHumanSessionEvenForMatchingUUID`
 - `rtk_account_manager/internal/api`: `TestOwnerTransferFinancialBlockersHaveExplicitHTTPResults`
 - `rtk_account_manager/internal/api`: `TestOwnerTransferWithoutBillingAdapterFailsClosed`
+- `rtk_account_manager/internal/api`: `TestPKILastAdminGuardReturnsConflict`
+- `rtk_account_manager/internal/api`: `TestPKIOptionalUserMFAPolicy`
+- `rtk_account_manager/internal/api`: `TestPKISocketPreservesSignedRequestAndFailsWithoutOwner`
+- `rtk_account_manager/internal/api`: `TestPKISocketRejectsUnsafePaths`
+- `rtk_account_manager/internal/api`: `TestPKIStepUpPreservesNonceAndRequestsFreshAssurance`
 - `rtk_account_manager/internal/api`: `TestPaginationClampsAndDefaultsValues`
 - `rtk_account_manager/internal/api`: `TestParseChipsetManifestRejectsInvalidSnapshots/duplicate_release`
 - `rtk_account_manager/internal/api`: `TestParseChipsetManifestRejectsInvalidSnapshots/non_HTTPS_endpoint`
@@ -623,6 +630,9 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/auth`: `TestOIDCClientValidateRejectsBadJWKSResponses`
 - `rtk_account_manager/internal/auth`: `TestOIDCProviderValidateRejectsMalformedURLs`
 - `rtk_account_manager/internal/auth`: `TestOIDCTokenErrorsDoNotContainProviderTokens`
+- `rtk_account_manager/internal/auth`: `TestPKIAssertionDoesNotManufactureMFA`
+- `rtk_account_manager/internal/auth`: `TestPKIOIDCStepUpRequiresConfiguredVerifiedAssurance`
+- `rtk_account_manager/internal/auth`: `TestPKIRefreshDoesNotMintNewAssurance`
 - `rtk_account_manager/internal/auth`: `TestPasswordHashAndCheck`
 - `rtk_account_manager/internal/auth`: `TestPlatformTokenClaimsDefaultToPlatformSubject`
 - `rtk_account_manager/internal/auth`: `TestProviderResolverFallsBackToEnvProviderWhenDBProviderMissing`
@@ -997,6 +1007,16 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/database`: `TestMultiCloudViewerScopeConstraintsIntegration`
 - `rtk_account_manager/internal/database`: `TestPreflightIdentityCorrectionRejectsNilPool`
 - `rtk_account_manager/internal/database`: `TestPreflightIdentityCorrectionRequiresMigrationDirectory`
+- `rtk_account_manager/internal/database`: `TestRenamedMigrationRejectsUnprovenAliases/edited-content`
+- `rtk_account_manager/internal/database`: `TestRenamedMigrationRejectsUnprovenAliases/unrelated-marker`
+- `rtk_account_manager/internal/database`: `TestRenamedMigrationRejectsUnprovenAliases`
+- `rtk_account_manager/internal/database`: `TestRenamedTestLabMigrationUsesOnlyExactHistoricalAliases/071_test_lab_sessions.sql`
+- `rtk_account_manager/internal/database`: `TestRenamedTestLabMigrationUsesOnlyExactHistoricalAliases/072_test_lab_bindings.sql`
+- `rtk_account_manager/internal/database`: `TestRenamedTestLabMigrationUsesOnlyExactHistoricalAliases/073_test_lab_console_identity.sql`
+- `rtk_account_manager/internal/database`: `TestRenamedTestLabMigrationUsesOnlyExactHistoricalAliases`
+- `rtk_account_manager/internal/database`: `TestRenamedTestLabMigrationsPreserveHistory/068_test_lab_sessions.sql`
+- `rtk_account_manager/internal/database`: `TestRenamedTestLabMigrationsPreserveHistory/070_test_lab_sessions.sql`
+- `rtk_account_manager/internal/database`: `TestRenamedTestLabMigrationsPreserveHistory`
 - `rtk_account_manager/internal/emaildelivery`: `TestAuthEmailHTMLEscapesContent`
 - `rtk_account_manager/internal/emaildelivery`: `TestCipherRejectsInvalidKey`
 - `rtk_account_manager/internal/emaildelivery`: `TestCipherRoundTripAndWrongKey`
@@ -1108,6 +1128,9 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestACLRoleAssignmentsAuthorizeInsideScopeOnly`
 - `rtk_account_manager/internal/store`: `TestACLSeedPermissionCatalogAndSystemRoles`
 - `rtk_account_manager/internal/store`: `TestACLValueHelpers`
+- `rtk_account_manager/internal/store`: `TestAdminRecoveryExpiresAndRejectsDisabledTarget`
+- `rtk_account_manager/internal/store`: `TestAdminRecoveryRequiresIndependentLiveApprovals`
+- `rtk_account_manager/internal/store`: `TestAdminRecoveryWithoutMFAStillRequiresIndependentLiveApprovals`
 - `rtk_account_manager/internal/store`: `TestAppCertificateCreateRotatesActiveCertificate`
 - `rtk_account_manager/internal/store`: `TestAppCertificateHonorsCurrentGlobalUserState/active`
 - `rtk_account_manager/internal/store`: `TestAppCertificateHonorsCurrentGlobalUserState/disabled`
@@ -1117,6 +1140,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestBillingCloudCreationFailureRollsBackSignupAndExcludesLegacyOrganizations`
 - `rtk_account_manager/internal/store`: `TestBillingCloudCreationOutboxCommitsWithUniqueInitialOwner`
 - `rtk_account_manager/internal/store`: `TestBillingCloudCreationOutboxPartitionsLeasesAndPreservesEventOnTimeout`
+- `rtk_account_manager/internal/store`: `TestBootstrapSealsExistingDisabledAdministrator`
+- `rtk_account_manager/internal/store`: `TestBootstrapSealsOnceWithoutCredentialReset`
 - `rtk_account_manager/internal/store`: `TestBrandCloudLoginActivationTokenIsTenantScoped`
 - `rtk_account_manager/internal/store`: `TestBrandCloudLoginTokenAndEmailOutboxCommitTogether`
 - `rtk_account_manager/internal/store`: `TestBrandCloudMemberInvitationLifecycleAndConflicts`
@@ -1192,6 +1217,9 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshotWithLossyUTF8`
 - `rtk_account_manager/internal/store`: `TestCompareInboxCreateAcceptsLegacyMalformedPayloadSnapshot`
 - `rtk_account_manager/internal/store`: `TestCompareOperationCreate`
+- `rtk_account_manager/internal/store`: `TestConcurrentAdministratorDisableLeavesOne/READ_COMMITTED`
+- `rtk_account_manager/internal/store`: `TestConcurrentAdministratorDisableLeavesOne/REPEATABLE_READ`
+- `rtk_account_manager/internal/store`: `TestConcurrentAdministratorDisableLeavesOne`
 - `rtk_account_manager/internal/store`: `TestConcurrentHandoffAcceptsCannotOverReserveTargetQuota`
 - `rtk_account_manager/internal/store`: `TestConcurrentProductPatchesPreserveDisjointFields`
 - `rtk_account_manager/internal/store`: `TestConfigureAuthTokenRateLimit`
@@ -1477,6 +1505,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestOnlineChangedProjectionSetsStatusAndLastSeenAt`
 - `rtk_account_manager/internal/store`: `TestOutboxMessagePersistenceAndReadyList`
 - `rtk_account_manager/internal/store`: `TestOwnerTransferAndEmailOutboxCommitOrRollbackTogether`
+- `rtk_account_manager/internal/store`: `TestPKIRolesDoNotImplyCustodianFromPlatformAdmin`
 - `rtk_account_manager/internal/store`: `TestPlatformACLWithoutMembershipRequiresEligibleGlobalUser/active`
 - `rtk_account_manager/internal/store`: `TestPlatformACLWithoutMembershipRequiresEligibleGlobalUser/disabled`
 - `rtk_account_manager/internal/store`: `TestPlatformACLWithoutMembershipRequiresEligibleGlobalUser/pending`
@@ -1550,6 +1579,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestScanEmailOutboxWrapsScanError`
 - `rtk_account_manager/internal/store`: `TestScanProductionRunMapsNoRowsToNotFound`
 - `rtk_account_manager/internal/store`: `TestScanProductionRunReturnsScanError`
+- `rtk_account_manager/internal/store`: `TestSealedLastAdminCannotBeDisabledOrStripped`
 - `rtk_account_manager/internal/store`: `TestServiceOptionSetsEqual`
 - `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationRejectsMissingProjectedMetadata`
 - `rtk_account_manager/internal/store`: `TestStartDeviceDeactivationOperationUsesProjectedMetadata`
@@ -1591,6 +1621,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestValidateProductionRunCreateRejectsInvalidInput/valid_until_before_valid_from`
 - `rtk_account_manager/internal/store`: `TestValidateProductionRunCreateRejectsInvalidInput/zero_valid_from`
 - `rtk_account_manager/internal/store`: `TestValidateProductionRunCreateRejectsInvalidInput`
+- `rtk_account_manager/internal/usercache`: `TestAdminRecoveryAlwaysUsesAuthoritativeStore`
+- `rtk_account_manager/internal/usercache`: `TestPKIRolesAlwaysReadsBackingStore`
 - `rtk_account_manager/internal/usercache`: `TestRedisCacheFlushPlatformAuthScansAndDeletesOnlyAuthKeys`
 - `rtk_account_manager/internal/usercache`: `TestRedisCachePlatformAuthUsesExpectedKeysWithoutTTL`
 - `rtk_account_manager/internal/usercache`: `TestRedisCacheRoundTripsPlatformBrandAndEndUserProjections`

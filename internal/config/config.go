@@ -84,6 +84,7 @@ type Config struct {
 	UserCacheAddr                   string
 	UserCachePrefix                 string
 	AppCertIssuerBaseURL            string
+	AppCertIssuerSocket             string
 	AppCertIssuerClientCert         string
 	AppCertIssuerClientKey          string
 	AppCertIssuerCAFile             string
@@ -578,6 +579,7 @@ func load() (Config, error) {
 		UserCacheAddr:                   getenv("ACCOUNT_MANAGER_USER_CACHE_ADDR", "127.0.0.1:6379"),
 		UserCachePrefix:                 getenv("ACCOUNT_MANAGER_USER_CACHE_PREFIX", "account_manager:user"),
 		AppCertIssuerBaseURL:            os.Getenv("APP_CERT_ISSUER_BASE_URL"),
+		AppCertIssuerSocket:             os.Getenv("APP_CERT_ISSUER_SOCKET"),
 		AppCertIssuerClientCert:         os.Getenv("APP_CERT_ISSUER_CLIENT_CERT"),
 		AppCertIssuerClientKey:          os.Getenv("APP_CERT_ISSUER_CLIENT_KEY"),
 		AppCertIssuerCAFile:             os.Getenv("APP_CERT_ISSUER_CA_FILE"),

@@ -104,6 +104,17 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		if err != nil {
 			return err
 		}
+		adopted, err := adoptRenamedTestLabMigration(ctx, tx, name, sqlBytes)
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+		if adopted {
+			if err := tx.Commit(ctx); err != nil {
+				return err
+			}
+			continue
+		}
 		if _, err := tx.Exec(ctx, string(sqlBytes)); err != nil {
 			_ = tx.Rollback(ctx)
 			return fmt.Errorf("apply migration %s: %w", name, err)

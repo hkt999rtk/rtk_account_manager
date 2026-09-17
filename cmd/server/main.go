@@ -97,19 +97,27 @@ func main() {
 	}
 	accountStore.ConfigureEmailOutboxCipher(cipher)
 	if cfg.BootstrapPlatformAdminEmail != "" || cfg.BootstrapPlatformAdminPassword != "" {
-		if cfg.BootstrapPlatformAdminEmail == "" || cfg.BootstrapPlatformAdminPassword == "" {
-			fatal(logger, "bootstrap platform admin config incomplete", nil)
-		}
-		hash, err := auth.HashPassword(cfg.BootstrapPlatformAdminPassword)
+		sealed, err := accountStore.PlatformBootstrapSealed(ctx)
 		if err != nil {
-			fatal(logger, "hash bootstrap platform admin password failed", err)
+			fatal(logger, "read platform bootstrap seal failed", err)
 		}
-		displayName := "Realtek Platform Admin"
-		admin, err := accountStore.EnsurePlatformAdmin(ctx, cfg.BootstrapPlatformAdminEmail, hash, &displayName)
-		if err != nil {
-			fatal(logger, "ensure platform admin failed", err)
+		if !sealed {
+			if cfg.BootstrapPlatformAdminEmail == "" || cfg.BootstrapPlatformAdminPassword == "" {
+				fatal(logger, "bootstrap platform admin config incomplete", nil)
+			}
+			hash, err := auth.HashPassword(cfg.BootstrapPlatformAdminPassword)
+			if err != nil {
+				fatal(logger, "hash bootstrap platform admin password failed", err)
+			}
+			displayName := "Realtek Platform Admin"
+			created, err := accountStore.BootstrapPlatformAdmin(ctx, cfg.BootstrapPlatformAdminEmail, hash, &displayName)
+			if err != nil {
+				fatal(logger, "ensure platform admin failed", err)
+			}
+			logger.Info("platform bootstrap sealed", zap.Bool("created", created))
+		} else {
+			logger.Info("platform bootstrap already sealed; startup credentials ignored")
 		}
-		logger.Info("platform admin ensured", zap.String("email", admin.Email), zap.String("user_id", admin.ID))
 	}
 	var apiStore api.Store = accountStore
 	if cfg.UserCacheEnabled {
@@ -129,6 +137,9 @@ func main() {
 	server.ConfigureTestLab(accountStore, cfg.VideoCloudLifecycleBaseURL, cfg.VideoCloudLifecycleToken)
 	server.ConfigureImmediateBrandAccountProvisioning(cfg.AllowImmediateBrandAccounts)
 	server.ConfigureProductionJWT(cfg.FactoryProductionJWTSecret, cfg.FactoryProductionJWTAudience)
+	if err := server.ConfigurePKIFromEnv(); err != nil {
+		fatal(logger, "configure PKI controller", err)
+	}
 	server.ConfigureFactoryEnrollmentToken(cfg.FactoryEnrollmentToken)
 	server.ConfigureChipsetManifestFetcher(api.NewChipsetManifestFetcher(api.ChipsetManifestFetcherConfig{AllowedHosts: cfg.ChipsetProviderAllowedHosts}))
 	if cfg.ChipsetProviderRefreshInterval > 0 {
@@ -165,6 +176,7 @@ func main() {
 	if strings.TrimSpace(cfg.AppCertIssuerBaseURL) != "" {
 		issuer, err := api.NewHTTPAppCertificateIssuer(api.HTTPAppCertificateIssuerConfig{
 			BaseURL:    cfg.AppCertIssuerBaseURL,
+			Socket:     cfg.AppCertIssuerSocket,
 			ClientCert: cfg.AppCertIssuerClientCert,
 			ClientKey:  cfg.AppCertIssuerClientKey,
 			CAFile:     cfg.AppCertIssuerCAFile,

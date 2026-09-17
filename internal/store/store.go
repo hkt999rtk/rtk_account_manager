@@ -627,13 +627,32 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (model.User, e
 	return user, err
 }
 
+// EnsurePlatformAdmin is a fixture/legacy provisioning helper. Once startup
+// bootstrap is sealed it cannot reset credentials or resurrect an administrator.
 func (s *Store) EnsurePlatformAdmin(ctx context.Context, email, passwordHash string, displayName *string) (model.User, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return model.User{}, err
 	}
 	defer tx.Rollback(ctx)
+	var sealed bool
+	if err = tx.QueryRow(ctx, `SELECT sealed_at IS NOT NULL FROM platform_bootstrap WHERE singleton=true FOR UPDATE`).Scan(&sealed); err != nil {
+		return model.User{}, err
+	}
+	if sealed {
+		return model.User{}, ErrConflict
+	}
+	user, err := ensurePlatformAdminTx(ctx, tx, email, passwordHash, displayName, true)
+	if err != nil {
+		return model.User{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return model.User{}, err
+	}
+	return user, nil
+}
 
+func ensurePlatformAdminTx(ctx context.Context, tx pgx.Tx, email, passwordHash string, displayName *string, allowExisting bool) (model.User, error) {
 	user, err := scanDeveloperUser(tx.QueryRow(ctx, `
 		INSERT INTO users (email, password_hash, display_name, email_verified, email_verified_at, platform_admin)
 		VALUES ($1, $2, $3, true, now(), true)
@@ -646,8 +665,9 @@ func (s *Store) EnsurePlatformAdmin(ctx context.Context, email, passwordHash str
 			platform_admin = true,
 			disabled_at = NULL,
 			updated_at = now()
+		WHERE $4
 		RETURNING id::text, email, display_name, email_verified, email_verified_at, signup_pending_verification, developer_cloud_limit, created_at, updated_at, disabled_at
-	`, strings.ToLower(strings.TrimSpace(email)), passwordHash, displayName))
+	`, strings.ToLower(strings.TrimSpace(email)), passwordHash, displayName, allowExisting))
 	if err != nil {
 		return model.User{}, err
 	}
@@ -677,9 +697,6 @@ func (s *Store) EnsurePlatformAdmin(ctx context.Context, email, passwordHash str
 		}, false); err != nil {
 			return model.User{}, err
 		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return model.User{}, err
 	}
 	return user, nil
 }
