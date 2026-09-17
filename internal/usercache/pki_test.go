@@ -2,14 +2,28 @@ package usercache
 
 import (
 	"context"
-	"rtk_account_manager/internal/api"
 	"testing"
+	"time"
+
+	"rtk_account_manager/internal/api"
+	"rtk_account_manager/internal/store"
 )
 
 type pkiRoleSource struct {
 	api.Store
 	roles []string
 	calls int
+}
+
+type recoverySource struct {
+	api.Store
+	result store.AdminRecovery
+	calls  int
+}
+
+func (s *recoverySource) AdminRecovery(context.Context, store.RecoveryPrincipal, store.RecoveryCommand, time.Time) (store.AdminRecovery, error) {
+	s.calls++
+	return s.result, nil
 }
 
 func (s *pkiRoleSource) PKIRoles(context.Context, string) ([]string, error) {
@@ -31,5 +45,16 @@ func TestPKIRolesAlwaysReadsBackingStore(t *testing.T) {
 	}
 	if _, err = (&Store{}).PKIRoles(context.Background(), "user"); err == nil {
 		t.Fatal("missing role store accepted")
+	}
+}
+
+func TestAdminRecoveryAlwaysUsesAuthoritativeStore(t *testing.T) {
+	source := &recoverySource{result: store.AdminRecovery{ID: "recovery-1"}}
+	got, err := (&Store{Store: source}).AdminRecovery(t.Context(), store.RecoveryPrincipal{}, store.RecoveryCommand{}, time.Time{})
+	if err != nil || got.ID != "recovery-1" || source.calls != 1 {
+		t.Fatalf("recovery=%+v calls=%d err=%v", got, source.calls, err)
+	}
+	if _, err = (&Store{}).AdminRecovery(t.Context(), store.RecoveryPrincipal{}, store.RecoveryCommand{}, time.Time{}); err == nil {
+		t.Fatal("missing authoritative recovery store accepted")
 	}
 }
