@@ -471,6 +471,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestOwnerTransferWithoutBillingAdapterFailsClosed`
 - `rtk_account_manager/internal/api`: `TestPKILastAdminGuardReturnsConflict`
 - `rtk_account_manager/internal/api`: `TestPKIOptionalUserMFAPolicy`
+- `rtk_account_manager/internal/api`: `TestPKIProxyForwardsAuthorizedHumanRequest`
+- `rtk_account_manager/internal/api`: `TestPKIProxyRejectsUserWithoutPKIRole`
 - `rtk_account_manager/internal/api`: `TestPKISocketPreservesSignedRequestAndFailsWithoutOwner`
 - `rtk_account_manager/internal/api`: `TestPKISocketRejectsUnsafePaths`
 - `rtk_account_manager/internal/api`: `TestPKIStepUpPreservesNonceAndRequestsFreshAssurance`
@@ -1456,6 +1458,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestIdentityProviderStoreCRUDAndMultipleEnabledProviders`
 - `rtk_account_manager/internal/store`: `TestIntegrationDatabaseSchemaInvariants`
 - `rtk_account_manager/internal/store`: `TestJSONHelpers`
+- `rtk_account_manager/internal/store`: `TestJobAuthorizationLifecycle`
 - `rtk_account_manager/internal/store`: `TestLifecycleMetricsAggregatesQueueAndOperationHealth`
 - `rtk_account_manager/internal/store`: `TestLifecycleUserAdmissionAuditFailureRollsBackOutboxAndProjection`
 - `rtk_account_manager/internal/store`: `TestLifecycleUserAdmissionRechecksAuthorityAndAuditsOnce`
