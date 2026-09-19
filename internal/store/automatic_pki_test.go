@@ -9,6 +9,19 @@ import (
 	"rtk_account_manager/internal/model"
 )
 
+func TestDevicePKIReceiptRejectsInvalidAuthority(t *testing.T) {
+	for _, receipt := range []DevicePKIReceipt{
+		{Status: "unknown"},
+		{Status: "ready", OperationID: "bad", IssuerID: "6baf97c3-7d83-4ec2-85b0-9e092f5a4df0"},
+		{Status: "pending", IssuerID: "6baf97c3-7d83-4ec2-85b0-9e092f5a4df0"},
+		{Status: "failed", OperationID: "bad"},
+	} {
+		if err := receipt.Validate(); !errors.Is(err, ErrConflict) {
+			t.Fatalf("invalid Device PKI receipt was accepted: %+v", receipt)
+		}
+	}
+}
+
 // Authorization tests do not run a CA service. Mark only their named Product
 // fixture ready; automatic provisioning tests deliberately do not use this helper.
 func readyDevicePKIFixture(t *testing.T, env storeIntegrationEnv, product string) {

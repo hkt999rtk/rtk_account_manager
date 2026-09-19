@@ -44,6 +44,22 @@ func (j *automaticJobs) FinishDevicePKI(_ context.Context, _ store.DevicePKIJob,
 	return r.Validate()
 }
 
+func TestAutomaticWorkerStopsOnCancellation(t *testing.T) {
+	s := &Server{pkiClient: &pkiProxy{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	finished := make(chan struct{})
+	go func() {
+		s.RunDevicePKI(ctx, &automaticJobs{})
+		close(finished)
+	}()
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("automatic Device PKI worker did not stop after cancellation")
+	}
+}
+
 func TestAutomaticWorkerUsesBoundMachineIdentityAndClassifiesReceipts(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {

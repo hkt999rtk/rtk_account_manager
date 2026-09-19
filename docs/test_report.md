@@ -190,6 +190,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests/verify_email_short_new_password`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests`
 - `rtk_account_manager/internal/api`: `TestAuthTokenTTLConfiguration`
+- `rtk_account_manager/internal/api`: `TestAutomaticWorkerStopsOnCancellation`
 - `rtk_account_manager/internal/api`: `TestAutomaticWorkerUsesBoundMachineIdentityAndClassifiesReceipts/malformed`
 - `rtk_account_manager/internal/api`: `TestAutomaticWorkerUsesBoundMachineIdentityAndClassifiesReceipts/permission`
 - `rtk_account_manager/internal/api`: `TestAutomaticWorkerUsesBoundMachineIdentityAndClassifiesReceipts/ready`
@@ -1270,6 +1271,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileBacksClaimTokenSnapshotAndResolve`
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileCRUDAndAudit`
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
+- `rtk_account_manager/internal/store`: `TestDevicePKIReceiptRejectsInvalidAuthority`
 - `rtk_account_manager/internal/store`: `TestDevicePKIRequeuePreservesBusinessAndCancelledScopes`
 - `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/admin-disable-then-email`
 - `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/admin-disable`
