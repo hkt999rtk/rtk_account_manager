@@ -20,6 +20,7 @@ func factoryAdmissionFixture(t *testing.T, env storeIntegrationEnv, quantity int
 	if err != nil {
 		t.Fatal(err)
 	}
+	readyDevicePKIFixture(t, env, p.ID)
 	in := authorizedProductionInput(owner.User.ID, owner.BrandCloud.ID, p.ID)
 	in.AllowedQuantity = quantity
 	run, _, err := env.store.IssueProductionRunAsUser(ctx, in, func(model.ProductionRun, model.DeviceItemProfile) (string, error) {

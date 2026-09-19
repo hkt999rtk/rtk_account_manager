@@ -49,6 +49,7 @@ func TestIntegrationProductionRunRechecksAdmissionBeforeSigning(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			readyDevicePKIFixture(t, env, p.ID)
 			env.server.ConfigureProductionJWT("isolated-signing-secret", "factory-enroll")
 			release := make(chan struct{})
 			paused := &admittedProductionRunStore{Store: env.store, ready: make(chan struct{}), release: release, failSigning: state == "signing_failed"}

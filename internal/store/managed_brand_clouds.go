@@ -37,7 +37,7 @@ const managedCloudProjection = `SELECT o.id::text,o.name,o.tenant_slug,m.role,o.
              WHEN NOT EXISTS(SELECT 1 FROM organization_members om JOIN users u ON u.id=om.user_id
                  WHERE om.organization_id=o.id AND om.role='owner' AND u.email_verified AND NOT u.signup_pending_verification)
                  THEN 'pending_activation' ELSE o.status END,
-        o.tier,o.evaluation_device_quota,o.metadata,o.created_at,o.updated_at,o.description,
+        o.tier,o.evaluation_device_quota,o.metadata,o.created_at,o.updated_at,o.pki_status,o.pki_operation_id::text,COALESCE(o.pki_issuer_id::text,''),o.description,
         (SELECT om.user_id::text FROM organization_members om WHERE om.organization_id=o.id AND om.role='owner'),
         o.ownership_version,user_can_access_brand_cloud($1,o.id::text)`
 
@@ -45,7 +45,7 @@ func scanManagedCloud(row scanner) (ManagedBrandCloud, error) {
 	var cloud ManagedBrandCloud
 	var metadata []byte
 	err := row.Scan(&cloud.ID, &cloud.Name, &cloud.TenantSlug, &cloud.Role, &cloud.OrganizationKind, &cloud.Status,
-		&cloud.Tier, &cloud.EvaluationDeviceQuota, &metadata, &cloud.CreatedAt, &cloud.UpdatedAt, &cloud.Description,
+		&cloud.Tier, &cloud.EvaluationDeviceQuota, &metadata, &cloud.CreatedAt, &cloud.UpdatedAt, &cloud.PKIStatus, &cloud.PKIOperationID, &cloud.PKIIssuerID, &cloud.Description,
 		&cloud.OwnerUserID, &cloud.OwnershipVersion, &cloud.Operational)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return cloud, ErrNotFound

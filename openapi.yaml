@@ -6789,6 +6789,9 @@ components:
       type: object
       required: [id, name, description, tenant_slug, owner_user_id, my_role, status, ownership_version, capabilities]
       properties:
+        pki_status: { type: string, enum: [pending, ready, failed, cancelled] }
+        pki_operation_id: { type: string, format: uuid }
+        pki_issuer_id: { type: string, format: uuid }
         id: { type: string, format: uuid }
         name: { type: string }
         description: { type: string }
@@ -7465,6 +7468,9 @@ components:
       type: object
       required: [id, name, organization_kind, status, tier, evaluation_device_quota, created_at, updated_at]
       properties:
+        pki_status: { type: string, description: Cloud CA readiness; separate from business status. }
+        pki_operation_id: { type: string }
+        pki_issuer_id: { type: string, format: uuid }
         id:
           type: string
           format: uuid
@@ -7577,6 +7583,9 @@ components:
       type: object
       required: [id, brand_cloud_id, profile_key, display_name, status, category, metadata_defaults, metadata_schema, ca_profile, issuer_profile, service_options, claim_policy, provisioning_policy, created_at, updated_at]
       properties:
+        pki_status: { type: string, enum: [pending, ready, failed, cancelled] }
+        pki_operation_id: { type: string, format: uuid }
+        pki_issuer_id: { type: string, format: uuid }
         id:
           type: string
           format: uuid

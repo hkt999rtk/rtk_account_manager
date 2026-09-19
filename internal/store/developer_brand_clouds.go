@@ -161,7 +161,7 @@ func (s *Store) ResumeExpiredDeveloperSignup(ctx context.Context, email string) 
 	}
 	brandCloud, err := scanOrganization(s.db.QueryRow(ctx, `
 		SELECT o.id::text, o.name, o.tenant_slug, m.role, o.organization_kind, o.status,
-		       o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at
+		       o.tier, o.evaluation_device_quota, o.metadata, o.created_at, o.updated_at, o.pki_status, o.pki_operation_id::text, COALESCE(o.pki_issuer_id::text,'')
 		FROM organizations o
 		JOIN organization_members m ON m.organization_id = o.id
 		WHERE m.user_id = $1
@@ -472,7 +472,7 @@ func createDeveloperBrandCloudTx(ctx context.Context, tx pgx.Tx, userID string, 
 	org, err := scanOrganization(tx.QueryRow(ctx, `
 		INSERT INTO organizations (name, tenant_slug, organization_kind, status, tier, evaluation_device_quota, metadata)
 		VALUES ($1, $2, 'brand_cloud', 'active', 'commercial', 5, $3)
-		RETURNING id::text, name, tenant_slug, 'owner'::text, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at
+		RETURNING id::text, name, tenant_slug, 'owner'::text, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 	`, name, slug, metadata))
 	if err != nil {
 		if isUniqueViolation(err) {

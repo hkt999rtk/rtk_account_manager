@@ -26,7 +26,7 @@ Generated: ci-candidate
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 37 |
+| Go packages | 38 |
 | Test cases started | recorded in reports/test-events.json |
 | JSON pass events | recorded in reports/test-events.json |
 | JSON fail events | recorded in reports/test-events.json |
@@ -190,6 +190,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests/verify_email_short_new_password`
 - `rtk_account_manager/internal/api`: `TestAuthRecoveryValidationRejectsInvalidRequests`
 - `rtk_account_manager/internal/api`: `TestAuthTokenTTLConfiguration`
+- `rtk_account_manager/internal/api`: `TestAutomaticWorkerUsesBoundMachineIdentityAndClassifiesReceipts/malformed`
+- `rtk_account_manager/internal/api`: `TestAutomaticWorkerUsesBoundMachineIdentityAndClassifiesReceipts/permission`
+- `rtk_account_manager/internal/api`: `TestAutomaticWorkerUsesBoundMachineIdentityAndClassifiesReceipts/ready`
+- `rtk_account_manager/internal/api`: `TestAutomaticWorkerUsesBoundMachineIdentityAndClassifiesReceipts/temporary`
+- `rtk_account_manager/internal/api`: `TestAutomaticWorkerUsesBoundMachineIdentityAndClassifiesReceipts/wait`
+- `rtk_account_manager/internal/api`: `TestAutomaticWorkerUsesBoundMachineIdentityAndClassifiesReceipts`
 - `rtk_account_manager/internal/api`: `TestBindStrictRejectsUnknownFields`
 - `rtk_account_manager/internal/api`: `TestCanonicalServiceOptions/duplicate`
 - `rtk_account_manager/internal/api`: `TestCanonicalServiceOptions/empty`
@@ -1139,6 +1145,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestAppCertificateHonorsCurrentGlobalUserState/pending`
 - `rtk_account_manager/internal/store`: `TestAppCertificateHonorsCurrentGlobalUserState`
 - `rtk_account_manager/internal/store`: `TestApplyProjectionMetadataPreservesExistingFieldsAndClearsNil`
+- `rtk_account_manager/internal/store`: `TestAutomaticPKIOutboxAndReadiness`
+- `rtk_account_manager/internal/store`: `TestAutomaticPKIOwnerTransferRetainsIssuerIdentity`
 - `rtk_account_manager/internal/store`: `TestBillingCloudCreationFailureRollsBackSignupAndExcludesLegacyOrganizations`
 - `rtk_account_manager/internal/store`: `TestBillingCloudCreationOutboxCommitsWithUniqueInitialOwner`
 - `rtk_account_manager/internal/store`: `TestBillingCloudCreationOutboxPartitionsLeasesAndPreservesEventOnTimeout`
@@ -1262,6 +1270,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileBacksClaimTokenSnapshotAndResolve`
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileCRUDAndAudit`
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
+- `rtk_account_manager/internal/store`: `TestDevicePKIRequeuePreservesBusinessAndCancelledScopes`
 - `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/admin-disable-then-email`
 - `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/admin-disable`
 - `rtk_account_manager/internal/store`: `TestEmailActivationRestoresOnlyUnchangedVerificationHolds/existing-admin-disable`

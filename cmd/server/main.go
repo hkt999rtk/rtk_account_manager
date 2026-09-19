@@ -140,6 +140,7 @@ func main() {
 	if err := server.ConfigurePKIFromEnv(); err != nil {
 		fatal(logger, "configure PKI controller", err)
 	}
+	go server.RunDevicePKI(ctx, accountStore)
 	server.ConfigureFactoryEnrollmentToken(cfg.FactoryEnrollmentToken)
 	server.ConfigureChipsetManifestFetcher(api.NewChipsetManifestFetcher(api.ChipsetManifestFetcherConfig{AllowedHosts: cfg.ChipsetProviderAllowedHosts}))
 	if cfg.ChipsetProviderRefreshInterval > 0 {

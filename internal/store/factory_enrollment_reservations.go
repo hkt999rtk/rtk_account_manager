@@ -79,6 +79,9 @@ func (s *Store) ReserveFactoryEnrollment(ctx context.Context, in FactoryEnrollme
 	if profile.Status == "disabled" {
 		return FactoryEnrollmentReservation{}, ErrDeviceItemProfileDisabled
 	}
+	if profile.PKIStatus != "ready" || profile.PKIIssuerID == "" {
+		return FactoryEnrollmentReservation{}, ErrDevicePKINotReady
+	}
 	var valid bool
 	var allowed, issued int
 	err = tx.QueryRow(ctx, `SELECT r.status='active' AND r.valid_from<=clock_timestamp() AND r.valid_until>clock_timestamp()

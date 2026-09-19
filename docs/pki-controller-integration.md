@@ -54,8 +54,17 @@ a request-bound, one-minute assertion; the browser never receives that assertion
 or controller workload credentials. Controller errors are returned without
 provider credentials or private CA material.
 
-Root/Brand requests still require a distinct PKI Administrator and Security
-Custodian. Cloud/product creation alone never creates a CA. Offline ceremony tooling and the Cloud Admin `/platform/pki` page implement the CSR exchange workflow. The two-person recovery workflow is described below. Production custody evidence and live recovery qualification remain unfinished.
+Normal Cloud/Product creation automatically records a durable PKI job in the same
+database transaction. A service-authenticated worker resolves current active
+business context and requests the immutable Cloud/Product scope, never human
+approval roles. OpenBao retains internal CA keys. Products wait for Cloud CA
+readiness; certificate-dependent operations fail closed until PKI is ready.
+The API/UI exposes pending, ready, failed or cancelled independently of business
+status, with a stable operation ID. Owner transfer does not replace issuer keys.
+Manual lifecycle/recovery requests still use the distinct administrative roles.
+The offline ceremony page is a historical/special-purpose tool, not signup UX.
+See the authoritative `platform_pki.md` section 8 for Root custody and the verified
+dev/staging inventory. Production qualification remains unfinished.
 
 ## Sealed startup bootstrap
 
@@ -165,3 +174,13 @@ issuance. In that mode, leave `APP_CERT_ISSUER_CLIENT_CERT`,
 only `POST /v1/certificates/app/issue` for the configured certissuer origin and
 presents the same registered `service:account-manager` identity. Login and human
 authorization behavior do not change.
+# Non-production maintenance command
+
+After a reviewed Device Root rebuild, `rtk-account-manager-device-pki-admin`
+inventories one Cloud's ready/failed automatic jobs. It requires `--cloud-id`,
+`--replacement-root-id`, explicit `PKI_ENVIRONMENT=dev|staging` and the selected
+`DATABASE_URL`. Default is dry-run; `--apply --confirm-environment <environment>`
+atomically queues new operation IDs and audits their predecessors. Confirm the
+replacement Root pin and fence writers before apply. Business IDs are unchanged;
+pending, cancelled, disabled and deleting scopes are not reactivated. This is not
+a startup migration or a production/dual-chain migration tool.

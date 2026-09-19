@@ -106,6 +106,7 @@ func TestLabDeviceAndSessionAPIHappyPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
+	readyDevicePKIFixture(t, env, product.ID)
 	run, _, err := env.store.IssueProductionRunAsUser(ctx, store.ProductionRunCreateInput{
 		ActorUserID:         &owner.UserID,
 		BrandCloudID:        owner.BrandCloudID,
