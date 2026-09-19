@@ -67,9 +67,32 @@ tags:
     description: Platform-published external ChipSet and SDK information manifests.
   - name: Job Authorizations
     description: Cloud-scoped delegated authorization for durable background jobs.
+  - name: Platform Services
+    description: Registered service catalog used by Product writes. Service mTLS registration wire schemas are owned by the shared contracts OpenAPI.
 servers:
   - url: http://localhost:8080
 paths:
+  /v1/platform/service-options:
+    get:
+      operationId: listPlatformServiceOptions
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
+      tags: [Platform Services]
+      summary: Read the live Product service catalog for an authorized Brand Cloud
+      description: The selected options must be registered, selectable, and valid at the supplied catalog revision when Product writes are enabled. A service heartbeat alone does not activate a suspended option.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: brand_cloud_id, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Current environment catalog and Product-write gate.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlatformServiceCatalog' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+
   /v1/developer/brand-clouds/{brandCloudId}/test-lab/accounts:
     parameters:
       - {name: brandCloudId, in: path, required: true, schema: {type: string, format: uuid}}
@@ -4855,6 +4878,56 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/orgs/{orgId}/devices/{deviceId}/entitlement-snapshots:
+    post:
+      tags:
+        - Provisioning
+      operationId: createDeviceEntitlementSnapshot
+      x-rtk-feature-id: FEAT-AM-PROVISIONING-001
+      x-rtk-requirement-ids: [REQ-AM-ENTITLEMENT-SNAPSHOT-001]
+      security:
+        - bearerAuth: []
+      summary: Create an ordered Device entitlement snapshot.
+      description: >
+        Available only when registered-service Product writes are enabled.
+        Requires both Device lifecycle and Product management authorization.
+        Creates an immutable full snapshot, audit event, and delivery outbox
+        atomically. A new Product grant revision must be selected explicitly;
+        the Device cannot be moved to a different Product. An existing
+        revisioned, successfully provisioned Device is required. MQTT remains
+        mandatory. Video Cloud applies the snapshot asynchronously.
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceEntitlementSnapshotRequest"
+      responses:
+        "200":
+          description: Idempotent operation replay.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceEntitlementSnapshotResponse"
+        "202":
+          description: Snapshot and delivery operation created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceEntitlementSnapshotResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
   /v1/orgs/{orgId}/devices/{deviceId}/deactivate:
     post:
       tags:
@@ -6110,6 +6183,11 @@ components:
           minLength: 1
         service_options:
           $ref: "#/components/schemas/NonEmptyServiceOptions"
+        catalog_revision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Required when changing Product service options while registry-backed Product writes are enabled; obtain it from /v1/platform/service-options.
         claim_policy:
           type: object
           additionalProperties: true
@@ -6199,6 +6277,57 @@ components:
         operation_id:
           type: string
           description: Optional client idempotency key; reuse with different claim material returns 409 Conflict.
+    DeviceEntitlementSnapshotRequest:
+      type: object
+      required: [state]
+      additionalProperties: false
+      properties:
+        operation_id:
+          type: string
+          description: Optional idempotency key. Reuse with different intent returns 409.
+        target_product_service_revision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Explicit latest revision of this Device's existing Product. Requires service_options.
+        service_options:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          description: Effective subset of the selected Product grant, including MQTT and all dependencies. Omit to preserve the existing effective set.
+          items:
+            type: string
+            pattern: '^[a-z][a-z0-9_]{0,63}$'
+        state:
+          type: string
+          enum: [active, suspended, revoked]
+    DeviceEntitlementSnapshotResponse:
+      type: object
+      required: [operation, snapshot]
+      properties:
+        operation:
+          $ref: "#/components/schemas/DeviceOperationSummary"
+        snapshot:
+          $ref: "#/components/schemas/DeviceEntitlementSnapshot"
+    DeviceEntitlementSnapshot:
+      type: object
+      required: [organization_id, account_device_id, video_cloud_devid, revision, product_id, product_service_revision, service_grant_sha256, service_options, state, operation_id, created_by, created_at]
+      properties:
+        organization_id: { type: string, format: uuid }
+        account_device_id: { type: string, format: uuid }
+        video_cloud_devid: { type: string }
+        revision: { type: integer, format: int64, minimum: 1 }
+        product_id: { type: string, format: uuid }
+        product_service_revision: { type: integer, format: int64, minimum: 1 }
+        service_grant_sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        service_options:
+          type: array
+          minItems: 1
+          items: { type: string }
+        state: { type: string, enum: [active, suspended, revoked] }
+        operation_id: { type: string }
+        created_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
     ClaimResolveRequest:
       type: object
       required: [claim_token, device_name]
@@ -8019,15 +8148,38 @@ components:
       type: array
       uniqueItems: true
       items:
-        type: string
-        enum: [mqtt, iot_shadow, video_streaming, video_storage]
+        $ref: "#/components/schemas/ServiceOptionCode"
     NonEmptyServiceOptions:
       type: array
       minItems: 1
+      maxItems: 64
       uniqueItems: true
       items:
-        type: string
-        enum: [mqtt, iot_shadow, video_streaming, video_storage]
+        $ref: "#/components/schemas/ServiceOptionCode"
+    ServiceOptionCode:
+      type: string
+      pattern: '^[a-z][a-z0-9_]{0,63}$'
+      description: Registered Product option code; unknown or unregistered values are rejected by the authoritative catalog. Legacy unbound Claim Tokens still accept only their historical built-in codes.
+    PlatformServiceCatalog:
+      type: object
+      required: [catalog_revision, options, product_writes_enabled]
+      properties:
+        catalog_revision: { type: integer, format: int64, minimum: 1 }
+        product_writes_enabled: { type: boolean }
+        options:
+          type: array
+          items:
+            type: object
+            required: [code, display_name, description, service_id, manifest_version, selectable]
+            properties:
+              code: { $ref: '#/components/schemas/ServiceOptionCode' }
+              display_name: { type: string }
+              description: { type: string }
+              requires: { type: array, items: { $ref: '#/components/schemas/ServiceOptionCode' } }
+              service_id: { type: string }
+              manifest_version: { type: string }
+              selectable: { type: boolean }
+              unavailable_reason: { type: string }
     DeviceStatus:
       type: string
       enum: [unknown, online, offline, disabled]
@@ -8036,7 +8188,7 @@ components:
       enum: [pending, activated, failed, deactivated]
     DeviceOperationType:
       type: string
-      enum: [provision, deactivate]
+      enum: [provision, deactivate, unprovision, entitlement_update]
     DeviceOperationStatus:
       type: string
       enum: [pending, published, succeeded, failed, retrying, dead_lettered]

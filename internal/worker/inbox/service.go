@@ -405,6 +405,21 @@ func buildTransitionForPayload(envelope channel.Envelope, payload channel.Payloa
 			typed.ErrorMessage,
 			typed.Retryable,
 		), nil
+	case *channel.DeviceEntitlementSnapshotSucceededPayload:
+		return successTransitionWithoutProjection(typed.OrgID, typed.AccountDeviceID, typed.AppliedAt.UTC(), map[string]any{
+			"video_cloud_devid":             typed.VideoCloudDevid,
+			"platform_entitlement_revision": typed.PlatformEntitlementRevision,
+			"applied_at":                    typed.AppliedAt.UTC(),
+		}), nil
+	case *channel.DeviceEntitlementSnapshotFailedPayload:
+		return failureTransitionWithoutProjection(typed.OrgID, typed.AccountDeviceID, typed.FailedAt.UTC(), map[string]any{
+			"video_cloud_devid":             typed.VideoCloudDevid,
+			"platform_entitlement_revision": typed.PlatformEntitlementRevision,
+			"error_code":                    typed.ErrorCode,
+			"error_message":                 typed.ErrorMessage,
+			"retryable":                     typed.Retryable,
+			"failed_at":                     typed.FailedAt.UTC(),
+		}, typed.ErrorCode, typed.ErrorMessage, typed.Retryable), nil
 	case *channel.DeviceOnlineChangedPayload:
 		return store.InboxProcessTransitionInput{
 			OrganizationID: typed.OrgID,
@@ -522,7 +537,8 @@ func isCompletedLifecycleOperation(operation model.DeviceOperation) bool {
 	case model.DeviceOperationStatusSucceeded, model.DeviceOperationStatusFailed:
 		return operation.OperationType == model.DeviceOperationTypeProvision ||
 			operation.OperationType == model.DeviceOperationTypeDeactivate ||
-			operation.OperationType == model.DeviceOperationTypeUnprovision
+			operation.OperationType == model.DeviceOperationTypeUnprovision ||
+			operation.OperationType == model.DeviceOperationTypeEntitlementUpdate
 	default:
 		return false
 	}

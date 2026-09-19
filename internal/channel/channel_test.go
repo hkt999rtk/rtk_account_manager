@@ -10,6 +10,28 @@ import (
 
 var testTime = time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
 
+func TestProvisionGrantTupleValidation(t *testing.T) {
+	revision := int64(2)
+	payload := DeviceProvisionRequestedPayload{
+		OrgID: testOrgID, AccountDeviceID: testDeviceID, VideoCloudDevid: "video-1", ActivityID: "activity-1",
+		ClipPublicKey: "clip-key", RequestedBy: "user-1", ServiceOptions: []string{"mqtt", "iot_shadow"},
+		ProductID: "33333333-3333-4333-8333-333333333333", ProductServiceRevision: &revision, ServiceGrantSHA256: strings.Repeat("a", 64),
+	}
+	if err := payload.Validate(); err != nil {
+		t.Fatalf("valid grant tuple: %v", err)
+	}
+	missing := payload
+	missing.ProductServiceRevision = nil
+	if err := missing.Validate(); err == nil {
+		t.Fatal("incomplete grant tuple accepted")
+	}
+	invalid := payload
+	invalid.ServiceGrantSHA256 = strings.Repeat("z", 64)
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("invalid digest accepted")
+	}
+}
+
 const (
 	testOrgID    = "11111111-1111-1111-1111-111111111111"
 	testDeviceID = "22222222-2222-2222-2222-222222222222"
@@ -103,6 +125,33 @@ func TestValidateAndDecodeAcceptsEachMessageType(t *testing.T) {
 			wantPayload: &DeviceDeactivateFailedPayload{},
 		},
 		{
+			name: "DeviceEntitlementSnapshotRequested",
+			envelope: validEnvelope(MessageTypeDeviceEntitlementSnapshotRequested, DeviceEntitlementSnapshotRequestedPayload{
+				OrgID: testOrgID, AccountDeviceID: testDeviceID, VideoCloudDevid: "video-1",
+				ProductID: "33333333-3333-4333-8333-333333333333", ProductServiceRevision: 2,
+				ServiceGrantSHA256: strings.Repeat("a", 64), PlatformEntitlementRevision: 1,
+				ServiceOptions: []string{"mqtt"}, State: "revoked", RequestedBy: "user-1",
+			}),
+			stream: StreamAccountVideoCommands, wantPayload: &DeviceEntitlementSnapshotRequestedPayload{},
+		},
+		{
+			name: "DeviceEntitlementSnapshotSucceeded",
+			envelope: validEnvelope(MessageTypeDeviceEntitlementSnapshotSucceeded, DeviceEntitlementSnapshotSucceededPayload{
+				OrgID: testOrgID, AccountDeviceID: testDeviceID, VideoCloudDevid: "video-1",
+				PlatformEntitlementRevision: 1, AppliedAt: testTime,
+			}),
+			stream: StreamVideoAccountEvents, wantPayload: &DeviceEntitlementSnapshotSucceededPayload{},
+		},
+		{
+			name: "DeviceEntitlementSnapshotFailed",
+			envelope: validEnvelope(MessageTypeDeviceEntitlementSnapshotFailed, DeviceEntitlementSnapshotFailedPayload{
+				OrgID: testOrgID, AccountDeviceID: testDeviceID, VideoCloudDevid: "video-1",
+				PlatformEntitlementRevision: 1, ErrorCode: "entitlement_update_failed",
+				ErrorMessage: "conflict", FailedAt: testTime,
+			}),
+			stream: StreamVideoAccountEvents, wantPayload: &DeviceEntitlementSnapshotFailedPayload{},
+		},
+		{
 			name: "DeviceOnlineChanged",
 			envelope: validEnvelope(MessageTypeDeviceOnlineChanged, DeviceOnlineChangedPayload{
 				OrgID:           testOrgID,
@@ -178,11 +227,11 @@ func TestValidateRejectsInvalidMessagesForEachType(t *testing.T) {
 				VideoCloudDevid: "video-1",
 				ActivityID:      "activity-1",
 				ClipPublicKey:   "clip-key",
-				ServiceOptions:  []string{"mqtt", "admin"},
+				ServiceOptions:  []string{"mqtt", "platform:admin"},
 				RequestedBy:     "user-1",
 			}),
 			stream:      StreamAccountVideoCommands,
-			wantMessage: "payload.service_options may contain only mqtt, video_streaming, or video_storage",
+			wantMessage: "payload.service_options must contain valid service option codes",
 		},
 		{
 			name: "DeviceProvisionSucceeded",

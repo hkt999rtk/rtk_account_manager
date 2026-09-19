@@ -87,11 +87,11 @@ func (p *Publisher) Publish(ctx context.Context, stream string, envelope channel
 		return err
 	}
 
-	action, deviceID, body, err := directRequest(payload)
+	method, action, deviceID, body, err := directRequest(payload)
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/v1/internal/account-manager/devices/"+url.PathEscape(deviceID)+"/"+action, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, method, p.baseURL+"/v1/internal/account-manager/devices/"+url.PathEscape(deviceID)+"/"+action, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -135,22 +135,39 @@ func (p *Publisher) projectWithInbox(ctx context.Context, message broker.Message
 
 func (p *Publisher) Close(context.Context) error { return nil }
 
-func directRequest(payload channel.Payload) (action, deviceID string, body []byte, err error) {
+func directRequest(payload channel.Payload) (method, action, deviceID string, body []byte, err error) {
 	switch typed := payload.(type) {
 	case *channel.DeviceProvisionRequestedPayload:
-		body, err = json.Marshal(map[string]any{
+		request := map[string]any{
 			"devid": typed.VideoCloudDevid, "clip_public_key": typed.ClipPublicKey, "activityid": typed.ActivityID,
 			"org_id": typed.OrgID, "account_device_id": typed.AccountDeviceID,
-		})
-		return "activate", typed.VideoCloudDevid, body, err
+		}
+		if typed.ProductServiceRevision != nil {
+			request["service_options"] = typed.ServiceOptions
+			request["product_id"] = typed.ProductID
+			request["product_service_revision"] = *typed.ProductServiceRevision
+			request["service_grant_sha256"] = typed.ServiceGrantSHA256
+		}
+		body, err = json.Marshal(request)
+		return http.MethodPost, "activate", typed.VideoCloudDevid, body, err
 	case *channel.DeviceDeactivateRequestedPayload:
 		body, err = json.Marshal(map[string]string{"devid": typed.VideoCloudDevid})
-		return "deactivate", typed.VideoCloudDevid, body, err
+		return http.MethodPost, "deactivate", typed.VideoCloudDevid, body, err
 	case *channel.DeviceUnprovisionRequestedPayload:
 		body, err = json.Marshal(map[string]string{"devid": typed.VideoCloudDevid})
-		return "unprovision", typed.VideoCloudDevid, body, err
+		return http.MethodPost, "unprovision", typed.VideoCloudDevid, body, err
+	case *channel.DeviceEntitlementSnapshotRequestedPayload:
+		body, err = json.Marshal(map[string]any{
+			"devid": typed.VideoCloudDevid, "brand_cloud_id": typed.OrgID,
+			"account_device_id": typed.AccountDeviceID, "product_id": typed.ProductID,
+			"product_service_revision":      typed.ProductServiceRevision,
+			"service_grant_sha256":          typed.ServiceGrantSHA256,
+			"platform_entitlement_revision": typed.PlatformEntitlementRevision,
+			"service_options":               typed.ServiceOptions, "state": typed.State,
+		})
+		return http.MethodPut, "entitlement", typed.VideoCloudDevid, body, err
 	default:
-		return "", "", nil, fmt.Errorf("unsupported direct lifecycle payload %T", payload)
+		return "", "", "", nil, fmt.Errorf("unsupported direct lifecycle payload %T", payload)
 	}
 }
 
@@ -169,6 +186,9 @@ func resultEnvelope(request channel.Envelope, payload channel.Payload, now time.
 		case *channel.DeviceUnprovisionRequestedPayload:
 			messageType = channel.MessageTypeDeviceUnprovisionSucceeded
 			result = &channel.DeviceUnprovisionSucceededPayload{OrgID: typed.OrgID, AccountDeviceID: typed.AccountDeviceID, VideoCloudDevid: typed.VideoCloudDevid, UnprovisionedAt: now}
+		case *channel.DeviceEntitlementSnapshotRequestedPayload:
+			messageType = channel.MessageTypeDeviceEntitlementSnapshotSucceeded
+			result = &channel.DeviceEntitlementSnapshotSucceededPayload{OrgID: typed.OrgID, AccountDeviceID: typed.AccountDeviceID, VideoCloudDevid: typed.VideoCloudDevid, PlatformEntitlementRevision: typed.PlatformEntitlementRevision, AppliedAt: now}
 		}
 	} else {
 		reason := failureReason(response)
@@ -182,6 +202,9 @@ func resultEnvelope(request channel.Envelope, payload channel.Payload, now time.
 		case *channel.DeviceUnprovisionRequestedPayload:
 			messageType = channel.MessageTypeDeviceUnprovisionFailed
 			result = &channel.DeviceUnprovisionFailedPayload{OrgID: typed.OrgID, AccountDeviceID: typed.AccountDeviceID, VideoCloudDevid: typed.VideoCloudDevid, ErrorCode: "unprovision_failed", ErrorMessage: reason, FailedAt: now}
+		case *channel.DeviceEntitlementSnapshotRequestedPayload:
+			messageType = channel.MessageTypeDeviceEntitlementSnapshotFailed
+			result = &channel.DeviceEntitlementSnapshotFailedPayload{OrgID: typed.OrgID, AccountDeviceID: typed.AccountDeviceID, VideoCloudDevid: typed.VideoCloudDevid, PlatformEntitlementRevision: typed.PlatformEntitlementRevision, ErrorCode: "entitlement_update_failed", ErrorMessage: reason, FailedAt: now}
 		}
 	}
 	payloadJSON, err := json.Marshal(result)

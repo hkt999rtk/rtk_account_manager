@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"slices"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"rtk_account_manager/internal/model"
@@ -58,11 +60,58 @@ func authorizeProductUserMutationTx(ctx context.Context, tx pgx.Tx, actor, cloud
 }
 
 func (s *Store) CreateDeviceItemProfileAsUser(ctx context.Context, in DeviceItemProfileCreateInput) (model.DeviceItemProfile, error) {
-	return s.mutateDeviceItemProfileAsUser(ctx, stringValue(in.ActorUserID), in.BrandCloudID, "", in.PlatformOverride, func(tx pgx.Tx) (model.DeviceItemProfile, error) { return createDeviceItemProfileTx(ctx, tx, in) })
+	return s.mutateDeviceItemProfileAsUser(ctx, stringValue(in.ActorUserID), in.BrandCloudID, "", in.PlatformOverride, func(tx pgx.Tx) (model.DeviceItemProfile, error) {
+		options := slices.Clone(in.ServiceOptions)
+		bindings, err := s.validateProductServiceSelectionTx(ctx, tx, options, in.CatalogRevision, time.Now().UTC())
+		if err != nil {
+			return model.DeviceItemProfile{}, err
+		}
+		profile, err := createDeviceItemProfileTx(ctx, tx, in, s.platformServiceProductWrites)
+		if err != nil {
+			return profile, err
+		}
+		if s.platformServiceProductWrites {
+			if err := insertProductServiceGrantTx(ctx, tx, profile.ID, in.BrandCloudID, options, bindings, in.CatalogRevision, in.ActorUserID); err != nil {
+				return model.DeviceItemProfile{}, err
+			}
+		}
+		return profile, nil
+	})
 }
 
 func (s *Store) UpdateDeviceItemProfileAsUser(ctx context.Context, in DeviceItemProfileUpdateInput) (model.DeviceItemProfile, error) {
-	return s.mutateDeviceItemProfileAsUser(ctx, stringValue(in.ActorUserID), in.BrandCloudID, in.ProfileID, in.PlatformOverride, func(tx pgx.Tx) (model.DeviceItemProfile, error) { return updateDeviceItemProfileTx(ctx, tx, in) })
+	return s.mutateDeviceItemProfileAsUser(ctx, stringValue(in.ActorUserID), in.BrandCloudID, in.ProfileID, in.PlatformOverride, func(tx pgx.Tx) (model.DeviceItemProfile, error) {
+		changed := false
+		var options []string
+		var bindings []PlatformServiceCatalogOption
+		if s.platformServiceProductWrites && in.ServiceOptions != nil {
+			current, err := getDeviceItemProfile(ctx, tx, in.BrandCloudID, in.ProfileID, true)
+			if err != nil {
+				return model.DeviceItemProfile{}, err
+			}
+			oldOptions := slices.Clone(current.ServiceOptions)
+			options = slices.Clone(in.ServiceOptions)
+			slices.Sort(oldOptions)
+			slices.Sort(options)
+			changed = !slices.Equal(oldOptions, options)
+			if changed {
+				bindings, err = s.validateProductServiceSelectionTx(ctx, tx, options, in.CatalogRevision, time.Now().UTC())
+				if err != nil {
+					return model.DeviceItemProfile{}, err
+				}
+			}
+		}
+		profile, err := updateDeviceItemProfileTx(ctx, tx, in, s.platformServiceProductWrites)
+		if err != nil {
+			return profile, err
+		}
+		if changed {
+			if err := insertProductServiceGrantTx(ctx, tx, profile.ID, in.BrandCloudID, options, bindings, in.CatalogRevision, in.ActorUserID); err != nil {
+				return model.DeviceItemProfile{}, err
+			}
+		}
+		return profile, nil
+	})
 }
 
 func (s *Store) DisableDeviceItemProfileAsUser(ctx context.Context, cloud, product, actor string, platform bool) (model.DeviceItemProfile, error) {

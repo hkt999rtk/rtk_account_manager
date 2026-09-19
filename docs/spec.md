@@ -20,6 +20,28 @@ to `rtk_cloud_admin`. This service remains the authoritative backend control
 plane for identity, tenant context, authorization, entitlement, device registry,
 and provisioning intent.
 
+## [FEAT-AM-REGISTERED-SERVICES-001] Platform service registry and Product authorization target
+
+<!-- rtk-feature
+{"owner":"rtk_account_manager","risk":"critical","status":"planned","change_paths":["repos/rtk_account_manager/**","repos/rtk_cloud_contracts_doc/service_registration.md"],"commit_anchors":["workspace","account_manager","contracts"]}
+-->
+
+### [REQ-AM-REGISTERED-SERVICES-001] Account Manager owns registered Product options without taking over device token issuance
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json"],"required":false,"status":"planned"}
+-->
+
+Target design: Account Manager hosts the Platform service registry,
+service-option catalog, and Product service grant revisions specified in
+`docs/rtk_cloud_contracts_doc/service_registration.md`. MQTT becomes required
+for new Products; Shadow, WebRTC, and video storage register independently.
+The registry and grant schema are implemented locally behind disabled rollout
+gates, not deployed. Existing Product grants require the reviewed
+[legacy backfill](service-grant-backfill.md) before enabling new Product writes.
+The gated Device entitlement snapshot API and delivery path are also local-only;
+they have not passed a cross-process staging cutover.
+
 Provisioning and account/video event-channel integration are the v2 surface
 implemented by this repository. The normative product boundary lives in
 `docs/rtk_cloud_contracts_doc/provision.md` and
@@ -1806,11 +1828,18 @@ Fleet registry APIs are selection primitives only. Account manager owns group, t
 {"owner":"rtk_account_manager","risk":"critical","status":"active","change_paths":["repos/rtk_account_manager/**"],"commit_anchors":["workspace","account_manager","contracts"],"surfaces":[{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/orgs/{orgId}/devices/claim/resolve"},{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/orgs/{orgId}/devices/{deviceId}/provision"},{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/orgs/{orgId}/devices/{deviceId}/provisioning"},{"kind":"api-route","source":"repos/rtk_account_manager/openapi.yaml","selector":"/v1/orgs/{orgId}/devices/{deviceId}/unprovision"}]}
 -->
 
-### Device Provisioning (V2)
+### [REQ-AM-ENTITLEMENT-SNAPSHOT-001] Provisioning and entitlement snapshots preserve the pinned Product grant
+
+<!-- rtk-requirement
+{"acceptance_layer":"integration","operation_model":"workflow","gate":"pr","environments":["ci"],"evidence":["json"],"required":false,"status":"planned"}
+-->
+
+#### Device Provisioning (V2)
 
 | Method | Path | Auth | Role | Description |
 | --- | --- | --- | --- | --- |
 | `POST` | `/v1/orgs/:orgId/devices/:deviceId/provision` | Yes | `owner`, `admin`, `member` | Create or reuse a provisioning operation and enqueue `DeviceProvisionRequested`. |
+| `POST` | `/v1/orgs/:orgId/devices/:deviceId/entitlement-snapshots` | Yes | Device lifecycle plus Product management permission | When registered-service Product writes are enabled, create an immutable ordered authorization snapshot and enqueue delivery to Video Cloud. |
 | `GET` | `/v1/orgs/:orgId/devices/:deviceId/provisioning` | Yes | `owner`, `admin`, `member`, scoped `viewer` | Return authorized Product provisioning/readiness metadata without secrets or playback permission. |
 | `POST` | `/v1/orgs/:orgId/devices/:deviceId/deactivate` | Yes | `owner`, `admin`, `member` | Create or reuse a deactivation operation and enqueue `DeviceDeactivateRequested`. |
 | `POST` | `/v1/orgs/:orgId/devices/:deviceId/unprovision` | Yes | `owner`, `admin`, `member` | User-facing release of a normal device from the current user/org binding for resale or re-onboarding. |
@@ -1826,6 +1855,18 @@ Provision request body:
   "operation_id": "optional-client-idempotency-key"
 }
 ```
+
+The gated entitlement-snapshot request requires `state` (`active`,
+`suspended`, or `revoked`). `service_options`, when present, must be a non-empty
+subset of the pinned Product grant containing MQTT and all declared
+dependencies; omitting it preserves the current effective set. An explicit
+`target_product_service_revision` must be the latest grant revision of the
+same Product and requires explicit `service_options`. A successfully
+revisioned provision or earlier snapshot is required; legacy Devices without
+trusted provenance need reconciliation. The response contains the immutable
+snapshot and an asynchronous operation (`202` new, `200` idempotent replay).
+`DeviceEntitlementSnapshotRequested`, `Succeeded`, and `Failed` extend the
+existing direct-HTTP outbox/inbox path without editing Device metadata.
 
 ### [REQ-AM-CLAIM-RESOLUTION-001] Claim resolution makes one account-authoritative ownership decision
 

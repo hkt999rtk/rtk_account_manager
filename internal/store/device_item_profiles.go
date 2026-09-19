@@ -26,6 +26,7 @@ type DeviceItemProfileCreateInput struct {
 	CAProfile          string
 	IssuerProfile      string
 	ServiceOptions     []string
+	CatalogRevision    int64
 	ClaimPolicy        map[string]any
 	ProvisioningPolicy map[string]any
 	Now                time.Time
@@ -46,6 +47,7 @@ type DeviceItemProfileUpdateInput struct {
 	CAProfile          *string
 	IssuerProfile      *string
 	ServiceOptions     []string
+	CatalogRevision    int64
 	ClaimPolicy        map[string]any
 	ProvisioningPolicy map[string]any
 	Now                time.Time
@@ -67,15 +69,15 @@ func (s *Store) CreateDeviceItemProfile(ctx context.Context, in DeviceItemProfil
 		return model.DeviceItemProfile{}, err
 	}
 	defer tx.Rollback(ctx)
-	profile, err := createDeviceItemProfileTx(ctx, tx, in)
+	profile, err := createDeviceItemProfileTx(ctx, tx, in, false)
 	if err != nil {
 		return model.DeviceItemProfile{}, err
 	}
 	return profile, tx.Commit(ctx)
 }
 
-func createDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, in DeviceItemProfileCreateInput) (model.DeviceItemProfile, error) {
-	if err := validateDeviceItemProfileCreate(in); err != nil {
+func createDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, in DeviceItemProfileCreateInput, dynamicOptions bool) (model.DeviceItemProfile, error) {
+	if err := validateDeviceItemProfileCreateWithOptions(in, dynamicOptions); err != nil {
 		return model.DeviceItemProfile{}, err
 	}
 	if err := ensureBrandCloud(ctx, tx, in.BrandCloudID); err != nil {
@@ -250,14 +252,14 @@ func (s *Store) UpdateDeviceItemProfile(ctx context.Context, in DeviceItemProfil
 		return model.DeviceItemProfile{}, err
 	}
 	defer tx.Rollback(ctx)
-	profile, err := updateDeviceItemProfileTx(ctx, tx, in)
+	profile, err := updateDeviceItemProfileTx(ctx, tx, in, false)
 	if err != nil {
 		return model.DeviceItemProfile{}, err
 	}
 	return profile, tx.Commit(ctx)
 }
 
-func updateDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, in DeviceItemProfileUpdateInput) (model.DeviceItemProfile, error) {
+func updateDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, in DeviceItemProfileUpdateInput, dynamicOptions bool) (model.DeviceItemProfile, error) {
 	current, err := getDeviceItemProfile(ctx, tx, in.BrandCloudID, in.ProfileID, true)
 	if err != nil {
 		return model.DeviceItemProfile{}, err
@@ -298,7 +300,7 @@ func updateDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, in DeviceItemProf
 	if in.ProvisioningPolicy != nil {
 		current.ProvisioningPolicy = in.ProvisioningPolicy
 	}
-	if err := validateDeviceItemProfile(current); err != nil {
+	if err := validateDeviceItemProfileWithOptions(current, dynamicOptions); err != nil {
 		return model.DeviceItemProfile{}, err
 	}
 
@@ -430,6 +432,10 @@ func disableDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, brandCloudID, pr
 }
 
 func validateDeviceItemProfileCreate(in DeviceItemProfileCreateInput) error {
+	return validateDeviceItemProfileCreateWithOptions(in, false)
+}
+
+func validateDeviceItemProfileCreateWithOptions(in DeviceItemProfileCreateInput, dynamicOptions bool) error {
 	profile := model.DeviceItemProfile{
 		BrandCloudID:       in.BrandCloudID,
 		ProfileKey:         strings.TrimSpace(in.ProfileKey),
@@ -444,10 +450,14 @@ func validateDeviceItemProfileCreate(in DeviceItemProfileCreateInput) error {
 		ClaimPolicy:        in.ClaimPolicy,
 		ProvisioningPolicy: in.ProvisioningPolicy,
 	}
-	return validateDeviceItemProfile(profile)
+	return validateDeviceItemProfileWithOptions(profile, dynamicOptions)
 }
 
 func validateDeviceItemProfile(profile model.DeviceItemProfile) error {
+	return validateDeviceItemProfileWithOptions(profile, false)
+}
+
+func validateDeviceItemProfileWithOptions(profile model.DeviceItemProfile, dynamicOptions bool) error {
 	if strings.TrimSpace(profile.BrandCloudID) == "" ||
 		strings.TrimSpace(profile.ProfileKey) == "" ||
 		strings.TrimSpace(profile.DisplayName) == "" ||
@@ -463,7 +473,13 @@ func validateDeviceItemProfile(profile model.DeviceItemProfile) error {
 		profile.Category != model.DeviceCategoryGeneric {
 		return ErrClaimUnsupportedCategory
 	}
-	if err := validateClaimServiceOptions(profile.ServiceOptions); err != nil {
+	var optionsErr error
+	if dynamicOptions {
+		optionsErr = validateProductServiceOptions(profile.ServiceOptions)
+	} else {
+		optionsErr = validateClaimServiceOptions(profile.ServiceOptions)
+	}
+	if err := optionsErr; err != nil {
 		return err
 	}
 	if len(profile.ServiceOptions) == 0 {

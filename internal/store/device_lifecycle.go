@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -66,7 +69,68 @@ func (s *Store) StartDeviceLifecycleOperation(ctx context.Context, in DeviceLife
 	if err != nil {
 		return DeviceLifecycleOperationResult{}, err
 	}
-	return startDeviceLifecycleOperationTx(ctx, tx, device, in)
+	return startDeviceLifecycleOperationTx(ctx, tx, device, in, s.platformServiceProductWrites)
+}
+
+// Bind the outbox command to the Product's immutable grant while the Account
+// Device row is locked. Request-body options are only an equality-checked echo.
+func bindProvisionServiceGrantTx(ctx context.Context, tx pgx.Tx, device model.Device, in *DeviceLifecycleOperationInput) error {
+	if device.DeviceItemProfileID == nil || strings.TrimSpace(*device.DeviceItemProfileID) == "" {
+		return ErrConflict
+	}
+	pin, err := trustedProvisionGrantPinTx(ctx, tx, device, in.OutboxPayload)
+	if err != nil {
+		return err
+	}
+	var revision int64
+	var raw []byte
+	var digest string
+	if pin == nil {
+		err = tx.QueryRow(ctx, `SELECT revision,options,snapshot_sha256 FROM product_service_grants
+			WHERE product_id=$1 AND brand_cloud_id=$2 ORDER BY revision DESC LIMIT 1`, *device.DeviceItemProfileID, device.OrganizationID).Scan(&revision, &raw, &digest)
+	} else {
+		err = tx.QueryRow(ctx, `SELECT revision,options,snapshot_sha256 FROM product_service_grants
+			WHERE product_id=$1 AND brand_cloud_id=$2 AND revision=$3`, *device.DeviceItemProfileID, device.OrganizationID, pin.revision).Scan(&revision, &raw, &digest)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrConflict
+	}
+	if err != nil {
+		return err
+	}
+	if pin != nil && digest != pin.digest {
+		return ErrConflict
+	}
+	var approved []string
+	if err := json.Unmarshal(raw, &approved); err != nil || validateProductServiceOptions(approved) != nil || len(approved) == 0 {
+		return ErrConflict
+	}
+	in.OutboxPayload = maps.Clone(in.OutboxPayload)
+	if in.OutboxPayload == nil {
+		in.OutboxPayload = map[string]any{}
+	}
+	if echo, exists := in.OutboxPayload["service_options"]; exists && echo != nil {
+		encoded, err := json.Marshal(echo)
+		if err != nil {
+			return ErrClaimServiceOptionsMismatch
+		}
+		var requested []string
+		if err := json.Unmarshal(encoded, &requested); err != nil || len(requested) > 0 && !serviceOptionSetsEqual(requested, approved) {
+			return ErrClaimServiceOptionsMismatch
+		}
+	}
+	in.MetadataPatch = maps.Clone(in.MetadataPatch)
+	if in.MetadataPatch == nil {
+		in.MetadataPatch = map[string]any{}
+	}
+	in.OutboxPayload["service_options"] = slices.Clone(approved)
+	in.OutboxPayload["product_id"] = *device.DeviceItemProfileID
+	in.OutboxPayload["product_service_revision"] = revision
+	in.OutboxPayload["service_grant_sha256"] = digest
+	in.MetadataPatch[model.DeviceMetadataServiceOptions] = slices.Clone(approved)
+	in.MetadataPatch["product_service_revision"] = revision
+	in.MetadataPatch["service_grant_sha256"] = digest
+	return nil
 }
 
 func (s *Store) StartDeviceDeactivationOperation(ctx context.Context, in DeviceDeactivationOperationInput) (DeviceLifecycleOperationResult, error) {
@@ -111,10 +175,10 @@ func (s *Store) StartDeviceDeactivationOperation(ctx context.Context, in DeviceD
 		},
 		AllowDisabled: true,
 		Now:           in.Now,
-	})
+	}, false)
 }
 
-func startDeviceLifecycleOperationTx(ctx context.Context, tx pgx.Tx, device model.Device, in DeviceLifecycleOperationInput) (DeviceLifecycleOperationResult, error) {
+func startDeviceLifecycleOperationTx(ctx context.Context, tx pgx.Tx, device model.Device, in DeviceLifecycleOperationInput, bindProductGrant bool) (DeviceLifecycleOperationResult, error) {
 	if !in.AllowDisabled && device.DisabledAt != nil {
 		return DeviceLifecycleOperationResult{}, ErrDisabled
 	}
@@ -122,6 +186,11 @@ func startDeviceLifecycleOperationTx(ctx context.Context, tx pgx.Tx, device mode
 	operation, created, err := createOrGetDeviceOperationTx(ctx, tx, in)
 	if err != nil {
 		return DeviceLifecycleOperationResult{}, err
+	}
+	if created && bindProductGrant {
+		if err := bindProvisionServiceGrantTx(ctx, tx, device, &in); err != nil {
+			return DeviceLifecycleOperationResult{}, err
+		}
 	}
 
 	var message model.DeviceMessageOutbox

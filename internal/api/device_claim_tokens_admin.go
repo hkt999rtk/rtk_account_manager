@@ -77,7 +77,15 @@ func (s *Server) createDeviceClaimToken(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "invalid_request", "expires_at must be in the future")
 		return
 	}
-	serviceOptions, ok := canonicalOptionalServiceOptions(c, req.ServiceOptions)
+	var serviceOptions []string
+	var ok bool
+	if s.platformServiceProductWrites && req.DeviceItemProfileID != nil && strings.TrimSpace(*req.DeviceItemProfileID) != "" {
+		// Product-backed grants are checked against the immutable snapshot in
+		// the store; the API must not reject a registered plugin's option first.
+		serviceOptions, ok = s.optionalRegisteredServiceEcho(c, req.ServiceOptions)
+	} else {
+		serviceOptions, ok = canonicalOptionalServiceOptions(c, req.ServiceOptions)
+	}
 	if !ok {
 		return
 	}

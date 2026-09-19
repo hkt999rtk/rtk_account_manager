@@ -87,17 +87,20 @@ func (s *Store) CreateDeviceClaimToken(ctx context.Context, in DeviceClaimTokenC
 		return model.DeviceClaimToken{}, err
 	}
 	defer tx.Rollback(ctx)
-	token, err := createDeviceClaimTokenTx(ctx, tx, in)
+	token, err := createDeviceClaimTokenTx(ctx, tx, in, false)
 	if err != nil {
 		return model.DeviceClaimToken{}, err
 	}
 	return token, tx.Commit(ctx)
 }
 
-func createDeviceClaimTokenTx(ctx context.Context, tx pgx.Tx, in DeviceClaimTokenCreateInput) (model.DeviceClaimToken, error) {
+func createDeviceClaimTokenTx(ctx context.Context, tx pgx.Tx, in DeviceClaimTokenCreateInput, requireServiceGrant bool) (model.DeviceClaimToken, error) {
 	metadataValue := defaultMetadata(in.Metadata)
+	delete(metadataValue, "product_service_revision")
+	delete(metadataValue, "service_grant_sha256")
 	category := in.Category
 	serviceOptionValues := in.ServiceOptions
+	grantBound := false
 	if in.DeviceItemProfileID != nil && strings.TrimSpace(*in.DeviceItemProfileID) != "" {
 		profile, err := getDeviceItemProfileByID(ctx, tx, *in.DeviceItemProfileID)
 		if err != nil {
@@ -112,7 +115,29 @@ func createDeviceClaimTokenTx(ctx context.Context, tx pgx.Tx, in DeviceClaimToke
 		if category != profile.Category {
 			return model.DeviceClaimToken{}, ErrConflict
 		}
-		if serviceOptionValues == nil || len(serviceOptionValues) == 0 {
+		if requireServiceGrant {
+			var revision int64
+			var raw []byte
+			var digest string
+			err := tx.QueryRow(ctx, `SELECT revision,options,snapshot_sha256 FROM product_service_grants WHERE product_id=$1 AND brand_cloud_id=$2 ORDER BY revision DESC LIMIT 1`, profile.ID, profile.BrandCloudID).Scan(&revision, &raw, &digest)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return model.DeviceClaimToken{}, ErrConflict
+			}
+			if err != nil {
+				return model.DeviceClaimToken{}, err
+			}
+			var approved []string
+			if err := json.Unmarshal(raw, &approved); err != nil {
+				return model.DeviceClaimToken{}, err
+			}
+			if len(serviceOptionValues) > 0 && !serviceOptionSetsEqual(serviceOptionValues, approved) {
+				return model.DeviceClaimToken{}, ErrClaimServiceOptionsMismatch
+			}
+			serviceOptionValues = approved
+			metadataValue["product_service_revision"] = revision
+			metadataValue["service_grant_sha256"] = digest
+			grantBound = true
+		} else if serviceOptionValues == nil || len(serviceOptionValues) == 0 {
 			serviceOptionValues = profile.ServiceOptions
 		} else if err := validateClaimServiceOptions(serviceOptionValues); err != nil {
 			return model.DeviceClaimToken{}, err
@@ -138,8 +163,14 @@ func createDeviceClaimTokenTx(ctx context.Context, tx pgx.Tx, in DeviceClaimToke
 	if serviceOptionValues == nil {
 		serviceOptionValues = []string{}
 	}
-	if err := validateClaimServiceOptions(serviceOptionValues); err != nil {
-		return model.DeviceClaimToken{}, err
+	var optionsErr error
+	if grantBound {
+		optionsErr = validateProductServiceOptions(serviceOptionValues)
+	} else {
+		optionsErr = validateClaimServiceOptions(serviceOptionValues)
+	}
+	if optionsErr != nil {
+		return model.DeviceClaimToken{}, optionsErr
 	}
 	serviceOptions, err := json.Marshal(serviceOptionValues)
 	if err != nil {

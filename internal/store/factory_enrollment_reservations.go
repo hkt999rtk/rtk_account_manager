@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,6 +17,9 @@ var ErrProductionRunCapacity = errors.New("production run capacity exhausted")
 // authority. The adapter validates the production JWT and canonical body first.
 type FactoryEnrollmentAdmission struct {
 	RunID, CloudID, ProductID, RequestID, DeviceID, RequestSHA256 string
+	ProductServiceRevision                                        *int64
+	ServiceGrantSHA256                                            string
+	ServiceOptions                                                []string
 }
 
 type FactoryEnrollmentReservation struct {
@@ -97,6 +102,9 @@ func (s *Store) ReserveFactoryEnrollment(ctx context.Context, in FactoryEnrollme
 	if err != nil {
 		return FactoryEnrollmentReservation{}, err
 	}
+	if err := verifyProductionServiceGrantTx(ctx, tx, in); err != nil {
+		return FactoryEnrollmentReservation{}, err
+	}
 	out, err := scanFactoryReservation(tx.QueryRow(ctx, `SELECT `+factoryReservationColumns+` FROM factory_enrollment_reservations
 		WHERE production_run_id=$1 AND request_id=$2`, in.RunID, in.RequestID))
 	if err == nil {
@@ -130,6 +138,37 @@ func (s *Store) ReserveFactoryEnrollment(ctx context.Context, in FactoryEnrollme
 		return FactoryEnrollmentReservation{}, err
 	}
 	return out, nil
+}
+
+func verifyProductionServiceGrantTx(ctx context.Context, tx pgx.Tx, in FactoryEnrollmentAdmission) error {
+	var runRevision *int64
+	if err := tx.QueryRow(ctx, `SELECT product_service_revision FROM factory_production_runs WHERE id=$1`, in.RunID).Scan(&runRevision); err != nil {
+		return err
+	}
+	if runRevision == nil && in.ProductServiceRevision == nil {
+		return nil // Legacy run, whose existing authorization path remains unchanged.
+	}
+	if runRevision == nil || in.ProductServiceRevision == nil || *runRevision != *in.ProductServiceRevision || in.ServiceGrantSHA256 == "" {
+		return ErrConflict
+	}
+	var storedDigest string
+	var optionsJSON []byte
+	if err := tx.QueryRow(ctx, `SELECT snapshot_sha256,options FROM product_service_grants WHERE product_id=$1 AND brand_cloud_id=$2 AND revision=$3`, in.ProductID, in.CloudID, *runRevision).Scan(&storedDigest, &optionsJSON); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrConflict
+		}
+		return err
+	}
+	var options []string
+	if err := json.Unmarshal(optionsJSON, &options); err != nil {
+		return err
+	}
+	claimed := slices.Clone(in.ServiceOptions)
+	slices.Sort(claimed)
+	if storedDigest != in.ServiceGrantSHA256 || !slices.Equal(options, claimed) {
+		return ErrConflict
+	}
+	return nil
 }
 
 type FactoryEnrollmentResult struct {

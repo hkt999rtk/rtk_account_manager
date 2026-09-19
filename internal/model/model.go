@@ -277,19 +277,21 @@ const (
 )
 
 type ProductionRun struct {
-	ID                  string              `json:"id"`
-	BrandCloudID        string              `json:"brand_cloud_id"`
-	DeviceItemProfileID string              `json:"device_item_profile_id"`
-	FactoryID           string              `json:"factory_id,omitempty"`
-	BatchID             string              `json:"batch_id,omitempty"`
-	Status              ProductionRunStatus `json:"status"`
-	AllowedQuantity     int                 `json:"allowed_quantity"`
-	IssuedQuantity      int                 `json:"issued_quantity"`
-	ValidFrom           time.Time           `json:"valid_from"`
-	ValidUntil          time.Time           `json:"valid_until"`
-	CreatedBy           *string             `json:"created_by,omitempty"`
-	CreatedAt           time.Time           `json:"created_at"`
-	UpdatedAt           time.Time           `json:"updated_at"`
+	ID                     string              `json:"id"`
+	BrandCloudID           string              `json:"brand_cloud_id"`
+	DeviceItemProfileID    string              `json:"device_item_profile_id"`
+	ProductServiceRevision *int64              `json:"product_service_revision,omitempty"`
+	ServiceGrantSHA256     string              `json:"-"`
+	FactoryID              string              `json:"factory_id,omitempty"`
+	BatchID                string              `json:"batch_id,omitempty"`
+	Status                 ProductionRunStatus `json:"status"`
+	AllowedQuantity        int                 `json:"allowed_quantity"`
+	IssuedQuantity         int                 `json:"issued_quantity"`
+	ValidFrom              time.Time           `json:"valid_from"`
+	ValidUntil             time.Time           `json:"valid_until"`
+	CreatedBy              *string             `json:"created_by,omitempty"`
+	CreatedAt              time.Time           `json:"created_at"`
+	UpdatedAt              time.Time           `json:"updated_at"`
 }
 
 type DeviceClaim struct {
@@ -371,9 +373,10 @@ const (
 type DeviceOperationType string
 
 const (
-	DeviceOperationTypeProvision   DeviceOperationType = "provision"
-	DeviceOperationTypeDeactivate  DeviceOperationType = "deactivate"
-	DeviceOperationTypeUnprovision DeviceOperationType = "unprovision"
+	DeviceOperationTypeProvision         DeviceOperationType = "provision"
+	DeviceOperationTypeDeactivate        DeviceOperationType = "deactivate"
+	DeviceOperationTypeUnprovision       DeviceOperationType = "unprovision"
+	DeviceOperationTypeEntitlementUpdate DeviceOperationType = "entitlement_update"
 )
 
 type DeviceOperationStatus string
