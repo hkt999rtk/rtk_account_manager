@@ -130,6 +130,7 @@ func TestIntegrationRegisteredPluginAcrossFactoryApplication(t *testing.T) {
 	if !slices.Equal(product.ServiceOptions, options) {
 		t.Fatalf("Product options = %v", product.ServiceOptions)
 	}
+	readyDevicePKIFixture(t, env, product.ID)
 	const productionSecret = "isolated-registered-factory-production-secret"
 	env.server.ConfigureProductionJWT(productionSecret, "factory-enroll")
 	env.server.ConfigureFactoryEnrollmentToken(factoryCoordinationTestToken)

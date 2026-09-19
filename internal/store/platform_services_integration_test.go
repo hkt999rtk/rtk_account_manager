@@ -71,6 +71,7 @@ func TestRegisteredOptionsPinProductRunAndFactoryGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	readyDevicePKIFixture(t, env, profile.ID)
 	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin=true WHERE id=$1`, owner.User.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -182,6 +183,7 @@ func TestThirdPartyOptionRequiresRegistrationBeforeProductAndRun(t *testing.T) {
 	if err != nil || !serviceOptionSetsEqual(profile.ServiceOptions, create.ServiceOptions) {
 		t.Fatalf("registered option Product = %+v %v", profile, err)
 	}
+	readyDevicePKIFixture(t, env, profile.ID)
 	var issuedOptions []string
 	run, _, err := env.store.IssueProductionRunAsUser(ctx, authorizedProductionInput(owner.User.ID, owner.BrandCloud.ID, profile.ID), func(_ model.ProductionRun, p model.DeviceItemProfile) (string, error) {
 		issuedOptions = slices.Clone(p.ServiceOptions)

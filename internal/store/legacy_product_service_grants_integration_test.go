@@ -19,6 +19,7 @@ func TestLegacyProductGrantBackfillPreservesOptionsAndExistingRuns(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	readyDevicePKIFixture(t, env, product.ID)
 	second := authorizedProductInput(owner.User.ID, owner.BrandCloud.ID, "legacy-video")
 	second.ServiceOptions = []string{"video_storage", "mqtt"}
 	videoProduct, err := env.store.CreateDeviceItemProfileAsUser(ctx, second)

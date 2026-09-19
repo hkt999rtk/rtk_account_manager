@@ -88,6 +88,7 @@ func TestIntegrationRegisteredPluginReachesProductFactoryAndClaimGrant(t *testin
 	if !slices.Equal(product.ServiceOptions, []string{"mqtt", "test_capability"}) {
 		t.Fatalf("Product grant = %v", product.ServiceOptions)
 	}
+	readyDevicePKIFixture(t, env, product.ID)
 
 	const jwtSecret = "registered-plugin-production-secret"
 	env.server.ConfigureProductionJWT(jwtSecret, "factory-enroll")

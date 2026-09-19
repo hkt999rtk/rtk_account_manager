@@ -129,6 +129,7 @@ func TestProvisionUsesIssuedFactoryRunPinAfterProductRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	readyDevicePKIFixture(t, env, product.ID)
 	device, err := env.store.CreateDeviceAsUser(ctx, owner.User.ID, owner.BrandCloud.ID, DeviceInput{
 		Name: "Factory device", Category: product.Category, DeviceItemProfileID: &product.ID,
 	})

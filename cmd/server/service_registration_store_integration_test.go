@@ -215,6 +215,9 @@ func TestServiceRegistrationMTLSDrivesCatalogProductAndRun(t *testing.T) {
 	if err != nil || !slices.Equal(product.ServiceOptions, []string{"mqtt", "iot_shadow"}) {
 		t.Fatalf("registered service Product = %+v, error=%v", product, err)
 	}
+	if _, err := db.Exec(ctx, `UPDATE device_item_profiles SET pki_status='ready',pki_issuer_id=gen_random_uuid() WHERE id=$1`, product.ID); err != nil {
+		t.Fatal(err)
+	}
 	var signedOptions []string
 	run, token, err := repository.IssueProductionRunAsUser(ctx, store.ProductionRunCreateInput{
 		ActorUserID: &owner.User.ID, BrandCloudID: owner.BrandCloud.ID,
