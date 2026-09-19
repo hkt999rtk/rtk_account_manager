@@ -116,7 +116,7 @@ func createDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, in DeviceItemProf
 		VALUES ($1, $2, $3, 'active', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
 		RETURNING id::text, brand_cloud_id::text, profile_key, display_name, status, category,
 			manufacturer, model, metadata_defaults, metadata_schema, ca_profile, issuer_profile,
-			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at
+			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 	`, in.BrandCloudID, strings.TrimSpace(in.ProfileKey), strings.TrimSpace(in.DisplayName), in.Category, in.Manufacturer, in.Model,
 		metadataDefaults, metadataSchema, strings.TrimSpace(in.CAProfile), strings.TrimSpace(in.IssuerProfile), serviceOptions,
 		claimPolicy, provisioningPolicy, now))
@@ -187,7 +187,7 @@ func (s *Store) ListDeviceItemProfiles(ctx context.Context, in DeviceItemProfile
 	rows, err := s.db.Query(ctx, `
 		SELECT id::text, brand_cloud_id::text, profile_key, display_name, status, category,
 			manufacturer, model, metadata_defaults, metadata_schema, ca_profile, issuer_profile,
-			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at
+			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 		FROM device_item_profiles dip
 		WHERE dip.brand_cloud_id = $1
 			AND ($2 = '' OR status = $2)
@@ -233,7 +233,7 @@ func getDeviceItemProfile(ctx context.Context, q rowQuerier, brandCloudID, profi
 	profile, err := scanDeviceItemProfile(q.QueryRow(ctx, `
 		SELECT id::text, brand_cloud_id::text, profile_key, display_name, status, category,
 			manufacturer, model, metadata_defaults, metadata_schema, ca_profile, issuer_profile,
-			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at
+			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 		FROM device_item_profiles
 		WHERE brand_cloud_id = $1 AND id = $2
 	`+suffix, brandCloudID, profileID))
@@ -353,7 +353,7 @@ func updateDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, in DeviceItemProf
 		WHERE brand_cloud_id = $1 AND id = $2
 		RETURNING id::text, brand_cloud_id::text, profile_key, display_name, status, category,
 			manufacturer, model, metadata_defaults, metadata_schema, ca_profile, issuer_profile,
-			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at
+			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 	`, in.BrandCloudID, in.ProfileID, current.DisplayName, current.Status, current.Category, current.Manufacturer, current.Model,
 		metadataDefaults, metadataSchema, current.CAProfile, current.IssuerProfile, serviceOptions, claimPolicy, provisioningPolicy, disabledAt, now))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -404,7 +404,7 @@ func disableDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, brandCloudID, pr
 		WHERE brand_cloud_id = $1 AND id = $2
 		RETURNING id::text, brand_cloud_id::text, profile_key, display_name, status, category,
 			manufacturer, model, metadata_defaults, metadata_schema, ca_profile, issuer_profile,
-			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at
+			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 	`, brandCloudID, profileID, now))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.DeviceItemProfile{}, ErrNotFound
@@ -476,7 +476,7 @@ func getDeviceItemProfileByID(ctx context.Context, tx pgx.Tx, profileID string) 
 	profile, err := scanDeviceItemProfile(tx.QueryRow(ctx, `
 		SELECT id::text, brand_cloud_id::text, profile_key, display_name, status, category,
 			manufacturer, model, metadata_defaults, metadata_schema, ca_profile, issuer_profile,
-			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at
+			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 		FROM device_item_profiles
 		WHERE id = $1
 	`, profileID))
@@ -528,6 +528,9 @@ func scanDeviceItemProfile(row rowScanner) (model.DeviceItemProfile, error) {
 		&profile.DisabledAt,
 		&profile.CreatedAt,
 		&profile.UpdatedAt,
+		&profile.PKIStatus,
+		&profile.PKIOperationID,
+		&profile.PKIIssuerID,
 	)
 	if err != nil {
 		return model.DeviceItemProfile{}, err

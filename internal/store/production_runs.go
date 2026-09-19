@@ -90,6 +90,9 @@ func (s *Store) IssueProductionRunAsUser(ctx context.Context, in ProductionRunCr
 	if err != nil {
 		return model.ProductionRun{}, "", err
 	}
+	if profile.PKIStatus != "ready" || profile.PKIIssuerID == "" {
+		return model.ProductionRun{}, "", ErrDevicePKINotReady
+	}
 	token, err := issue(run, profile)
 	if err != nil || strings.TrimSpace(token) == "" {
 		return model.ProductionRun{}, "", ErrProductionRunSigning

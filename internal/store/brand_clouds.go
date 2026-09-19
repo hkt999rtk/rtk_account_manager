@@ -66,7 +66,7 @@ func (s *Store) ListBrandClouds(ctx context.Context, limit, offset int) (Organiz
 		return OrganizationPage{}, err
 	}
 	rows, err := s.db.Query(ctx, `
-		SELECT id::text, name, tenant_slug, ''::text, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at
+		SELECT id::text, name, tenant_slug, ''::text, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 		FROM organizations
 		WHERE organization_kind = 'brand_cloud'
 		ORDER BY created_at ASC
@@ -93,7 +93,7 @@ func (s *Store) ListBrandClouds(ctx context.Context, limit, offset int) (Organiz
 
 func (s *Store) GetBrandCloud(ctx context.Context, orgID string) (model.Organization, error) {
 	org, err := scanOrganization(s.db.QueryRow(ctx, `
-		SELECT id::text, name, tenant_slug, ''::text, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at
+		SELECT id::text, name, tenant_slug, ''::text, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 		FROM organizations
 		WHERE id = $1 AND organization_kind = 'brand_cloud'
 	`, orgID))
@@ -111,7 +111,7 @@ func (s *Store) UpdateBrandCloud(ctx context.Context, actorUserID, orgID string,
 	defer tx.Rollback(ctx)
 
 	current, err := scanOrganization(tx.QueryRow(ctx, `
-		SELECT id::text, name, tenant_slug, ''::text, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at
+		SELECT id::text, name, tenant_slug, ''::text, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 		FROM organizations
 		WHERE id = $1 AND organization_kind = 'brand_cloud'
 		FOR UPDATE
@@ -151,7 +151,7 @@ func (s *Store) UpdateBrandCloud(ctx context.Context, actorUserID, orgID string,
 		UPDATE organizations
 		SET name = $2, status = $3, tenant_slug = $4, metadata = $5, updated_at = now()
 		WHERE id = $1 AND organization_kind = 'brand_cloud'
-		RETURNING id::text, name, tenant_slug, ''::text, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at
+		RETURNING id::text, name, tenant_slug, ''::text, organization_kind, status, tier, evaluation_device_quota, metadata, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 	`, orgID, name, status, tenantSlug, rawMetadata))
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -790,7 +790,7 @@ func scanOrganization(row scanner) (model.Organization, error) {
 	var org model.Organization
 	var role string
 	var rawMetadata []byte
-	if err := row.Scan(&org.ID, &org.Name, &org.TenantSlug, &role, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &rawMetadata, &org.CreatedAt, &org.UpdatedAt); err != nil {
+	if err := row.Scan(&org.ID, &org.Name, &org.TenantSlug, &role, &org.OrganizationKind, &org.Status, &org.Tier, &org.EvaluationDeviceQuota, &rawMetadata, &org.CreatedAt, &org.UpdatedAt, &org.PKIStatus, &org.PKIOperationID, &org.PKIIssuerID); err != nil {
 		return model.Organization{}, err
 	}
 	org.Role = model.Role(role)

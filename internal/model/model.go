@@ -245,6 +245,9 @@ const (
 )
 
 type DeviceItemProfile struct {
+	PKIStatus          string                  `json:"pki_status"`
+	PKIOperationID     string                  `json:"pki_operation_id"`
+	PKIIssuerID        string                  `json:"pki_issuer_id,omitempty"`
 	ID                 string                  `json:"id"`
 	BrandCloudID       string                  `json:"brand_cloud_id"`
 	ProfileKey         string                  `json:"profile_key"`
@@ -416,6 +419,9 @@ type User struct {
 }
 
 type Organization struct {
+	PKIStatus             string             `json:"pki_status"`
+	PKIOperationID        string             `json:"pki_operation_id"`
+	PKIIssuerID           string             `json:"pki_issuer_id,omitempty"`
 	ID                    string             `json:"id"`
 	Name                  string             `json:"name"`
 	TenantSlug            *string            `json:"tenant_slug,omitempty"`

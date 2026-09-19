@@ -2019,6 +2019,10 @@ func trimPtr(value *string) *string {
 }
 
 func writeStoreError(c *gin.Context, err error) {
+	if errors.Is(err, store.ErrDevicePKINotReady) {
+		writeError(c, http.StatusConflict, "pki_not_ready", "Product certificate authority is still being prepared")
+		return
+	}
 	var guardError *pgconn.PgError
 	if errors.As(err, &guardError) && guardError.Code == "23514" && guardError.ConstraintName == "platform_admin_preserved" {
 		writeError(c, http.StatusConflict, "platform_admin_required", "Keep an active Platform Administrator and its system role before removing this access")

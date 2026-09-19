@@ -17,6 +17,7 @@ func TestTestLabBindingLifecycleIsolationAndRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	readyDevicePKIFixture(t, env, p.ID)
 	in := authorizedProductionInput(owner.User.ID, owner.BrandCloud.ID, p.ID)
 	in.FactoryID = "developer-console"
 	in.BatchID = "pki-test-fixture"

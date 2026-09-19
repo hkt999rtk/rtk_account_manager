@@ -5,6 +5,7 @@ COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager ./cmd/server
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-migrate ./cmd/migrate
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-device-pki-admin ./cmd/device-pki-admin
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-email-worker ./cmd/email-worker
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-email-outbox-admin ./cmd/email-outbox-admin
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-outbox-worker ./cmd/outbox-worker
@@ -22,6 +23,7 @@ RUN apt-get update \
 
 COPY --from=builder /out/rtk-account-manager /app/rtk-account-manager
 COPY --from=builder /out/rtk-account-manager-migrate /app/rtk-account-manager-migrate
+COPY --from=builder /out/rtk-account-manager-device-pki-admin /app/rtk-account-manager-device-pki-admin
 COPY --from=builder /out/rtk-account-manager-email-worker /app/rtk-account-manager-email-worker
 COPY --from=builder /out/rtk-account-manager-email-outbox-admin /app/rtk-account-manager-email-outbox-admin
 COPY --from=builder /out/rtk-account-manager-outbox-worker /app/rtk-account-manager-outbox-worker

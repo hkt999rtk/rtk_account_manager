@@ -24,6 +24,7 @@ func factoryHTTPFixture(t *testing.T, env integrationEnv) (map[string]any, strin
 	if err != nil {
 		t.Fatal(err)
 	}
+	readyDevicePKIFixture(t, env, p.ID)
 	env.server.ConfigureProductionJWT("isolated-production-signing-secret", "factory-enroll")
 	now := time.Now().UTC()
 	run, token, err := env.store.IssueProductionRunAsUser(ctx, store.ProductionRunCreateInput{ActorUserID: &owner.UserID, BrandCloudID: owner.BrandCloudID, DeviceItemProfileID: p.ID, AllowedQuantity: 1, ValidFrom: now.Add(-time.Minute), ValidUntil: now.Add(time.Hour)}, env.server.signProductionJWT)

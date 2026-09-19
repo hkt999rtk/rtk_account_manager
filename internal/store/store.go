@@ -32,6 +32,7 @@ var (
 	ErrClaimUnsupportedService     = errors.New("claim token service option is unsupported")
 	ErrClaimServiceOptionsMismatch = errors.New("claim token service options do not match device item profile")
 	ErrDeviceItemProfileDisabled   = errors.New("device item profile is disabled")
+	ErrDevicePKINotReady           = errors.New("device PKI is not ready")
 	ErrClaimInvalidState           = errors.New("claim token state does not allow this operation")
 	ErrClaimEvidenceRequired       = errors.New("claim override requires operator evidence")
 	ErrOIDCStateInvalid            = errors.New("oidc login state is invalid")

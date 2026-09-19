@@ -26,6 +26,7 @@ func TestProductionRunIssuanceRequiresCurrentProductAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	readyDevicePKIFixture(t, env, p.ID)
 	calls := 0
 	issuer := func(run model.ProductionRun, profile model.DeviceItemProfile) (string, error) {
 		calls++
@@ -121,6 +122,7 @@ func TestProductionRunIssuanceFailuresNeverReturnTokenOrCommitRun(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
+			readyDevicePKIFixture(t, env, p.ID)
 			in := authorizedProductionInput(owner.User.ID, owner.BrandCloud.ID, p.ID)
 			calls := 0
 			issuer := ProductionRunIssuer(func(model.ProductionRun, model.DeviceItemProfile) (string, error) {
