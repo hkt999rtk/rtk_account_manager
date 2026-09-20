@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -75,6 +76,7 @@ func TestProductServiceSelectionRequiresRegisteredFoundationAndDependencies(t *t
 		{PlatformServiceOption: PlatformServiceOption{Code: "mqtt"}, ServiceID: "mqtt", Selectable: true},
 		{PlatformServiceOption: PlatformServiceOption{Code: "iot_shadow", Requires: []string{"mqtt"}}, ServiceID: "shadow", Selectable: true},
 		{PlatformServiceOption: PlatformServiceOption{Code: "video_storage", Requires: []string{"mqtt"}}, ServiceID: "video-storage", Selectable: false},
+		{PlatformServiceOption: PlatformServiceOption{Code: "guarded_plugin", Requires: []string{"mqtt", "guard_dependency"}}, ServiceID: "guarded", Selectable: true},
 	}}
 	for _, tc := range []struct {
 		name  string
@@ -87,6 +89,7 @@ func TestProductServiceSelectionRequiresRegisteredFoundationAndDependencies(t *t
 		{"offline", []string{"mqtt", "video_storage"}, false},
 		{"unregistered", []string{"mqtt", "new_plugin"}, false},
 		{"duplicate", []string{"mqtt", "mqtt"}, false},
+		{"missing-plugin-dependency", []string{"mqtt", "guarded_plugin"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bindings, err := validateProductServiceSelection(tc.codes, catalog)
@@ -97,5 +100,22 @@ func TestProductServiceSelectionRequiresRegisteredFoundationAndDependencies(t *t
 				t.Fatalf("bindings = %v", bindings)
 			}
 		})
+	}
+}
+
+func TestProductServiceOptionCodeValidationRejectsAmbiguousGrants(t *testing.T) {
+	tooMany := make([]string, 65)
+	for index := range tooMany {
+		tooMany[index] = "mqtt"
+	}
+	for _, options := range [][]string{
+		tooMany,
+		{strings.Repeat("x", 65)},
+		{"MQTT"},
+		{"mqtt", "mqtt"},
+	} {
+		if err := ValidateProductServiceOptionCodes(options); !errors.Is(err, ErrClaimUnsupportedService) {
+			t.Fatalf("options %v = %v", options, err)
+		}
 	}
 }

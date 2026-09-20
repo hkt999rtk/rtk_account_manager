@@ -511,6 +511,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestParseChipsetManifestV1`
 - `rtk_account_manager/internal/api`: `TestParseDeviceClaimTokenCategoryRejectsUnknownValue`
 - `rtk_account_manager/internal/api`: `TestPlatformCloudCreationRequiresDesignatedOwner`
+- `rtk_account_manager/internal/api`: `TestPlatformServiceAdministrativeRoutes`
+- `rtk_account_manager/internal/api`: `TestPlatformServiceErrorMappings`
+- `rtk_account_manager/internal/api`: `TestPlatformServiceMTLSRouteLifecycle`
+- `rtk_account_manager/internal/api`: `TestPlatformServiceProductRejectsEmptyGrant`
 - `rtk_account_manager/internal/api`: `TestPostgresStoreSatisfiesAPIPersistenceBoundaries`
 - `rtk_account_manager/internal/api`: `TestProductScopeNeverFallsBackToTenantClaims`
 - `rtk_account_manager/internal/api`: `TestPrometheusMetricHelpersFormatLabelsDeterministically`
@@ -1573,6 +1577,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationRechecksAuthority/revoke/not_admin`
 - `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationRechecksAuthority/revoke/pending`
 - `rtk_account_manager/internal/store`: `TestPlatformClaimTokenAdministrationRechecksAuthority`
+- `rtk_account_manager/internal/store`: `TestPlatformServiceDeregisterAndAdministrativeFailureModes`
 - `rtk_account_manager/internal/store`: `TestPlatformServiceDigestIgnoresOptionOrderButBindsContents`
 - `rtk_account_manager/internal/store`: `TestPlatformServiceManifestValidation/duplicate`
 - `rtk_account_manager/internal/store`: `TestPlatformServiceManifestValidation/foreign-mqtt`
@@ -1596,8 +1601,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestProductMutationAuditAndCommitFailuresRollBack/update/audit`
 - `rtk_account_manager/internal/store`: `TestProductMutationAuditAndCommitFailuresRollBack/update/commit`
 - `rtk_account_manager/internal/store`: `TestProductMutationAuditAndCommitFailuresRollBack`
+- `rtk_account_manager/internal/store`: `TestProductServiceOptionCodeValidationRejectsAmbiguousGrants`
 - `rtk_account_manager/internal/store`: `TestProductServiceSelectionRequiresRegisteredFoundationAndDependencies/duplicate`
 - `rtk_account_manager/internal/store`: `TestProductServiceSelectionRequiresRegisteredFoundationAndDependencies/missing-foundation`
+- `rtk_account_manager/internal/store`: `TestProductServiceSelectionRequiresRegisteredFoundationAndDependencies/missing-plugin-dependency`
 - `rtk_account_manager/internal/store`: `TestProductServiceSelectionRequiresRegisteredFoundationAndDependencies/mqtt-only`
 - `rtk_account_manager/internal/store`: `TestProductServiceSelectionRequiresRegisteredFoundationAndDependencies/offline`
 - `rtk_account_manager/internal/store`: `TestProductServiceSelectionRequiresRegisteredFoundationAndDependencies/shadow`
