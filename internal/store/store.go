@@ -46,7 +46,9 @@ var (
 )
 
 type Store struct {
-	db *pgxpool.Pool
+	db                           *pgxpool.Pool
+	platformServiceEnvironment   string
+	platformServiceProductWrites bool
 
 	authTokenRateLimitMax    int
 	authTokenRateLimitWindow time.Duration
@@ -56,6 +58,11 @@ type Store struct {
 	handoffParticipants      map[string]HandoffParticipant
 	deletionPreflight        *CloudDeletionPreflightOptions
 	deletion                 *CloudDeletionOptions
+}
+
+func (s *Store) ConfigurePlatformServiceProductWrites(environment string, enabled bool) {
+	s.platformServiceEnvironment = strings.TrimSpace(environment)
+	s.platformServiceProductWrites = enabled
 }
 
 func (s *Store) ConfigureEmailOutboxCipher(cipher *emaildelivery.Cipher) {

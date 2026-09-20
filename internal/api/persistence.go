@@ -142,6 +142,7 @@ type appCertificatePersistence interface {
 
 type provisioningPersistence interface {
 	StartDeviceLifecycleOperation(ctx context.Context, in store.DeviceLifecycleOperationInput) (store.DeviceLifecycleOperationResult, error)
+	StartDeviceEntitlementSnapshot(ctx context.Context, in store.DeviceEntitlementSnapshotInput) (store.DeviceEntitlementSnapshotResult, error)
 	StartDeviceDeactivationOperation(ctx context.Context, in store.DeviceDeactivationOperationInput) (store.DeviceLifecycleOperationResult, error)
 	GetDeviceOperation(ctx context.Context, operationID string) (model.DeviceOperation, error)
 	GetLatestDeviceOperationByType(ctx context.Context, orgID, deviceID string, operationType model.DeviceOperationType) (model.DeviceOperation, error)

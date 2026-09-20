@@ -9,6 +9,36 @@ import (
 	"time"
 )
 
+func TestProductGrantWritesRequireDirectAuthenticatedDelivery(t *testing.T) {
+	valid := Config{PlatformServiceProductWrites: true, CrossServiceBroker: "direct_http", VideoCloudLifecycleBaseURL: "https://video.example.test", VideoCloudLifecycleToken: "dedicated-token"}
+	if err := validateProductGrantDeliveryConfig(valid); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		edit func(*Config)
+	}{
+		{"log broker", func(c *Config) { c.CrossServiceBroker = "log" }},
+		{"bus broker", func(c *Config) { c.CrossServiceBroker = "azure_eventhubs" }},
+		{"missing origin", func(c *Config) { c.VideoCloudLifecycleBaseURL = "" }},
+		{"missing token", func(c *Config) { c.VideoCloudLifecycleToken = "" }},
+		{"credential origin", func(c *Config) { c.VideoCloudLifecycleBaseURL = "https://secret@video.example.test" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := valid
+			tc.edit(&cfg)
+			if err := validateProductGrantDeliveryConfig(cfg); err == nil {
+				t.Fatal("expected Product grant delivery configuration to fail closed")
+			}
+		})
+	}
+	valid.PlatformServiceProductWrites = false
+	valid.CrossServiceBroker = "log"
+	if err := validateProductGrantDeliveryConfig(valid); err != nil {
+		t.Fatalf("disabled rollout gate changed legacy configuration: %v", err)
+	}
+}
+
 func TestLoadDotEnvSetsMissingValuesAndPreservesExistingEnv(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".env")

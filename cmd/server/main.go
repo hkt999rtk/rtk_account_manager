@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net/http"
 	"os"
@@ -47,6 +49,7 @@ func main() {
 		fatal(logger, "configure auth token signer failed", err)
 	}
 	accountStore := store.New(db)
+	accountStore.ConfigurePlatformServiceProductWrites(cfg.LogEnv, cfg.PlatformServiceProductWrites)
 	if cfg.BillingCloudCreationBaseURL != "" {
 		client, err := billingbootstrap.New(billingbootstrap.Config{BaseURL: cfg.BillingCloudCreationBaseURL, Token: cfg.BillingCloudCreationToken})
 		if err != nil {
@@ -137,6 +140,8 @@ func main() {
 	server.ConfigureTestLab(accountStore, cfg.VideoCloudLifecycleBaseURL, cfg.VideoCloudLifecycleToken)
 	server.ConfigureImmediateBrandAccountProvisioning(cfg.AllowImmediateBrandAccounts)
 	server.ConfigureProductionJWT(cfg.FactoryProductionJWTSecret, cfg.FactoryProductionJWTAudience)
+	server.ConfigurePlatformServices(accountStore, cfg.LogEnv)
+	server.ConfigurePlatformServiceProductWrites(cfg.PlatformServiceProductWrites)
 	if err := server.ConfigurePKIFromEnv(); err != nil {
 		fatal(logger, "configure PKI controller", err)
 	}
@@ -194,6 +199,35 @@ func main() {
 	httpServer := &http.Server{
 		Addr:    addr,
 		Handler: server.Router(),
+	}
+	if cfg.ServiceRegistrationPort != "" {
+		identity, err := tls.LoadX509KeyPair(cfg.ServiceRegistrationServerCert, cfg.ServiceRegistrationServerKey)
+		if err != nil {
+			fatal(logger, "load service registration server identity failed", err)
+		}
+		rootPEM, err := os.ReadFile(cfg.ServiceRegistrationClientCA)
+		if err != nil {
+			fatal(logger, "load Internal Service CA failed", err)
+		}
+		roots := x509.NewCertPool()
+		if !roots.AppendCertsFromPEM(rootPEM) {
+			fatal(logger, "Internal Service CA contains no certificates", nil)
+		}
+		serviceTLS, err := serviceRegistrationTLSConfig(identity, roots, cfg.ServiceRegistrationClientCRL)
+		if err != nil {
+			fatal(logger, "configure service registration certificate revocation failed", err)
+		}
+		serviceServer := &http.Server{
+			Addr:      ":" + cfg.ServiceRegistrationPort,
+			Handler:   serviceRegistrationCRLMiddleware(server.ServiceRouter(), cfg.ServiceRegistrationClientCRL),
+			TLSConfig: serviceTLS,
+		}
+		go func() {
+			logger.Info("service registration mTLS listener started", zap.String("port", cfg.ServiceRegistrationPort))
+			if err := serviceServer.ListenAndServeTLS("", ""); err != nil {
+				fatal(logger, "service registration mTLS listener stopped", err)
+			}
+		}()
 	}
 	if err := httpServer.ListenAndServe(); err != nil {
 		fatal(logger, "server stopped", err)

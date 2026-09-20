@@ -22,7 +22,7 @@ func (s *Store) CreateDeviceClaimTokenAsPlatform(ctx context.Context, in DeviceC
 	if err := lockClaimTokenCloudsTx(ctx, tx, in.OrganizationID, in.DeviceItemProfileID); err != nil {
 		return model.DeviceClaimToken{}, err
 	}
-	token, err := createDeviceClaimTokenTx(ctx, tx, in)
+	token, err := createDeviceClaimTokenTx(ctx, tx, in, s.platformServiceProductWrites)
 	if err != nil {
 		return model.DeviceClaimToken{}, err
 	}

@@ -296,5 +296,5 @@ func (s *Store) ProvisionLabDevice(ctx context.Context, actor, cloud, product, a
 	in := DeviceLifecycleOperationInput{OperationID: operation, CorrelationID: operation, MessageID: operation, OrganizationID: cloud, DeviceID: device, OperationType: model.DeviceOperationTypeProvision, RequestedBy: &actor,
 		RequestPayload:    map[string]any{"video_cloud_devid": device, "activity_id": activity, "clip_public_key": publicKey, "service_options": profile.ServiceOptions},
 		OutboxMessageType: string(channel.MessageTypeDeviceProvisionRequested), OutboxPayload: map[string]any{"org_id": cloud, "account_device_id": device, "video_cloud_devid": device, "activity_id": activity, "clip_public_key": publicKey, "service_options": profile.ServiceOptions, "requested_by": actor}, MetadataPatch: PendingProvisionMetadata(device, activity, publicKey, profile.ServiceOptions), Now: time.Now().UTC()}
-	return startDeviceLifecycleOperationTx(ctx, tx, d, in)
+	return startDeviceLifecycleOperationTx(ctx, tx, d, in, s.platformServiceProductWrites)
 }

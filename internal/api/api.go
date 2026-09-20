@@ -22,34 +22,37 @@ import (
 )
 
 type Server struct {
-	pkiClient                   *pkiProxy
-	testLab                     *testLabRuntime
-	store                       Store
-	auth                        *auth.Service
-	authTokenQueuedHook         func(AuthTokenDelivery)
-	signupLimiter               *signupLimiter
-	signupPolicy                signupPolicy
-	oidcResolver                auth.ProviderResolver
-	oidcClient                  auth.OIDCClient
-	oidcStateTTL                time.Duration
-	oidcEnvClientSecretRef      string
-	socialProviders             map[string]auth.SocialProvider
-	socialClient                auth.SocialClient
-	socialStateSecret           string
-	socialStateTTL              time.Duration
-	appCertificateIssuer        AppCertificateIssuer
-	internalAuthToken           string
-	jobAuthorizationToken       string
-	jobAuthorizations           jobAuthorizationPersistence
-	factoryEnrollmentToken      string
-	productionJWTSecret         string
-	productionJWTAudience       string
-	logger                      *zap.Logger
-	chipsetManifestFetcher      ChipsetManifestFetcher
-	emailOutboxStore            emailOutboxPersistence
-	emailVerificationTTL        time.Duration
-	passwordResetTTL            time.Duration
-	allowImmediateBrandAccounts bool
+	platformServices             platformServicePersistence
+	platformServiceEnvironment   string
+	platformServiceProductWrites bool
+	pkiClient                    *pkiProxy
+	testLab                      *testLabRuntime
+	store                        Store
+	auth                         *auth.Service
+	authTokenQueuedHook          func(AuthTokenDelivery)
+	signupLimiter                *signupLimiter
+	signupPolicy                 signupPolicy
+	oidcResolver                 auth.ProviderResolver
+	oidcClient                   auth.OIDCClient
+	oidcStateTTL                 time.Duration
+	oidcEnvClientSecretRef       string
+	socialProviders              map[string]auth.SocialProvider
+	socialClient                 auth.SocialClient
+	socialStateSecret            string
+	socialStateTTL               time.Duration
+	appCertificateIssuer         AppCertificateIssuer
+	internalAuthToken            string
+	jobAuthorizationToken        string
+	jobAuthorizations            jobAuthorizationPersistence
+	factoryEnrollmentToken       string
+	productionJWTSecret          string
+	productionJWTAudience        string
+	logger                       *zap.Logger
+	chipsetManifestFetcher       ChipsetManifestFetcher
+	emailOutboxStore             emailOutboxPersistence
+	emailVerificationTTL         time.Duration
+	passwordResetTTL             time.Duration
+	allowImmediateBrandAccounts  bool
 }
 
 type emailOutboxPersistence interface {
@@ -306,6 +309,10 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/app/end-users/me", s.appEndUserMe)
 	protected.POST("/app/devices/claim/resolve", s.appEndUserResolveDeviceClaim)
 	protected.GET("/me", s.me)
+	protected.GET("/platform/service-options", s.listPlatformServiceOptions)
+	protected.POST("/platform/service-workloads", s.requirePlatformAdmin(), s.approvePlatformServiceWorkload)
+	protected.DELETE("/platform/service-workloads", s.requirePlatformAdmin(), s.revokePlatformServiceWorkload)
+	protected.PATCH("/platform/services/:serviceId/status", s.requirePlatformAdmin(), s.setPlatformServiceStatus)
 	protected.DELETE("/me", s.deleteCurrentUser)
 	protected.PATCH("/me/password", s.changePassword)
 	protected.GET("/me/identities", s.listCurrentUserIdentities)
@@ -403,6 +410,9 @@ func (s *Server) Router() *gin.Engine {
 	protected.PUT("/orgs/:orgId/devices/:deviceId/tags/:tag", s.requirePermission("device_tag.assign"), s.addDeviceTag)
 	protected.DELETE("/orgs/:orgId/devices/:deviceId/tags/:tag", s.requirePermission("device_tag.assign"), s.deleteDeviceTag)
 	protected.POST("/orgs/:orgId/devices/:deviceId/provision", s.requirePermission("lifecycle_operation.provision"), s.provisionDevice)
+	if s.platformServiceProductWrites {
+		protected.POST("/orgs/:orgId/devices/:deviceId/entitlement-snapshots", s.requirePermission("lifecycle_operation.provision"), s.createDeviceEntitlementSnapshot)
+	}
 	protected.GET("/orgs/:orgId/devices/:deviceId/provisioning", s.requirePermission("lifecycle_operation.inspect"), s.getProvisioningState)
 	protected.POST("/orgs/:orgId/devices/:deviceId/deactivate", s.requirePermission("lifecycle_operation.deactivate"), s.deactivateDevice)
 	protected.POST("/orgs/:orgId/devices/:deviceId/unprovision", s.requirePermission("device.unprovision"), s.unprovisionDevice)
@@ -2057,7 +2067,7 @@ func writeStoreError(c *gin.Context, err error) {
 	case errors.Is(err, store.ErrClaimUnsupportedCategory):
 		writeError(c, http.StatusBadRequest, "unsupported_device_category", "Device category is not supported")
 	case errors.Is(err, store.ErrClaimUnsupportedService):
-		writeError(c, http.StatusBadRequest, "unsupported_service_option", "service_options may contain only mqtt, video_streaming, or video_storage")
+		writeError(c, http.StatusBadRequest, "unsupported_service_option", "service_options contain an unavailable or invalid option")
 	case errors.Is(err, store.ErrClaimServiceOptionsMismatch):
 		writeError(c, http.StatusBadRequest, "service_options_mismatch", "service_options must match the selected device item profile")
 	case errors.Is(err, store.ErrDeviceItemProfileDisabled):

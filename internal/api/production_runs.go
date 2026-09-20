@@ -32,13 +32,16 @@ type productionRunResponse struct {
 }
 
 type productionJWTClaims struct {
-	ProductionRunID     string `json:"production_run_id"`
-	BrandCloudID        string `json:"brand_cloud_id"`
-	DeviceItemProfileID string `json:"device_item_profile_id"`
-	ProfileKey          string `json:"profile_key,omitempty"`
-	FactoryID           string `json:"factory_id,omitempty"`
-	BatchID             string `json:"batch_id,omitempty"`
-	AllowedQuantity     int    `json:"allowed_quantity"`
+	ProductionRunID        string   `json:"production_run_id"`
+	BrandCloudID           string   `json:"brand_cloud_id"`
+	DeviceItemProfileID    string   `json:"device_item_profile_id"`
+	ProfileKey             string   `json:"profile_key,omitempty"`
+	FactoryID              string   `json:"factory_id,omitempty"`
+	BatchID                string   `json:"batch_id,omitempty"`
+	AllowedQuantity        int      `json:"allowed_quantity"`
+	ProductServiceRevision *int64   `json:"product_service_revision,omitempty"`
+	ServiceOptions         []string `json:"service_options,omitempty"`
+	ServiceGrantSHA256     string   `json:"service_grant_sha256,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -113,13 +116,16 @@ func (s *Server) signProductionJWT(run model.ProductionRun, profile model.Device
 		return "", err
 	}
 	claims := productionJWTClaims{
-		ProductionRunID:     run.ID,
-		BrandCloudID:        run.BrandCloudID,
-		DeviceItemProfileID: run.DeviceItemProfileID,
-		ProfileKey:          profile.ProfileKey,
-		FactoryID:           run.FactoryID,
-		BatchID:             run.BatchID,
-		AllowedQuantity:     run.AllowedQuantity,
+		ProductionRunID:        run.ID,
+		BrandCloudID:           run.BrandCloudID,
+		DeviceItemProfileID:    run.DeviceItemProfileID,
+		ProfileKey:             profile.ProfileKey,
+		FactoryID:              run.FactoryID,
+		BatchID:                run.BatchID,
+		AllowedQuantity:        run.AllowedQuantity,
+		ProductServiceRevision: run.ProductServiceRevision,
+		ServiceOptions:         profile.ServiceOptions,
+		ServiceGrantSHA256:     run.ServiceGrantSHA256,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "factory_production_run:" + run.ID,
 			Audience:  jwt.ClaimStrings{s.productionJWTAudience},

@@ -139,6 +139,16 @@ the remaining Billing-usage cutoff and coordinated rollout gates.
 
 Set `CROSS_SERVICE_BROKER=azure_eventhubs` plus `AZURE_EVENTHUB_CONNECTION_STRING` to run the workers against Azure Event Hubs instead of the local `log` adapter. The inbox worker persists Azure consumer checkpoints at `.state/azure_eventhubs/<stream>__<consumer-group>.json` by default; set `AZURE_EVENTHUB_CHECKPOINT_FILE` to override that path.
 
+The service-registration Product write gate remains off by default. If
+`ACCOUNT_MANAGER_PLATFORM_SERVICE_PRODUCT_WRITES=true`, both the API and
+outbox worker require `CROSS_SERVICE_BROKER=direct_http` plus a dedicated
+`VIDEO_CLOUD_LIFECYCLE_BASE_URL` origin and `VIDEO_CLOUD_LIFECYCLE_TOKEN`.
+Revisioned provisioning carries the Product grant to Video Cloud's internal
+activation endpoint; the legacy bus worker does not support this tuple and
+must not be selected with the gate on. Enable the gate only after the catalog,
+factory/token path, legacy-data reconciliation, and receiving service are
+qualified. This is not a deployment instruction to flip the gate now.
+
 Set `ACCOUNT_MANAGER_USER_CACHE_ENABLED=true` to enable the Redis-compatible
 read-through user cache. The cache keeps Postgres as the source of truth, uses
 no TTL, and falls back to Postgres when Redis misses or is unavailable. Configure

@@ -5,18 +5,54 @@ import (
 	"encoding/json"
 	"flag"
 	"os"
+	"strings"
 
 	"rtk_account_manager/internal/config"
 	"rtk_account_manager/internal/database"
 	"rtk_account_manager/internal/logging"
+	"rtk_account_manager/internal/store"
 
 	"go.uber.org/zap"
 )
 
 func main() {
 	identityPreflight := flag.Bool("identity-preflight", false, "report forward identity correction on a restored write-frozen database; always roll back")
+	serviceGrantReport := flag.Bool("service-grant-backfill-report", false, "report legacy Product service grants without writing")
+	serviceGrantApply := flag.Bool("service-grant-backfill-apply", false, "backfill legacy Product service grants atomically after a reviewed report")
+	serviceGrantExpected := flag.String("service-grant-backfill-expected-sha256", "", "SHA-256 snapshot from the reviewed service grant backfill report")
 	flag.Parse()
 	earlyLogger := logging.NewFromEnv(logging.ServiceMigrate)
+	if boolCount(*identityPreflight, *serviceGrantReport, *serviceGrantApply) > 1 {
+		fatal(earlyLogger, "choose only one migration action", nil)
+	}
+	if *serviceGrantExpected != "" && !*serviceGrantApply {
+		fatal(earlyLogger, "service grant expected SHA-256 requires apply mode", nil)
+	}
+	ctx := context.Background()
+	if *serviceGrantReport || *serviceGrantApply {
+		// The backfill needs only database access, not API JWT or OAuth secrets.
+		databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+		if databaseURL == "" {
+			fatal(earlyLogger, "DATABASE_URL is required for service grant backfill", nil)
+		}
+		db, err := database.Connect(ctx, databaseURL)
+		if err != nil {
+			fatal(earlyLogger, "database connection failed", err)
+		}
+		defer db.Close()
+		report, err := store.New(db).BackfillLegacyProductServiceGrants(ctx, *serviceGrantApply, *serviceGrantExpected)
+		if err != nil {
+			fatal(earlyLogger, "service grant backfill failed", err)
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
+			fatal(earlyLogger, "write service grant report failed", err)
+		}
+		if !report.Ready {
+			logging.Sync(earlyLogger)
+			os.Exit(1)
+		}
+		return
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		fatal(earlyLogger, "load config failed", err)
@@ -28,13 +64,11 @@ func main() {
 	}
 	defer logging.Sync(logger)
 
-	ctx := context.Background()
 	db, err := database.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
 		fatal(logger, "database connection failed", err)
 	}
 	defer db.Close()
-
 	if *identityPreflight {
 		report, err := database.PreflightIdentityCorrection(ctx, db)
 		if err != nil {
@@ -54,6 +88,16 @@ func main() {
 		fatal(logger, "database migration failed", err)
 	}
 	logger.Info("migrations applied")
+}
+
+func boolCount(values ...bool) int {
+	count := 0
+	for _, value := range values {
+		if value {
+			count++
+		}
+	}
+	return count
 }
 
 func fatal(logger *zap.Logger, message string, err error, fields ...zap.Field) {

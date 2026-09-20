@@ -299,7 +299,8 @@ func inboxStatusesToStrings(statuses []model.DeviceMessageInboxStatus) []string 
 }
 
 func isCompletedLifecycleOperationStatus(status model.DeviceOperationStatus, operationType model.DeviceOperationType) bool {
-	if operationType != model.DeviceOperationTypeProvision && operationType != model.DeviceOperationTypeDeactivate {
+	if operationType != model.DeviceOperationTypeProvision && operationType != model.DeviceOperationTypeDeactivate &&
+		operationType != model.DeviceOperationTypeEntitlementUpdate {
 		return false
 	}
 	return status == model.DeviceOperationStatusSucceeded || status == model.DeviceOperationStatusFailed

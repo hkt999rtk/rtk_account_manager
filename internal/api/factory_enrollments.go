@@ -81,7 +81,11 @@ func (s *Server) reserveFactoryEnrollment(c *gin.Context) {
 		writeError(c, http.StatusUnauthorized, "production_jwt_invalid", "production authorization is invalid")
 		return
 	}
-	r, err := p.ReserveFactoryEnrollment(c.Request.Context(), req.admission())
+	admission := req.admission()
+	admission.ProductServiceRevision = claims.ProductServiceRevision
+	admission.ServiceGrantSHA256 = claims.ServiceGrantSHA256
+	admission.ServiceOptions = claims.ServiceOptions
+	r, err := p.ReserveFactoryEnrollment(c.Request.Context(), admission)
 	if err != nil {
 		factoryEnrollmentError(c, err)
 		return

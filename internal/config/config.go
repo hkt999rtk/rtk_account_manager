@@ -36,6 +36,12 @@ type Config struct {
 	AccessTokenTTL                  time.Duration
 	RefreshTokenTTL                 time.Duration
 	Port                            string
+	ServiceRegistrationPort         string
+	ServiceRegistrationServerCert   string
+	ServiceRegistrationServerKey    string
+	ServiceRegistrationClientCA     string
+	ServiceRegistrationClientCRL    string
+	PlatformServiceProductWrites    bool
 	AuthTokenBaseURL                string
 	SendMailHTTPBaseURL             string
 	SendMailHTTPBearerToken         string
@@ -128,6 +134,9 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	if err := validateProductGrantDeliveryConfig(cfg); err != nil {
+		return Config{}, err
+	}
 	switch strings.ToLower(strings.TrimSpace(cfg.JWTSignerProvider)) {
 	case "", "hs256":
 		if cfg.AccessSecret == "" {
@@ -176,6 +185,12 @@ func Load() (Config, error) {
 	}
 	if err := validateSocialLoginConfig(cfg); err != nil {
 		return Config{}, err
+	}
+	if cfg.ServiceRegistrationPort != "" && (cfg.ServiceRegistrationServerCert == "" || cfg.ServiceRegistrationServerKey == "" || cfg.ServiceRegistrationClientCA == "" || cfg.ServiceRegistrationClientCRL == "") {
+		return Config{}, fmt.Errorf("service registration mTLS listener requires server certificate, key, Internal Service CA, and current service CRL")
+	}
+	if cfg.ServiceRegistrationPort == "" && (cfg.ServiceRegistrationServerCert != "" || cfg.ServiceRegistrationServerKey != "" || cfg.ServiceRegistrationClientCA != "" || cfg.ServiceRegistrationClientCRL != "") {
+		return Config{}, fmt.Errorf("service registration TLS files require ACCOUNT_MANAGER_SERVICE_REGISTRATION_PORT")
 	}
 	return cfg, nil
 }
@@ -319,6 +334,9 @@ func LoadWorker() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	if err := validateProductGrantDeliveryConfig(cfg); err != nil {
+		return Config{}, err
+	}
 	if strings.EqualFold(strings.TrimSpace(cfg.CrossServiceBroker), "direct_http") {
 		endpoint, err := url.Parse(strings.TrimSpace(cfg.VideoCloudLifecycleBaseURL))
 		if err != nil || endpoint.Scheme == "" || endpoint.Host == "" {
@@ -335,6 +353,20 @@ func LoadWorker() (Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+func validateProductGrantDeliveryConfig(cfg Config) error {
+	if !cfg.PlatformServiceProductWrites {
+		return nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(cfg.CrossServiceBroker), "direct_http") {
+		return fmt.Errorf("ACCOUNT_MANAGER_PLATFORM_SERVICE_PRODUCT_WRITES requires CROSS_SERVICE_BROKER=direct_http until revisioned grant delivery is supported by other brokers")
+	}
+	endpoint, err := url.Parse(strings.TrimSpace(cfg.VideoCloudLifecycleBaseURL))
+	if err != nil || endpoint.Scheme == "" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || (endpoint.Path != "" && endpoint.Path != "/") || strings.TrimSpace(cfg.VideoCloudLifecycleToken) == "" {
+		return fmt.Errorf("ACCOUNT_MANAGER_PLATFORM_SERVICE_PRODUCT_WRITES requires configured Video Cloud lifecycle origin and token")
+	}
+	return nil
 }
 
 // Recovery-only process: it has no public routes or resource-observer setup.
@@ -531,6 +563,12 @@ func load() (Config, error) {
 		AccessTokenTTL:                  duration("ACCESS_TOKEN_TTL", 15*time.Minute),
 		RefreshTokenTTL:                 duration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
 		Port:                            getenv("PORT", "8080"),
+		ServiceRegistrationPort:         strings.TrimSpace(os.Getenv("ACCOUNT_MANAGER_SERVICE_REGISTRATION_PORT")),
+		ServiceRegistrationServerCert:   strings.TrimSpace(os.Getenv("ACCOUNT_MANAGER_SERVICE_REGISTRATION_SERVER_CERT")),
+		ServiceRegistrationServerKey:    strings.TrimSpace(os.Getenv("ACCOUNT_MANAGER_SERVICE_REGISTRATION_SERVER_KEY")),
+		ServiceRegistrationClientCA:     strings.TrimSpace(os.Getenv("ACCOUNT_MANAGER_SERVICE_REGISTRATION_CLIENT_CA")),
+		ServiceRegistrationClientCRL:    strings.TrimSpace(os.Getenv("ACCOUNT_MANAGER_SERVICE_REGISTRATION_CLIENT_CRL")),
+		PlatformServiceProductWrites:    boolValue("ACCOUNT_MANAGER_PLATFORM_SERVICE_PRODUCT_WRITES", false),
 		AuthTokenBaseURL:                getenv("AUTH_TOKEN_BASE_URL", ""),
 		SendMailHTTPBaseURL:             getenv("SENDMAIL_HTTP_BASE_URL", ""),
 		SendMailHTTPBearerToken:         getenv("SENDMAIL_HTTP_BEARER_TOKEN", ""),

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -31,7 +32,7 @@ func (s *Store) ListProductionRuns(ctx context.Context, brandCloudID, profileID 
 	}
 	rows, err := s.db.Query(ctx, `
 		SELECT id::text, brand_cloud_id::text, device_item_profile_id::text, factory_id, batch_id,
-			status, allowed_quantity, issued_quantity, valid_from, valid_until, created_by::text, created_at, updated_at
+			status, allowed_quantity, issued_quantity, valid_from, valid_until, created_by::text, created_at, updated_at, product_service_revision
 		FROM factory_production_runs
 		WHERE brand_cloud_id = $1 AND ($2 = '' OR device_item_profile_id::text = $2)
 		ORDER BY created_at DESC, id DESC LIMIT $3 OFFSET $4
@@ -61,7 +62,7 @@ func (s *Store) CreateProductionRun(ctx context.Context, in ProductionRunCreateI
 		return model.ProductionRun{}, err
 	}
 	defer tx.Rollback(ctx)
-	run, _, err := createProductionRunTx(ctx, tx, in)
+	run, _, err := createProductionRunTx(ctx, tx, in, s.platformServiceProductWrites)
 	if err != nil {
 		return model.ProductionRun{}, err
 	}
@@ -86,7 +87,7 @@ func (s *Store) IssueProductionRunAsUser(ctx context.Context, in ProductionRunCr
 	if err := authorizeProductUserMutationTx(ctx, tx, stringValue(in.ActorUserID), in.BrandCloudID, in.DeviceItemProfileID, in.PlatformOverride); err != nil {
 		return model.ProductionRun{}, "", err
 	}
-	run, profile, err := createProductionRunTx(ctx, tx, in)
+	run, profile, err := createProductionRunTx(ctx, tx, in, s.platformServiceProductWrites)
 	if err != nil {
 		return model.ProductionRun{}, "", err
 	}
@@ -103,7 +104,7 @@ func (s *Store) IssueProductionRunAsUser(ctx context.Context, in ProductionRunCr
 	return run, token, nil
 }
 
-func createProductionRunTx(ctx context.Context, tx pgx.Tx, in ProductionRunCreateInput) (model.ProductionRun, model.DeviceItemProfile, error) {
+func createProductionRunTx(ctx context.Context, tx pgx.Tx, in ProductionRunCreateInput, requireServiceGrant bool) (model.ProductionRun, model.DeviceItemProfile, error) {
 	if err := validateProductionRunCreate(in); err != nil {
 		return model.ProductionRun{}, model.DeviceItemProfile{}, err
 	}
@@ -117,6 +118,20 @@ func createProductionRunTx(ctx context.Context, tx pgx.Tx, in ProductionRunCreat
 	if profile.Status == model.DeviceItemProfileStatusDisabled {
 		return model.ProductionRun{}, model.DeviceItemProfile{}, ErrDeviceItemProfileDisabled
 	}
+	var serviceRevision *int64
+	var optionsJSON []byte
+	var grantDigest string
+	err = tx.QueryRow(ctx, `SELECT revision,options,snapshot_sha256 FROM product_service_grants WHERE product_id=$1 AND brand_cloud_id=$2 ORDER BY revision DESC LIMIT 1`, in.DeviceItemProfileID, in.BrandCloudID).Scan(&serviceRevision, &optionsJSON, &grantDigest)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if requireServiceGrant {
+			return model.ProductionRun{}, model.DeviceItemProfile{}, ErrConflict
+		}
+		serviceRevision = nil
+	} else if err != nil {
+		return model.ProductionRun{}, model.DeviceItemProfile{}, err
+	} else if err := json.Unmarshal(optionsJSON, &profile.ServiceOptions); err != nil {
+		return model.ProductionRun{}, model.DeviceItemProfile{}, err
+	}
 
 	now := in.Now
 	if now.IsZero() {
@@ -127,17 +142,18 @@ func createProductionRunTx(ctx context.Context, tx pgx.Tx, in ProductionRunCreat
 		INSERT INTO factory_production_runs (
 			brand_cloud_id, device_item_profile_id, factory_id, batch_id,
 			status, allowed_quantity, valid_from, valid_until, created_by, created_at, updated_at,
-			authorization_ownership_version, authorization_platform_override
+			authorization_ownership_version, authorization_platform_override, product_service_revision
 		)
 		VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $9,
-			(SELECT ownership_version FROM organizations WHERE id=$1), $10)
+			(SELECT ownership_version FROM organizations WHERE id=$1), $10, $11)
 		RETURNING id::text, brand_cloud_id::text, device_item_profile_id::text, factory_id, batch_id,
-			status, allowed_quantity, issued_quantity, valid_from, valid_until, created_by::text, created_at, updated_at
+			status, allowed_quantity, issued_quantity, valid_from, valid_until, created_by::text, created_at, updated_at, product_service_revision
 	`, in.BrandCloudID, in.DeviceItemProfileID, strings.TrimSpace(in.FactoryID), strings.TrimSpace(in.BatchID),
-		in.AllowedQuantity, in.ValidFrom.UTC(), in.ValidUntil.UTC(), in.ActorUserID, now, in.PlatformOverride))
+		in.AllowedQuantity, in.ValidFrom.UTC(), in.ValidUntil.UTC(), in.ActorUserID, now, in.PlatformOverride, serviceRevision))
 	if err != nil {
 		return model.ProductionRun{}, model.DeviceItemProfile{}, err
 	}
+	run.ServiceGrantSHA256 = grantDigest
 
 	if err := createAuditEventTx(ctx, tx, AuditEventInput{
 		EventType:      "factory_production_run_created",
@@ -146,13 +162,14 @@ func createProductionRunTx(ctx context.Context, tx pgx.Tx, in ProductionRunCreat
 		SubjectType:    "factory_production_run",
 		SubjectID:      run.ID,
 		Payload: map[string]any{
-			"brand_cloud_id":         run.BrandCloudID,
-			"device_item_profile_id": run.DeviceItemProfileID,
-			"factory_id":             run.FactoryID,
-			"batch_id":               run.BatchID,
-			"allowed_quantity":       run.AllowedQuantity,
-			"valid_from":             run.ValidFrom,
-			"valid_until":            run.ValidUntil,
+			"brand_cloud_id":           run.BrandCloudID,
+			"device_item_profile_id":   run.DeviceItemProfileID,
+			"factory_id":               run.FactoryID,
+			"batch_id":                 run.BatchID,
+			"allowed_quantity":         run.AllowedQuantity,
+			"product_service_revision": run.ProductServiceRevision,
+			"valid_from":               run.ValidFrom,
+			"valid_until":              run.ValidUntil,
 		},
 	}); err != nil {
 		return model.ProductionRun{}, model.DeviceItemProfile{}, err
@@ -189,6 +206,7 @@ func scanProductionRun(row rowScanner) (model.ProductionRun, error) {
 		&run.CreatedBy,
 		&run.CreatedAt,
 		&run.UpdatedAt,
+		&run.ProductServiceRevision,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return model.ProductionRun{}, ErrNotFound

@@ -138,7 +138,13 @@ func (s *Server) provisionDevice(c *gin.Context) {
 		!requireNonBlank(c, "clip_public_key", clipPublicKey) {
 		return
 	}
-	serviceOptions, ok := canonicalOptionalServiceOptions(c, req.ServiceOptions)
+	var serviceOptions []string
+	var ok bool
+	if s.platformServiceProductWrites {
+		serviceOptions, ok = s.optionalRegisteredServiceEcho(c, req.ServiceOptions)
+	} else {
+		serviceOptions, ok = canonicalOptionalServiceOptions(c, req.ServiceOptions)
+	}
 	if !ok {
 		return
 	}
@@ -212,6 +218,23 @@ func (s *Server) provisionDevice(c *gin.Context) {
 		status = http.StatusOK
 	}
 	c.JSON(status, operationBody{Operation: operationFromResult(result.Operation, result.Message)})
+}
+
+// Optional request options are an echo, never a grant. Store transaction
+// compares them with the immutable Product snapshot before publishing.
+func (s *Server) optionalRegisteredServiceEcho(c *gin.Context, raw []string) ([]string, bool) {
+	if len(raw) == 0 {
+		return nil, true
+	}
+	options := make([]string, len(raw))
+	for i, code := range raw {
+		options[i] = strings.TrimSpace(code)
+	}
+	if store.ValidateProductServiceOptionCodes(options) != nil {
+		writeError(c, http.StatusBadRequest, "unsupported_service_option", "service_options must contain valid option codes")
+		return nil, false
+	}
+	return options, true
 }
 
 func (s *Server) resolveDeviceClaim(c *gin.Context) {

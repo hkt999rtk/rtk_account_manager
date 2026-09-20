@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -21,20 +22,25 @@ const (
 	ServiceRealtekVideoCloud = "realtek_video_server"
 )
 
+var serviceOptionCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+
 type MessageType string
 
 const (
-	MessageTypeDeviceProvisionRequested   MessageType = "DeviceProvisionRequested"
-	MessageTypeDeviceProvisionSucceeded   MessageType = "DeviceProvisionSucceeded"
-	MessageTypeDeviceProvisionFailed      MessageType = "DeviceProvisionFailed"
-	MessageTypeDeviceDeactivateRequested  MessageType = "DeviceDeactivateRequested"
-	MessageTypeDeviceDeactivateSucceeded  MessageType = "DeviceDeactivateSucceeded"
-	MessageTypeDeviceDeactivateFailed     MessageType = "DeviceDeactivateFailed"
-	MessageTypeDeviceUnprovisionRequested MessageType = "DeviceUnprovisionRequested"
-	MessageTypeDeviceUnprovisionSucceeded MessageType = "DeviceUnprovisionSucceeded"
-	MessageTypeDeviceUnprovisionFailed    MessageType = "DeviceUnprovisionFailed"
-	MessageTypeDeviceOnlineChanged        MessageType = "DeviceOnlineChanged"
-	MessageTypeDeviceMetadataChanged      MessageType = "DeviceMetadataChanged"
+	MessageTypeDeviceProvisionRequested           MessageType = "DeviceProvisionRequested"
+	MessageTypeDeviceProvisionSucceeded           MessageType = "DeviceProvisionSucceeded"
+	MessageTypeDeviceProvisionFailed              MessageType = "DeviceProvisionFailed"
+	MessageTypeDeviceDeactivateRequested          MessageType = "DeviceDeactivateRequested"
+	MessageTypeDeviceDeactivateSucceeded          MessageType = "DeviceDeactivateSucceeded"
+	MessageTypeDeviceDeactivateFailed             MessageType = "DeviceDeactivateFailed"
+	MessageTypeDeviceUnprovisionRequested         MessageType = "DeviceUnprovisionRequested"
+	MessageTypeDeviceUnprovisionSucceeded         MessageType = "DeviceUnprovisionSucceeded"
+	MessageTypeDeviceUnprovisionFailed            MessageType = "DeviceUnprovisionFailed"
+	MessageTypeDeviceEntitlementSnapshotRequested MessageType = "DeviceEntitlementSnapshotRequested"
+	MessageTypeDeviceEntitlementSnapshotSucceeded MessageType = "DeviceEntitlementSnapshotSucceeded"
+	MessageTypeDeviceEntitlementSnapshotFailed    MessageType = "DeviceEntitlementSnapshotFailed"
+	MessageTypeDeviceOnlineChanged                MessageType = "DeviceOnlineChanged"
+	MessageTypeDeviceMetadataChanged              MessageType = "DeviceMetadataChanged"
 )
 
 type OnlineStatus string
@@ -76,13 +82,16 @@ type Payload interface {
 }
 
 type DeviceProvisionRequestedPayload struct {
-	OrgID           string   `json:"org_id"`
-	AccountDeviceID string   `json:"account_device_id"`
-	VideoCloudDevid string   `json:"video_cloud_devid"`
-	ActivityID      string   `json:"activity_id"`
-	ClipPublicKey   string   `json:"clip_public_key"`
-	ServiceOptions  []string `json:"service_options,omitempty"`
-	RequestedBy     string   `json:"requested_by"`
+	OrgID                  string   `json:"org_id"`
+	AccountDeviceID        string   `json:"account_device_id"`
+	VideoCloudDevid        string   `json:"video_cloud_devid"`
+	ActivityID             string   `json:"activity_id"`
+	ClipPublicKey          string   `json:"clip_public_key"`
+	ServiceOptions         []string `json:"service_options,omitempty"`
+	ProductID              string   `json:"product_id,omitempty"`
+	ProductServiceRevision *int64   `json:"product_service_revision,omitempty"`
+	ServiceGrantSHA256     string   `json:"service_grant_sha256,omitempty"`
+	RequestedBy            string   `json:"requested_by"`
 }
 
 type DeviceProvisionSucceededPayload struct {
@@ -154,6 +163,38 @@ type DeviceUnprovisionFailedPayload struct {
 	ErrorMessage    string    `json:"error_message"`
 	Retryable       bool      `json:"retryable"`
 	FailedAt        time.Time `json:"failed_at"`
+}
+
+type DeviceEntitlementSnapshotRequestedPayload struct {
+	OrgID                       string   `json:"org_id"`
+	AccountDeviceID             string   `json:"account_device_id"`
+	VideoCloudDevid             string   `json:"video_cloud_devid"`
+	ProductID                   string   `json:"product_id"`
+	ProductServiceRevision      int64    `json:"product_service_revision"`
+	ServiceGrantSHA256          string   `json:"service_grant_sha256"`
+	PlatformEntitlementRevision int64    `json:"platform_entitlement_revision"`
+	ServiceOptions              []string `json:"service_options"`
+	State                       string   `json:"state"`
+	RequestedBy                 string   `json:"requested_by"`
+}
+
+type DeviceEntitlementSnapshotSucceededPayload struct {
+	OrgID                       string    `json:"org_id"`
+	AccountDeviceID             string    `json:"account_device_id"`
+	VideoCloudDevid             string    `json:"video_cloud_devid"`
+	PlatformEntitlementRevision int64     `json:"platform_entitlement_revision"`
+	AppliedAt                   time.Time `json:"applied_at"`
+}
+
+type DeviceEntitlementSnapshotFailedPayload struct {
+	OrgID                       string    `json:"org_id"`
+	AccountDeviceID             string    `json:"account_device_id"`
+	VideoCloudDevid             string    `json:"video_cloud_devid"`
+	PlatformEntitlementRevision int64     `json:"platform_entitlement_revision"`
+	ErrorCode                   string    `json:"error_code"`
+	ErrorMessage                string    `json:"error_message"`
+	Retryable                   bool      `json:"retryable"`
+	FailedAt                    time.Time `json:"failed_at"`
 }
 
 type DeviceOnlineChangedPayload struct {
@@ -261,6 +302,19 @@ var messageSpecs = map[MessageType]messageSpec{
 		newPayload: func() Payload {
 			return &DeviceUnprovisionFailedPayload{}
 		},
+	},
+	MessageTypeDeviceEntitlementSnapshotRequested: {
+		stream: StreamAccountVideoCommands, sourceService: ServiceAccountManager, targetService: ServiceRealtekVideoCloud,
+		newPayload: func() Payload { return &DeviceEntitlementSnapshotRequestedPayload{} },
+	},
+	MessageTypeDeviceEntitlementSnapshotSucceeded: {
+		stream: StreamVideoAccountEvents, sourceService: ServiceRealtekVideoCloud, targetService: ServiceAccountManager,
+		newPayload: func() Payload { return &DeviceEntitlementSnapshotSucceededPayload{} },
+	},
+	MessageTypeDeviceEntitlementSnapshotFailed: {
+		stream: StreamVideoAccountEvents, sourceService: ServiceRealtekVideoCloud, targetService: ServiceAccountManager,
+		requiredJSONFields: []string{"retryable"},
+		newPayload:         func() Payload { return &DeviceEntitlementSnapshotFailedPayload{} },
 	},
 	MessageTypeDeviceOnlineChanged: {
 		stream:        StreamVideoAccountEvents,
@@ -371,6 +425,20 @@ func (p *DeviceProvisionRequestedPayload) Validate() error {
 	}
 	if err := validateServiceOptions("payload.service_options", p.ServiceOptions); err != nil {
 		return err
+	}
+	if p.ProductID != "" || p.ProductServiceRevision != nil || p.ServiceGrantSHA256 != "" {
+		if err := requireUUID("payload.product_id", p.ProductID); err != nil {
+			return err
+		}
+		if p.ProductServiceRevision == nil || *p.ProductServiceRevision < 1 {
+			return fieldError("payload.product_service_revision", "must be positive")
+		}
+		if len(p.ServiceOptions) == 0 || len(p.ServiceGrantSHA256) != 64 || p.ServiceGrantSHA256 != strings.ToLower(p.ServiceGrantSHA256) {
+			return fieldError("payload.service_grant_sha256", "requires services and a lowercase SHA-256 digest")
+		}
+		if _, err := hex.DecodeString(p.ServiceGrantSHA256); err != nil {
+			return fieldError("payload.service_grant_sha256", "must be SHA-256 hex")
+		}
 	}
 
 	return validateRequiredStrings(
@@ -565,6 +633,76 @@ func (p *DeviceUnprovisionFailedPayload) PartitionKey() string {
 	return p.AccountDeviceID
 }
 
+func (p *DeviceEntitlementSnapshotRequestedPayload) Validate() error {
+	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
+		return err
+	}
+	if err := requireUUID("payload.product_id", p.ProductID); err != nil {
+		return err
+	}
+	if err := validateRequiredStrings(
+		fieldValue{"payload.video_cloud_devid", p.VideoCloudDevid},
+		fieldValue{"payload.requested_by", p.RequestedBy},
+	); err != nil {
+		return err
+	}
+	if p.ProductServiceRevision < 1 || p.PlatformEntitlementRevision < 1 {
+		return fieldError("payload.platform_entitlement_revision", "revisions must be positive")
+	}
+	if len(p.ServiceGrantSHA256) != 64 || strings.ToLower(p.ServiceGrantSHA256) != p.ServiceGrantSHA256 {
+		return fieldError("payload.service_grant_sha256", "must be SHA-256 hex")
+	}
+	if _, err := hex.DecodeString(p.ServiceGrantSHA256); err != nil {
+		return fieldError("payload.service_grant_sha256", "must be SHA-256 hex")
+	}
+	if len(p.ServiceOptions) == 0 {
+		return fieldError("payload.service_options", "must be set")
+	}
+	if err := validateServiceOptions("payload.service_options", p.ServiceOptions); err != nil {
+		return err
+	}
+	if p.State != "active" && p.State != "suspended" && p.State != "revoked" {
+		return fieldError("payload.state", "unsupported entitlement state")
+	}
+	return nil
+}
+
+func (p *DeviceEntitlementSnapshotRequestedPayload) PartitionKey() string { return p.AccountDeviceID }
+
+func (p *DeviceEntitlementSnapshotSucceededPayload) Validate() error {
+	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
+		return err
+	}
+	if err := requireNonBlank("payload.video_cloud_devid", p.VideoCloudDevid); err != nil {
+		return err
+	}
+	if p.PlatformEntitlementRevision < 1 || p.AppliedAt.IsZero() {
+		return fieldError("payload.platform_entitlement_revision", "revision and applied_at are required")
+	}
+	return validateUTC("payload.applied_at", p.AppliedAt)
+}
+
+func (p *DeviceEntitlementSnapshotSucceededPayload) PartitionKey() string { return p.AccountDeviceID }
+
+func (p *DeviceEntitlementSnapshotFailedPayload) Validate() error {
+	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
+		return err
+	}
+	if err := validateRequiredStrings(
+		fieldValue{"payload.video_cloud_devid", p.VideoCloudDevid},
+		fieldValue{"payload.error_code", p.ErrorCode},
+		fieldValue{"payload.error_message", p.ErrorMessage},
+	); err != nil {
+		return err
+	}
+	if p.PlatformEntitlementRevision < 1 || p.FailedAt.IsZero() {
+		return fieldError("payload.platform_entitlement_revision", "revision and failed_at are required")
+	}
+	return validateUTC("payload.failed_at", p.FailedAt)
+}
+
+func (p *DeviceEntitlementSnapshotFailedPayload) PartitionKey() string { return p.AccountDeviceID }
+
 func (p *DeviceOnlineChangedPayload) Validate() error {
 	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
 		return err
@@ -659,12 +797,13 @@ func validateUTC(field string, value time.Time) error {
 }
 
 func validateServiceOptions(field string, options []string) error {
+	if len(options) > 64 {
+		return fieldError(field, "must not exceed 64 options")
+	}
 	seen := map[string]struct{}{}
 	for _, option := range options {
-		switch option {
-		case "mqtt", "video_streaming", "video_storage":
-		default:
-			return fieldError(field, "may contain only mqtt, video_streaming, or video_storage")
+		if !serviceOptionCodePattern.MatchString(option) {
+			return fieldError(field, "must contain valid service option codes")
 		}
 		if _, ok := seen[option]; ok {
 			return fieldError(field, "must not contain duplicates")

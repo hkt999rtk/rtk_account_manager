@@ -40,6 +40,7 @@ type deviceItemProfileRequest struct {
 	CAProfile          string         `json:"ca_profile,omitempty"`
 	IssuerProfile      string         `json:"issuer_profile,omitempty"`
 	ServiceOptions     []string       `json:"service_options"`
+	CatalogRevision    int64          `json:"catalog_revision,omitempty"`
 	ClaimPolicy        map[string]any `json:"claim_policy"`
 	ProvisioningPolicy map[string]any `json:"provisioning_policy"`
 }
@@ -156,7 +157,7 @@ func (s *Server) createDeviceItemProfile(c *gin.Context) {
 	if !ok {
 		return
 	}
-	serviceOptions, ok := canonicalServiceOptions(c, req.ServiceOptions)
+	serviceOptions, ok := s.productServiceOptions(c, req.ServiceOptions)
 	if !ok {
 		return
 	}
@@ -174,6 +175,7 @@ func (s *Server) createDeviceItemProfile(c *gin.Context) {
 		CAProfile:          req.CAProfile,
 		IssuerProfile:      req.IssuerProfile,
 		ServiceOptions:     serviceOptions,
+		CatalogRevision:    req.CatalogRevision,
 		ClaimPolicy:        req.ClaimPolicy,
 		ProvisioningPolicy: req.ProvisioningPolicy,
 	})
@@ -248,7 +250,7 @@ func (s *Server) updateDeviceItemProfile(c *gin.Context) {
 	}
 	var serviceOptions []string
 	if req.ServiceOptions != nil {
-		parsed, ok := canonicalServiceOptions(c, req.ServiceOptions)
+		parsed, ok := s.productServiceOptions(c, req.ServiceOptions)
 		if !ok {
 			return
 		}
@@ -281,6 +283,7 @@ func (s *Server) updateDeviceItemProfile(c *gin.Context) {
 		CAProfile:          caProfile,
 		IssuerProfile:      issuerProfile,
 		ServiceOptions:     serviceOptions,
+		CatalogRevision:    req.CatalogRevision,
 		ClaimPolicy:        req.ClaimPolicy,
 		ProvisioningPolicy: req.ProvisioningPolicy,
 	})
