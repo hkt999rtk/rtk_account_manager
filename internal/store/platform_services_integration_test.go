@@ -306,6 +306,182 @@ func TestServicePublicationRequiresReadyRevisionAndDoesNotRollBackOnOldHeartbeat
 	}
 }
 
+func TestPlatformServiceDeregisterAndAdministrativeFailureModes(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	environment := "integration-service-admin-" + strconv.FormatInt(now.UnixNano(), 10)
+	cleanupServiceEnvironment(t, env, environment)
+	owner := handoffDeveloper(t, env, "service-admin")
+	principal := PlatformServicePrincipal{
+		Environment:        environment,
+		CertificateSubject: "service:mqtt-admin",
+		IssuerFingerprint:  strings.Repeat("d", 64),
+	}
+	emptyCatalog, err := env.store.ListPlatformServiceOptions(ctx, environment, now)
+	if err != nil || emptyCatalog.CatalogRevision != 1 || len(emptyCatalog.Options) != 0 {
+		t.Fatalf("empty catalog = %+v %v", emptyCatalog, err)
+	}
+	corruptEnvironment := environment + "-corrupt"
+	cleanupServiceEnvironment(t, env, corruptEnvironment)
+	if _, err := env.db.Exec(ctx, `INSERT INTO platform_service_catalog_revisions(environment,revision) VALUES($1,1)`, corruptEnvironment); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `INSERT INTO platform_service_manifests(environment,service_id,manifest_version,digest_sha256,protocol_version,endpoint_ref,options) VALUES($1,'corrupt','1',$2,'1','corrupt',$3::jsonb)`, corruptEnvironment, strings.Repeat("0", 64), `{"unexpected":true}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `INSERT INTO platform_services(environment,service_id,published_version,status) VALUES($1,'corrupt','1','active')`, corruptEnvironment); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.ListPlatformServiceOptions(ctx, corruptEnvironment, now); err == nil {
+		t.Fatal("corrupt platform service manifest was accepted")
+	}
+	approval := PlatformServiceWorkloadApproval{
+		Environment:        environment,
+		ServiceID:          "mqtt",
+		InstanceID:         "mqtt-admin-1",
+		CertificateSubject: principal.CertificateSubject,
+		IssuerFingerprint:  principal.IssuerFingerprint,
+		AllowedOptionCodes: []string{"mqtt"},
+		ApprovedBy:         owner.User.ID,
+	}
+	if err := env.store.ApprovePlatformServiceWorkload(ctx, approval); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.store.ApprovePlatformServiceWorkload(ctx, approval); err != nil {
+		t.Fatalf("repeat approval = %v", err)
+	}
+	conflictingApproval := approval
+	conflictingApproval.InstanceID = "mqtt-admin-conflict"
+	if err := env.store.ApprovePlatformServiceWorkload(ctx, conflictingApproval); !errors.Is(err, ErrConflict) {
+		t.Fatalf("certificate workload takeover = %v", err)
+	}
+	invalidApproval := approval
+	invalidApproval.AllowedOptionCodes = []string{"iot_shadow"}
+	if err := env.store.ApprovePlatformServiceWorkload(ctx, invalidApproval); !errors.Is(err, ErrServiceRegistrationInvalid) {
+		t.Fatalf("foundation-less mqtt approval = %v", err)
+	}
+	if err := env.store.RevokePlatformServiceWorkload(ctx, PlatformServiceWorkloadRevocation{Environment: environment, RevokedBy: owner.User.ID, ServiceID: "mqtt", InstanceID: "mqtt-admin-1", CertificateSubject: principal.CertificateSubject, IssuerFingerprint: "short"}, now); !errors.Is(err, ErrServiceRegistrationInvalid) {
+		t.Fatalf("invalid revocation = %v", err)
+	}
+	if _, err := env.store.SetPlatformServiceStatus(ctx, environment, "mqtt", "enabled", owner.User.ID); !errors.Is(err, ErrServiceRegistrationInvalid) {
+		t.Fatalf("invalid status = %v", err)
+	}
+	manifest := PlatformServiceRegistration{
+		RequestID:       "mqtt-admin-start",
+		ServiceID:       "mqtt",
+		InstanceID:      "mqtt-admin-1",
+		ManifestVersion: "1",
+		ProtocolVersion: "1",
+		EndpointRef:     "mqtt-admin",
+		Ready:           true,
+		Options:         []PlatformServiceOption{{Code: "mqtt", DisplayName: "MQTT"}},
+	}
+	if _, err := env.store.RegisterPlatformServiceInstance(ctx, manifest, principal, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.store.DeregisterPlatformServiceInstance(ctx, "mqtt", manifest.InstanceID, principal, now.Add(time.Second)); err != nil {
+		t.Fatalf("deregister = %v", err)
+	}
+	catalog, err := env.store.ListPlatformServiceOptions(ctx, environment, now.Add(time.Second))
+	if err != nil || len(catalog.Options) != 1 || catalog.Options[0].Selectable {
+		t.Fatalf("deregistered service catalog = %+v %v", catalog, err)
+	}
+	if err := env.store.DeregisterPlatformServiceInstance(ctx, "mqtt", "missing-instance", principal, now.Add(2*time.Second)); !errors.Is(err, ErrServiceRegistrationDenied) {
+		t.Fatalf("unapproved deregistration = %v", err)
+	}
+	missingPrincipal := PlatformServicePrincipal{Environment: environment, CertificateSubject: "service:mqtt-missing", IssuerFingerprint: strings.Repeat("e", 64)}
+	if err := env.store.ApprovePlatformServiceWorkload(ctx, PlatformServiceWorkloadApproval{Environment: environment, ServiceID: "mqtt", InstanceID: "missing-instance", CertificateSubject: missingPrincipal.CertificateSubject, IssuerFingerprint: missingPrincipal.IssuerFingerprint, AllowedOptionCodes: []string{"mqtt"}, ApprovedBy: owner.User.ID}); err != nil {
+		t.Fatalf("missing-instance approval = %v", err)
+	}
+	if err := env.store.DeregisterPlatformServiceInstance(ctx, "mqtt", "missing-instance", missingPrincipal, now.Add(2*time.Second)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing registered instance = %v", err)
+	}
+	invalidPluginPrincipal := PlatformServicePrincipal{Environment: environment, CertificateSubject: "service:plugin-invalid", IssuerFingerprint: strings.Repeat("f", 64)}
+	if err := env.store.ApprovePlatformServiceWorkload(ctx, PlatformServiceWorkloadApproval{Environment: environment, ServiceID: "plugin-invalid", InstanceID: "plugin-invalid-1", CertificateSubject: invalidPluginPrincipal.CertificateSubject, IssuerFingerprint: invalidPluginPrincipal.IssuerFingerprint, AllowedOptionCodes: []string{"plugin_option"}, ApprovedBy: owner.User.ID}); err != nil {
+		t.Fatalf("invalid plugin approval = %v", err)
+	}
+	invalidPlugin := PlatformServiceRegistration{RequestID: "plugin-invalid", ServiceID: "plugin-invalid", InstanceID: "plugin-invalid-1", ManifestVersion: "1", ProtocolVersion: "1", EndpointRef: "plugin-invalid", Ready: true, Options: []PlatformServiceOption{{Code: "plugin_option", DisplayName: "Plugin", Requires: []string{"mqtt", "missing_option"}}}}
+	if _, err := env.store.RegisterPlatformServiceInstance(ctx, invalidPlugin, invalidPluginPrincipal, now.Add(2*time.Second)); !errors.Is(err, ErrServiceRegistrationInvalid) {
+		t.Fatalf("missing plugin dependency = %v", err)
+	}
+	pluginPrincipal := PlatformServicePrincipal{Environment: environment, CertificateSubject: "service:plugin", IssuerFingerprint: strings.Repeat("1", 64)}
+	if err := env.store.ApprovePlatformServiceWorkload(ctx, PlatformServiceWorkloadApproval{Environment: environment, ServiceID: "plugin", InstanceID: "plugin-1", CertificateSubject: pluginPrincipal.CertificateSubject, IssuerFingerprint: pluginPrincipal.IssuerFingerprint, AllowedOptionCodes: []string{"plugin_option"}, ApprovedBy: owner.User.ID}); err != nil {
+		t.Fatalf("plugin approval = %v", err)
+	}
+	plugin := invalidPlugin
+	plugin.RequestID, plugin.ServiceID, plugin.InstanceID, plugin.EndpointRef = "plugin-start", "plugin", "plugin-1", "plugin"
+	plugin.Options[0].Requires = []string{"mqtt"}
+	if _, err := env.store.RegisterPlatformServiceInstance(ctx, plugin, pluginPrincipal, now.Add(2*time.Second)); err != nil {
+		t.Fatalf("plugin registration = %v", err)
+	}
+	pluginCatalog, err := env.store.ListPlatformServiceOptions(ctx, environment, now.Add(2*time.Second))
+	if err != nil || len(pluginCatalog.Options) != 2 || pluginCatalog.Options[1].Code != "plugin_option" || pluginCatalog.Options[1].Selectable || pluginCatalog.Options[1].UnavailableReason != "dependency_unavailable" {
+		t.Fatalf("unready MQTT kept plugin selectable: %+v %v", pluginCatalog, err)
+	}
+	collisionPrincipal := PlatformServicePrincipal{Environment: environment, CertificateSubject: "service:plugin-collision", IssuerFingerprint: strings.Repeat("2", 64)}
+	if err := env.store.ApprovePlatformServiceWorkload(ctx, PlatformServiceWorkloadApproval{Environment: environment, ServiceID: "plugin-collision", InstanceID: "plugin-collision-1", CertificateSubject: collisionPrincipal.CertificateSubject, IssuerFingerprint: collisionPrincipal.IssuerFingerprint, AllowedOptionCodes: []string{"plugin_option"}, ApprovedBy: owner.User.ID}); err != nil {
+		t.Fatalf("collision approval = %v", err)
+	}
+	collision := plugin
+	collision.RequestID, collision.ServiceID, collision.InstanceID, collision.EndpointRef = "plugin-collision", "plugin-collision", "plugin-collision-1", "plugin-collision"
+	if _, err := env.store.RegisterPlatformServiceInstance(ctx, collision, collisionPrincipal, now.Add(2*time.Second)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate option owner = %v", err)
+	}
+	cyclePrincipal := PlatformServicePrincipal{Environment: environment, CertificateSubject: "service:plugin-cycle", IssuerFingerprint: strings.Repeat("3", 64)}
+	if err := env.store.ApprovePlatformServiceWorkload(ctx, PlatformServiceWorkloadApproval{Environment: environment, ServiceID: "plugin-cycle", InstanceID: "plugin-cycle-1", CertificateSubject: cyclePrincipal.CertificateSubject, IssuerFingerprint: cyclePrincipal.IssuerFingerprint, AllowedOptionCodes: []string{"cycle_a", "cycle_b"}, ApprovedBy: owner.User.ID}); err != nil {
+		t.Fatalf("cycle plugin approval = %v", err)
+	}
+	cycle := PlatformServiceRegistration{RequestID: "plugin-cycle", ServiceID: "plugin-cycle", InstanceID: "plugin-cycle-1", ManifestVersion: "1", ProtocolVersion: "1", EndpointRef: "plugin-cycle", Ready: true, Options: []PlatformServiceOption{
+		{Code: "cycle_a", DisplayName: "Cycle A", Requires: []string{"mqtt", "cycle_b"}},
+		{Code: "cycle_b", DisplayName: "Cycle B", Requires: []string{"mqtt", "cycle_a"}},
+	}}
+	if _, err := env.store.RegisterPlatformServiceInstance(ctx, cycle, cyclePrincipal, now.Add(2*time.Second)); !errors.Is(err, ErrServiceRegistrationInvalid) {
+		t.Fatalf("cyclic plugin manifest = %v", err)
+	}
+	if _, err := env.store.HeartbeatPlatformServiceInstance(ctx, "mqtt", manifest.InstanceID, "1", true, principal, now.Add(2*time.Second)); err != nil {
+		t.Fatalf("heartbeat after deregistration = %v", err)
+	}
+	if _, err := env.store.SetPlatformServiceStatus(ctx, environment, "missing-service", "active", owner.User.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing service status = %v", err)
+	}
+	if _, err := env.store.PublishPlatformServiceManifest(ctx, "mqtt", "1", "missing", principal, now.Add(2*time.Second)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing manifest publication = %v", err)
+	}
+	if _, err := env.store.PublishPlatformServiceManifest(ctx, "mqtt", "1", "2", PlatformServicePrincipal{Environment: environment, CertificateSubject: "service:unapproved", IssuerFingerprint: strings.Repeat("4", 64)}, now.Add(2*time.Second)); !errors.Is(err, ErrServiceRegistrationDenied) {
+		t.Fatalf("unapproved publication = %v", err)
+	}
+	if _, err := env.store.SetPlatformServiceStatus(ctx, environment, "mqtt", "suspended", owner.User.ID); err != nil {
+		t.Fatalf("suspend service = %v", err)
+	}
+	if _, err := env.store.PublishPlatformServiceManifest(ctx, "mqtt", "1", "2", principal, now.Add(2*time.Second)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("suspended publication = %v", err)
+	}
+	if _, err := env.store.SetPlatformServiceStatus(ctx, environment, "mqtt", "active", owner.User.ID); err != nil {
+		t.Fatalf("reactivate service = %v", err)
+	}
+	if _, err := env.store.SetPlatformServiceStatus(ctx, environment, "mqtt", "retired", owner.User.ID); err != nil {
+		t.Fatalf("retire service = %v", err)
+	}
+	if _, err := env.store.SetPlatformServiceStatus(ctx, environment, "mqtt", "active", owner.User.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("retired service reactivated = %v", err)
+	}
+	revocation := PlatformServiceWorkloadRevocation{
+		Environment:        environment,
+		RevokedBy:          owner.User.ID,
+		ServiceID:          "mqtt",
+		InstanceID:         manifest.InstanceID,
+		CertificateSubject: principal.CertificateSubject,
+		IssuerFingerprint:  principal.IssuerFingerprint,
+	}
+	if err := env.store.RevokePlatformServiceWorkload(ctx, revocation, now.Add(3*time.Second)); err != nil {
+		t.Fatalf("revoke workload = %v", err)
+	}
+	if err := env.store.RevokePlatformServiceWorkload(ctx, revocation, now.Add(4*time.Second)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second revocation = %v", err)
+	}
+}
+
 func cleanupServiceEnvironment(t *testing.T, env storeIntegrationEnv, environment string) {
 	t.Helper()
 	t.Cleanup(func() {
