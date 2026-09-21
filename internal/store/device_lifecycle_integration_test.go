@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,17 +16,19 @@ func TestStartDeviceLifecycleOperationPersistsPendingProvisionMetadata(t *testin
 	orgID, userID, deviceID := createDeviceFixture(t, env)
 
 	ctx := context.Background()
+	priorSeenAt := time.Date(2026, 4, 28, 8, 0, 0, 0, time.UTC)
 	if _, err := env.db.Exec(ctx, `
 		UPDATE devices
-		SET metadata = metadata
+		SET status = 'online', last_seen_at = $2, metadata = metadata
 			|| jsonb_build_object(
 				'video_cloud_activation_status', 'deactivated',
 				'video_cloud_activated_at', '2026-04-28T09:00:00Z',
 				'video_cloud_deactivated_at', '2026-04-28T10:00:00Z',
-				'video_cloud_last_error', jsonb_build_object('code', 'stale_error')
+				'video_cloud_last_error', jsonb_build_object('code', 'stale_error'),
+				'video_cloud_transfer_reservation_id', $3::text
 			)
 		WHERE id = $1
-	`, deviceID); err != nil {
+	`, deviceID, priorSeenAt, strings.Repeat("c", 64)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -56,6 +59,12 @@ func TestStartDeviceLifecycleOperationPersistsPendingProvisionMetadata(t *testin
 	}
 	if !result.Created {
 		t.Fatal("expected provisioning operation to be created")
+	}
+	if got := result.Message.Payload["transfer_reservation_id"]; got != strings.Repeat("c", 64) {
+		t.Fatalf("provision command lost transfer generation: %v", got)
+	}
+	if result.Device.Status != model.DeviceStatusUnknown || result.Device.LastSeenAt != nil {
+		t.Fatalf("new provisioning must discard pre-cloud presence: %+v", result.Device)
 	}
 	if got := result.Device.Metadata["location"]; got != "lab" {
 		t.Fatalf("expected unrelated metadata to remain, got %+v", got)
@@ -89,6 +98,9 @@ func TestStartDeviceLifecycleOperationPersistsPendingProvisionMetadata(t *testin
 	if got := persisted.Metadata[model.DeviceMetadataVideoCloudActivationStatus]; got != string(model.VideoCloudActivationStatusPending) {
 		t.Fatalf("expected persisted pending activation status, got %+v", got)
 	}
+	if persisted.Status != model.DeviceStatusUnknown || persisted.LastSeenAt != nil {
+		t.Fatalf("persisted provisioning presence was not reset: %+v", persisted)
+	}
 
 	replayed, err := env.store.StartDeviceLifecycleOperation(ctx, input)
 	if err != nil {
@@ -115,7 +127,7 @@ func TestStartDeviceDeactivationOperationUsesProjectedMetadata(t *testing.T) {
 	ctx := context.Background()
 	if _, err := env.db.Exec(ctx, `
 		UPDATE devices
-		SET metadata = metadata || jsonb_build_object('video_cloud_devid', 'video-device-1')
+		SET metadata = metadata || jsonb_build_object('video_cloud_devid', 'video-device-1', 'video_cloud_activity_id', 'activity-1')
 		WHERE id = $1
 	`, deviceID); err != nil {
 		t.Fatal(err)
@@ -151,6 +163,9 @@ func TestStartDeviceDeactivationOperationUsesProjectedMetadata(t *testing.T) {
 	}
 	if got := result.Message.Payload["video_cloud_devid"]; got != "video-device-1" {
 		t.Fatalf("expected outbox payload to use projected video metadata, got %+v", result.Message.Payload)
+	}
+	if got := result.Message.Payload["activity_id"]; got != "activity-1" {
+		t.Fatalf("expected outbox payload to pin activity generation, got %+v", result.Message.Payload)
 	}
 	if got := result.Message.Payload["reason"]; got != "user_request" {
 		t.Fatalf("expected outbox payload to keep deactivation reason, got %+v", result.Message.Payload)

@@ -168,6 +168,106 @@ func TestProjectDeviceProvisioningAndOnlineRules(t *testing.T) {
 	}
 }
 
+func TestOnlineProjectionKeepsMappedIdentityAndObservationOrder(t *testing.T) {
+	env := newProjectionIntegrationEnv(t)
+	registered, device := createProjectionDevice(t, env, map[string]any{
+		model.DeviceMetadataVideoCloudDevid: "video-003",
+	})
+	project := func(devid string, status channel.OnlineStatus, at time.Time) (model.Device, error) {
+		return env.store.ProjectDevice(context.Background(), registered.Organization.ID, device.ID, OnlineChangedProjection(channel.DeviceOnlineChangedPayload{
+			VideoCloudDevid: devid,
+			Status:          status,
+			LastSeenAt:      at,
+		}))
+	}
+	t1 := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	t2 := t1.Add(time.Minute)
+	t3 := t2.Add(time.Minute)
+
+	online, err := project("video-003", channel.OnlineStatusOnline, t2)
+	if err != nil || online.Status != model.DeviceStatusOnline {
+		t.Fatalf("online projection = %+v, %v", online, err)
+	}
+	older, err := project("video-003", channel.OnlineStatusOffline, t1)
+	if err != nil || older.Status != model.DeviceStatusOnline || !older.LastSeenAt.Equal(t2) {
+		t.Fatalf("older offline event regressed presence: %+v, %v", older, err)
+	}
+	if _, err := project("different-video-device", channel.OnlineStatusOffline, t3); !errors.Is(err, ErrConflict) {
+		t.Fatalf("mismatched video identity must be rejected, got %v", err)
+	}
+	offline, err := project("video-003", channel.OnlineStatusOffline, t2)
+	if err != nil || offline.Status != model.DeviceStatusOffline {
+		t.Fatalf("equal-time offline event should win: %+v, %v", offline, err)
+	}
+	staleOnline, err := project("video-003", channel.OnlineStatusOnline, t2)
+	if err != nil || staleOnline.Status != model.DeviceStatusOffline {
+		t.Fatalf("equal-time online event re-opened presence: %+v, %v", staleOnline, err)
+	}
+	newer, err := project("video-003", channel.OnlineStatusOnline, t3)
+	if err != nil || newer.Status != model.DeviceStatusOnline || !newer.LastSeenAt.Equal(t3) {
+		t.Fatalf("newer online event was not projected: %+v, %v", newer, err)
+	}
+	stored, err := env.store.GetDevice(context.Background(), registered.Organization.ID, device.ID)
+	if err != nil || stored.Status != model.DeviceStatusOnline || !stored.LastSeenAt.Equal(t3) || stored.Metadata[model.DeviceMetadataVideoCloudDevid] != "video-003" {
+		t.Fatalf("stored presence or identity = %+v, %v", stored, err)
+	}
+}
+
+func TestLifecycleProjectionDoesNotOverwriteNewerActivity(t *testing.T) {
+	env := newProjectionIntegrationEnv(t)
+	registered, device := createProjectionDevice(t, env, map[string]any{
+		model.DeviceMetadataVideoCloudDevid:            "video-activity-1",
+		model.DeviceMetadataVideoCloudActivityID:       "activity-new",
+		model.DeviceMetadataVideoCloudActivationStatus: model.VideoCloudActivationStatusPending,
+	})
+	ctx := context.Background()
+	oldDeactivation := DeactivateSucceededProjection(channel.DeviceDeactivateSucceededPayload{
+		VideoCloudDevid: "video-activity-1", ActivityID: "activity-old", DeactivatedAt: time.Now().UTC(),
+	})
+	oldDeactivation.ExpectedActivityID = "activity-old"
+	unchanged, err := env.store.ProjectDevice(ctx, registered.Organization.ID, device.ID, oldDeactivation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.Metadata[model.DeviceMetadataVideoCloudActivityID] != "activity-new" ||
+		unchanged.Metadata[model.DeviceMetadataVideoCloudActivationStatus] != string(model.VideoCloudActivationStatusPending) {
+		t.Fatalf("stale deactivation changed new generation: %+v", unchanged.Metadata)
+	}
+	oldProvision := ProvisionSucceededProjection(channel.DeviceProvisionSucceededPayload{
+		VideoCloudDevid: "video-activity-1", ActivityID: "activity-old", ActivatedAt: time.Now().UTC(),
+	})
+	oldProvision.ExpectedActivityID = "activity-old"
+	unchanged, err = env.store.ProjectDevice(ctx, registered.Organization.ID, device.ID, oldProvision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.Metadata[model.DeviceMetadataVideoCloudActivityID] != "activity-new" ||
+		unchanged.Metadata[model.DeviceMetadataVideoCloudActivationStatus] != string(model.VideoCloudActivationStatusPending) {
+		t.Fatalf("stale provision changed new generation: %+v", unchanged.Metadata)
+	}
+	currentDeactivation := DeactivateSucceededProjection(channel.DeviceDeactivateSucceededPayload{
+		VideoCloudDevid: "video-activity-1", ActivityID: "activity-new", DeactivatedAt: time.Now().UTC(),
+	})
+	currentDeactivation.ExpectedActivityID = "activity-new"
+	projected, err := env.store.ProjectDevice(ctx, registered.Organization.ID, device.ID, currentDeactivation)
+	if err != nil || projected.Metadata[model.DeviceMetadataVideoCloudActivationStatus] != string(model.VideoCloudActivationStatusDeactivated) {
+		t.Fatalf("current generation was not projected: %+v, %v", projected.Metadata, err)
+	}
+}
+
+func TestOnlineProjectionRequiresExistingVideoIdentity(t *testing.T) {
+	env := newProjectionIntegrationEnv(t)
+	registered, device := createProjectionDevice(t, env, nil)
+	_, err := env.store.ProjectDevice(context.Background(), registered.Organization.ID, device.ID, OnlineChangedProjection(channel.DeviceOnlineChangedPayload{
+		VideoCloudDevid: "unmapped-video-device",
+		Status:          channel.OnlineStatusOnline,
+		LastSeenAt:      time.Now().UTC(),
+	}))
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("unmapped online event must be rejected, got %v", err)
+	}
+}
+
 func TestProjectDeviceRejectsDisabledDevicesExceptDeactivateResults(t *testing.T) {
 	env := newProjectionIntegrationEnv(t)
 	registered, device := createProjectionDevice(t, env, map[string]any{"location": "rack-b"})

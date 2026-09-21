@@ -161,6 +161,7 @@ type deviceClaimPersistence interface {
 	ResolveEndUserDeviceClaimToken(ctx context.Context, in store.EndUserDeviceClaimResolveInput) (store.EndUserDeviceClaimResolveResult, error)
 	TransferDeviceClaim(ctx context.Context, in store.DeviceClaimTransferInput) (store.DeviceClaimOverrideResult, error)
 	ReclaimDeviceClaimToken(ctx context.Context, in store.DeviceClaimReclaimInput) (store.DeviceClaimOverrideResult, error)
+	ReconcileDeviceTransferFence(ctx context.Context, in store.DeviceTransferFenceReconcileInput) (store.DeviceTransferFenceReconcileResult, error)
 	AuthorizeUserForVideoDevice(ctx context.Context, userID, videoCloudDevid string) error
 	AuthorizeEndUserForVideoDevice(ctx context.Context, endUserID, videoCloudDevid string) error
 }

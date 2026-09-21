@@ -27,6 +27,7 @@ type Server struct {
 	platformServiceProductWrites bool
 	pkiClient                    *pkiProxy
 	testLab                      *testLabRuntime
+	videoPresence                videoPresenceReader
 	store                        Store
 	auth                         *auth.Service
 	authTokenQueuedHook          func(AuthTokenDelivery)
@@ -297,6 +298,7 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/internal/job-authorizations/:authorizationId/exchange", s.exchangeJobAuthorization)
 	v1.POST("/internal/job-authorizations/:authorizationId/revoke", s.revokeJobAuthorization)
 	v1.POST("/internal/device-provisioning-results", s.handleInternalDeviceProvisioningResult)
+	v1.POST("/internal/device-presence-events", s.handleInternalDevicePresenceEvent)
 	v1.POST("/internal/factory-enrollments/reserve", s.reserveFactoryEnrollment)
 	v1.POST("/internal/factory-enrollments/lookup", s.lookupFactoryEnrollment)
 	v1.POST("/internal/factory-enrollments/cancel", s.cancelFactoryEnrollment)
@@ -453,6 +455,8 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/admin/device-claim-tokens/:tokenId/revoke", s.requirePlatformAdmin(), s.revokeDeviceClaimToken)
 	protected.POST("/admin/device-claim-tokens/:tokenId/reclaim", s.requirePlatformAdmin(), s.reclaimDeviceClaimToken)
 	protected.POST("/admin/device-claims/:claimId/transfer", s.requirePlatformAdmin(), s.transferDeviceClaim)
+	protected.GET("/admin/device-claims/:claimId/transfer-fence", s.requirePlatformAdmin(), s.inspectDeviceClaimTransferFence)
+	protected.POST("/admin/device-claims/:claimId/transfer-fence/cancel", s.requirePlatformAdmin(), s.cancelDeviceClaimTransferFence)
 	protected.POST("/admin/devices/:deviceId/unprovision", s.requirePlatformAdmin(), s.adminUnprovisionDevice)
 	protected.POST("/admin/identity-providers", s.requirePlatformAdmin(), s.createIdentityProvider)
 	protected.GET("/admin/identity-providers", s.requirePlatformAdmin(), s.listIdentityProviders)
@@ -2072,6 +2076,10 @@ func writeStoreError(c *gin.Context, err error) {
 		writeError(c, http.StatusBadRequest, "service_options_mismatch", "service_options must match the selected device item profile")
 	case errors.Is(err, store.ErrDeviceItemProfileDisabled):
 		writeError(c, http.StatusConflict, "device_item_profile_disabled", "Device item profile is disabled")
+	case errors.Is(err, store.ErrCloudManagedPresence):
+		writeError(c, http.StatusConflict, "presence_source_owned_by_video_cloud", "Presence for a cloud-managed device must come from its owner transport")
+	case errors.Is(err, store.ErrReservedDeviceMetadata):
+		writeError(c, http.StatusBadRequest, "reserved_device_metadata", "Service-owned device metadata cannot be edited through the registry API")
 	case errors.Is(err, store.ErrRateLimited):
 		writeError(c, http.StatusTooManyRequests, "rate_limited", "Too many token requests")
 	case errors.Is(err, store.ErrEvaluationQuotaExceeded):
@@ -2103,6 +2111,10 @@ func writeClaimResolveError(c *gin.Context, err error) {
 		writeClaimError(c, http.StatusBadRequest, "unsupported_device_category", "Claim token device category is not supported", false, "use_supported_device_category")
 	case errors.Is(err, store.ErrClaimInvalidState):
 		writeClaimError(c, http.StatusConflict, "invalid_claim_state", "Claim token state does not allow this operation", false, "contact_support")
+	case errors.Is(err, store.ErrClaimLifecycleBound):
+		writeClaimError(c, http.StatusConflict, "cloud_lifecycle_bound", "Cloud-bound devices require a coordinated transfer; the claim was not moved", false, "contact_support")
+	case errors.Is(err, store.ErrClaimLifecycleCheckUnavailable):
+		writeClaimError(c, http.StatusServiceUnavailable, "cloud_lifecycle_check_unavailable", "Video Cloud lifecycle could not be verified; the claim was not moved", true, "retry_later")
 	case errors.Is(err, store.ErrClaimEvidenceRequired):
 		writeClaimError(c, http.StatusBadRequest, "operator_evidence_required", "Operator reason and evidence are required", false, "provide_operator_evidence")
 	case errors.Is(err, store.ErrEvaluationQuotaExceeded):

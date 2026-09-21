@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"rtk_account_manager/internal/channel"
 	"rtk_account_manager/internal/model"
 )
 
@@ -488,13 +489,48 @@ func TestDeviceClaimTransferMovesOwnershipAndAudits(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if _, err := env.store.TransferDeviceClaim(ctx, DeviceClaimTransferInput{
+		ClaimID: resolved.Claim.ID, TargetOrganizationID: target.Organization.ID,
+		ActorUserID: target.User.ID, Reason: "support verified ownership transfer",
+		Evidence: map[string]any{"ticket": "SUP-131"},
+	}); !errors.Is(err, ErrClaimLifecycleCheckUnavailable) {
+		t.Fatalf("missing Video Cloud check must fail closed, got %v", err)
+	}
+	var failedReservationID, releasedReservationID string
+	if _, err := env.store.TransferDeviceClaim(ctx, DeviceClaimTransferInput{
+		ClaimID: resolved.Claim.ID, TargetOrganizationID: target.Organization.ID,
+		ActorUserID: target.User.ID, Reason: "invalid evidence must roll back",
+		Evidence: map[string]any{"invalid": make(chan int)},
+		ReserveNoVideoCloudLifecycle: func(_ context.Context, _, reservationID, _, _ string) error {
+			failedReservationID = reservationID
+			return nil
+		},
+		ReleaseNoVideoCloudLifecycle: func(_ context.Context, devid, reservationID string) error {
+			if devid != token.VideoCloudDevid {
+				t.Errorf("wrong cleanup device: %s", devid)
+			}
+			releasedReservationID = reservationID
+			return nil
+		},
+		Now: now.Add(90 * time.Second),
+	}); err == nil || failedReservationID == "" || releasedReservationID != failedReservationID {
+		t.Fatalf("definite pre-commit failure must cancel its fence: err=%v reserved=%q released=%q", err, failedReservationID, releasedReservationID)
+	}
+	var reservedID string
 	transferred, err := env.store.TransferDeviceClaim(ctx, DeviceClaimTransferInput{
 		ClaimID:              resolved.Claim.ID,
 		TargetOrganizationID: target.Organization.ID,
 		ActorUserID:          target.User.ID,
 		Reason:               "support verified ownership transfer",
 		Evidence:             map[string]any{"ticket": "SUP-131"},
-		Now:                  now.Add(2 * time.Minute),
+		ReserveNoVideoCloudLifecycle: func(_ context.Context, devid, reservationID, orgID, accountID string) error {
+			if devid != token.VideoCloudDevid || orgID != target.Organization.ID || accountID != resolved.Device.ID {
+				t.Fatalf("wrong reservation binding: %s %s %s", devid, orgID, accountID)
+			}
+			reservedID = reservationID
+			return nil
+		},
+		Now: now.Add(2 * time.Minute),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -504,6 +540,27 @@ func TestDeviceClaimTransferMovesOwnershipAndAudits(t *testing.T) {
 	}
 	if transferred.Device.OrganizationID != target.Organization.ID {
 		t.Fatalf("expected transferred device in target org, got %+v", transferred.Device)
+	}
+	if len(reservedID) != 64 || transferred.Device.Metadata[model.DeviceMetadataVideoCloudTransferReservationID] != reservedID {
+		t.Fatalf("transfer generation not committed with account row: reserved=%q metadata=%v", reservedID, transferred.Device.Metadata[model.DeviceMetadataVideoCloudTransferReservationID])
+	}
+	provision, err := env.store.StartDeviceLifecycleOperation(ctx, DeviceLifecycleOperationInput{
+		OperationID: "claim-transfer-provision", CorrelationID: "claim-transfer-provision", MessageID: "claim-transfer-provision-message",
+		OrganizationID: target.Organization.ID, DeviceID: transferred.Device.ID,
+		OperationType: model.DeviceOperationTypeProvision, RequestedBy: &target.User.ID,
+		RequestPayload:    map[string]any{"video_cloud_devid": token.VideoCloudDevid, "activity_id": token.ActivityID, "clip_public_key": token.ClipPublicKey},
+		OutboxMessageType: string(channel.MessageTypeDeviceProvisionRequested),
+		OutboxPayload: map[string]any{"org_id": target.Organization.ID, "account_device_id": transferred.Device.ID,
+			"video_cloud_devid": token.VideoCloudDevid, "activity_id": token.ActivityID,
+			"clip_public_key": token.ClipPublicKey, "requested_by": target.User.ID},
+		MetadataPatch: PendingProvisionMetadata(token.VideoCloudDevid, token.ActivityID, token.ClipPublicKey, token.ServiceOptions),
+		Now:           now.Add(2*time.Minute + time.Second),
+	})
+	if err != nil {
+		t.Fatalf("provision after transfer: %v", err)
+	}
+	if got := provision.Message.Payload["transfer_reservation_id"]; got != reservedID {
+		t.Fatalf("later provision command lost transfer generation: got %v want %s", got, reservedID)
 	}
 	if transferred.Token.OrganizationID == nil || *transferred.Token.OrganizationID != target.Organization.ID || transferred.Token.ID != token.ID {
 		t.Fatalf("expected transferred token target org, got %+v", transferred.Token)
@@ -601,12 +658,13 @@ func TestDeviceClaimReclaimRequiresEvidenceAndRejectsInvalidTransitions(t *testi
 	}
 
 	reclaimed, err := env.store.ReclaimDeviceClaimToken(ctx, DeviceClaimReclaimInput{
-		TokenID:              token.ID,
-		TargetOrganizationID: target.Organization.ID,
-		ActorUserID:          target.User.ID,
-		Reason:               "factory reset and support verified",
-		Evidence:             map[string]any{"factory_reset": true, "ticket": "SUP-132"},
-		Now:                  now.Add(4 * time.Minute),
+		TokenID:                      token.ID,
+		TargetOrganizationID:         target.Organization.ID,
+		ActorUserID:                  target.User.ID,
+		Reason:                       "factory reset and support verified",
+		Evidence:                     map[string]any{"factory_reset": true, "ticket": "SUP-132"},
+		ReserveNoVideoCloudLifecycle: noVideoCloudLifecycleForTest,
+		Now:                          now.Add(4 * time.Minute),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -636,6 +694,8 @@ func TestDeviceClaimReclaimRequiresEvidenceAndRejectsInvalidTransitions(t *testi
 		t.Fatalf("expected reclaim audit event, got %+v", events)
 	}
 }
+
+func noVideoCloudLifecycleForTest(context.Context, string, string, string, string) error { return nil }
 
 func stringSlicesEqual(got, want []string) bool {
 	if len(got) != len(want) {

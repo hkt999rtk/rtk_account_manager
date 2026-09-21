@@ -15,9 +15,54 @@ import (
 
 func invokeClaimOverride(s *Store, ctx context.Context, action, actor, target string, claim model.DeviceClaim) (DeviceClaimOverrideResult, error) {
 	if action == "reclaim" {
-		return s.ReclaimDeviceClaimToken(ctx, DeviceClaimReclaimInput{TokenID: claim.TokenID, TargetOrganizationID: target, ActorUserID: actor, Reason: "support verified", Evidence: map[string]any{"ticket": "isolated-override"}})
+		return s.ReclaimDeviceClaimToken(ctx, DeviceClaimReclaimInput{TokenID: claim.TokenID, TargetOrganizationID: target, ActorUserID: actor, Reason: "support verified", Evidence: map[string]any{"ticket": "isolated-override"}, ReserveNoVideoCloudLifecycle: noVideoCloudLifecycleForTest})
 	}
-	return s.TransferDeviceClaim(ctx, DeviceClaimTransferInput{ClaimID: claim.ID, TargetOrganizationID: target, ActorUserID: actor, Reason: "support verified", Evidence: map[string]any{"ticket": "isolated-override"}})
+	return s.TransferDeviceClaim(ctx, DeviceClaimTransferInput{ClaimID: claim.ID, TargetOrganizationID: target, ActorUserID: actor, Reason: "support verified", Evidence: map[string]any{"ticket": "isolated-override"}, ReserveNoVideoCloudLifecycle: noVideoCloudLifecycleForTest})
+}
+
+func TestClaimTransferRejectsCloudBoundDeviceWithoutMovingAccountRows(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	source := handoffDeveloper(t, env, "bound-transfer-source")
+	target, err := env.store.CreateOrganization(ctx, source.User.ID, "Bound transfer target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin=true WHERE id=$1`, source.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	claimAuthorizationToken(t, env, source.BrandCloud.ID, "bound-transfer-claim", nil)
+	resolved, err := env.store.ResolveDeviceClaimToken(ctx, DeviceClaimResolveInput{
+		RequestedBy: source.User.ID, OrganizationID: source.BrandCloud.ID, TokenHash: "bound-transfer-claim",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []string{"pending", "activated", "failed", "deactivated"} {
+		if _, err := env.db.Exec(ctx, `UPDATE devices SET metadata=jsonb_set(metadata, '{video_cloud_activation_status}', to_jsonb($2::text)) WHERE id=$1`, resolved.Device.ID, status); err != nil {
+			t.Fatal(err)
+		}
+		_, err := invokeClaimOverride(env.store, ctx, "transfer", source.User.ID, target.ID, resolved.Claim)
+		if !errors.Is(err, ErrClaimLifecycleBound) {
+			t.Fatalf("status %s: expected lifecycle fence, got %v", status, err)
+		}
+		var deviceCloud, tokenCloud, claimCloud string
+		if err := env.db.QueryRow(ctx, `SELECT d.organization_id::text, t.organization_id::text, c.organization_id::text FROM device_claims c JOIN devices d ON d.id=c.device_id JOIN device_claim_tokens t ON t.id=c.claim_token_id WHERE c.id=$1`, resolved.Claim.ID).Scan(&deviceCloud, &tokenCloud, &claimCloud); err != nil {
+			t.Fatal(err)
+		}
+		if deviceCloud != source.BrandCloud.ID || tokenCloud != source.BrandCloud.ID || claimCloud != source.BrandCloud.ID {
+			t.Fatalf("status %s: partial transfer %s/%s/%s", status, deviceCloud, tokenCloud, claimCloud)
+		}
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE devices SET metadata=metadata-'video_cloud_activation_status' WHERE id=$1`, resolved.Device.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `INSERT INTO device_operations(operation_id,correlation_id,organization_id,device_id,operation_type,status) VALUES('bound-transfer-provision','bound-transfer-provision',$1,$2,'provision','failed')`, source.BrandCloud.ID, resolved.Device.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := invokeClaimOverride(env.store, ctx, "transfer", source.User.ID, target.ID, resolved.Claim); !errors.Is(err, ErrClaimLifecycleBound) {
+		t.Fatalf("historical provision operation must also fence transfer: %v", err)
+	}
 }
 
 func TestClaimOverridesRequirePlatformAuthorityOperationalCloudsAndProduct(t *testing.T) {
@@ -245,7 +290,7 @@ func TestClaimOverrideRejectsInconsistentStateWithoutMutation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			in := DeviceClaimTransferInput{ClaimID: claim.Claim.ID, TargetOrganizationID: target.ID, ActorUserID: owner.User.ID, Reason: "verified", Evidence: map[string]any{"ticket": "test"}}
+			in := DeviceClaimTransferInput{ClaimID: claim.Claim.ID, TargetOrganizationID: target.ID, ActorUserID: owner.User.ID, Reason: "verified", Evidence: map[string]any{"ticket": "test"}, ReserveNoVideoCloudLifecycle: noVideoCloudLifecycleForTest}
 			expected := ErrNotFound
 			var setup string
 			switch stage {

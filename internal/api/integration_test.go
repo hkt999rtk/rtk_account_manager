@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -678,12 +680,13 @@ func TestIntegrationInternalAppTokenAuthorization(t *testing.T) {
 		"name":          "app-authz-camera",
 		"category":      "ip_camera",
 		"serial_number": "APP-AUTHZ-001",
-		"metadata": map[string]any{
-			model.DeviceMetadataVideoCloudDevid: "video-app-authz-1",
-		},
 	}, owner.Tokens.AccessToken)
 	if createRes.Code != http.StatusCreated {
 		t.Fatalf("expected device create 201, got %d: %s", createRes.Code, createRes.Body.String())
+	}
+	createdDevice := decodeBody[deviceBody](t, createRes)
+	if _, err := env.db.Exec(ctx, `UPDATE devices SET metadata=jsonb_set(metadata, '{video_cloud_devid}', '"video-app-authz-1"'::jsonb) WHERE id=$1`, createdDevice.Device.ID); err != nil {
+		t.Fatal(err)
 	}
 
 	allowedRes := performJSON(env.router, http.MethodPost, "/v1/internal/app-token-authorizations", map[string]any{
@@ -4927,6 +4930,73 @@ func TestIntegrationProvisioningStateReturnsRegistryOnlyReadiness(t *testing.T) 
 	}
 }
 
+func TestIntegrationProvisioningStateUsesLiveOwnerPresence(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+	owner := legacyCustomerForTest(t, env, "presence-owner@example.com", "Presence Owner")
+	create := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices", devicePayload("presence-device", "PRESENCE-001"), owner.Tokens.AccessToken)
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create device status = %d: %s", create.Code, create.Body.String())
+	}
+	created := decodeBody[deviceBody](t, create)
+	provision := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+created.Device.ID+"/provision", map[string]any{
+		"video_cloud_devid": "video-presence-1", "activity_id": "presence-activity-1", "clip_public_key": "presence-key-1", "operation_id": "presence-provision-1",
+	}, owner.Tokens.AccessToken)
+	if provision.Code != http.StatusCreated {
+		t.Fatalf("provision status = %d: %s", provision.Code, provision.Body.String())
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE device_operations SET status='succeeded', completed_at=now() WHERE operation_id='presence-provision-1'`); err != nil {
+		t.Fatal(err)
+	}
+	projectionStore := store.New(env.db)
+	if _, err := projectionStore.ProjectDevice(ctx, owner.Organization.ID, created.Device.ID, store.ProvisionSucceededProjection(channel.DeviceProvisionSucceededPayload{
+		VideoCloudDevid: "video-presence-1", ActivityID: "presence-activity-1", ActivatedAt: time.Now().UTC(),
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projectionStore.ProjectDevice(ctx, owner.Organization.ID, created.Device.ID, store.OnlineChangedProjection(channel.DeviceOnlineChangedPayload{
+		VideoCloudDevid: "video-presence-1", Status: channel.OnlineStatusOnline, LastSeenAt: time.Now().UTC(),
+	})); err != nil {
+		t.Fatal(err)
+	}
+
+	path := "/v1/orgs/" + owner.Organization.ID + "/devices/" + created.Device.ID + "/provisioning"
+	read := func() readinessResponse {
+		t.Helper()
+		response := performJSON(env.router, http.MethodGet, path, nil, owner.Tokens.AccessToken)
+		if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("provisioning status = %d cache=%q: %s", response.Code, response.Header().Get("Cache-Control"), response.Body.String())
+		}
+		return decodeBody[provisioningBody](t, response).Readiness
+	}
+	if got := read(); got.State != model.DeviceReadinessStateReady {
+		t.Fatalf("fresh event-only owner observation was not ready: %+v", got)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE devices SET last_seen_at=now()-interval '6 minutes' WHERE id=$1`, created.Device.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(); got.State != model.DeviceReadinessStateTransportPending || got.Sources.OwnerTransportStatus != "stale" {
+		t.Fatalf("expired event-only owner observation stayed ready: %+v", got)
+	}
+	reader := &stubVideoPresenceReader{snapshot: videoPresenceSnapshot{
+		DeviceID: "video-presence-1", OrgID: owner.Organization.ID, AccountDeviceID: created.Device.ID,
+		Activated: true, Online: false, ObservedAt: time.Now().UTC(),
+	}}
+	env.server.videoPresence = reader
+	if got := read(); got.State != model.DeviceReadinessStateTransportPending || got.Sources.OwnerTransportStatus != "offline" || reader.deviceID != "video-presence-1" {
+		t.Fatalf("live offline snapshot did not override stale registry online: %+v", got)
+	}
+	reader.snapshot.Online = true
+	reader.snapshot.OwnerTransport = "mqtt"
+	if got := read(); got.State != model.DeviceReadinessStateReady || got.Sources.OwnerTransportStatus != "online" {
+		t.Fatalf("live owner was not reflected in readiness: %+v", got)
+	}
+	reader.err = errors.New("Video Cloud unavailable")
+	if got := read(); got.State != model.DeviceReadinessStateTransportPending || got.Sources.OwnerTransportStatus != "unavailable" {
+		t.Fatalf("source outage reused stale registry presence: %+v", got)
+	}
+}
+
 func TestIntegrationClaimResolveEndpoint(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
@@ -5506,9 +5576,77 @@ func TestIntegrationAdminIdentityProviderWorkflow(t *testing.T) {
 	}
 }
 
+func TestIntegrationAdminReconcilesUncommittedTransferFence(t *testing.T) {
+	env := newIntegrationEnv(t)
+	ctx := context.Background()
+	admin := legacyCustomerForTest(t, env, "fence-admin@example.com", "Fence Admin Org")
+	source := legacyCustomerForTest(t, env, "fence-source@example.com", "Fence Source Org")
+	target := legacyCustomerForTest(t, env, "fence-target@example.com", "Fence Target Org")
+	if _, err := env.db.Exec(ctx, `UPDATE users SET platform_admin=true WHERE id=$1`, admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	token, err := env.store.CreateDeviceClaimToken(ctx, store.DeviceClaimTokenCreateInput{
+		OrganizationID: &source.Organization.ID, TokenHash: auth.HashToken("fence-raw-token"),
+		Category: model.DeviceCategoryIPCamera, VideoCloudDevid: "fence-api-video",
+		ActivityID: "fence-api-activity", ClipPublicKey: "fence-api-key",
+		ExpiresAt: now.Add(time.Hour), Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := env.store.ResolveDeviceClaimToken(ctx, store.DeviceClaimResolveInput{
+		TokenHash: auth.HashToken("fence-raw-token"), OrganizationID: source.Organization.ID,
+		RequestedBy: source.User.ID, DeviceName: "Fence Camera", Now: now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := []string{"device-transfer-v1", resolved.Claim.ID, source.Organization.ID,
+		target.Organization.ID, resolved.Claim.UpdatedAt.UTC().Format(time.RFC3339Nano)}
+	digest := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	reservationID := hex.EncodeToString(digest[:])
+	remote := &stubVideoPresenceReader{
+		deviceID: token.VideoCloudDevid, reservationID: reservationID,
+		targetOrgID: target.Organization.ID, accountDeviceID: resolved.Device.ID,
+	}
+	env.server.videoPresence = remote
+	path := "/v1/admin/device-claims/" + resolved.Claim.ID + "/transfer-fence"
+	if response := performJSON(env.router, http.MethodGet, path, nil, source.Tokens.AccessToken); response.Code != http.StatusForbidden {
+		t.Fatalf("non-admin inspection status = %d", response.Code)
+	}
+	if response := performJSON(env.router, http.MethodGet, path, nil, admin.Tokens.AccessToken); response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `"status":"cancelable"`) {
+		t.Fatalf("safe inspection = %d: %s", response.Code, response.Body.String())
+	}
+	wrong := performJSON(env.router, http.MethodPost, path+"/cancel", map[string]any{
+		"reservation_id": "wrong", "reason": "reconcile failed account commit", "evidence": map[string]any{"ticket": "SUP-FENCE"},
+	}, admin.Tokens.AccessToken)
+	assertErrorCode(t, wrong, http.StatusConflict, "transfer_fence_not_cancelable")
+	if remote.reservationID != reservationID {
+		t.Fatal("wrong-generation request released transfer fence")
+	}
+	cancel := performJSON(env.router, http.MethodPost, path+"/cancel", map[string]any{
+		"reservation_id": reservationID, "reason": "reconcile failed account commit", "evidence": map[string]any{"ticket": "SUP-FENCE"},
+	}, admin.Tokens.AccessToken)
+	if cancel.Code != http.StatusOK || !strings.Contains(cancel.Body.String(), `"status":"cancelled"`) || remote.reservationID != "" {
+		t.Fatalf("safe cancellation = %d: %s remote=%q", cancel.Code, cancel.Body.String(), remote.reservationID)
+	}
+	if response := performJSON(env.router, http.MethodGet, path, nil, admin.Tokens.AccessToken); response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `"status":"absent"`) {
+		t.Fatalf("post-cancellation inspection = %d: %s", response.Code, response.Body.String())
+	}
+	events, err := env.store.ListAuditEvents(ctx, store.AuditEventListFilter{EventType: "device_claim_transfer_fence_cancelled", Limit: 10})
+	if err != nil || events.Page.Total != 1 || events.Events[0].SubjectID != resolved.Claim.ID {
+		t.Fatalf("cancellation audit = %+v, %v", events, err)
+	}
+}
+
 func TestIntegrationAdminDeviceClaimOverrideWorkflow(t *testing.T) {
 	env := newIntegrationEnv(t)
 	ctx := context.Background()
+	remote := &stubVideoPresenceReader{err: errVideoPresenceNotFound}
+	env.server.videoPresence = remote
 
 	platformAdmin := legacyCustomerForTest(t, env, "claim-override-platform-admin@example.com", "Claim Override Admin Org")
 	source := legacyCustomerForTest(t, env, "claim-override-source@example.com", "Claim Override Source Org")
@@ -5541,6 +5679,22 @@ func TestIntegrationAdminDeviceClaimOverrideWorkflow(t *testing.T) {
 		t.Fatalf("expected transfer seed resolve 201, got %d: %s", transferResolveRes.Code, transferResolveRes.Body.String())
 	}
 	transferClaim := decodeBody[claimResolveBody](t, transferResolveRes)
+	spoofedMetadata := devicePayload("Claim Transfer Camera", "transfer-serial")
+	spoofedMetadata["metadata"] = map[string]any{"video_cloud_activation_status": "deactivated"}
+	spoofedMetadataRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+source.Organization.ID+"/devices/"+transferClaim.Device.ID, spoofedMetadata, source.Tokens.AccessToken)
+	assertErrorCode(t, spoofedMetadataRes, http.StatusBadRequest, "reserved_device_metadata")
+	registryEditRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+source.Organization.ID+"/devices/"+transferClaim.Device.ID, devicePayload("Claim Transfer Camera", "transfer-serial"), source.Tokens.AccessToken)
+	if registryEditRes.Code != http.StatusOK {
+		t.Fatalf("registry edit status = %d: %s", registryEditRes.Code, registryEditRes.Body.String())
+	}
+	manualOnlineRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+source.Organization.ID+"/devices/"+transferClaim.Device.ID+"/status", map[string]any{
+		"status": "online",
+	}, source.Tokens.AccessToken)
+	assertErrorCode(t, manualOnlineRes, http.StatusConflict, "presence_source_owned_by_video_cloud")
+	manualOfflineRes := performJSON(env.router, http.MethodPatch, "/v1/orgs/"+source.Organization.ID+"/devices/"+transferClaim.Device.ID+"/status", map[string]any{
+		"status": "offline",
+	}, source.Tokens.AccessToken)
+	assertErrorCode(t, manualOfflineRes, http.StatusConflict, "presence_source_owned_by_video_cloud")
 
 	transferPayload := map[string]any{
 		"target_organization_id": target.Organization.ID,
@@ -5557,6 +5711,26 @@ func TestIntegrationAdminDeviceClaimOverrideWorkflow(t *testing.T) {
 		"evidence":               map[string]any{},
 	}, platformAdmin.Tokens.AccessToken)
 	assertErrorCode(t, missingEvidenceTransferRes, http.StatusBadRequest, "operator_evidence_required")
+	if _, err := env.db.Exec(ctx, `UPDATE devices SET metadata=jsonb_set(metadata, '{video_cloud_activation_status}', '"activated"'::jsonb) WHERE id=$1`, transferClaim.Device.ID); err != nil {
+		t.Fatal(err)
+	}
+	boundTransferRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claims/"+transferClaim.ClaimID+"/transfer", transferPayload, platformAdmin.Tokens.AccessToken)
+	assertErrorCode(t, boundTransferRes, http.StatusConflict, "cloud_lifecycle_bound")
+	if _, err := env.db.Exec(ctx, `UPDATE devices SET metadata=metadata-'video_cloud_activation_status' WHERE id=$1`, transferClaim.Device.ID); err != nil {
+		t.Fatal(err)
+	}
+	remote.err = nil
+	remote.snapshot = videoPresenceSnapshot{DeviceID: transferToken.VideoCloudDevid, OrgID: source.Organization.ID, AccountDeviceID: transferClaim.Device.ID, Activated: false}
+	remoteBoundRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claims/"+transferClaim.ClaimID+"/transfer", transferPayload, platformAdmin.Tokens.AccessToken)
+	assertErrorCode(t, remoteBoundRes, http.StatusConflict, "cloud_lifecycle_bound")
+	remote.err = errors.New("Video Cloud unavailable")
+	remoteUnavailableRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claims/"+transferClaim.ClaimID+"/transfer", transferPayload, platformAdmin.Tokens.AccessToken)
+	assertErrorCode(t, remoteUnavailableRes, http.StatusServiceUnavailable, "cloud_lifecycle_check_unavailable")
+	env.server.videoPresence = nil
+	missingReaderRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claims/"+transferClaim.ClaimID+"/transfer", transferPayload, platformAdmin.Tokens.AccessToken)
+	assertErrorCode(t, missingReaderRes, http.StatusServiceUnavailable, "cloud_lifecycle_check_unavailable")
+	env.server.videoPresence = remote
+	remote.err = errVideoPresenceNotFound
 
 	transferRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claims/"+transferClaim.ClaimID+"/transfer", transferPayload, platformAdmin.Tokens.AccessToken)
 	if transferRes.Code != http.StatusOK {
@@ -5569,6 +5743,26 @@ func TestIntegrationAdminDeviceClaimOverrideWorkflow(t *testing.T) {
 	if transferred.DeviceClaimToken.ID != transferToken.ID || transferred.DeviceClaimToken.OrganizationID == nil || *transferred.DeviceClaimToken.OrganizationID != target.Organization.ID {
 		t.Fatalf("expected transferred token in target org, got %+v", transferred.DeviceClaimToken)
 	}
+	if remote.deviceID != transferToken.VideoCloudDevid || remote.targetOrgID != target.Organization.ID ||
+		remote.accountDeviceID != transferClaim.Device.ID || len(remote.reservationID) != 64 {
+		t.Fatalf("Video Cloud reservation binding = device %q, target %q, account %q, generation %q",
+			remote.deviceID, remote.targetOrgID, remote.accountDeviceID, remote.reservationID)
+	}
+	remote.err = nil
+	fencePath := "/v1/admin/device-claims/" + transferClaim.ClaimID + "/transfer-fence"
+	nonAdminFenceRes := performJSON(env.router, http.MethodGet, fencePath, nil, source.Tokens.AccessToken)
+	if nonAdminFenceRes.Code != http.StatusForbidden {
+		t.Fatalf("non-admin transfer fence inspection status = %d", nonAdminFenceRes.Code)
+	}
+	inspectFenceRes := performJSON(env.router, http.MethodGet, fencePath, nil, platformAdmin.Tokens.AccessToken)
+	if inspectFenceRes.Code != http.StatusOK || !strings.Contains(inspectFenceRes.Body.String(), `"status":"committed"`) {
+		t.Fatalf("committed transfer fence inspection = %d: %s", inspectFenceRes.Code, inspectFenceRes.Body.String())
+	}
+	cancelCommittedRes := performJSON(env.router, http.MethodPost, fencePath+"/cancel", map[string]any{
+		"reservation_id": remote.reservationID, "reason": "test", "evidence": map[string]any{"ticket": "SUP-API-131"},
+	}, platformAdmin.Tokens.AccessToken)
+	assertErrorCode(t, cancelCommittedRes, http.StatusConflict, "transfer_fence_not_cancelable")
+	remote.err = errVideoPresenceNotFound
 
 	transferResolveAgainRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+target.Organization.ID+"/devices/claim/resolve", map[string]any{
 		"claim_token": transferRaw,
@@ -6041,7 +6235,7 @@ func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected deactivate payload type, got %T", deactivatePayload)
 	}
-	if deactivateCommand.VideoCloudDevid != "video-device-1" || deactivateCommand.Reason != defaultDeactivationReason {
+	if deactivateCommand.VideoCloudDevid != "video-device-1" || deactivateCommand.ActivityID != "activity-1" || deactivateCommand.Reason != defaultDeactivationReason {
 		t.Fatalf("unexpected deactivate command payload: %+v", deactivateCommand)
 	}
 
@@ -6073,6 +6267,61 @@ func TestIntegrationDeactivateEndpointUsesProjectedVideoMetadata(t *testing.T) {
 	deactivateMissingMetadataRes := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices/"+plainDevice.Device.ID+"/deactivate", map[string]any{}, owner.Tokens.AccessToken)
 	if deactivateMissingMetadataRes.Code != http.StatusConflict {
 		t.Fatalf("expected unprojected deactivate 409, got %d: %s", deactivateMissingMetadataRes.Code, deactivateMissingMetadataRes.Body.String())
+	}
+}
+
+func TestIntegrationReadinessIgnoresOlderDeactivationGeneration(t *testing.T) {
+	env := newIntegrationEnv(t)
+	owner := legacyCustomerForTest(t, env, "owner@example.com", "Owner Org")
+	deviceResponse := performJSON(env.router, http.MethodPost, "/v1/orgs/"+owner.Organization.ID+"/devices",
+		devicePayload("generation-device", "GENERATION-001"), owner.Tokens.AccessToken)
+	if deviceResponse.Code != http.StatusCreated {
+		t.Fatalf("device creation = %d: %s", deviceResponse.Code, deviceResponse.Body.String())
+	}
+	created := decodeBody[deviceBody](t, deviceResponse)
+	ctx := context.Background()
+	project := func(activityID string) {
+		t.Helper()
+		_, err := env.store.ProjectDevice(ctx, owner.Organization.ID, created.Device.ID,
+			store.ProvisionSucceededProjection(channel.DeviceProvisionSucceededPayload{
+				VideoCloudDevid: "video-generation-1", ActivityID: activityID, ActivatedAt: time.Now().UTC(),
+			}))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	readiness := func() provisioningBody {
+		t.Helper()
+		response := performJSON(env.router, http.MethodGet,
+			"/v1/orgs/"+owner.Organization.ID+"/devices/"+created.Device.ID+"/provisioning",
+			nil, owner.Tokens.AccessToken)
+		if response.Code != http.StatusOK {
+			t.Fatalf("readiness = %d: %s", response.Code, response.Body.String())
+		}
+		return decodeBody[provisioningBody](t, response)
+	}
+	project("activity-old")
+	deactivate := performJSON(env.router, http.MethodPost,
+		"/v1/orgs/"+owner.Organization.ID+"/devices/"+created.Device.ID+"/deactivate",
+		map[string]any{"operation_id": "deactivate-generation-old"}, owner.Tokens.AccessToken)
+	if deactivate.Code != http.StatusCreated {
+		t.Fatalf("deactivation request = %d: %s", deactivate.Code, deactivate.Body.String())
+	}
+	if got := readiness().Readiness.State; got != model.DeviceReadinessStateDeactivationPending {
+		t.Fatalf("same-generation pending readiness = %s", got)
+	}
+	project("activity-new")
+	if got := readiness().Readiness.State; got == model.DeviceReadinessStateDeactivationPending {
+		t.Fatalf("old deactivation still controls new activity readiness: %s", got)
+	}
+	for _, status := range []string{"succeeded", "failed"} {
+		if _, err := env.db.Exec(ctx, `UPDATE device_operations SET status=$2 WHERE operation_id=$1`, "deactivate-generation-old", status); err != nil {
+			t.Fatal(err)
+		}
+		state := readiness().Readiness.State
+		if state == model.DeviceReadinessStateDeactivated || state == model.DeviceReadinessStateDeactivationFailed {
+			t.Fatalf("old %s deactivation controls new activity readiness: %s", status, state)
+		}
 	}
 }
 

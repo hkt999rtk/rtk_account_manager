@@ -229,6 +229,28 @@ or bypass Billing handoff. Legacy customer manufacturer-profile semantics stay
 unchanged. A changed source or mismatched claim/device/token scope is a conflict,
 not permission to act on a cloud that was not locked. Audit failure rolls back
 the entire device/token/claim mutation.
+Cross-cloud claim transfer is fenced after Video Cloud activation starts, even
+if activation later fails or deactivation succeeds: moving only account rows
+would leave video runtime identity and retained data under the source cloud.
+Same-cloud support recovery is not a tenant migration.
+For an account-only transfer before activation, Account Manager now reserves a
+durable Video Cloud transfer fence while its claim/device rows are locked. The
+reservation shares Video Cloud's per-device lifecycle lock with activation,
+and the committed account row carries a generation ID that must match a later
+Account Manager activation command. A definite account-side failure before
+any commit attempt cancels the exact remote generation while the account
+transaction still holds its locks. If cancellation fails, or if a commit was
+attempted and its outcome is ambiguous, the safe, blocking reservation remains.
+It must be reconciled with the account claim audit/state before any later
+internal cancellation. This is not migration of
+an already-active device or its media.
+The platform-admin transfer-fence inspection endpoint re-reads both systems
+under account device/claim/token locks and distinguishes an unchanged source
+claim from a committed target. Only an unchanged, unactivated claim version
+whose derived generation and remote binding exactly match is cancelable. The
+cancel endpoint requires that generation, operator reason, and evidence; it
+rechecks the state under locks, calls Video Cloud's authenticated DELETE, and
+records an audit event. Ambiguous remote replies require another inspection.
 
 Platform claim-token creation/revocation use the same transaction-local platform
 authority check. Lock all affected clouds (explicit organization and the Product's

@@ -3413,7 +3413,11 @@ paths:
       description: >
         Platform-admin only. Reclaim is an explicit operator override for
         support-verified factory reset or equivalent evidence. It does not
-        expose or require the raw Claim Token.
+        expose or require the raw Claim Token. For a cross-organization move,
+        the account-only override succeeds only when the authenticated Video
+        Cloud presence read explicitly confirms the device row is absent.
+        Existing remote state returns 409 cloud_lifecycle_bound; an unavailable
+        or unsupported remote check returns 503 cloud_lifecycle_check_unavailable.
       parameters:
         - $ref: "#/components/parameters/TokenId"
       requestBody:
@@ -3439,6 +3443,8 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
   /v1/admin/device-claims/{claimId}/transfer:
     post:
       tags:
@@ -3453,7 +3459,15 @@ paths:
       description: >
         Platform-admin only. Transfer moves account-manager claim, token, and
         registry-device ownership to another organization after explicit
-        operator reason and evidence.
+        operator reason and evidence. A cross-organization transfer returns
+        409 cloud_lifecycle_bound if local activation history or any Video
+        Cloud lifecycle/media row exists. Video Cloud must durably reserve an
+        absent device under its activation lock before the account transaction
+        commits; the resulting generation is carried by later provision.
+        Missing or unavailable reservation returns 503
+        cloud_lifecycle_check_unavailable.
+        This endpoint does not migrate runtime sessions, tokens, media, or
+        telemetry.
       parameters:
         - $ref: "#/components/parameters/ClaimId"
       requestBody:
@@ -3478,6 +3492,86 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
         "409":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /v1/admin/device-claims/{claimId}/transfer-fence:
+    get:
+      tags:
+        - Device Claims
+      operationId: inspectDeviceClaimTransferFence
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-FACTORY-ENROLL-001
+      security:
+        - bearerAuth: []
+      summary: Inspect an ambiguous account-only transfer reservation.
+      description: >
+        Platform-admin only. Compares locked Account Manager claim/device/token
+        state with the authenticated Video Cloud transfer-fence snapshot.
+        Returns absent, cancelable, committed, or manual_review. Inspection
+        never cancels a reservation.
+      parameters:
+        - $ref: "#/components/parameters/ClaimId"
+      responses:
+        "200":
+          description: Reconciled reservation state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceTransferFenceReconcileResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /v1/admin/device-claims/{claimId}/transfer-fence/cancel:
+    post:
+      tags:
+        - Device Claims
+      operationId: cancelDeviceClaimTransferFence
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids:
+        - REQ-E2E-FACTORY-ENROLL-001
+      security:
+        - bearerAuth: []
+      summary: Cancel a proven uncommitted transfer reservation.
+      description: >
+        Platform-admin only. Requires the exact reservation generation,
+        operator reason and evidence. Account rows remain locked through the
+        remote cancellation; committed or inconsistent state returns 409 and
+        is never cancelled. A successful cancellation emits an audit event.
+      parameters:
+        - $ref: "#/components/parameters/ClaimId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceTransferFenceCancelRequest"
+      responses:
+        "200":
+          description: Exact uncommitted reservation cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceTransferFenceReconcileResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "503":
           $ref: "#/components/responses/Error"
   /v1/admin/devices/{deviceId}/unprovision:
     post:
@@ -4410,6 +4504,10 @@ paths:
       security:
         - bearerAuth: []
       summary: Create device.
+      description: >
+        Registry clients cannot set service-owned metadata keys
+        (video_cloud_* or service_options). Such input returns
+        400 reserved_device_metadata.
       parameters:
         - $ref: "#/components/parameters/OrgId"
       requestBody:
@@ -4655,6 +4753,10 @@ paths:
       security:
         - bearerAuth: []
       summary: Update device.
+      description: >
+        User-editable metadata replaces previous user-editable metadata, while
+        service-owned metadata (video_cloud_* and service_options) is preserved.
+        Supplying a service-owned key returns 400 reserved_device_metadata.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/DeviceId"
@@ -5031,6 +5133,10 @@ paths:
       security:
         - bearerAuth: []
       summary: Update device status.
+      description: >
+        Manual status changes are rejected with 409
+        presence_source_owned_by_video_cloud for cloud-managed devices.
+        Their presence fact must come from the owner-transport projection.
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/DeviceId"
@@ -6462,6 +6568,45 @@ components:
           $ref: "#/components/schemas/DeviceClaim"
         device:
           $ref: "#/components/schemas/Device"
+    DeviceTransferFenceCancelRequest:
+      type: object
+      required: [reservation_id, reason, evidence]
+      additionalProperties: false
+      properties:
+        reservation_id:
+          type: string
+          minLength: 1
+          description: Exact transfer generation returned by inspection.
+        reason:
+          type: string
+          minLength: 1
+        evidence:
+          type: object
+          minProperties: 1
+          additionalProperties: true
+    DeviceTransferFenceReconcileResponse:
+      type: object
+      required: [status, claim_id, device_id, video_cloud_devid, account_organization_id]
+      properties:
+        status:
+          type: string
+          enum: [absent, cancelable, committed, manual_review, cancelled]
+        claim_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          format: uuid
+        video_cloud_devid:
+          type: string
+        account_organization_id:
+          type: string
+          format: uuid
+        target_organization_id:
+          type: string
+          format: uuid
+        reservation_id:
+          type: string
     DeactivateDeviceRequest:
       type: object
       properties:
@@ -7328,6 +7473,25 @@ components:
               type: boolean
             device_status:
               $ref: "#/components/schemas/DeviceStatus"
+            device_last_seen_at:
+              type: string
+              format: date-time
+              description: Latest projected owner-presence observation time, not live proof of a current session.
+            owner_transport_status:
+              type: string
+              enum: [online, offline, unavailable, identity_mismatch, stale]
+              description: Live Video Cloud owner status when the internal reader is configured; otherwise stale means the event-only online observation is missing, expired after five minutes, implausibly future-dated, or lacks a mapped video identity. Unavailable, identity_mismatch, and stale fail closed to transport_pending.
+            owner_transport_type:
+              type: string
+              description: Current Video Cloud owner transport, when reported.
+            owner_transport_observed_at:
+              type: string
+              format: date-time
+              description: Time the Video Cloud snapshot was read, not a persisted session-heartbeat time.
+            owner_transport_last_seen_at:
+              type: string
+              format: date-time
+              description: Video Cloud's last persisted owner-presence observation, which may precede the live snapshot.
             provisioning_operation_status:
               nullable: true
               $ref: "#/components/schemas/DeviceOperationStatus"

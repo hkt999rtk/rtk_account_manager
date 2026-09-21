@@ -326,7 +326,7 @@ func buildTransitionForPayload(envelope channel.Envelope, payload channel.Payloa
 			typed.OrgID,
 			typed.AccountDeviceID,
 			typed.ActivatedAt.UTC(),
-			store.ProvisionSucceededProjection(*typed),
+			activityProjection(store.ProvisionSucceededProjection(*typed), typed.ActivityID),
 			map[string]any{
 				"video_cloud_devid": typed.VideoCloudDevid,
 				"activity_id":       typed.ActivityID,
@@ -338,7 +338,7 @@ func buildTransitionForPayload(envelope channel.Envelope, payload channel.Payloa
 			typed.OrgID,
 			typed.AccountDeviceID,
 			typed.FailedAt.UTC(),
-			store.ProvisionFailedProjection(*typed),
+			activityProjection(store.ProvisionFailedProjection(*typed), typed.ActivityID),
 			map[string]any{
 				"video_cloud_devid": typed.VideoCloudDevid,
 				"activity_id":       typed.ActivityID,
@@ -356,9 +356,10 @@ func buildTransitionForPayload(envelope channel.Envelope, payload channel.Payloa
 			typed.OrgID,
 			typed.AccountDeviceID,
 			typed.DeactivatedAt.UTC(),
-			store.DeactivateSucceededProjection(*typed),
+			activityProjection(store.DeactivateSucceededProjection(*typed), typed.ActivityID),
 			map[string]any{
 				"video_cloud_devid": typed.VideoCloudDevid,
+				"activity_id":       typed.ActivityID,
 				"deactivated_at":    typed.DeactivatedAt.UTC(),
 			},
 		), nil
@@ -367,9 +368,10 @@ func buildTransitionForPayload(envelope channel.Envelope, payload channel.Payloa
 			typed.OrgID,
 			typed.AccountDeviceID,
 			typed.FailedAt.UTC(),
-			store.DeactivateFailedProjection(*typed),
+			activityProjection(store.DeactivateFailedProjection(*typed), typed.ActivityID),
 			map[string]any{
 				"video_cloud_devid": typed.VideoCloudDevid,
+				"activity_id":       typed.ActivityID,
 				"error_code":        typed.ErrorCode,
 				"error_message":     typed.ErrorMessage,
 				"retryable":         typed.Retryable,
@@ -546,6 +548,11 @@ func isCompletedLifecycleOperation(operation model.DeviceOperation) bool {
 
 func projectionPtr(projection store.DeviceProjectionInput) *store.DeviceProjectionInput {
 	return &projection
+}
+
+func activityProjection(projection store.DeviceProjectionInput, activityID string) store.DeviceProjectionInput {
+	projection.ExpectedActivityID = activityID
+	return projection
 }
 
 func stringPtr(value string) *string {
