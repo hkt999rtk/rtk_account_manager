@@ -138,6 +138,9 @@ func main() {
 	server.ConfigureInternalAuthToken(cfg.InternalAuthToken)
 	server.ConfigureJobAuthorizations(accountStore, cfg.JobAuthorizationToken)
 	server.ConfigureTestLab(accountStore, cfg.VideoCloudLifecycleBaseURL, cfg.VideoCloudLifecycleToken)
+	if err := server.ConfigureVideoPresence(cfg.VideoCloudLifecycleBaseURL, cfg.VideoCloudLifecycleToken, cfg.VideoCloudLifecycleTimeout); err != nil {
+		fatal(logger, "configure Video Cloud presence reader", err)
+	}
 	server.ConfigureImmediateBrandAccountProvisioning(cfg.AllowImmediateBrandAccounts)
 	server.ConfigureProductionJWT(cfg.FactoryProductionJWTSecret, cfg.FactoryProductionJWTAudience)
 	server.ConfigurePlatformServices(accountStore, cfg.LogEnv)

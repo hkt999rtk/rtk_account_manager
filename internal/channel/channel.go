@@ -91,6 +91,7 @@ type DeviceProvisionRequestedPayload struct {
 	ProductID              string   `json:"product_id,omitempty"`
 	ProductServiceRevision *int64   `json:"product_service_revision,omitempty"`
 	ServiceGrantSHA256     string   `json:"service_grant_sha256,omitempty"`
+	TransferReservationID  string   `json:"transfer_reservation_id,omitempty"`
 	RequestedBy            string   `json:"requested_by"`
 }
 
@@ -117,6 +118,7 @@ type DeviceDeactivateRequestedPayload struct {
 	OrgID           string `json:"org_id"`
 	AccountDeviceID string `json:"account_device_id"`
 	VideoCloudDevid string `json:"video_cloud_devid"`
+	ActivityID      string `json:"activity_id,omitempty"`
 	RequestedBy     string `json:"requested_by"`
 	Reason          string `json:"reason"`
 }
@@ -125,6 +127,7 @@ type DeviceDeactivateSucceededPayload struct {
 	OrgID           string    `json:"org_id"`
 	AccountDeviceID string    `json:"account_device_id"`
 	VideoCloudDevid string    `json:"video_cloud_devid"`
+	ActivityID      string    `json:"activity_id,omitempty"`
 	DeactivatedAt   time.Time `json:"deactivated_at"`
 }
 
@@ -132,6 +135,7 @@ type DeviceDeactivateFailedPayload struct {
 	OrgID           string    `json:"org_id"`
 	AccountDeviceID string    `json:"account_device_id"`
 	VideoCloudDevid string    `json:"video_cloud_devid"`
+	ActivityID      string    `json:"activity_id,omitempty"`
 	ErrorCode       string    `json:"error_code"`
 	ErrorMessage    string    `json:"error_message"`
 	Retryable       bool      `json:"retryable"`
@@ -422,6 +426,14 @@ func (e Envelope) ValidateAndDecode(expectedStream string) (Payload, error) {
 func (p *DeviceProvisionRequestedPayload) Validate() error {
 	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {
 		return err
+	}
+	if p.TransferReservationID != "" {
+		if len(p.TransferReservationID) != 64 || p.TransferReservationID != strings.ToLower(p.TransferReservationID) {
+			return fieldError("payload.transfer_reservation_id", "must be lowercase SHA-256 hex")
+		}
+		if _, err := hex.DecodeString(p.TransferReservationID); err != nil {
+			return fieldError("payload.transfer_reservation_id", "must be lowercase SHA-256 hex")
+		}
 	}
 	if err := validateServiceOptions("payload.service_options", p.ServiceOptions); err != nil {
 		return err

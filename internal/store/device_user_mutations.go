@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -76,6 +77,11 @@ func authorizeDeviceUserMutationTx(ctx context.Context, tx pgx.Tx, actor, org, d
 
 func (s *Store) CreateDeviceAsUser(ctx context.Context, actor, org string, in DeviceInput) (model.Device, error) {
 	return s.mutateDeviceAsUser(ctx, actor, org, "", "device.created", func(tx pgx.Tx) (model.Device, error) {
+		var err error
+		in.Metadata, err = mergeUserDeviceMetadata(in.Metadata, nil)
+		if err != nil {
+			return model.Device{}, err
+		}
 		if product := stringValue(in.DeviceItemProfileID); product != "" {
 			if err := authorizeProductUserMutationTx(ctx, tx, actor, org, product, false); err != nil {
 				return model.Device{}, err
@@ -94,12 +100,47 @@ func (s *Store) CreateDeviceAsUser(ctx context.Context, actor, org string, in De
 
 func (s *Store) UpdateDeviceAsUser(ctx context.Context, actor, org, device string, in DeviceInput) (model.Device, error) {
 	return s.mutateDeviceAsUser(ctx, actor, org, device, "device.updated", func(tx pgx.Tx) (model.Device, error) {
+		current, err := getDeviceForUpdateTx(ctx, tx, org, device)
+		if err != nil {
+			return model.Device{}, err
+		}
+		in.Metadata, err = mergeUserDeviceMetadata(in.Metadata, current.Metadata)
+		if err != nil {
+			return model.Device{}, err
+		}
 		return updateDevice(ctx, tx, org, device, in)
 	})
 }
 
+func mergeUserDeviceMetadata(incoming, current map[string]any) (map[string]any, error) {
+	merged := make(map[string]any, len(incoming)+len(current))
+	for key, value := range incoming {
+		if serviceOwnedDeviceMetadataKey(key) {
+			return nil, ErrReservedDeviceMetadata
+		}
+		merged[key] = value
+	}
+	for key, value := range current {
+		if serviceOwnedDeviceMetadataKey(key) {
+			merged[key] = value
+		}
+	}
+	return merged, nil
+}
+
+func serviceOwnedDeviceMetadataKey(key string) bool {
+	return strings.HasPrefix(key, "video_cloud_") || key == model.DeviceMetadataServiceOptions
+}
+
 func (s *Store) UpdateDeviceStatusAsUser(ctx context.Context, actor, org, device string, status model.DeviceStatus, lastSeenAt *time.Time) (model.Device, error) {
 	return s.mutateDeviceAsUser(ctx, actor, org, device, "device.status.updated", func(tx pgx.Tx) (model.Device, error) {
+		current, err := getDeviceForUpdateTx(ctx, tx, org, device)
+		if err != nil {
+			return model.Device{}, err
+		}
+		if claimLifecycleBound(current.Metadata) || hasVideoCloudIdentity(current.Metadata) {
+			return model.Device{}, ErrCloudManagedPresence
+		}
 		return updateDeviceStatus(ctx, tx, org, device, status, lastSeenAt)
 	})
 }

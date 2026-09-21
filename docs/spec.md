@@ -167,6 +167,28 @@ Account-manager-owned video metadata keys:
 - `video_cloud_deactivated_at`
 - `video_cloud_last_error`
 
+For the direct HTTP lifecycle path, `DeviceDeactivateRequested` captures the
+current `video_cloud_activity_id` in its outbox payload and sends it as
+`activity_id` to Video Cloud's internal deactivate route. Video Cloud rejects
+a command for an older activation with HTTP 409; the resulting operation may
+fail, but its result must not overwrite the projection of a newer activity.
+Provision and deactivate result projections are generation-checked against
+the account device's current `video_cloud_activity_id`. Existing commands
+without an activity ID can only match a legacy Video Cloud row with no stored
+activity ID. The provisioning/readiness response also ignores a deactivation
+operation whose original outbox activity ID differs from the device's current
+activity ID; its historical operation remains queryable. This fences lifecycle
+rows and current-state projections. Video Cloud additionally serializes its
+audited activation/deactivation workflows and factory device projection with
+a cross-instance per-device advisory lock through owner eviction and clip
+cleanup. Fresh workflow activation clears residual old owner/media before
+becoming active. Legacy upload writes use that lock; direct uploads carry a
+server-generated activation epoch that Video Cloud checks under the lock
+before publishing media. Object-deletion failure retains metadata and makes
+the matching deactivation command retryable through this outbox. A presigned
+PUT may still arrive after deactivation and leave an object orphan; direct
+writes outside the audited entry points and staging acceptance remain open.
+
 ## 2.2 Persistence Boundary Refactor Direction
 
 Account Manager is the highest-priority repository for the workspace
@@ -1779,6 +1801,8 @@ All endpoints are versioned under `/v1`.
 | `POST` | `/v1/admin/device-claim-tokens/:tokenId/revoke` | Yes | Platform admin | Revoke an unused or already claimed Claim Token. |
 | `POST` | `/v1/admin/device-claim-tokens/:tokenId/reclaim` | Yes | Platform admin | Reclaim a claimed token/device after support or factory-reset evidence. |
 | `POST` | `/v1/admin/device-claims/:claimId/transfer` | Yes | Platform admin | Transfer a resolved claim/token/device to another organization after operator evidence. |
+| `GET` | `/v1/admin/device-claims/:claimId/transfer-fence` | Yes | Platform admin | Compare Account Manager ownership with the current Video Cloud transfer reservation. |
+| `POST` | `/v1/admin/device-claims/:claimId/transfer-fence/cancel` | Yes | Platform admin | Cancel only a proven uncommitted transfer reservation with exact generation, reason, evidence, and audit. |
 | `POST` | `/v1/admin/devices/:deviceId/unprovision` | Yes | Platform admin | Support override to release a normal device from its current user/org binding after reason, evidence, and audit. |
 | `POST` | `/v1/admin/identity-providers` | Yes | Platform admin | Create an OIDC identity provider configuration without exposing raw secrets. |
 | `GET` | `/v1/admin/identity-providers` | Yes | Platform admin | List OIDC identity provider configurations without raw secrets. |
@@ -1797,12 +1821,12 @@ All endpoints are versioned under `/v1`.
 
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
-| `POST` | `/v1/orgs/:orgId/devices` | Yes | Create device. |
+| `POST` | `/v1/orgs/:orgId/devices` | Yes | Create device; service-owned metadata keys are rejected. |
 | `GET` | `/v1/orgs/:orgId/devices` | Yes | List devices. |
 | `GET` | `/v1/orgs/:orgId/devices/:deviceId` | Yes | Get device details. |
-| `PATCH` | `/v1/orgs/:orgId/devices/:deviceId` | Yes | Update device fields. |
+| `PATCH` | `/v1/orgs/:orgId/devices/:deviceId` | Yes | Update device fields; preserve service-owned metadata and reject attempts to edit it. |
 | `DELETE` | `/v1/orgs/:orgId/devices/:deviceId` | Yes | Soft-disable device by setting `status` to `disabled` and `disabled_at`. |
-| `PATCH` | `/v1/orgs/:orgId/devices/:deviceId/status` | Yes | Update device status. |
+| `PATCH` | `/v1/orgs/:orgId/devices/:deviceId/status` | Yes | Update registry status; human presence writes are rejected for cloud-managed devices. |
 
 ### Fleet Registry
 
@@ -2122,11 +2146,47 @@ Implemented platform-admin override endpoints:
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
 | `POST` | `/v1/admin/device-claims/:claimId/transfer` | Platform admin | Transfer an already-resolved claim to another organization after product-policy checks. |
+| `GET` | `/v1/admin/device-claims/:claimId/transfer-fence` | Platform admin | Inspect the locked account claim/device/token state and authenticated Video Cloud reservation. |
+| `POST` | `/v1/admin/device-claims/:claimId/transfer-fence/cancel` | Platform admin | Cancel only a matching reservation when the claim is still at its original, unactivated source version. |
 
 The transfer endpoint requires `target_organization_id`, `reason`, and
 non-empty `evidence`. It updates account-manager claim/token/device ownership,
 writes an audit event, does not reveal raw Claim Token values, and does not
-publish lifecycle outbox commands.
+publish lifecycle outbox commands. Cross-organization transfer is rejected with
+`cloud_lifecycle_bound` once a Video Cloud activation lifecycle has started
+(`pending`, `activated`, `failed`, or `deactivated`, or a recorded provision
+operation). The platform admin must not
+use this account-only endpoint to imply migration of runtime sessions, tokens,
+media, or telemetry; a coordinated transfer workflow is still required.
+While holding the account-side claim/device locks, the server uses its internal
+credential to `POST` a durable transfer fence to Video Cloud. Video Cloud
+serializes the absent-lifecycle check and fence insert with activation for the
+same device; existing device, session, factory, clip, telemetry, rollout, or competing
+reservation returns `409 cloud_lifecycle_bound`. A missing client, unsupported
+endpoint, timeout, invalid receipt, or other uncertain result returns `503
+cloud_lifecycle_check_unavailable` without moving account ownership. The
+Account Manager transaction commits the target ownership and a reservation
+generation together; a later provision command carries that generation, and
+Video Cloud rejects stale or independent activation. A repeated attempt before
+commit derives the same reservation ID from the unchanged claim version. After
+an account-side error before any commit attempt, Account Manager cancels the
+exact remote generation while it still holds the account-side row locks. A
+failed cancellation or uncertain commit deliberately retains the safe fence;
+operator reconciliation is required before abandoning that target. The
+platform-admin inspection endpoint reports `absent`, `cancelable`,
+`committed`, or `manual_review`. Cancellation requires the exact inspected
+reservation ID plus reason and evidence, holds the account device/claim/token
+locks during the authenticated Video Cloud DELETE, checks that the account
+claim version still derives that generation, and emits an audit event. A
+committed claim, changed version/binding, recorded provision operation, or
+remote lifecycle state cannot be cancelled. If the remote reply or audit
+commit is uncertain, inspect again; never infer that a timeout means no
+change. The operator steps and response handling are in
+[`transfer-fence-reconciliation-runbook.md`](transfer-fence-reconciliation-runbook.md).
+This is not a migration path for existing runtime or media.
+Local PostgreSQL race tests cover both ordering cases, but staging acceptance
+and coordinated migration of existing Video Cloud runtime/media state remain
+open.
 
 ### [REQ-AM-CLAIM-RECLAIM-001] Claim reclaim requires platform evidence and never follows reset implicitly
 
@@ -2139,6 +2199,8 @@ requires an explicit platform-admin account-manager operation with operator
 authorization, reason, and audit evidence. The reclaim endpoint requires
 `reason` and non-empty `evidence`, writes an audit event, does not reveal raw
 Claim Token values, and does not publish lifecycle outbox commands.
+Cross-organization reclaim uses the same Video Cloud existence check and
+fails closed on any existing or unverified remote device state.
 
 ```http
 POST /v1/admin/device-claim-tokens/:tokenId/reclaim
@@ -2239,6 +2301,10 @@ Provisioning rules:
 - Reusing an explicit `operation_id` returns the existing operation when the normalized request matches and returns `409 Conflict` when it does not.
 - Operation responses may also include `error_code`, `error_message`, `retryable`, and `completed_at` once the inbox projection records a terminal result.
 - `DeviceProvisionSucceeded` replaces the pending activation metadata with the terminal activation result but does not set account-manager `status=online`.
+- Creating a new provisioning operation clears any pre-existing registry
+  `online`/`offline` status and `last_seen_at`; replaying the same operation
+  does not reset presence again. Only a mapped owner-presence event may establish
+  cloud-managed presence for that lifecycle.
 - `DeviceOnlineChanged` is the only video-side event that may project account-manager `status=online|offline`.
 
 ### Product Readiness Contract
@@ -2250,18 +2316,20 @@ Provisioning rules:
 -->
 
 `rtk_account_manager` exposes an account-side readiness projection on
-`GET /v1/orgs/:orgId/devices/:deviceId/provisioning`. This is not a final
-cross-service "product ready" boolean: account manager only composes the facts
-it owns locally, while the integrating client or service remains responsible
-for adding video-side token and bootstrap inputs that do not live in this
-repository.
+`GET /v1/orgs/:orgId/devices/:deviceId/provisioning`. When the authenticated
+Video Cloud direct-HTTP origin and token are configured, an activated device's
+read also requests Video Cloud's current owner-transport snapshot. This is not
+a final cross-service "product ready" boolean: the integrating client or
+service remains responsible for video-side token and bootstrap inputs that do
+not live in this repository.
 
 The response keeps the legacy account-side `readiness.state` for existing
 clients and also exposes `readiness.product_state` using the shared
-product-readiness vocabulary. The product vocabulary field is still derived
-only from account-manager-owned durable source facts; it does not accept direct
-writes and it does not imply account manager owns SDK/local onboarding,
-credential issuance, or video bootstrap facts.
+product-readiness vocabulary. The product vocabulary field is derived from
+account-manager-owned durable source facts plus a current Video Cloud owner
+snapshot when that reader is configured; it does not accept direct writes and
+it does not imply account manager owns SDK/local onboarding, credential
+issuance, or video bootstrap facts.
 
 Current readiness inputs:
 
@@ -2272,7 +2340,7 @@ Current readiness inputs:
 | Device activation result projected | `GET /provisioning`, device `video_cloud_*` compatibility metadata | Device activation succeeded or failed for the mapped device identity. |
 | Subject-bound token issuance completed | Video-side or integration-service auth surface | The device or app has the scoped credentials required for product use. These credentials are bound to the device subject such as `video_cloud_devid` and must enforce canonical `service_options`; account-manager category names do not define credential scope. |
 | Video-side bootstrap prerequisites completed when required | Video-side APIs | Device info/config setup or equivalent downstream bootstrap state is available. |
-| Owner transport connected | Account-manager device `status`, projected from `DeviceOnlineChanged` | The mapped device has come online through a supported owner transport, currently websocket or MQTT in the video transport contract. |
+| Owner transport connected | Authenticated `GET /v1/internal/account-manager/devices/{devid}/presence` at Video Cloud when the direct-HTTP origin/token are configured; otherwise account device `status` and `last_seen_at` projected from `DeviceOnlineChanged` | The live read requires the mapped account organization/device identity, activation, and a current websocket or MQTT owner. A source outage or identity mismatch cannot produce `ready`. Event-only online evidence expires after five minutes and remains weaker than a current-session read. |
 
 ### [REQ-AM-UNIFIED-READINESS-001] A future unified readiness API composes explicitly owned source states
 
@@ -2291,7 +2359,7 @@ Unified product-readiness source ownership:
 | Projected device activation/deactivation metadata | `rtk_account_manager` from `video.account.events` | Return last projected `video_cloud_*` compatibility metadata and last activation/deactivation error facts; do not invent externally owned state that has not been projected. |
 | Subject-bound video token issuance | Video cloud or integration auth service | Account manager may reference externally supplied status in a future composition response, but it must not mint or validate video scoped credentials in this repo. |
 | Device info/config/bootstrap prerequisites | Video cloud or product bootstrap service | Account manager may carry projected summary facts only after a contract defines the event/API source. |
-| Owner transport/session readiness | Video transport service, currently projected into account device `status` from `DeviceOnlineChanged` | Account manager exposes the projected online/offline account fact, but the final transport/session owner remains the video transport contract. |
+| Owner transport/session readiness | Video transport service, read live via its authenticated internal presence endpoint when configured; account device `status` remains a `DeviceOnlineChanged` projection | Account manager exposes the live snapshot separately from the registry projection. The final transport/session owner remains the video transport contract. |
 | Final product-ready decision | Integrating service, BFF, or future cross-service readiness endpoint | Account manager must either return `unknown` for non-owned facts or require explicit upstream inputs; it must not collapse missing external facts into success. |
 
 Unified readiness composition options:
@@ -2381,7 +2449,8 @@ Account-side readiness projection rules:
 - The `readiness.sources` object identifies the local facts used for the
   aggregate state: registry enabled/disabled state, account device status,
   latest provisioning operation status, projected device activation status,
-  latest deactivation operation status, and projected activation last-error data.
+  latest deactivation operation status, projected activation last-error data,
+  and, when configured, a separate live Video Cloud owner-transport snapshot.
 - Compose the final readiness view from this account-manager projection plus
   the required video-side credential, bootstrap, and websocket/MQTT owner
   transport signals.
@@ -2411,12 +2480,48 @@ Account-side readiness states:
 | --- | --- | --- |
 | `activation_pending` | Provisioning operation is `pending`, `published`, or `retrying` | Account side accepted provisioning, but no terminal activation result is projected yet. |
 | `activation_failed` | Provisioning operation is `failed` or `dead_lettered`, or projected metadata records `video_cloud_last_error` | Activation did not complete; clients must surface the failure instead of claiming readiness. |
-| `transport_pending` | Provisioning operation is `succeeded`, activation metadata is `activated`, and account device status is not `online` | Device activation completed, but the device has not connected through owner transport. |
-| `ready` | Provisioning operation is `succeeded`, activation metadata is `activated`, and account device status is `online` | Account-manager-owned readiness facts are complete and the device is currently connected. |
+| `transport_pending` | Provisioning operation is `succeeded`, activation metadata is `activated`, and live owner transport is offline, unavailable, or mismatched; without a configured live reader, the mapped account device is not projected `online` with an observation no older than five minutes | Device activation completed, but a current mapped owner connection has not been proven. |
+| `ready` | Provisioning operation is `succeeded`, activation metadata is `activated`, and the configured live Video Cloud reader reports an activated mapped device with a current owner transport; without that reader, projected account status is `online`, its video identity is mapped, and its presence observation is no older than five minutes | A configured live read proves the owner snapshot at response time. The bounded-age event projection is weaker evidence and can briefly lag a missing transition. |
 | `deactivation_pending` | Latest deactivation operation is `pending`, `published`, or `retrying` | Product deactivation was requested and has not reached a terminal projection. |
 | `deactivation_failed` | Latest deactivation operation is `failed` or `dead_lettered` | Product deactivation did not complete; clients must surface the failure. |
 | `deactivated` | Latest deactivation operation is `succeeded` or projected activation status is `deactivated` | Product deactivation completed on the video side. |
 | `disabled` | Account-manager registry record is soft-disabled without a newer product deactivation state | The account registry record is disabled; this does not imply product-side video deactivation completed. |
+
+The human registry status API returns `409
+presence_source_owned_by_video_cloud` for any cloud-managed device presence
+write. It cannot synthesize or erase owner-transport evidence for readiness.
+The readiness `sources.device_last_seen_at` field exposes the timestamp of the
+last projected presence observation, not proof of a current session. For
+cloud-activated devices without the live reader, a missing, more-than-five-
+minutes-old, or over-one-minute-future online observation produces
+`transport_pending` with `sources.owner_transport_status=stale`. Incoming
+`DeviceOnlineChanged` must match the device's existing `video_cloud_devid`;
+older observations cannot roll presence backward, and offline wins an
+equal-timestamp conflict. A mismatched identity is rejected instead of
+remapping the account device.
+The internal `POST /v1/internal/device-presence-events` receiver accepts only
+a fully validated `DeviceOnlineChanged` envelope with the shared internal
+bearer token. It records the message in the existing inbox and projects it
+transactionally with the account device; replaying the same `message_id` is
+idempotent, while a changed payload conflicts. An accepted request returns
+HTTP 200 with `status=ok` and the same `message_id`, which the Video Cloud
+sender must verify before marking its outbox generation delivered. This
+receiver does not emit
+events, guarantee delivery, or establish a current owner session by itself.
+When configured, `sources.owner_transport_status` is `online`, `offline`,
+`unavailable`, or `identity_mismatch`; `owner_transport_type`,
+`owner_transport_observed_at`, and `owner_transport_last_seen_at` describe the
+Video Cloud snapshot. A failed live query or mismatched account mapping
+returns `transport_pending` rather than trusting a stale `status=online`.
+The provisioning response uses `Cache-Control: no-store`. The internal presence
+endpoint requires the existing shared Account Manager token. Its snapshot is
+not a guarantee that the owner will remain connected after the read.
+The registry create/update APIs also reject incoming `video_cloud_*` and
+`service_options` metadata with `400 reserved_device_metadata`; an ordinary
+device update preserves existing service-owned metadata.
+Non-direct-HTTP deployments without the configured live reader still need an
+online/offline producer or reconciliation and a missing-event freshness rule;
+the account event projection alone cannot prove current presence.
 
 Failure handling rules:
 
@@ -2545,9 +2650,9 @@ Configuration:
 | `CROSS_SERVICE_POLL_INTERVAL` | Worker polling interval. |
 | `AZURE_EVENTHUB_CONNECTION_STRING` | Azure Event Hubs connection string when using Azure. |
 | `AZURE_EVENTHUB_CHECKPOINT_FILE` | Optional durable checkpoint file for the Azure inbox consumer. Defaults to `.state/azure_eventhubs/<stream>__<consumer-group>.json`. |
-| `VIDEO_CLOUD_LIFECYCLE_BASE_URL` | Credential-free Video service origin required by `direct_http`. |
-| `VIDEO_CLOUD_LIFECYCLE_TOKEN` | Shared Account Manager-to-Video service token required by `direct_http`; secret. |
-| `VIDEO_CLOUD_LIFECYCLE_TIMEOUT` | Per-request timeout for direct lifecycle delivery, default `10s`. |
+| `VIDEO_CLOUD_LIFECYCLE_BASE_URL` | Credential-free Video service origin required by `direct_http`; also enables live owner-presence reads and the admin claim-override transfer-fence reservation when paired with the token. Without this endpoint, cross-organization claim transfer/reclaim returns 503. |
+| `VIDEO_CLOUD_LIFECYCLE_TOKEN` | Shared Account Manager-to-Video service token required by `direct_http`, owner-presence reads, and the claim-override absence check; secret. |
+| `VIDEO_CLOUD_LIFECYCLE_TIMEOUT` | Per-request timeout for direct lifecycle delivery, owner-presence reads, and claim-override checks, default `10s`. |
 
 ### [REQ-AM-CACHE-RESILIENCE-001] User cache failures cannot override PostgreSQL reads or committed mutations
 

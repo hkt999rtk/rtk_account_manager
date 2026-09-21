@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -105,6 +106,11 @@ type readinessResponse struct {
 type readinessSourcesResponse struct {
 	DeviceEnabled               bool                         `json:"device_enabled"`
 	DeviceStatus                model.DeviceStatus           `json:"device_status"`
+	DeviceLastSeenAt            *time.Time                   `json:"device_last_seen_at,omitempty"`
+	OwnerTransportStatus        string                       `json:"owner_transport_status,omitempty"`
+	OwnerTransportType          string                       `json:"owner_transport_type,omitempty"`
+	OwnerTransportObservedAt    *time.Time                   `json:"owner_transport_observed_at,omitempty"`
+	OwnerTransportLastSeenAt    *time.Time                   `json:"owner_transport_last_seen_at,omitempty"`
 	ProvisioningOperationStatus *model.DeviceOperationStatus `json:"provisioning_operation_status,omitempty"`
 	VideoCloudActivationStatus  *string                      `json:"video_cloud_activation_status,omitempty"`
 	DeactivationOperationStatus *model.DeviceOperationStatus `json:"deactivation_operation_status,omitempty"`
@@ -330,14 +336,68 @@ func (s *Server) getProvisioningState(c *gin.Context) {
 	}
 	var latestDeactivation *model.DeviceOperation
 	if err == nil {
-		latestDeactivation = &deactivationOperation
+		message, messageErr := s.store.GetLatestOutboxMessageByOperationID(c.Request.Context(), deactivationOperation.OperationID)
+		if messageErr != nil {
+			if errors.Is(messageErr, store.ErrNotFound) {
+				writeStoreError(c, errOperationStateInconsistent)
+				return
+			}
+			writeStoreError(c, messageErr)
+			return
+		}
+		if deactivationMatchesCurrentActivity(device, message) {
+			latestDeactivation = &deactivationOperation
+		}
 	}
 
+	readiness := readinessFromProjection(device, latestProvision, latestDeactivation)
+	if s.videoPresence != nil &&
+		(readiness.State == model.DeviceReadinessStateReady || readiness.State == model.DeviceReadinessStateTransportPending) {
+		readiness = s.readinessWithLivePresence(c.Request.Context(), device, readiness)
+	}
+	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusOK, provisioningBody{
 		Operation:     operationResponseValue,
-		Readiness:     readinessFromProjection(device, latestProvision, latestDeactivation),
+		Readiness:     readiness,
 		VideoMetadata: projectedVideoMetadata(device.Metadata),
 	})
+}
+
+func deactivationMatchesCurrentActivity(device model.Device, command model.DeviceMessageOutbox) bool {
+	current, _ := metadataString(device.Metadata, model.DeviceMetadataVideoCloudActivityID)
+	pinned, _ := command.Payload["activity_id"].(string)
+	return strings.TrimSpace(pinned) == current
+}
+
+func (s *Server) readinessWithLivePresence(ctx context.Context, device model.Device, readiness readinessResponse) readinessResponse {
+	readiness.Sources.OwnerTransportStatus = "unavailable"
+	videoID, ok := metadataString(device.Metadata, model.DeviceMetadataVideoCloudDevid)
+	if !ok {
+		return recomputeReadiness(readiness)
+	}
+	snapshot, err := s.videoPresence.ReadPresence(ctx, videoID)
+	if err != nil {
+		return recomputeReadiness(readiness)
+	}
+	if snapshot.DeviceID != videoID || snapshot.OrgID != device.OrganizationID || snapshot.AccountDeviceID != device.ID || snapshot.ObservedAt.IsZero() {
+		readiness.Sources.OwnerTransportStatus = "identity_mismatch"
+		return recomputeReadiness(readiness)
+	}
+	observedAt := snapshot.ObservedAt.UTC()
+	readiness.Sources.OwnerTransportObservedAt = &observedAt
+	readiness.Sources.OwnerTransportLastSeenAt = snapshot.LastSeenAt
+	readiness.Sources.OwnerTransportType = snapshot.OwnerTransport
+	readiness.Sources.OwnerTransportStatus = "offline"
+	if snapshot.Activated && snapshot.Online && strings.TrimSpace(snapshot.OwnerTransport) != "" {
+		readiness.Sources.OwnerTransportStatus = "online"
+	}
+	return recomputeReadiness(readiness)
+}
+
+func recomputeReadiness(readiness readinessResponse) readinessResponse {
+	readiness.State = readinessStateFromSources(readiness.Sources)
+	readiness.ProductState = productReadinessStateFromSources(readiness.Sources)
+	return readiness
 }
 
 func (s *Server) deactivateDevice(c *gin.Context) {
@@ -564,10 +624,29 @@ func projectedVideoMetadata(metadata map[string]any) map[string]any {
 	return projected
 }
 
+// Event-only readiness must not treat an indefinitely old online projection as
+// current owner evidence. The Video Cloud sender refreshes active observations
+// every minute; a five-minute horizon allows bounded delivery retries.
+const ownerPresenceMaxAge = 5 * time.Minute
+
 func readinessFromProjection(device model.Device, provisioningOperation *model.DeviceOperation, latestDeactivation *model.DeviceOperation) readinessResponse {
+	return readinessFromProjectionAt(device, provisioningOperation, latestDeactivation, time.Now().UTC())
+}
+
+func readinessFromProjectionAt(device model.Device, provisioningOperation *model.DeviceOperation, latestDeactivation *model.DeviceOperation, now time.Time) readinessResponse {
 	sources := readinessSourcesResponse{
-		DeviceEnabled: device.DisabledAt == nil,
-		DeviceStatus:  device.Status,
+		DeviceEnabled:    device.DisabledAt == nil,
+		DeviceStatus:     device.Status,
+		DeviceLastSeenAt: device.LastSeenAt,
+	}
+	activationStatus, _ := metadataString(device.Metadata, model.DeviceMetadataVideoCloudActivationStatus)
+	if device.Status == model.DeviceStatusOnline && activationStatus == string(model.VideoCloudActivationStatusActivated) {
+		_, mapped := metadataString(device.Metadata, model.DeviceMetadataVideoCloudDevid)
+		if !mapped || device.LastSeenAt == nil || device.LastSeenAt.IsZero() ||
+			device.LastSeenAt.Before(now.Add(-ownerPresenceMaxAge)) ||
+			device.LastSeenAt.After(now.Add(time.Minute)) {
+			sources.OwnerTransportStatus = "stale"
+		}
 	}
 	if provisioningOperation != nil {
 		sources.ProvisioningOperationStatus = &provisioningOperation.Status
@@ -692,7 +771,7 @@ func readinessStateFromSources(sources readinessSourcesResponse) model.DeviceRea
 		*sources.ProvisioningOperationStatus == model.DeviceOperationStatusSucceeded &&
 		sources.VideoCloudActivationStatus != nil &&
 		*sources.VideoCloudActivationStatus == string(model.VideoCloudActivationStatusActivated) {
-		if sources.DeviceStatus == model.DeviceStatusOnline {
+		if ownerTransportOnline(sources) {
 			return model.DeviceReadinessStateReady
 		}
 		return model.DeviceReadinessStateTransportPending
@@ -733,7 +812,7 @@ func productReadinessStateFromSources(sources readinessSourcesResponse) model.Pr
 		*sources.ProvisioningOperationStatus == model.DeviceOperationStatusSucceeded &&
 		sources.VideoCloudActivationStatus != nil &&
 		*sources.VideoCloudActivationStatus == string(model.VideoCloudActivationStatusActivated) {
-		if sources.DeviceStatus == model.DeviceStatusOnline {
+		if ownerTransportOnline(sources) {
 			return model.ProductReadinessStateOnline
 		}
 		return model.ProductReadinessStateActivated
@@ -744,6 +823,13 @@ func productReadinessStateFromSources(sources readinessSourcesResponse) model.Pr
 	}
 
 	return model.ProductReadinessStateCloudActivationPending
+}
+
+func ownerTransportOnline(sources readinessSourcesResponse) bool {
+	if sources.OwnerTransportStatus != "" {
+		return sources.OwnerTransportStatus == "online"
+	}
+	return sources.DeviceStatus == model.DeviceStatusOnline
 }
 
 func metadataString(metadata map[string]any, key string) (string, bool) {

@@ -108,6 +108,11 @@ func (p *Publisher) Publish(ctx context.Context, stream string, envelope channel
 		io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 		return broker.Transient(fmt.Errorf("video lifecycle API returned %s", response.Status))
 	}
+	if typed, ok := payload.(*channel.DeviceProvisionRequestedPayload); ok && response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices {
+		if err := validateActivationReceipt(response, typed); err != nil {
+			return broker.Transient(fmt.Errorf("video activation acknowledgement: %w", err))
+		}
+	}
 
 	result, err := resultEnvelope(envelope, payload, now, response)
 	if err != nil {
@@ -135,12 +140,43 @@ func (p *Publisher) projectWithInbox(ctx context.Context, message broker.Message
 
 func (p *Publisher) Close(context.Context) error { return nil }
 
+func validateActivationReceipt(response *http.Response, command *channel.DeviceProvisionRequestedPayload) error {
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected success status %d", response.StatusCode)
+	}
+	const maxReceiptBytes = 4096
+	raw, err := io.ReadAll(io.LimitReader(response.Body, maxReceiptBytes+1))
+	if err != nil || len(raw) > maxReceiptBytes {
+		return fmt.Errorf("unreadable or oversized receipt")
+	}
+	var receipt struct {
+		Status          string `json:"status"`
+		DeviceID        string `json:"devid"`
+		OrgID           string `json:"org_id"`
+		AccountDeviceID string `json:"account_device_id"`
+		ActivityID      string `json:"activity_id"`
+		Activated       bool   `json:"activated"`
+	}
+	if err := json.Unmarshal(raw, &receipt); err != nil {
+		return fmt.Errorf("invalid receipt JSON")
+	}
+	if receipt.Status != "ok" || receipt.DeviceID != command.VideoCloudDevid ||
+		receipt.OrgID != command.OrgID || receipt.AccountDeviceID != command.AccountDeviceID ||
+		receipt.ActivityID != command.ActivityID || !receipt.Activated {
+		return fmt.Errorf("receipt does not match activation command")
+	}
+	return nil
+}
+
 func directRequest(payload channel.Payload) (method, action, deviceID string, body []byte, err error) {
 	switch typed := payload.(type) {
 	case *channel.DeviceProvisionRequestedPayload:
 		request := map[string]any{
 			"devid": typed.VideoCloudDevid, "clip_public_key": typed.ClipPublicKey, "activityid": typed.ActivityID,
 			"org_id": typed.OrgID, "account_device_id": typed.AccountDeviceID,
+		}
+		if typed.TransferReservationID != "" {
+			request["transfer_reservation_id"] = typed.TransferReservationID
 		}
 		if typed.ProductServiceRevision != nil {
 			request["service_options"] = typed.ServiceOptions
@@ -151,7 +187,7 @@ func directRequest(payload channel.Payload) (method, action, deviceID string, bo
 		body, err = json.Marshal(request)
 		return http.MethodPost, "activate", typed.VideoCloudDevid, body, err
 	case *channel.DeviceDeactivateRequestedPayload:
-		body, err = json.Marshal(map[string]string{"devid": typed.VideoCloudDevid})
+		body, err = json.Marshal(map[string]string{"devid": typed.VideoCloudDevid, "activity_id": typed.ActivityID})
 		return http.MethodPost, "deactivate", typed.VideoCloudDevid, body, err
 	case *channel.DeviceUnprovisionRequestedPayload:
 		body, err = json.Marshal(map[string]string{"devid": typed.VideoCloudDevid})
@@ -182,7 +218,7 @@ func resultEnvelope(request channel.Envelope, payload channel.Payload, now time.
 			result = &channel.DeviceProvisionSucceededPayload{OrgID: typed.OrgID, AccountDeviceID: typed.AccountDeviceID, VideoCloudDevid: typed.VideoCloudDevid, ActivityID: typed.ActivityID, ActivatedAt: now}
 		case *channel.DeviceDeactivateRequestedPayload:
 			messageType = channel.MessageTypeDeviceDeactivateSucceeded
-			result = &channel.DeviceDeactivateSucceededPayload{OrgID: typed.OrgID, AccountDeviceID: typed.AccountDeviceID, VideoCloudDevid: typed.VideoCloudDevid, DeactivatedAt: now}
+			result = &channel.DeviceDeactivateSucceededPayload{OrgID: typed.OrgID, AccountDeviceID: typed.AccountDeviceID, VideoCloudDevid: typed.VideoCloudDevid, ActivityID: typed.ActivityID, DeactivatedAt: now}
 		case *channel.DeviceUnprovisionRequestedPayload:
 			messageType = channel.MessageTypeDeviceUnprovisionSucceeded
 			result = &channel.DeviceUnprovisionSucceededPayload{OrgID: typed.OrgID, AccountDeviceID: typed.AccountDeviceID, VideoCloudDevid: typed.VideoCloudDevid, UnprovisionedAt: now}
@@ -198,7 +234,7 @@ func resultEnvelope(request channel.Envelope, payload channel.Payload, now time.
 			result = &channel.DeviceProvisionFailedPayload{OrgID: typed.OrgID, AccountDeviceID: typed.AccountDeviceID, VideoCloudDevid: typed.VideoCloudDevid, ActivityID: typed.ActivityID, ErrorCode: "activation_failed", ErrorMessage: reason, FailedAt: now}
 		case *channel.DeviceDeactivateRequestedPayload:
 			messageType = channel.MessageTypeDeviceDeactivateFailed
-			result = &channel.DeviceDeactivateFailedPayload{OrgID: typed.OrgID, AccountDeviceID: typed.AccountDeviceID, VideoCloudDevid: typed.VideoCloudDevid, ErrorCode: "deactivation_failed", ErrorMessage: reason, FailedAt: now}
+			result = &channel.DeviceDeactivateFailedPayload{OrgID: typed.OrgID, AccountDeviceID: typed.AccountDeviceID, VideoCloudDevid: typed.VideoCloudDevid, ActivityID: typed.ActivityID, ErrorCode: "deactivation_failed", ErrorMessage: reason, FailedAt: now}
 		case *channel.DeviceUnprovisionRequestedPayload:
 			messageType = channel.MessageTypeDeviceUnprovisionFailed
 			result = &channel.DeviceUnprovisionFailedPayload{OrgID: typed.OrgID, AccountDeviceID: typed.AccountDeviceID, VideoCloudDevid: typed.VideoCloudDevid, ErrorCode: "unprovision_failed", ErrorMessage: reason, FailedAt: now}

@@ -32,10 +32,12 @@ func PendingProvisionMetadata(videoCloudDevid, activityID, clipPublicKey string,
 }
 
 type DeviceProjectionInput struct {
-	Metadata      map[string]any
-	Status        *model.DeviceStatus
-	LastSeenAt    *time.Time
-	AllowDisabled bool
+	Metadata           map[string]any
+	ExpectedActivityID string
+	Status             *model.DeviceStatus
+	LastSeenAt         *time.Time
+	ResetPresence      bool
+	AllowDisabled      bool
 }
 
 func ProvisionSucceededProjection(payload channel.DeviceProvisionSucceededPayload) DeviceProjectionInput {
@@ -152,9 +154,31 @@ func projectDeviceTx(ctx context.Context, tx pgx.Tx, orgID, deviceID string, in 
 	if err != nil {
 		return model.Device{}, err
 	}
+	if expected := strings.TrimSpace(in.ExpectedActivityID); expected != "" {
+		current, _ := device.Metadata[model.DeviceMetadataVideoCloudActivityID].(string)
+		if strings.TrimSpace(current) != expected {
+			// An older lifecycle result still completes its operation, but may
+			// not overwrite a newer activation generation's device projection.
+			return device, nil
+		}
+	}
 
 	if device.DisabledAt != nil && (!in.AllowDisabled || in.Status != nil || in.LastSeenAt != nil) {
 		return model.Device{}, ErrDisabled
+	}
+	if in.Status != nil {
+		mappedID, _ := device.Metadata[model.DeviceMetadataVideoCloudDevid].(string)
+		projectedID, _ := in.Metadata[model.DeviceMetadataVideoCloudDevid].(string)
+		if strings.TrimSpace(mappedID) == "" || mappedID != projectedID || in.LastSeenAt == nil || in.LastSeenAt.IsZero() {
+			return model.Device{}, ErrConflict
+		}
+		if device.LastSeenAt != nil {
+			if in.LastSeenAt.Before(*device.LastSeenAt) ||
+				(in.LastSeenAt.Equal(*device.LastSeenAt) &&
+					(device.Status == *in.Status || *in.Status != model.DeviceStatusOffline)) {
+				return device, nil
+			}
+		}
 	}
 
 	metadata, err := json.Marshal(applyProjectionMetadata(device.Metadata, in.Metadata))
@@ -163,11 +187,17 @@ func projectDeviceTx(ctx context.Context, tx pgx.Tx, orgID, deviceID string, in 
 	}
 
 	status := device.Status
+	if in.ResetPresence {
+		status = model.DeviceStatusUnknown
+	}
 	if in.Status != nil {
 		status = *in.Status
 	}
 
 	lastSeenAt := device.LastSeenAt
+	if in.ResetPresence {
+		lastSeenAt = nil
+	}
 	if in.LastSeenAt != nil {
 		lastSeenAt = in.LastSeenAt
 	}

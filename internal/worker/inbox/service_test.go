@@ -1073,3 +1073,27 @@ func payloadPartitionKey(payload any) string {
 		return ""
 	}
 }
+
+func TestLifecycleResultTransitionsPinActivityGeneration(t *testing.T) {
+	now := time.Now().UTC()
+	cases := []struct {
+		name    string
+		payload channel.Payload
+	}{
+		{"provision succeeded", &channel.DeviceProvisionSucceededPayload{ActivityID: "activity-1", ActivatedAt: now}},
+		{"provision failed", &channel.DeviceProvisionFailedPayload{ActivityID: "activity-1", FailedAt: now}},
+		{"deactivate succeeded", &channel.DeviceDeactivateSucceededPayload{ActivityID: "activity-1", DeactivatedAt: now}},
+		{"deactivate failed", &channel.DeviceDeactivateFailedPayload{ActivityID: "activity-1", FailedAt: now}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			transition, err := buildTransitionForPayload(channel.Envelope{}, tc.payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if transition.Projection == nil || transition.Projection.ExpectedActivityID != "activity-1" {
+				t.Fatalf("result projection must retain activity generation: %+v", transition.Projection)
+			}
+		})
+	}
+}

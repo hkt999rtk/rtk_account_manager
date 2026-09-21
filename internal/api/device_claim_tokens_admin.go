@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -168,7 +169,11 @@ func (s *Server) transferDeviceClaim(c *gin.Context) {
 		ActorUserID:          currentUserID(c),
 		Reason:               strings.TrimSpace(req.Reason),
 		Evidence:             req.Evidence,
-		Now:                  time.Now().UTC(),
+		ReserveNoVideoCloudLifecycle: func(ctx context.Context, videoID, reservationID, targetOrgID, accountDeviceID string) error {
+			return s.reserveNoVideoCloudLifecycle(ctx, videoID, targetOrgID, accountDeviceID, reservationID)
+		},
+		ReleaseNoVideoCloudLifecycle: s.releaseNoVideoCloudLifecycle,
+		Now:                          time.Now().UTC(),
 	})
 	if err != nil {
 		writeClaimResolveError(c, err)
@@ -188,7 +193,11 @@ func (s *Server) reclaimDeviceClaimToken(c *gin.Context) {
 		ActorUserID:          currentUserID(c),
 		Reason:               strings.TrimSpace(req.Reason),
 		Evidence:             req.Evidence,
-		Now:                  time.Now().UTC(),
+		ReserveNoVideoCloudLifecycle: func(ctx context.Context, videoID, reservationID, targetOrgID, accountDeviceID string) error {
+			return s.reserveNoVideoCloudLifecycle(ctx, videoID, targetOrgID, accountDeviceID, reservationID)
+		},
+		ReleaseNoVideoCloudLifecycle: s.releaseNoVideoCloudLifecycle,
+		Now:                          time.Now().UTC(),
 	})
 	if err != nil {
 		writeClaimResolveError(c, err)

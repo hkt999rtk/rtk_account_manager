@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -56,21 +58,25 @@ type DeviceClaimResolveResult struct {
 }
 
 type DeviceClaimTransferInput struct {
-	ClaimID              string
-	TargetOrganizationID string
-	ActorUserID          string
-	Reason               string
-	Evidence             map[string]any
-	Now                  time.Time
+	ClaimID                      string
+	TargetOrganizationID         string
+	ActorUserID                  string
+	Reason                       string
+	Evidence                     map[string]any
+	ReserveNoVideoCloudLifecycle func(context.Context, string, string, string, string) error
+	ReleaseNoVideoCloudLifecycle func(context.Context, string, string) error
+	Now                          time.Time
 }
 
 type DeviceClaimReclaimInput struct {
-	TokenID              string
-	TargetOrganizationID string
-	ActorUserID          string
-	Reason               string
-	Evidence             map[string]any
-	Now                  time.Time
+	TokenID                      string
+	TargetOrganizationID         string
+	ActorUserID                  string
+	Reason                       string
+	Evidence                     map[string]any
+	ReserveNoVideoCloudLifecycle func(context.Context, string, string, string, string) error
+	ReleaseNoVideoCloudLifecycle func(context.Context, string, string) error
+	Now                          time.Time
 }
 
 type DeviceClaimOverrideResult struct {
@@ -424,14 +430,16 @@ func (s *Store) TransferDeviceClaim(ctx context.Context, in DeviceClaimTransferI
 		return DeviceClaimOverrideResult{}, err
 	}
 	return s.overrideDeviceClaim(ctx, claimOverrideInput{
-		ClaimID:              in.ClaimID,
-		TargetOrganizationID: in.TargetOrganizationID,
-		ActorUserID:          in.ActorUserID,
-		Reason:               strings.TrimSpace(in.Reason),
-		Evidence:             in.Evidence,
-		Status:               "transferred",
-		EventType:            "device_claim_transferred",
-		Now:                  in.Now,
+		ClaimID:                      in.ClaimID,
+		TargetOrganizationID:         in.TargetOrganizationID,
+		ActorUserID:                  in.ActorUserID,
+		Reason:                       strings.TrimSpace(in.Reason),
+		Evidence:                     in.Evidence,
+		ReserveNoVideoCloudLifecycle: in.ReserveNoVideoCloudLifecycle,
+		ReleaseNoVideoCloudLifecycle: in.ReleaseNoVideoCloudLifecycle,
+		Status:                       "transferred",
+		EventType:                    "device_claim_transferred",
+		Now:                          in.Now,
 	})
 }
 
@@ -440,14 +448,16 @@ func (s *Store) ReclaimDeviceClaimToken(ctx context.Context, in DeviceClaimRecla
 		return DeviceClaimOverrideResult{}, err
 	}
 	return s.overrideDeviceClaim(ctx, claimOverrideInput{
-		TokenID:              in.TokenID,
-		TargetOrganizationID: in.TargetOrganizationID,
-		ActorUserID:          in.ActorUserID,
-		Reason:               strings.TrimSpace(in.Reason),
-		Evidence:             in.Evidence,
-		Status:               "reclaimed",
-		EventType:            "device_claim_reclaimed",
-		Now:                  in.Now,
+		TokenID:                      in.TokenID,
+		TargetOrganizationID:         in.TargetOrganizationID,
+		ActorUserID:                  in.ActorUserID,
+		Reason:                       strings.TrimSpace(in.Reason),
+		Evidence:                     in.Evidence,
+		ReserveNoVideoCloudLifecycle: in.ReserveNoVideoCloudLifecycle,
+		ReleaseNoVideoCloudLifecycle: in.ReleaseNoVideoCloudLifecycle,
+		Status:                       "reclaimed",
+		EventType:                    "device_claim_reclaimed",
+		Now:                          in.Now,
 	})
 }
 
@@ -484,15 +494,17 @@ func lockOrganizationAndCheckQuota(ctx context.Context, tx pgx.Tx, orgID string)
 }
 
 type claimOverrideInput struct {
-	ClaimID              string
-	TokenID              string
-	TargetOrganizationID string
-	ActorUserID          string
-	Reason               string
-	Evidence             map[string]any
-	Status               string
-	EventType            string
-	Now                  time.Time
+	ClaimID                      string
+	TokenID                      string
+	TargetOrganizationID         string
+	ActorUserID                  string
+	Reason                       string
+	Evidence                     map[string]any
+	ReserveNoVideoCloudLifecycle func(context.Context, string, string, string, string) error
+	ReleaseNoVideoCloudLifecycle func(context.Context, string, string) error
+	Status                       string
+	EventType                    string
+	Now                          time.Time
 }
 
 func validateClaimOverrideInput(targetOrgID, actorUserID, reason string, evidence map[string]any) error {
@@ -505,12 +517,27 @@ func validateClaimOverrideInput(targetOrgID, actorUserID, reason string, evidenc
 	return nil
 }
 
-func (s *Store) overrideDeviceClaim(ctx context.Context, in claimOverrideInput) (DeviceClaimOverrideResult, error) {
+func (s *Store) overrideDeviceClaim(ctx context.Context, in claimOverrideInput) (_ DeviceClaimOverrideResult, returnErr error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return DeviceClaimOverrideResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	var reservedVideoID, reservedID string
+	commitAttempted := false
+	// Release only a reservation whose local transaction definitely did not
+	// attempt to commit. This runs before Rollback, while the account-side
+	// locks still prevent a concurrent transfer from reusing the generation.
+	defer func() {
+		if reservedID == "" || commitAttempted || in.ReleaseNoVideoCloudLifecycle == nil {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if err := in.ReleaseNoVideoCloudLifecycle(cleanupCtx, reservedVideoID, reservedID); err != nil {
+			returnErr = errors.Join(returnErr, err)
+		}
+	}()
 	if err := lockPlatformActorTx(ctx, tx, in.ActorUserID); err != nil {
 		return DeviceClaimOverrideResult{}, err
 	}
@@ -548,6 +575,18 @@ func (s *Store) overrideDeviceClaim(ctx context.Context, in claimOverrideInput) 
 	if claim.ID != observed.ID || claim.OrganizationID != observed.OrganizationID || claim.DeviceID != device.ID || claim.TokenID != observed.TokenID {
 		return DeviceClaimOverrideResult{}, ErrConflict
 	}
+	// Moving only the account-side rows after a Video Cloud lifecycle starts
+	// would leave the active device, tokens, clips and telemetry in the source
+	// organization. A separate coordinated migration must handle that case.
+	if claim.OrganizationID != in.TargetOrganizationID {
+		var operationRecorded bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM device_operations WHERE device_id=$1 AND operation_type='provision')`, device.ID).Scan(&operationRecorded); err != nil {
+			return DeviceClaimOverrideResult{}, err
+		}
+		if claimLifecycleBound(device.Metadata) || operationRecorded {
+			return DeviceClaimOverrideResult{}, ErrClaimLifecycleBound
+		}
+	}
 
 	token, err := getClaimTokenForUpdateTx(ctx, tx, claim.TokenID)
 	if err != nil {
@@ -570,13 +609,29 @@ func (s *Store) overrideDeviceClaim(ctx context.Context, in claimOverrideInput) 
 	if !productAllowed {
 		return DeviceClaimOverrideResult{}, ErrConflict
 	}
+	transferReservationID := ""
+	if claim.OrganizationID != in.TargetOrganizationID {
+		transferReservationID = claimTransferReservationID(claim, in.TargetOrganizationID)
+		if in.ReserveNoVideoCloudLifecycle == nil {
+			return DeviceClaimOverrideResult{}, ErrClaimLifecycleCheckUnavailable
+		}
+		// The remote reservation persists if this transaction has an
+		// uncertain commit result. Releasing it on an ambiguous error could
+		// reopen the activation race after the account transfer committed.
+		if err := in.ReserveNoVideoCloudLifecycle(ctx, token.VideoCloudDevid, transferReservationID, in.TargetOrganizationID, device.ID); err != nil {
+			return DeviceClaimOverrideResult{}, err
+		}
+		reservedVideoID, reservedID = token.VideoCloudDevid, transferReservationID
+	}
 
 	updatedDevice, err := scanDevice(tx.QueryRow(ctx, `
 		UPDATE devices
-		SET organization_id = $2, updated_at = $3
+		SET organization_id = $2,
+			metadata = CASE WHEN $4::text <> '' THEN metadata || jsonb_build_object($5::text,$4::text) ELSE metadata END,
+			updated_at = $3
 		WHERE id = $1
 		RETURNING id::text, organization_id::text, name, category, serial_number, mac_address, manufacturer, model, status, last_seen_at, metadata, created_at, updated_at, disabled_at, device_item_profile_id::text
-	`, claim.DeviceID, in.TargetOrganizationID, now))
+	`, claim.DeviceID, in.TargetOrganizationID, now, transferReservationID, model.DeviceMetadataVideoCloudTransferReservationID))
 	if err != nil {
 		if isUniqueViolation(err) {
 			return DeviceClaimOverrideResult{}, ErrConflict
@@ -617,17 +672,18 @@ func (s *Store) overrideDeviceClaim(ctx context.Context, in claimOverrideInput) 
 	}
 
 	payload := map[string]any{
-		"claim_id":               claim.ID,
-		"claim_token_id":         claim.TokenID,
-		"device_id":              claim.DeviceID,
-		"source_organization_id": claim.OrganizationID,
-		"target_organization_id": in.TargetOrganizationID,
-		"previous_device_status": device.Status,
-		"previous_claim_status":  claim.Status,
-		"resulting_claim_status": in.Status,
-		"reason":                 in.Reason,
-		"evidence":               defaultMetadata(in.Evidence),
-		"video_cloud_devid":      token.VideoCloudDevid,
+		"claim_id":                claim.ID,
+		"claim_token_id":          claim.TokenID,
+		"device_id":               claim.DeviceID,
+		"source_organization_id":  claim.OrganizationID,
+		"target_organization_id":  in.TargetOrganizationID,
+		"previous_device_status":  device.Status,
+		"previous_claim_status":   claim.Status,
+		"resulting_claim_status":  in.Status,
+		"reason":                  in.Reason,
+		"evidence":                defaultMetadata(in.Evidence),
+		"video_cloud_devid":       token.VideoCloudDevid,
+		"transfer_reservation_id": transferReservationID,
 	}
 	if err := createAuditEventTx(ctx, tx, AuditEventInput{
 		EventType:      in.EventType,
@@ -640,10 +696,27 @@ func (s *Store) overrideDeviceClaim(ctx context.Context, in claimOverrideInput) 
 		return DeviceClaimOverrideResult{}, err
 	}
 
+	commitAttempted = true
 	if err := tx.Commit(ctx); err != nil {
 		return DeviceClaimOverrideResult{}, err
 	}
 	return DeviceClaimOverrideResult{Claim: updatedClaim, Token: updatedToken, Device: updatedDevice}, nil
+}
+
+func claimTransferReservationID(claim model.DeviceClaim, targetOrgID string) string {
+	parts := []string{"device-transfer-v1", claim.ID, claim.OrganizationID, targetOrgID, claim.UpdatedAt.UTC().Format(time.RFC3339Nano)}
+	digest := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return hex.EncodeToString(digest[:])
+}
+
+func claimLifecycleBound(metadata map[string]any) bool {
+	status, ok := metadata[model.DeviceMetadataVideoCloudActivationStatus]
+	return ok && status != nil
+}
+
+func hasVideoCloudIdentity(metadata map[string]any) bool {
+	devid, ok := metadata[model.DeviceMetadataVideoCloudDevid].(string)
+	return ok && strings.TrimSpace(devid) != ""
 }
 
 func getClaimForOverrideTx(ctx context.Context, tx pgx.Tx, claimID, tokenID string, lock bool) (model.DeviceClaim, error) {

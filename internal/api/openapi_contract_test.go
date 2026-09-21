@@ -323,6 +323,12 @@ func TestIntegrationResponsesMatchOpenAPIContract(t *testing.T) {
 		"evidence":               map[string]any{"ticket": "CONTRACT-131"},
 	}, admin.Tokens.AccessToken)
 	contract.validate(t, http.MethodPost, "/v1/admin/device-claims/"+claimResolved.ClaimID+"/transfer", claimTransferRes)
+	fenceInspectRes := performJSON(env.router, http.MethodGet, "/v1/admin/device-claims/"+claimResolved.ClaimID+"/transfer-fence", nil, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodGet, "/v1/admin/device-claims/"+claimResolved.ClaimID+"/transfer-fence", fenceInspectRes)
+	fenceCancelRes := performJSON(env.router, http.MethodPost, "/v1/admin/device-claims/"+claimResolved.ClaimID+"/transfer-fence/cancel", map[string]any{
+		"reservation_id": "test-generation", "reason": "contract test", "evidence": map[string]any{"ticket": "CONTRACT-131"},
+	}, admin.Tokens.AccessToken)
+	contract.validate(t, http.MethodPost, "/v1/admin/device-claims/"+claimResolved.ClaimID+"/transfer-fence/cancel", fenceCancelRes)
 	if adminClaimTokenBody.ClaimToken == nil {
 		t.Fatalf("expected generated claim token for reclaim contract")
 	}

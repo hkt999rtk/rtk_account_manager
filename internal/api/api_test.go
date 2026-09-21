@@ -344,6 +344,39 @@ func TestWriteClaimResolveErrorIncludesRetryability(t *testing.T) {
 	}
 }
 
+func TestWriteStoreErrorProtectsServiceOwnedDeviceState(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{"cloud-managed presence", store.ErrCloudManagedPresence, http.StatusConflict, "presence_source_owned_by_video_cloud"},
+		{"reserved metadata", store.ErrReservedDeviceMetadata, http.StatusBadRequest, "reserved_device_metadata"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			res := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(res)
+			writeStoreError(c, tt.err)
+			if res.Code != tt.status {
+				t.Fatalf("expected status %d, got %d: %s", tt.status, res.Code, res.Body.String())
+			}
+			var body struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body.Error.Code != tt.code {
+				t.Fatalf("expected code %q, got %q", tt.code, body.Error.Code)
+			}
+		})
+	}
+}
+
 func TestAuthTokenTTLConfiguration(t *testing.T) {
 	server := New(nil, nil)
 	server.ConfigureAuthTokenTTLs(12*time.Minute, 7*time.Minute)
@@ -1147,6 +1180,15 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 			wantProduct:        model.ProductReadinessStateActivated,
 		},
 		{
+			name: "activation succeeded after old presence was cleared",
+			device: readinessDevice(model.DeviceStatusUnknown, map[string]any{
+				model.DeviceMetadataVideoCloudActivationStatus: string(model.VideoCloudActivationStatusActivated),
+			}),
+			provisioningStatus: model.DeviceOperationStatusSucceeded,
+			want:               model.DeviceReadinessStateTransportPending,
+			wantProduct:        model.ProductReadinessStateActivated,
+		},
+		{
 			name: "activation succeeded and online is ready",
 			device: readinessDevice(model.DeviceStatusOnline, map[string]any{
 				model.DeviceMetadataVideoCloudActivationStatus: string(model.VideoCloudActivationStatusActivated),
@@ -1244,11 +1286,67 @@ func TestReadinessFromProjectionStates(t *testing.T) {
 	}
 }
 
+func TestReadinessSourcesExposeProjectedPresenceObservationTime(t *testing.T) {
+	observedAt := time.Date(2026, 9, 20, 8, 30, 0, 0, time.UTC)
+	device := readinessDevice(model.DeviceStatusOnline, map[string]any{
+		model.DeviceMetadataVideoCloudActivationStatus: string(model.VideoCloudActivationStatusActivated),
+	})
+	device.LastSeenAt = &observedAt
+	operation := model.DeviceOperation{Status: model.DeviceOperationStatusSucceeded}
+	readiness := readinessFromProjection(device, &operation, nil)
+	if readiness.Sources.DeviceLastSeenAt == nil || !readiness.Sources.DeviceLastSeenAt.Equal(observedAt) {
+		t.Fatalf("projected presence observation missing from readiness sources: %+v", readiness.Sources)
+	}
+}
+
+func TestEventOnlyReadinessExpiresStaleOnlineProjection(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	device := readinessDevice(model.DeviceStatusOnline, map[string]any{
+		model.DeviceMetadataVideoCloudDevid:            "video-1",
+		model.DeviceMetadataVideoCloudActivationStatus: string(model.VideoCloudActivationStatusActivated),
+	})
+	operation := model.DeviceOperation{Status: model.DeviceOperationStatusSucceeded}
+	for _, test := range []struct {
+		name       string
+		observedAt *time.Time
+		want       model.DeviceReadinessState
+		status     string
+	}{
+		{name: "missing observation", want: model.DeviceReadinessStateTransportPending, status: "stale"},
+		{name: "fresh observation", observedAt: timePtr(now.Add(-time.Minute)), want: model.DeviceReadinessStateReady},
+		{name: "expired observation", observedAt: timePtr(now.Add(-ownerPresenceMaxAge - time.Second)), want: model.DeviceReadinessStateTransportPending, status: "stale"},
+		{name: "future observation", observedAt: timePtr(now.Add(2 * time.Minute)), want: model.DeviceReadinessStateTransportPending, status: "stale"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			device.LastSeenAt = test.observedAt
+			readiness := readinessFromProjectionAt(device, &operation, nil, now)
+			if readiness.State != test.want || readiness.Sources.OwnerTransportStatus != test.status {
+				t.Fatalf("readiness=%+v, want %s and %q", readiness, test.want, test.status)
+			}
+		})
+	}
+	device.LastSeenAt = timePtr(now)
+	delete(device.Metadata, model.DeviceMetadataVideoCloudDevid)
+	if readiness := readinessFromProjectionAt(device, &operation, nil, now); readiness.State != model.DeviceReadinessStateTransportPending {
+		t.Fatalf("missing mapped video identity was accepted: %+v", readiness)
+	}
+}
+
+func timePtr(value time.Time) *time.Time { return &value }
+
 func readinessDevice(status model.DeviceStatus, metadata map[string]any) model.Device {
-	return model.Device{
+	dev := model.Device{
 		Status:   status,
 		Metadata: metadata,
 	}
+	if activation, _ := metadata[model.DeviceMetadataVideoCloudActivationStatus].(string); activation == string(model.VideoCloudActivationStatusActivated) {
+		dev.Metadata[model.DeviceMetadataVideoCloudDevid] = "video-1"
+		if status == model.DeviceStatusOnline {
+			observedAt := time.Now().UTC()
+			dev.LastSeenAt = &observedAt
+		}
+	}
+	return dev
 }
 
 func readinessDisabledDevice(status model.DeviceStatus, metadata map[string]any) model.Device {

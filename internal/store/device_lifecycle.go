@@ -155,6 +155,7 @@ func (s *Store) StartDeviceDeactivationOperation(ctx context.Context, in DeviceD
 	if !ok {
 		return DeviceLifecycleOperationResult{}, ErrNotProvisioned
 	}
+	activityID, _ := lifecycleMetadataString(device.Metadata, model.DeviceMetadataVideoCloudActivityID)
 
 	return startDeviceLifecycleOperationTx(ctx, tx, device, DeviceLifecycleOperationInput{
 		OperationID:       in.OperationID,
@@ -170,6 +171,7 @@ func (s *Store) StartDeviceDeactivationOperation(ctx context.Context, in DeviceD
 			"org_id":            in.OrganizationID,
 			"account_device_id": in.DeviceID,
 			"video_cloud_devid": videoCloudDevid,
+			"activity_id":       activityID,
 			"requested_by":      stringValue(in.RequestedBy),
 			"reason":            in.Reason,
 		},
@@ -192,6 +194,14 @@ func startDeviceLifecycleOperationTx(ctx context.Context, tx pgx.Tx, device mode
 			return DeviceLifecycleOperationResult{}, err
 		}
 	}
+	if created && in.OperationType == model.DeviceOperationTypeProvision {
+		in.OutboxPayload = maps.Clone(in.OutboxPayload)
+		if reservationID, ok := lifecycleMetadataString(device.Metadata, model.DeviceMetadataVideoCloudTransferReservationID); ok {
+			in.OutboxPayload["transfer_reservation_id"] = reservationID
+		} else {
+			delete(in.OutboxPayload, "transfer_reservation_id")
+		}
+	}
 
 	var message model.DeviceMessageOutbox
 	if created {
@@ -203,9 +213,10 @@ func startDeviceLifecycleOperationTx(ctx context.Context, tx pgx.Tx, device mode
 		return DeviceLifecycleOperationResult{}, err
 	}
 
-	if created && len(in.MetadataPatch) > 0 {
+	if created && (len(in.MetadataPatch) > 0 || in.OperationType == model.DeviceOperationTypeProvision) {
 		device, err = projectDeviceTx(ctx, tx, device.OrganizationID, device.ID, DeviceProjectionInput{
 			Metadata:      in.MetadataPatch,
+			ResetPresence: in.OperationType == model.DeviceOperationTypeProvision,
 			AllowDisabled: in.AllowDisabled,
 		})
 		if err != nil {
