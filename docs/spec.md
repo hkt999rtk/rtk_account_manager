@@ -167,11 +167,13 @@ Account-manager-owned video metadata keys:
 - `video_cloud_deactivated_at`
 - `video_cloud_last_error`
 
-For the direct HTTP lifecycle path, `DeviceDeactivateRequested` captures the
+Under [REQ-AM-LIFECYCLE-MESSAGE-INTEGRITY-001], the direct HTTP lifecycle path
+captures the
 current `video_cloud_activity_id` in its outbox payload and sends it as
 `activity_id` to Video Cloud's internal deactivate route. Video Cloud rejects
 a command for an older activation with HTTP 409; the resulting operation may
-fail, but its result must not overwrite the projection of a newer activity.
+fail, and Account Manager does not apply that result over the projection of a
+newer activity.
 Provision and deactivate result projections are generation-checked against
 the account device's current `video_cloud_activity_id`. Existing commands
 without an activity ID can only match a legacy Video Cloud row with no stored
