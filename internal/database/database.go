@@ -104,6 +104,21 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		if err != nil {
 			return err
 		}
+		if _, err = tx.Exec(ctx, `SET LOCAL lock_timeout='5s'; SELECT pg_advisory_xact_lock(hashtextextended('account-manager-schema',0))`); err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+		// Another offline migrator may have committed after the outer read.
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)`, name).Scan(&exists); err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+		if exists {
+			if err = tx.Commit(ctx); err != nil {
+				return err
+			}
+			continue
+		}
 		adopted, err := adoptRenamedTestLabMigration(ctx, tx, name, sqlBytes)
 		if err != nil {
 			_ = tx.Rollback(ctx)

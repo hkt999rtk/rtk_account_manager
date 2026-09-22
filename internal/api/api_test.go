@@ -411,9 +411,6 @@ func TestEmailIssuanceRequiresOutbox(t *testing.T) {
 	if _, err := server.issueAuthTokenForEmail(c, "user@example.com", "password_reset"); !errors.Is(err, ErrEmailOutboxUnavailable) {
 		t.Fatalf("issueAuthTokenForEmail error = %v, want ErrEmailOutboxUnavailable", err)
 	}
-	if _, err := server.issueBrandCloudLoginToken(c, "tenant", "user@example.com"); !errors.Is(err, ErrEmailOutboxUnavailable) {
-		t.Fatalf("issueBrandCloudLoginToken error = %v, want ErrEmailOutboxUnavailable", err)
-	}
 }
 
 func TestHTTPAppCertificateIssuerIssuesAndReportsErrors(t *testing.T) {

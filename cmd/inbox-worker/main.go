@@ -37,6 +37,9 @@ func main() {
 		fatal(logger, "database connection failed", err)
 	}
 	defer db.Close()
+	if err := database.VerifySimplification(ctx, db); err != nil {
+		fatal(logger, "incompatible database schema", err)
+	}
 
 	consumer, err := broker.NewConsumer(cfg.CrossServiceBroker, broker.ConsumerOptions{
 		LogReader:                      os.Stdin,

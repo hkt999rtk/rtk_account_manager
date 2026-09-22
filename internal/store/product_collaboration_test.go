@@ -51,16 +51,7 @@ func TestProductCollaborationInvitationVisibilityAndOwnershipTransferIntegration
 	}
 	assignedProduct := createProduct("assigned-product")
 	_ = createProduct("hidden-product")
-	brandUser, err := env.store.CreateBrandCloudUser(ctx, owner.User.ID, owner.BrandCloud.ID, BrandCloudUserInput{
-		Email: "brand-member@example.com", PasswordHash: "hash", Role: model.RoleMember,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if role, err := env.store.GetProductCollaboratorRole(ctx, brandUser.BrandCloudUser.ID, owner.BrandCloud.ID, assignedProduct.ID); err != nil || role != string(model.RoleMember) {
-		t.Fatalf("brand member Product role = %q, err=%v", role, err)
-	}
-	if _, err := env.store.GetProductCollaboratorRole(ctx, "00000000-0000-0000-0000-000000000000", owner.BrandCloud.ID, assignedProduct.ID); !errors.Is(err, ErrNotFound) {
+	if _, err := env.store.GetUserProductCollaboratorRole(ctx, "00000000-0000-0000-0000-000000000000", owner.BrandCloud.ID, assignedProduct.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing brand member role error = %v", err)
 	}
 	if _, _, err := env.store.CreateProductCollaboratorInvitation(ctx, ProductCollaboratorInvitationInput{

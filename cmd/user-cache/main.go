@@ -25,7 +25,7 @@ func main() {
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: user-cache <rebuild|delete|inspect> [--user-id id|--email email]")
+		return errors.New("usage: user-cache <rebuild|delete|inspect|retire-tenant-identity> [--user-id id|--email email]")
 	}
 	cfg, err := config.LoadWorker()
 	if err != nil {
@@ -41,6 +41,8 @@ func run(ctx context.Context, args []string) error {
 		Prefix: cfg.UserCachePrefix,
 	})
 	switch args[0] {
+	case "retire-tenant-identity":
+		return cache.RetireTenantIdentity(ctx)
 	case "rebuild":
 		return rebuild(ctx, db, cache)
 	case "delete":

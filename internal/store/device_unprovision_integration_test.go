@@ -48,17 +48,7 @@ func TestUnprovisionDeviceRetainsClaimHistoryAndAllowsReplacementClaim(t *testin
 		t.Fatal(err)
 	}
 
-	var tenantActorID string
-	if err := env.db.QueryRow(ctx, `
-		INSERT INTO brand_cloud_users (
-			brand_cloud_id, email, password_hash, email_verified,
-			email_verified_at, signup_pending_verification
-		)
-		VALUES ($1, 'tenant-unprovision-actor@example.com', 'hash', true, $2, false)
-		RETURNING id::text
-	`, registered.Organization.ID, now).Scan(&tenantActorID); err != nil {
-		t.Fatal(err)
-	}
+	tenantActorID := "7da17bc5-9c9f-4048-a66c-f6d6c3ba0099" // Retired tenant identity, absent from global users.
 
 	if _, err := env.store.UnprovisionDevice(ctx, DeviceUnprovisionInput{
 		OrganizationID: registered.Organization.ID,

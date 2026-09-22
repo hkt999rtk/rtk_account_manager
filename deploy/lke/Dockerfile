@@ -3,6 +3,7 @@ FROM golang:1.24-bookworm AS builder
 WORKDIR /src
 COPY . .
 
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-user-cache ./cmd/user-cache
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager ./cmd/server
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-migrate ./cmd/migrate
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/rtk-account-manager-device-pki-admin ./cmd/device-pki-admin
@@ -21,6 +22,7 @@ RUN apt-get update \
     && useradd -r -u 10001 app \
     && chown app:app /app
 
+COPY --from=builder /out/rtk-account-manager-user-cache /app/rtk-account-manager-user-cache
 COPY --from=builder /out/rtk-account-manager /app/rtk-account-manager
 COPY --from=builder /out/rtk-account-manager-migrate /app/rtk-account-manager-migrate
 COPY --from=builder /out/rtk-account-manager-device-pki-admin /app/rtk-account-manager-device-pki-admin

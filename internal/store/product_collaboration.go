@@ -39,22 +39,6 @@ func (s *Store) CanManageProductCollaborators(ctx context.Context, actorUserID, 
 	return allowed, err
 }
 
-func (s *Store) GetProductCollaboratorRole(ctx context.Context, brandCloudUserID, brandCloudID, productID string) (string, error) {
-	var role string
-	err := s.db.QueryRow(ctx, `
-		SELECT CASE WHEN r.name='owner' AND ra.scope_type='organization' THEN 'brand_owner' ELSE r.name END
-		FROM role_assignments ra JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL
-		WHERE ra.actor_type='brand_cloud_user' AND ra.actor_id=$1 AND ra.organization_id::text=$2
-		  AND ra.disabled_at IS NULL AND (ra.scope_type='organization' OR (ra.scope_type='product' AND ra.scope_id=$3))
-		ORDER BY CASE WHEN r.name='product_owner' THEN 0 WHEN ra.scope_type='organization' THEN 1 WHEN r.name='product_editor' THEN 2 ELSE 3 END
-		LIMIT 1
-	`, brandCloudUserID, brandCloudID, productID).Scan(&role)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ErrNotFound
-	}
-	return role, err
-}
-
 func (s *Store) GetUserProductCollaboratorRole(ctx context.Context, userID, brandCloudID, productID string) (string, error) {
 	var role string
 	err := s.db.QueryRow(ctx, `SELECT CASE WHEN m.role='viewer' THEN 'product_viewer' WHEN r.name='owner' AND ra.scope_type='organization' THEN 'brand_owner' ELSE r.name END

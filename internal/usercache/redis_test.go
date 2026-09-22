@@ -3,6 +3,7 @@ package usercache
 import (
 	"bufio"
 	"context"
+	"errors"
 	"net"
 	"reflect"
 	"strings"
@@ -71,7 +72,7 @@ func TestRedisCacheFlushPlatformAuthScansAndDeletesOnlyAuthKeys(t *testing.T) {
 	}
 }
 
-func TestRedisCacheRoundTripsPlatformBrandAndEndUserProjections(t *testing.T) {
+func TestRedisCacheRoundTripsPlatformAndEndUserProjections(t *testing.T) {
 	ctx := context.Background()
 	cache := NewRedisCache(Config{Prefix: "account_manager:user"})
 	installMemoryRedis(cache)
@@ -96,28 +97,6 @@ func TestRedisCacheRoundTripsPlatformBrandAndEndUserProjections(t *testing.T) {
 	}
 	if _, ok, err := cache.GetPlatformUser(ctx, "user-1"); err != nil || ok {
 		t.Fatalf("expected deleted platform user miss, ok=%t err=%v", ok, err)
-	}
-
-	brandResult := store.BrandCloudLoginResult{
-		BrandCloudUser: model.BrandCloudUser{ID: "brand-user-1", BrandCloudID: "brand-1", Email: "operator@example.com"},
-		PasswordHash:   "brand-hash",
-	}
-	if err := cache.PutBrandCloudLogin(ctx, "ACME", brandResult); err != nil {
-		t.Fatal(err)
-	}
-	brandID, ok, err := cache.GetBrandCloudUserIDByTenantEmail(ctx, "acme", "operator@example.com")
-	if err != nil || !ok || brandID != "brand-user-1" {
-		t.Fatalf("unexpected brand email index: %q %t %v", brandID, ok, err)
-	}
-	gotBrand, ok, err := cache.GetBrandCloudLogin(ctx, "brand-user-1")
-	if err != nil || !ok || gotBrand.PasswordHash != "brand-hash" {
-		t.Fatalf("unexpected brand login: %+v %t %v", gotBrand, ok, err)
-	}
-	if err := cache.DeleteBrandCloudUser(ctx, "brand-user-1"); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok, err := cache.GetBrandCloudLogin(ctx, "brand-user-1"); err != nil || ok {
-		t.Fatalf("expected deleted brand login miss, ok=%t err=%v", ok, err)
 	}
 
 	endResult := store.EndUserLoginResult{
@@ -229,9 +208,6 @@ func TestRedisCacheValidationAndDecodeErrors(t *testing.T) {
 	if err := cache.PutPlatformUser(ctx, model.User{}); err == nil {
 		t.Fatal("expected missing platform user id error")
 	}
-	if err := cache.PutBrandCloudUser(ctx, model.BrandCloudUser{}); err == nil {
-		t.Fatal("expected missing brand cloud user id error")
-	}
 	if err := cache.PutEndUser(ctx, model.EndUser{}); err == nil {
 		t.Fatal("expected missing end user id error")
 	}
@@ -280,4 +256,59 @@ func installMemoryRedis(cache *RedisCache) map[string]string {
 		}
 	}
 	return values
+}
+
+func TestRetireTenantIdentityPreservesOtherCacheDomains(t *testing.T) {
+	cache := NewRedisCache(Config{Prefix: "fixture:user"})
+	patterns := []string{}
+	deleted := []string{}
+	cache.command = func(_ context.Context, args ...string) (any, error) {
+		if args[0] == "SCAN" {
+			patterns = append(patterns, args[3])
+			return scanResult{cursor: "0", keys: []string{strings.TrimSuffix(args[3], "*") + "fixture"}}, nil
+		}
+		if args[0] == "DEL" {
+			deleted = append(deleted, args[1:]...)
+			return int64(1), nil
+		}
+		t.Fatalf("unexpected command: %v", args)
+		return nil, nil
+	}
+	if err := cache.RetireTenantIdentity(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(patterns, []string{"fixture:user:brand_cloud:*", "fixture:user:platform:auth:*"}) || len(deleted) != 2 {
+		t.Fatalf("cleanup scope: %v %v", patterns, deleted)
+	}
+}
+
+func TestRetireTenantIdentityReportsIncompleteCleanup(t *testing.T) {
+	for _, failure := range []string{"scan", "decode", "delete", "global-auth"} {
+		t.Run(failure, func(t *testing.T) {
+			cache := NewRedisCache(Config{Prefix: "fixture:user"})
+			unavailable := errors.New("cache unavailable")
+			cache.command = func(_ context.Context, args ...string) (any, error) {
+				if args[0] == "SCAN" {
+					if failure == "scan" || (failure == "global-auth" && strings.Contains(args[3], "platform:auth")) {
+						return nil, unavailable
+					}
+					if failure == "decode" {
+						return "invalid response", nil
+					}
+					return scanResult{cursor: "0", keys: []string{strings.TrimSuffix(args[3], "*") + "fixture"}}, nil
+				}
+				if failure == "delete" {
+					return nil, unavailable
+				}
+				return int64(1), nil
+			}
+			err := cache.RetireTenantIdentity(context.Background())
+			if err == nil {
+				t.Fatal("partial cleanup reported success")
+			}
+			if failure != "decode" && !errors.Is(err, unavailable) {
+				t.Fatalf("lost cache failure: %v", err)
+			}
+		})
+	}
 }

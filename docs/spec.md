@@ -935,7 +935,7 @@ Constraints:
 {"acceptance_layer":"integration","operation_model":"independent","gate":"pr","environments":["ci"],"evidence":["json","junit"],"required":true,"status":"active"}
 -->
 
-`brand_cloud_users` and `brand_cloud_memberships` are read-only migration
+`brand_cloud_users` and `brand_cloud_memberships` are historical migration
 sources during the maintenance-window cutover and are removed after validation.
 The migration normalizes email and records every old-to-new id decision in
 `brand_cloud_user_migrations` with result and conflict status:
@@ -1258,8 +1258,9 @@ Product authorization state is persisted in Account Manager and follows
   scope.
 - `external_group_mappings` maps IdP groups such as Keycloak groups to scoped
   product role assignments. Unmapped external groups grant nothing.
-- `acl_audit_events` records role, permission binding, assignment, and external
-  group mapping changes.
+- `audit_events` with `audit_domain=acl` records role, permission binding,
+  assignment and external-group changes. General queries filter `audit_domain=general`.
+  Historical actor IDs survive user deletion; new ACL actors are checked at insert.
 
 ### `quota_raise_requests`
 
@@ -2902,3 +2903,17 @@ The fetcher rejects non-HTTPS URLs, userinfo, non-default ports, disallowed
 hosts, private/reserved DNS results, unsafe redirects, oversized responses, and
 manifests beyond the documented JSON limits. Parsed endpoint URLs are validated
 as HTTPS links but are not fetched by Account Manager.
+
+## Offline database simplification
+
+Migration 083 merges audit storage without changing public query permissions,
+sorting or pagination. ID collisions stop migration. Migration 084 retires the
+three tenant identity tables after historical 049/051 repairs and mapping checks;
+`brand_cloud_user_migrations` and consumer `end_users` remain.
+
+After stopping writers, use `/app/rtk-account-manager-migrate --schema-maintenance`
+with `check`, `apply`, then `verify` and `DATABASE_URL`. The check executes cleanup
+in a transaction and rolls back. Startup rejects incompatible schemas. Clear
+retired tenant cache/session projections with
+`/app/rtk-account-manager-user-cache retire-tenant-identity` in the configured
+cache namespace. Tenant claims never regain global authority.

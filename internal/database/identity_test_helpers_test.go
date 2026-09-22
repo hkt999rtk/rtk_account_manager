@@ -15,7 +15,7 @@ import (
 
 // Each case owns a new database. Never migrate or truncate the database named
 // by TEST_DATABASE_URL: it is only the connection used to create our fixture.
-func newIdentityCaseDatabase(t *testing.T) (*pgxpool.Pool, string) {
+func newEmptyIdentityCaseDatabase(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	connection := os.Getenv("TEST_DATABASE_URL")
 	if connection == "" {
@@ -49,14 +49,37 @@ func newIdentityCaseDatabase(t *testing.T) (*pgxpool.Pool, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return db
+}
+
+func newIdentityCaseDatabase(t *testing.T) (*pgxpool.Pool, string) {
+	t.Helper()
+	db := newEmptyIdentityCaseDatabase(t)
+	ctx := context.Background()
 	full, err := filepath.Abs(filepath.Join("..", "..", "migrations"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	// These cases deliberately replay 049/051 against retained source identities.
+	// Retirement is covered separately with the complete migration directory.
+	retained := t.TempDir()
 	entries, err := os.ReadDir(full)
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") || entry.Name() >= "084_" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(full, entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(retained, entry.Name()), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	full = retained
 	before := t.TempDir()
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") || entry.Name() >= "049_unify_human_identity.sql" {

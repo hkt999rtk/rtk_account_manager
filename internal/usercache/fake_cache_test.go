@@ -11,9 +11,6 @@ type fakeCache struct {
 	platformUsers   map[string]model.User
 	platformEmailID map[string]string
 	platformAuth    map[string]authRecord
-	brandUsers      map[string]model.BrandCloudUser
-	brandEmailID    map[string]string
-	brandLogin      map[string]store.BrandCloudLoginResult
 	endUsers        map[string]model.EndUser
 	endEmailID      map[string]string
 	endLogin        map[string]store.EndUserLoginResult
@@ -28,9 +25,6 @@ func newFakeCache() *fakeCache {
 		platformUsers:   map[string]model.User{},
 		platformEmailID: map[string]string{},
 		platformAuth:    map[string]authRecord{},
-		brandUsers:      map[string]model.BrandCloudUser{},
-		brandEmailID:    map[string]string{},
-		brandLogin:      map[string]store.BrandCloudLoginResult{},
 		endUsers:        map[string]model.EndUser{},
 		endEmailID:      map[string]string{},
 		endLogin:        map[string]store.EndUserLoginResult{},
@@ -99,60 +93,6 @@ func (f *fakeCache) DeletePlatformUser(_ context.Context, userID string) error {
 
 func (f *fakeCache) FlushPlatformAuth(context.Context) error {
 	f.platformAuth = map[string]authRecord{}
-	return nil
-}
-
-func (f *fakeCache) GetBrandCloudUser(_ context.Context, userID string) (model.BrandCloudUser, bool, error) {
-	user, ok := f.brandUsers[userID]
-	return user, ok, nil
-}
-
-func (f *fakeCache) GetBrandCloudUserIDByTenantEmail(_ context.Context, tenantSlug, email string) (string, bool, error) {
-	if f.cacheReadErr != nil {
-		return "", false, f.cacheReadErr
-	}
-	userID, ok := f.brandEmailID[normalizeTenantSlug(tenantSlug)+":"+normalizeEmail(email)]
-	return userID, ok, nil
-}
-
-func (f *fakeCache) GetBrandCloudLogin(_ context.Context, userID string) (store.BrandCloudLoginResult, bool, error) {
-	if f.cacheReadErr != nil {
-		return store.BrandCloudLoginResult{}, false, f.cacheReadErr
-	}
-	result, ok := f.brandLogin[userID]
-	return result, ok, nil
-}
-
-func (f *fakeCache) PutBrandCloudUser(_ context.Context, user model.BrandCloudUser) error {
-	if f.cacheWriteErr != nil {
-		return f.cacheWriteErr
-	}
-	f.brandUsers[user.ID] = user
-	return nil
-}
-
-func (f *fakeCache) PutBrandCloudLogin(_ context.Context, tenantSlug string, result store.BrandCloudLoginResult) error {
-	if f.cacheWriteErr != nil {
-		return f.cacheWriteErr
-	}
-	user := result.BrandCloudUser
-	f.brandUsers[user.ID] = user
-	f.brandEmailID[normalizeTenantSlug(tenantSlug)+":"+normalizeEmail(user.Email)] = user.ID
-	f.brandLogin[user.ID] = result
-	return nil
-}
-
-func (f *fakeCache) DeleteBrandCloudUser(_ context.Context, userID string) error {
-	if f.cacheWriteErr != nil {
-		return f.cacheWriteErr
-	}
-	delete(f.brandUsers, userID)
-	delete(f.brandLogin, userID)
-	for key, value := range f.brandEmailID {
-		if value == userID {
-			delete(f.brandEmailID, key)
-		}
-	}
 	return nil
 }
 

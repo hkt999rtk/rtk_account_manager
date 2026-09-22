@@ -17,16 +17,11 @@ type developerPKIHandlerStore struct {
 	Store
 	member    model.Member
 	memberErr error
-	user      model.BrandCloudUser
 	userErr   error
 }
 
 func (s *developerPKIHandlerStore) GetDeveloperBrandCloudMember(context.Context, string, string) (model.Member, error) {
 	return s.member, s.memberErr
-}
-
-func (s *developerPKIHandlerStore) GetBrandCloudUser(context.Context, string) (model.BrandCloudUser, error) {
-	return s.user, s.userErr
 }
 
 func TestIssueDeveloperPKITestAppCertificateRejectsInvalidRequests(t *testing.T) {

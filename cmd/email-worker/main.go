@@ -36,6 +36,9 @@ func main() {
 		fatal(logger, "database connection failed", err)
 	}
 	defer db.Close()
+	if err := database.VerifySimplification(ctx, db); err != nil {
+		fatal(logger, "incompatible database schema", err)
+	}
 	cipher, err := emaildelivery.NewCipher(cfg.EmailOutboxEncryptionKey)
 	if err != nil {
 		fatal(logger, "email outbox cipher setup failed", err)

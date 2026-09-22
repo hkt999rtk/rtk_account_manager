@@ -39,6 +39,9 @@ func main() {
 		fatal(logger, "database connection failed", err)
 	}
 	defer db.Close()
+	if err := database.VerifySimplification(ctx, db); err != nil {
+		fatal(logger, "incompatible database schema", err)
+	}
 
 	messageStore := store.New(db)
 	var publisher broker.Publisher

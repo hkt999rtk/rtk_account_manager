@@ -36,6 +36,9 @@ func main() {
 		fatal(logger, "connect handoff database failed", err)
 	}
 	defer db.Close()
+	if err := database.VerifySimplification(ctx, db); err != nil {
+		fatal(logger, "incompatible database schema", err)
+	}
 	client, err := billinghandoff.New(billinghandoff.Config{BaseURL: cfg.BillingHandoffBaseURL, Token: cfg.BillingHandoffToken})
 	if err != nil {
 		fatal(logger, "configure handoff transport failed", err)

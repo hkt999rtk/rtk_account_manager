@@ -348,16 +348,6 @@ func TestStoreConstructorAndHelpers(t *testing.T) {
 	cached.warn("not found is ignored", store.ErrNotFound)
 	cached.warn("nil error is ignored", nil)
 
-	cases := map[string]string{
-		" ACME Inc. ": "acme-inc",
-		"!!!":         "",
-		"a---b":       "a-b",
-	}
-	for input, want := range cases {
-		if got := normalizeTenantSlug(input); got != want {
-			t.Fatalf("normalizeTenantSlug(%q) = %q, want %q", input, got, want)
-		}
-	}
 }
 
 func TestStoreIgnoresCacheReadAndWriteErrors(t *testing.T) {
@@ -411,26 +401,21 @@ type authRecord struct {
 }
 
 type fakeBacking struct {
-	userByID                   map[string]model.User
-	userByEmail                map[string]model.User
-	passwordByEmail            map[string]authRecord
-	passwordByID               map[string]authRecord
-	registerResult             store.RegisterResult
-	developerResult            store.DeveloperSignupResult
-	brandAccountResult         store.BrandCloudAccountResult
-	verifyUser                 model.User
-	activateUser               model.User
-	brandPasswordByTenantEmail map[string]store.BrandCloudLoginResult
-	brandUserByID              map[string]model.BrandCloudUser
-	brandUserResult            store.BrandCloudUserResult
-	activateBrandResult        store.BrandCloudLoginResult
-	endPasswordByEmail         map[string]store.EndUserLoginResult
-	endUserByID                map[string]model.EndUser
-	createEndUser              model.EndUser
+	userByID           map[string]model.User
+	userByEmail        map[string]model.User
+	passwordByEmail    map[string]authRecord
+	passwordByID       map[string]authRecord
+	registerResult     store.RegisterResult
+	developerResult    store.DeveloperSignupResult
+	brandAccountResult store.BrandCloudAccountResult
+	verifyUser         model.User
+	activateUser       model.User
+	endPasswordByEmail map[string]store.EndUserLoginResult
+	endUserByID        map[string]model.EndUser
+	createEndUser      model.EndUser
 
 	getUserCalls               int
 	getPasswordCalls           int
-	getBrandPasswordCalls      int
 	getEndPasswordCalls        int
 	provisionBrandAccountCalls int
 }
@@ -478,47 +463,6 @@ func (f *fakeBacking) ResetPasswordWithToken(context.Context, string, string) (s
 }
 
 func (f *fakeBacking) UpdateUserPassword(context.Context, string, string) error {
-	return nil
-}
-
-func (f *fakeBacking) GetBrandCloudUserPassword(_ context.Context, tenantSlug, email string) (store.BrandCloudLoginResult, error) {
-	f.getBrandPasswordCalls++
-	result, ok := f.brandPasswordByTenantEmail[normalizeTenantSlug(tenantSlug)+":"+normalizeEmail(email)]
-	if !ok {
-		return store.BrandCloudLoginResult{}, store.ErrNotFound
-	}
-	return result, nil
-}
-
-func (f *fakeBacking) ActivateBrandCloudLoginToken(context.Context, string, string) (store.BrandCloudLoginResult, error) {
-	return f.activateBrandResult, nil
-}
-
-func (f *fakeBacking) GetBrandCloudUser(_ context.Context, userID string) (model.BrandCloudUser, error) {
-	user, ok := f.brandUserByID[userID]
-	if !ok {
-		return model.BrandCloudUser{}, store.ErrNotFound
-	}
-	return user, nil
-}
-
-func (f *fakeBacking) CreateBrandCloudUser(context.Context, string, string, store.BrandCloudUserInput) (store.BrandCloudUserResult, error) {
-	return f.brandUserResult, nil
-}
-
-func (f *fakeBacking) DisableBrandCloudUser(context.Context, string, string, string) (model.BrandCloudUser, error) {
-	return f.brandUserByID["brand-user-1"], nil
-}
-
-func (f *fakeBacking) EnableBrandCloudUser(context.Context, string, string, string) (model.BrandCloudUser, error) {
-	return f.brandUserByID["brand-user-1"], nil
-}
-
-func (f *fakeBacking) ApproveBrandCloudUser(context.Context, string, string, string) (model.BrandCloudUser, error) {
-	return f.brandUserByID["brand-user-1"], nil
-}
-
-func (f *fakeBacking) DeleteBrandCloudUser(context.Context, string, string, string) error {
 	return nil
 }
 

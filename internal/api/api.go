@@ -61,7 +61,6 @@ type emailOutboxPersistence interface {
 	CreateLoginActivationTokenForEmailAndEmail(context.Context, string, string, time.Time, store.EmailOutboxInput) (bool, error)
 	CreatePasswordResetTokenForEmailAndEmail(context.Context, string, string, time.Time, store.EmailOutboxInput) (bool, error)
 	CreateEmailVerificationTokenForEmailAndEmail(context.Context, string, string, time.Time, store.EmailOutboxInput) (bool, error)
-	CreateBrandCloudLoginActivationTokenForEmailAndEmail(context.Context, string, string, string, time.Time, store.EmailOutboxInput) (bool, error)
 	GetEmailOutboxCounts(context.Context, time.Time) (store.EmailOutboxCounts, error)
 }
 
@@ -1142,24 +1141,6 @@ func (s *Server) issueAuthTokenForEmail(c *gin.Context, email, purpose string) (
 	}
 	if err == nil && created {
 		s.notifyAuthTokenQueued(AuthTokenDelivery{Purpose: purpose, Email: email, Token: token, ExpiresAt: expiresAt})
-	}
-	return created, err
-}
-
-func (s *Server) issueBrandCloudLoginToken(c *gin.Context, tenantSlug, email string) (bool, error) {
-	if s.emailOutboxStore == nil {
-		return false, ErrEmailOutboxUnavailable
-	}
-	token, expiresAt, err := s.newAuthToken("login_activation")
-	if err != nil {
-		return false, err
-	}
-	created, err := s.emailOutboxStore.CreateBrandCloudLoginActivationTokenForEmailAndEmail(
-		c.Request.Context(), tenantSlug, email, auth.HashToken(token), expiresAt,
-		authTokenEmailOutbox(email, "login_activation", token, expiresAt),
-	)
-	if err == nil && created {
-		s.notifyAuthTokenQueued(AuthTokenDelivery{Purpose: "login_activation", Email: email, Token: token, ExpiresAt: expiresAt})
 	}
 	return created, err
 }

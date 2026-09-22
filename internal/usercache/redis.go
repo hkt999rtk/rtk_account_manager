@@ -28,14 +28,6 @@ type platformAuthProjection struct {
 	PasswordHash string     `json:"password_hash"`
 }
 
-type brandLoginProjection struct {
-	BrandCloud     model.Organization     `json:"brand_cloud"`
-	User           model.User             `json:"user"`
-	BrandCloudUser model.BrandCloudUser   `json:"brand_cloud_user"`
-	Member         model.BrandCloudMember `json:"member"`
-	PasswordHash   string                 `json:"password_hash"`
-}
-
 type endLoginProjection struct {
 	EndUser      model.EndUser `json:"end_user"`
 	PasswordHash string        `json:"password_hash"`
@@ -120,74 +112,6 @@ func (c *RedisCache) DeletePlatformUser(ctx context.Context, userID string) erro
 
 func (c *RedisCache) FlushPlatformAuth(ctx context.Context) error {
 	return c.deleteByPattern(ctx, c.platformAuthKey("*"))
-}
-
-func (c *RedisCache) GetBrandCloudUser(ctx context.Context, userID string) (model.BrandCloudUser, bool, error) {
-	var user model.BrandCloudUser
-	ok, err := c.getJSON(ctx, c.brandUserKey(userID), &user)
-	return user, ok, err
-}
-
-func (c *RedisCache) GetBrandCloudUserIDByTenantEmail(ctx context.Context, tenantSlug, email string) (string, bool, error) {
-	value, err := c.getString(ctx, c.brandEmailKey(tenantSlug, email))
-	if err != nil || value == "" {
-		return "", false, err
-	}
-	return value, true, nil
-}
-
-func (c *RedisCache) GetBrandCloudLogin(ctx context.Context, userID string) (store.BrandCloudLoginResult, bool, error) {
-	var projection brandLoginProjection
-	ok, err := c.getJSON(ctx, c.brandAuthKey(userID), &projection)
-	if err != nil || !ok {
-		return store.BrandCloudLoginResult{}, ok, err
-	}
-	return store.BrandCloudLoginResult{
-		BrandCloud:     projection.BrandCloud,
-		User:           projection.User,
-		BrandCloudUser: projection.BrandCloudUser,
-		Member:         projection.Member,
-		PasswordHash:   projection.PasswordHash,
-	}, true, nil
-}
-
-func (c *RedisCache) PutBrandCloudUser(ctx context.Context, user model.BrandCloudUser) error {
-	if strings.TrimSpace(user.ID) == "" {
-		return errors.New("missing brand cloud user id")
-	}
-	return c.setJSON(ctx, c.brandUserKey(user.ID), user)
-}
-
-func (c *RedisCache) PutBrandCloudLogin(ctx context.Context, tenantSlug string, result store.BrandCloudLoginResult) error {
-	user := result.BrandCloudUser
-	if err := c.PutBrandCloudUser(ctx, user); err != nil {
-		return err
-	}
-	if err := c.setString(ctx, c.brandEmailKey(tenantSlug, user.Email), user.ID); err != nil {
-		return err
-	}
-	return c.setJSON(ctx, c.brandAuthKey(user.ID), brandLoginProjection{
-		BrandCloud:     result.BrandCloud,
-		User:           result.User,
-		BrandCloudUser: result.BrandCloudUser,
-		Member:         result.Member,
-		PasswordHash:   result.PasswordHash,
-	})
-}
-
-func (c *RedisCache) DeleteBrandCloudUser(ctx context.Context, userID string) error {
-	user, ok, err := c.GetBrandCloudUser(ctx, userID)
-	if err != nil {
-		return err
-	}
-	keys := []string{c.brandUserKey(userID), c.brandAuthKey(userID)}
-	if ok {
-		if err := c.deleteByPattern(ctx, c.cfg.Prefix+":brand_cloud:email:*:"+escapeKey(normalizeEmail(user.Email))); err != nil {
-			return err
-		}
-	}
-	_, err = c.command(ctx, append([]string{"DEL"}, keys...)...)
-	return err
 }
 
 func (c *RedisCache) GetEndUser(ctx context.Context, userID string) (model.EndUser, bool, error) {
@@ -318,18 +242,6 @@ func (c *RedisCache) platformEmailKey(email string) string {
 
 func (c *RedisCache) platformAuthKey(userID string) string {
 	return c.cfg.Prefix + ":platform:auth:" + escapeKey(userID)
-}
-
-func (c *RedisCache) brandUserKey(userID string) string {
-	return c.cfg.Prefix + ":brand_cloud:id:" + escapeKey(userID)
-}
-
-func (c *RedisCache) brandEmailKey(tenantSlug, email string) string {
-	return c.cfg.Prefix + ":brand_cloud:email:" + escapeKey(normalizeTenantSlug(tenantSlug)) + ":" + escapeKey(normalizeEmail(email))
-}
-
-func (c *RedisCache) brandAuthKey(userID string) string {
-	return c.cfg.Prefix + ":brand_cloud:auth:" + escapeKey(userID)
 }
 
 func (c *RedisCache) endUserKey(userID string) string {
@@ -474,4 +386,13 @@ func escapeKey(value string) string {
 	value = strings.ReplaceAll(value, " ", "%20")
 	value = strings.ReplaceAll(value, ":", "%3A")
 	return value
+}
+
+// RetireTenantIdentity removes only the configured cache namespace's old
+// tenant profiles/login projections and global authentication projections.
+func (c *RedisCache) RetireTenantIdentity(ctx context.Context) error {
+	if err := c.deleteByPattern(ctx, c.cfg.Prefix+":brand_cloud:*"); err != nil {
+		return err
+	}
+	return c.FlushPlatformAuth(ctx)
 }

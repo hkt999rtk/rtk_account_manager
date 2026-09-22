@@ -50,7 +50,7 @@ func (s *Store) CountEvaluationSignupEvents(ctx context.Context) (evaluation int
 			COUNT(*) FILTER (WHERE payload->>'organization_tier' = 'evaluation'),
 			COUNT(*) FILTER (WHERE payload->>'organization_tier' = 'commercial')
 		FROM audit_events
-		WHERE event_type = 'signup_created'
+		WHERE audit_domain = 'general' AND event_type = 'signup_created'
 	`).Scan(&evaluation, &commercial)
 	return evaluation, commercial, err
 }
@@ -60,7 +60,7 @@ func (s *Store) CountEmailVerificationEventsFromSignup(ctx context.Context) (int
 	err := s.db.QueryRow(ctx, `
 		SELECT count(*)
 		FROM audit_events
-		WHERE event_type = 'email_verified'
+		WHERE audit_domain = 'general' AND event_type = 'email_verified'
 		  AND payload->>'signup_pending_verification' = 'true'
 	`).Scan(&total)
 	return total, err

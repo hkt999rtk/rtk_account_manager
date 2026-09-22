@@ -51,12 +51,6 @@ type cacheStore interface {
 	PutPlatformAuth(context.Context, model.User, string) error
 	DeletePlatformUser(context.Context, string) error
 	FlushPlatformAuth(context.Context) error
-	GetBrandCloudUser(context.Context, string) (model.BrandCloudUser, bool, error)
-	GetBrandCloudUserIDByTenantEmail(context.Context, string, string) (string, bool, error)
-	GetBrandCloudLogin(context.Context, string) (store.BrandCloudLoginResult, bool, error)
-	PutBrandCloudUser(context.Context, model.BrandCloudUser) error
-	PutBrandCloudLogin(context.Context, string, store.BrandCloudLoginResult) error
-	DeleteBrandCloudUser(context.Context, string) error
 	GetEndUser(context.Context, string) (model.EndUser, bool, error)
 	GetEndUserIDByEmail(context.Context, string) (string, bool, error)
 	GetEndUserLogin(context.Context, string) (store.EndUserLoginResult, bool, error)
@@ -354,22 +348,4 @@ func (s *Store) warn(message string, err error) {
 
 func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
-}
-
-func normalizeTenantSlug(slug string) string {
-	slug = strings.ToLower(strings.TrimSpace(slug))
-	var b strings.Builder
-	dash := false
-	for _, r := range slug {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-			dash = false
-			continue
-		}
-		if !dash {
-			b.WriteByte('-')
-			dash = true
-		}
-	}
-	return strings.Trim(b.String(), "-")
 }

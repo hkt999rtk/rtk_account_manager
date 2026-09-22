@@ -20,7 +20,6 @@ func TestRendererBuildsAllTemplates(t *testing.T) {
 	}{
 		{"email_verification", Payload{RecipientEmail: "user@example.com", Token: "token", ExpiresAt: now.Add(time.Hour).Format(time.RFC3339)}, "/signup/verify"},
 		{"login_activation", Payload{RecipientEmail: "user@example.com", Token: "token"}, "/login/activate"},
-		{"brand_cloud_user_activation", Payload{RecipientEmail: "user@example.com", Token: "token", TenantSlug: "acme"}, "/brand-cloud/activate?tenant=acme"},
 		{"password_reset", Payload{RecipientEmail: "user@example.com", Token: "token"}, "/reset-password?email=user%40example.com"},
 		{"brand_cloud_owner_transfer", Payload{RecipientEmail: "user@example.com", Token: "token"}, "/brand-cloud-owner-transfer/accept"},
 		{"brand_cloud_membership_invitation", Payload{RecipientEmail: "user@example.com", Token: "token"}, "/brand-cloud-member-invitation/accept"},
@@ -159,5 +158,12 @@ func TestRendererRejectsHeaderInjection(t *testing.T) {
 		RecipientEmail: "user@example.com", Token: "token",
 	}); err == nil {
 		t.Fatal("header injection unexpectedly accepted")
+	}
+}
+
+func TestRendererRejectsRetiredTenantActivation(t *testing.T) {
+	_, err := (Renderer{BaseURL: "https://example.com"}).Render("id", "brand_cloud_user_activation", Payload{RecipientEmail: "user@example.com", Token: "retired"})
+	if err == nil {
+		t.Fatal("retired tenant activation must not produce a login link")
 	}
 }

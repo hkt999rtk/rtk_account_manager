@@ -135,7 +135,7 @@ func TestIdentityCutoverMigratesExistingPlatformAuthTokensIntegration(t *testing
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM organization_members WHERE organization_id=$1 AND role='owner' AND disabled_at IS NULL`, brandCloudID).Scan(&ownerCount); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM brand_cloud_refresh_tokens WHERE revoked_at IS NULL`).Scan(&activeLegacyRefresh); err != nil {
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='brand_cloud_refresh_tokens'`).Scan(&activeLegacyRefresh); err != nil {
 		t.Fatal(err)
 	}
 	if mappingCount != 1 || ownerCount != 1 || activeLegacyRefresh != 0 {
