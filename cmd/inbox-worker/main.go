@@ -10,6 +10,7 @@ import (
 	"rtk_account_manager/internal/config"
 	"rtk_account_manager/internal/database"
 	"rtk_account_manager/internal/logging"
+	"rtk_account_manager/internal/schemamaintenance"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/worker/inbox"
 
@@ -37,7 +38,7 @@ func main() {
 		fatal(logger, "database connection failed", err)
 	}
 	defer db.Close()
-	if err := database.VerifySimplification(ctx, db); err != nil {
+	if err := schemamaintenance.VerifySimplification(ctx, db); err != nil {
 		fatal(logger, "incompatible database schema", err)
 	}
 

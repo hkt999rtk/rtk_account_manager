@@ -10,6 +10,7 @@ import (
 	"rtk_account_manager/internal/config"
 	"rtk_account_manager/internal/database"
 	"rtk_account_manager/internal/logging"
+	"rtk_account_manager/internal/schemamaintenance"
 	"rtk_account_manager/internal/store"
 
 	"go.uber.org/zap"
@@ -38,7 +39,7 @@ func main() {
 		defer db.Close()
 		switch *schemaAction {
 		case "check", "apply":
-			report, err := database.CheckSimplification(ctx, db)
+			report, err := schemamaintenance.CheckSimplification(ctx, db)
 			if err != nil {
 				fatal(earlyLogger, "schema preflight failed", err)
 			}
@@ -52,12 +53,12 @@ func main() {
 				if err := database.Migrate(ctx, db); err != nil {
 					fatal(earlyLogger, "schema migration failed", err)
 				}
-				if err := database.VerifySimplification(ctx, db); err != nil {
+				if err := schemamaintenance.VerifySimplification(ctx, db); err != nil {
 					fatal(earlyLogger, "schema verification failed", err)
 				}
 			}
 		case "verify":
-			if err := database.VerifySimplification(ctx, db); err != nil {
+			if err := schemamaintenance.VerifySimplification(ctx, db); err != nil {
 				fatal(earlyLogger, "schema verification failed", err)
 			}
 		default:

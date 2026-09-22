@@ -1,10 +1,11 @@
-package database
+package schemamaintenance
 
 import (
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -121,4 +122,18 @@ func VerifySimplification(ctx context.Context, db *pgxpool.Pool) error {
 		return fmt.Errorf("audit/index schema verification failed")
 	}
 	return nil
+}
+
+func findMigrationDir() (string, error) {
+	if path := strings.TrimSpace(os.Getenv("MIGRATIONS_DIR")); path != "" {
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			return path, nil
+		}
+	}
+	for _, path := range []string{"migrations", "../../migrations"} {
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("migrations directory not found (set MIGRATIONS_DIR)")
 }

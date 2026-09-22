@@ -12,6 +12,7 @@ import (
 	"rtk_account_manager/internal/database"
 	"rtk_account_manager/internal/emaildelivery"
 	"rtk_account_manager/internal/logging"
+	"rtk_account_manager/internal/schemamaintenance"
 	"rtk_account_manager/internal/store"
 	"rtk_account_manager/internal/worker/emailoutbox"
 )
@@ -36,7 +37,7 @@ func main() {
 		fatal(logger, "database connection failed", err)
 	}
 	defer db.Close()
-	if err := database.VerifySimplification(ctx, db); err != nil {
+	if err := schemamaintenance.VerifySimplification(ctx, db); err != nil {
 		fatal(logger, "incompatible database schema", err)
 	}
 	cipher, err := emaildelivery.NewCipher(cfg.EmailOutboxEncryptionKey)
