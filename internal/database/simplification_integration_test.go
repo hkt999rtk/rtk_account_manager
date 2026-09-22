@@ -37,6 +37,9 @@ func TestAuditConsolidationPreservesHistoryAndDomains(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
+	identityCaseExec(t, db, `INSERT INTO email_outbox(idempotency_key,message_type,payload_nonce,payload_ciphertext)
+ VALUES ('retired-activation','brand_cloud_user_activation','fixture','fixture'),
+ ('global-activation','login_activation','fixture','fixture')`)
 	providerQuery := `SELECT * FROM identity_providers WHERE provider_id='fixture-provider'`
 	tagQuery := `SELECT * FROM device_tag_catalog WHERE organization_id='00000000-0000-0000-0000-000000000001' AND tag='fixture'`
 	t.Logf("before provider index: %s", indexedPlan(t, db, providerQuery))
@@ -95,6 +98,13 @@ func TestAuditConsolidationPreservesHistoryAndDomains(t *testing.T) {
 	t.Setenv("MIGRATIONS_DIR", complete)
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
+	}
+	var expired, globalPending bool
+	if err := db.QueryRow(ctx, `SELECT status='expired' AND payload_nonce IS NULL AND payload_ciphertext IS NULL AND lease_until IS NULL FROM email_outbox WHERE idempotency_key='retired-activation'`).Scan(&expired); err != nil || !expired {
+		t.Fatalf("retired activation remains deliverable: %t %v", expired, err)
+	}
+	if err := db.QueryRow(ctx, `SELECT status='pending' AND payload_ciphertext IS NOT NULL FROM email_outbox WHERE idempotency_key='global-activation'`).Scan(&globalPending); err != nil || !globalPending {
+		t.Fatalf("global activation was changed: %t %v", globalPending, err)
 	}
 	if err := VerifySimplification(ctx, db); err != nil {
 		t.Fatal(err)

@@ -54,12 +54,11 @@ type DeviceItemProfileUpdateInput struct {
 }
 
 type DeviceItemProfileListFilter struct {
-	BrandCloudID     string
-	BrandCloudUserID string
-	UserID           string
-	Status           model.DeviceItemProfileStatus
-	Limit            int
-	Offset           int
+	BrandCloudID string
+	UserID       string
+	Status       model.DeviceItemProfileStatus
+	Limit        int
+	Offset       int
 }
 
 // Low-level bootstrap/fixture persistence; HTTP uses the AsUser entrypoints.
@@ -166,10 +165,7 @@ func (s *Store) ListDeviceItemProfiles(ctx context.Context, in DeviceItemProfile
 	}
 	status := string(in.Status)
 	var total int
-	actorType, actorID := "brand_cloud_user", strings.TrimSpace(in.BrandCloudUserID)
-	if strings.TrimSpace(in.UserID) != "" {
-		actorType, actorID = "user", strings.TrimSpace(in.UserID)
-	}
+	actorID := strings.TrimSpace(in.UserID)
 	if err := s.db.QueryRow(ctx, `
 		SELECT count(*)::int
 		FROM device_item_profiles dip
@@ -178,12 +174,12 @@ func (s *Store) ListDeviceItemProfiles(ctx context.Context, in DeviceItemProfile
 			AND ($3 = '' OR EXISTS (
 				SELECT 1 FROM role_assignments ra
 				JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL
-				WHERE ra.actor_type=$4 AND ra.actor_id=$3 AND ra.disabled_at IS NULL
+				WHERE ra.actor_type='user' AND ra.actor_id=$3 AND ra.disabled_at IS NULL
 				  AND ra.organization_id=dip.brand_cloud_id
-				  AND ($4 <> 'user' OR user_can_access_brand_cloud_product($3,$1::text,dip.id::text))
+				  AND user_can_access_brand_cloud_product($3,$1::text,dip.id::text)
 				  AND (ra.scope_type='organization' OR (ra.scope_type='product' AND ra.scope_id=dip.id::text))
 			))
-	`, in.BrandCloudID, status, actorID, actorType).Scan(&total); err != nil {
+	`, in.BrandCloudID, status, actorID).Scan(&total); err != nil {
 		return DeviceItemProfilePage{}, err
 	}
 	rows, err := s.db.Query(ctx, `
@@ -196,14 +192,14 @@ func (s *Store) ListDeviceItemProfiles(ctx context.Context, in DeviceItemProfile
 			AND ($3 = '' OR EXISTS (
 				SELECT 1 FROM role_assignments ra
 				JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL
-				WHERE ra.actor_type=$4 AND ra.actor_id=$3 AND ra.disabled_at IS NULL
+				WHERE ra.actor_type='user' AND ra.actor_id=$3 AND ra.disabled_at IS NULL
 				  AND ra.organization_id=dip.brand_cloud_id
-				  AND ($4 <> 'user' OR user_can_access_brand_cloud_product($3,$1::text,dip.id::text))
+				  AND user_can_access_brand_cloud_product($3,$1::text,dip.id::text)
 				  AND (ra.scope_type='organization' OR (ra.scope_type='product' AND ra.scope_id=dip.id::text))
 			))
 		ORDER BY dip.created_at DESC
-		LIMIT $5 OFFSET $6
-	`, in.BrandCloudID, status, actorID, actorType, limit, in.Offset)
+		LIMIT $4 OFFSET $5
+	`, in.BrandCloudID, status, actorID, limit, in.Offset)
 	if err != nil {
 		return DeviceItemProfilePage{}, err
 	}

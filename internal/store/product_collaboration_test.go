@@ -51,7 +51,7 @@ func TestProductCollaborationInvitationVisibilityAndOwnershipTransferIntegration
 	}
 	assignedProduct := createProduct("assigned-product")
 	_ = createProduct("hidden-product")
-	if _, err := env.store.GetProductCollaboratorRole(ctx, "00000000-0000-0000-0000-000000000000", owner.BrandCloud.ID, assignedProduct.ID); !errors.Is(err, ErrNotFound) {
+	if _, err := env.store.GetUserProductCollaboratorRole(ctx, "00000000-0000-0000-0000-000000000000", owner.BrandCloud.ID, assignedProduct.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing brand member role error = %v", err)
 	}
 	if _, _, err := env.store.CreateProductCollaboratorInvitation(ctx, ProductCollaboratorInvitationInput{

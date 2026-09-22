@@ -209,27 +209,26 @@ type DevicePage struct {
 }
 
 type DeviceListFilter struct {
-	OrganizationID   string
-	Query            string
-	Product          string
-	GroupID          string
-	GroupIDs         []string
-	Region           string
-	Regions          []string
-	Category         string
-	Model            string
-	Status           string
-	Statuses         []string
-	Readiness        string
-	Firmware         string
-	Firmwares        []string
-	Sort             string
-	Direction        string
-	Limit            int
-	Offset           int
-	BrandCloudUserID string
-	UserID           string
-	ScopePermission  string
+	OrganizationID  string
+	Query           string
+	Product         string
+	GroupID         string
+	GroupIDs        []string
+	Region          string
+	Regions         []string
+	Category        string
+	Model           string
+	Status          string
+	Statuses        []string
+	Readiness       string
+	Firmware        string
+	Firmwares       []string
+	Sort            string
+	Direction       string
+	Limit           int
+	Offset          int
+	UserID          string
+	ScopePermission string
 }
 
 type FleetSummary struct {
@@ -247,10 +246,6 @@ type FleetSummary struct {
 
 func (s *Store) FleetSummary(ctx context.Context, orgID string) (FleetSummary, error) {
 	return s.fleetSummary(ctx, orgID, "", "", "")
-}
-
-func (s *Store) FleetSummaryForBrandCloudUser(ctx context.Context, orgID, brandCloudUserID string) (FleetSummary, error) {
-	return s.fleetSummary(ctx, orgID, brandCloudUserID, "brand_cloud_user", "registry_device.read")
 }
 
 func (s *Store) FleetSummaryForUser(ctx context.Context, orgID, userID string) (FleetSummary, error) {
@@ -1721,23 +1716,18 @@ func (s *Store) ListDevices(ctx context.Context, orgID string, limit, offset int
 func (s *Store) ListDevicesFiltered(ctx context.Context, in DeviceListFilter) (DevicePage, error) {
 	where := []string{"d.organization_id = $1"}
 	args := []any{in.OrganizationID}
-	if strings.TrimSpace(in.BrandCloudUserID) != "" || strings.TrimSpace(in.UserID) != "" {
+	if strings.TrimSpace(in.UserID) != "" {
 		permission := strings.TrimSpace(in.ScopePermission)
 		if permission == "" {
 			permission = "registry_device.read"
 		}
-		actorType, actorID := "brand_cloud_user", strings.TrimSpace(in.BrandCloudUserID)
-		if strings.TrimSpace(in.UserID) != "" {
-			actorType, actorID = "user", strings.TrimSpace(in.UserID)
-		}
+		actorType, actorID := "user", strings.TrimSpace(in.UserID)
 		args = append(args, actorID, permission, actorType)
 		userPlaceholder := "$" + strconv.Itoa(len(args)-2)
 		permissionPlaceholder := "$" + strconv.Itoa(len(args)-1)
 		actorTypePlaceholder := "$" + strconv.Itoa(len(args))
-		if actorType == "user" {
-			where = append(where, fmt.Sprintf(`user_can_access_brand_cloud_product(%s,d.organization_id::text,d.device_item_profile_id::text)`, userPlaceholder))
-			where = append(where, fmt.Sprintf(`brand_cloud_permission_allowed(%s,d.organization_id::text,%s)`, userPlaceholder, permissionPlaceholder))
-		}
+		where = append(where, fmt.Sprintf(`user_can_access_brand_cloud_product(%s,d.organization_id::text,d.device_item_profile_id::text)`, userPlaceholder))
+		where = append(where, fmt.Sprintf(`brand_cloud_permission_allowed(%s,d.organization_id::text,%s)`, userPlaceholder, permissionPlaceholder))
 		where = append(where, fmt.Sprintf(`EXISTS (
 			SELECT 1 FROM role_assignments ra
 			JOIN roles r ON r.id = ra.role_id AND r.disabled_at IS NULL

@@ -14,6 +14,10 @@ DO $$ BEGIN
  END IF;
 END $$;
 DELETE FROM auth_tokens WHERE subject_type='brand_cloud_user';
+-- Retired activation links cannot be delivered or retried after cutover.
+UPDATE email_outbox SET status='expired', payload_nonce=NULL, payload_ciphertext=NULL,
+ lease_until=NULL, last_error='tenant identity activation retired'
+WHERE message_type='brand_cloud_user_activation' AND status NOT IN ('sent','expired');
 DROP TABLE brand_cloud_refresh_tokens;
 DROP TABLE brand_cloud_memberships;
 DROP FUNCTION sync_brand_cloud_membership_role_assignment();

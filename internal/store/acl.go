@@ -15,7 +15,6 @@ import (
 
 const (
 	ActorTypeUser                    = "user"
-	ActorTypeBrandCloudUser          = "brand_cloud_user"
 	ScopeTypePlatform                = "platform"
 	ScopeTypeOrganization            = "organization"
 	ScopeTypeProduct                 = "product"

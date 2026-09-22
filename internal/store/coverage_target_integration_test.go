@@ -106,9 +106,9 @@ func TestDeviceInventoryFiltersAndConveniencePathsIntegration(t *testing.T) {
 	}
 
 	unauthorized, err := env.store.ListDevicesFiltered(ctx, DeviceListFilter{
-		OrganizationID:   registered.Organization.ID,
-		BrandCloudUserID: "00000000-0000-0000-0000-000000000000",
-		Limit:            1,
+		OrganizationID: registered.Organization.ID,
+		UserID:         "00000000-0000-0000-0000-000000000000",
+		Limit:          1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -134,7 +134,7 @@ func TestDeviceInventoryFiltersAndConveniencePathsIntegration(t *testing.T) {
 	if summary.ByFirmware["1.2.3"] != 1 || summary.ByFirmware["2.0.0"] != 1 {
 		t.Fatalf("firmware summary = %+v, want both versions", summary.ByFirmware)
 	}
-	restrictedSummary, err := env.store.FleetSummaryForBrandCloudUser(
+	restrictedSummary, err := env.store.FleetSummaryForUser(
 		ctx,
 		registered.Organization.ID,
 		"00000000-0000-0000-0000-000000000000",
