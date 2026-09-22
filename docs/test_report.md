@@ -26,7 +26,7 @@ Generated: ci-candidate
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 38 |
+| Go packages | 39 |
 | Test cases started | recorded in reports/test-events.json |
 | JSON pass events | recorded in reports/test-events.json |
 | JSON fail events | recorded in reports/test-events.json |
@@ -1211,6 +1211,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/readiness`: `TestRunSmokeReadsHealthAuthOrgDeviceAndProvisioning`
 - `rtk_account_manager/internal/readiness`: `TestRunSmokeSkipsWhenNoOrganizationsAreVisible`
 - `rtk_account_manager/internal/readiness`: `TestUtilityHelpersAndEnvFallbacks`
+- `rtk_account_manager/internal/schemamaintenance`: `TestMigrationDirectoryPrefersExplicitExistingDirectory`
 - `rtk_account_manager/internal/store`: `TestACLExternalGroupMappingCreatesScopedAssignment`
 - `rtk_account_manager/internal/store`: `TestACLPlatformAssignmentsAuditAndErrorPaths`
 - `rtk_account_manager/internal/store`: `TestACLRoleAssignmentsAuthorizeInsideScopeOnly`
