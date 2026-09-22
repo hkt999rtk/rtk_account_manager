@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"rtk_account_manager/internal/schemamaintenance"
 	"rtk_account_manager/internal/store"
 )
 
@@ -56,7 +57,7 @@ func TestAuditConsolidationPreservesHistoryAndDomains(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("MIGRATIONS_DIR", complete)
-	preflight, err := CheckSimplification(ctx, db)
+	preflight, err := schemamaintenance.CheckSimplification(ctx, db)
 	if err != nil || !preflight.Ready || preflight.Rows["acl_audit_events"] != 1 {
 		t.Fatalf("cleanup preflight=%+v %v", preflight, err)
 	}
@@ -106,7 +107,7 @@ func TestAuditConsolidationPreservesHistoryAndDomains(t *testing.T) {
 	if err := db.QueryRow(ctx, `SELECT status='pending' AND payload_ciphertext IS NOT NULL FROM email_outbox WHERE idempotency_key='global-activation'`).Scan(&globalPending); err != nil || !globalPending {
 		t.Fatalf("global activation was changed: %t %v", globalPending, err)
 	}
-	if err := VerifySimplification(ctx, db); err != nil {
+	if err := schemamaintenance.VerifySimplification(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	if plan := indexedPlan(t, db, providerQuery); !strings.Contains(plan, "identity_providers_provider_id_key") {
