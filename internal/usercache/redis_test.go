@@ -3,6 +3,7 @@ package usercache
 import (
 	"bufio"
 	"context"
+	"errors"
 	"net"
 	"reflect"
 	"strings"
@@ -278,5 +279,36 @@ func TestRetireTenantIdentityPreservesOtherCacheDomains(t *testing.T) {
 	}
 	if !reflect.DeepEqual(patterns, []string{"fixture:user:brand_cloud:*", "fixture:user:platform:auth:*"}) || len(deleted) != 2 {
 		t.Fatalf("cleanup scope: %v %v", patterns, deleted)
+	}
+}
+
+func TestRetireTenantIdentityReportsIncompleteCleanup(t *testing.T) {
+	for _, failure := range []string{"scan", "decode", "delete", "global-auth"} {
+		t.Run(failure, func(t *testing.T) {
+			cache := NewRedisCache(Config{Prefix: "fixture:user"})
+			unavailable := errors.New("cache unavailable")
+			cache.command = func(_ context.Context, args ...string) (any, error) {
+				if args[0] == "SCAN" {
+					if failure == "scan" || (failure == "global-auth" && strings.Contains(args[3], "platform:auth")) {
+						return nil, unavailable
+					}
+					if failure == "decode" {
+						return "invalid response", nil
+					}
+					return scanResult{cursor: "0", keys: []string{strings.TrimSuffix(args[3], "*") + "fixture"}}, nil
+				}
+				if failure == "delete" {
+					return nil, unavailable
+				}
+				return int64(1), nil
+			}
+			err := cache.RetireTenantIdentity(context.Background())
+			if err == nil {
+				t.Fatal("partial cleanup reported success")
+			}
+			if failure != "decode" && !errors.Is(err, unavailable) {
+				t.Fatalf("lost cache failure: %v", err)
+			}
+		})
 	}
 }
