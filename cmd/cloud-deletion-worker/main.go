@@ -36,6 +36,9 @@ func main() {
 		fatal(logger, "connect cloud deletion database failed")
 	}
 	defer db.Close()
+	if err := database.VerifySimplification(ctx, db); err != nil {
+		fatal(logger, "incompatible database schema; run offline migrations")
+	}
 	var migrated bool
 	if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version='063_cloud_deletion_worker_wake.sql')`).Scan(&migrated); err != nil || !migrated {
 		fatal(logger, "cloud deletion recovery schema is not ready; apply reviewed migrations separately")

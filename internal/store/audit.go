@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"rtk_account_manager/internal/model"
 )
@@ -25,7 +26,12 @@ type AuditEventListFilter struct {
 	Offset      int
 }
 
-func createAuditEventTx(ctx context.Context, tx pgx.Tx, in AuditEventInput) error {
+// Both API domains share one persistence path; reads retain their original scope.
+type auditExecer interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
+func insertAuditEvent(ctx context.Context, db auditExecer, domain string, in AuditEventInput) error {
 	payload := []byte(`{}`)
 	if len(in.Payload) > 0 {
 		raw, err := json.Marshal(in.Payload)
@@ -34,41 +40,18 @@ func createAuditEventTx(ctx context.Context, tx pgx.Tx, in AuditEventInput) erro
 		}
 		payload = raw
 	}
-	_, err := tx.Exec(ctx, `
-		INSERT INTO audit_events (
-			event_type,
-			actor_user_id,
-			organization_id,
-			subject_type,
-			subject_id,
-			payload
-		)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, in.EventType, in.ActorUserID, in.OrganizationID, in.SubjectType, in.SubjectID, payload)
+	_, err := db.Exec(ctx, `INSERT INTO audit_events
+  (audit_domain,event_type,actor_user_id,organization_id,subject_type,subject_id,payload)
+  VALUES ($1,$2,$3,$4,$5,$6,$7)`, domain, in.EventType, in.ActorUserID, in.OrganizationID, in.SubjectType, in.SubjectID, payload)
 	return err
 }
 
+func createAuditEventTx(ctx context.Context, tx pgx.Tx, in AuditEventInput) error {
+	return insertAuditEvent(ctx, tx, "general", in)
+}
+
 func (s *Store) CreateAuditEvent(ctx context.Context, in AuditEventInput) error {
-	payload := []byte(`{}`)
-	if len(in.Payload) > 0 {
-		raw, err := json.Marshal(in.Payload)
-		if err != nil {
-			return err
-		}
-		payload = raw
-	}
-	_, err := s.db.Exec(ctx, `
-		INSERT INTO audit_events (
-			event_type,
-			actor_user_id,
-			organization_id,
-			subject_type,
-			subject_id,
-			payload
-		)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, in.EventType, in.ActorUserID, in.OrganizationID, in.SubjectType, in.SubjectID, payload)
-	return err
+	return insertAuditEvent(ctx, s.db, "general", in)
 }
 
 func (s *Store) ListAuditEvents(ctx context.Context, in AuditEventListFilter) (AuditEventPage, error) {
@@ -76,7 +59,7 @@ func (s *Store) ListAuditEvents(ctx context.Context, in AuditEventListFilter) (A
 	if err := s.db.QueryRow(ctx, `
 		SELECT count(*)::int
 		FROM audit_events
-		WHERE ($1 = '' OR event_type = $1)
+		WHERE audit_domain = 'general' AND ($1 = '' OR event_type = $1)
 			AND ($2 = '' OR subject_type = $2)
 	`, in.EventType, in.SubjectType).Scan(&total); err != nil {
 		return AuditEventPage{}, err
@@ -93,7 +76,7 @@ func (s *Store) ListAuditEvents(ctx context.Context, in AuditEventListFilter) (A
 			created_at,
 			updated_at
 		FROM audit_events
-		WHERE ($1 = '' OR event_type = $1)
+		WHERE audit_domain = 'general' AND ($1 = '' OR event_type = $1)
 			AND ($2 = '' OR subject_type = $2)
 		ORDER BY created_at ASC
 		LIMIT $3 OFFSET $4

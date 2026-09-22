@@ -459,29 +459,6 @@ type BrandCloudAccountListItem struct {
 	SignupPendingVerification bool `json:"signup_pending_verification"`
 }
 
-type BrandCloudUser struct {
-	ID                        string     `json:"id"`
-	BrandCloudID              string     `json:"brand_cloud_id"`
-	Email                     string     `json:"email"`
-	DisplayName               *string    `json:"display_name,omitempty"`
-	EmailVerified             bool       `json:"email_verified"`
-	EmailVerifiedAt           *time.Time `json:"email_verified_at,omitempty"`
-	SignupPendingVerification bool       `json:"signup_pending_verification"`
-	CreatedAt                 time.Time  `json:"created_at"`
-	UpdatedAt                 time.Time  `json:"updated_at"`
-	DisabledAt                *time.Time `json:"disabled_at,omitempty"`
-}
-
-type BrandCloudMember struct {
-	BrandCloudID     string    `json:"brand_cloud_id"`
-	BrandCloudUserID string    `json:"brand_cloud_user_id"`
-	Email            string    `json:"email,omitempty"`
-	DisplayName      *string   `json:"display_name,omitempty"`
-	Role             Role      `json:"role"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
-}
-
 type BrandCloudOwnerTransfer struct {
 	SourceUserID       string                `json:"source_user_id"`
 	Phase              string                `json:"phase"`

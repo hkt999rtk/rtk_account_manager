@@ -635,7 +635,6 @@ The key families under `ACCOUNT_MANAGER_USER_CACHE_PREFIX` are:
 | Subject | Profile key | Email index | Auth/login key |
 | --- | --- | --- | --- |
 | Platform/developer user | `:platform:id:{user_id}` | `:platform:email:{email}` | `:platform:auth:{user_id}` |
-| Brand-cloud user | `:brand_cloud:id:{brand_cloud_user_id}` | `:brand_cloud:email:{tenant_slug}:{email}` | `:brand_cloud:auth:{brand_cloud_user_id}` |
 | End user | `:end_user:id:{end_user_id}` | `:end_user:email:{email}` | `:end_user:auth:{end_user_id}` |
 
 The cache stores auth projections, including password hashes, so the Redis
@@ -740,3 +739,12 @@ Attach redacted evidence to deployment sign-off:
 
 Evidence must not include passwords, JWTs, DSNs, email delivery credentials, Event Hubs
 connection strings, or customer payloads beyond intentionally redacted IDs.
+
+### Tenant identity retirement
+
+The old tenant profile/login cache is no longer read or written. During the
+coordinated schema cutover, stop writers and run `rtk-account-manager-user-cache
+retire-tenant-identity` to remove only the configured prefix's tenant keys and
+invalidate global auth projections. Apply and verify schema migrations 083/084
+before starting the new services. Keep the migration mapping ledger and consumer
+end-user identities. Rollback requires the paired backup and old binaries.

@@ -165,24 +165,6 @@ type BrandCloudMemberInvitationMutation struct {
 	Email        *EmailOutboxInput
 }
 
-type BrandCloudUserInput struct {
-	Email               string
-	PasswordHash        string
-	DisplayName         *string
-	Role                model.Role
-	RotatePassword      bool
-	ActivationMode      string
-	ActivationTokenHash string
-	ActivationExpiresAt time.Time
-	ActivationEmail     *EmailOutboxInput
-}
-
-type BrandCloudUserResult struct {
-	Action           string                 `json:"action"`
-	BrandCloudUser   model.BrandCloudUser   `json:"brand_cloud_user"`
-	BrandCloudMember model.BrandCloudMember `json:"brand_cloud_member"`
-}
-
 // BrandCloudAccountInput provisions a global human identity and its Brand
 // Cloud membership as one operation.
 type BrandCloudAccountInput struct {
@@ -209,14 +191,6 @@ type BrandCloudAccountListFilter struct {
 	Query        string
 	Limit        int
 	Offset       int
-}
-
-type BrandCloudLoginResult struct {
-	BrandCloud     model.Organization     `json:"brand_cloud"`
-	User           model.User             `json:"user"`
-	BrandCloudUser model.BrandCloudUser   `json:"brand_cloud_user"`
-	Member         model.BrandCloudMember `json:"brand_cloud_member"`
-	PasswordHash   string                 `json:"-"`
 }
 
 type MemberPage struct {

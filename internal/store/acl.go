@@ -777,43 +777,19 @@ func (s *Store) ApplyExternalGroupMappings(ctx context.Context, userID, provider
 }
 
 func (s *Store) CreateACLAuditEvent(ctx context.Context, in ACLAuditEventInput) error {
-	payload := []byte(`{}`)
-	if len(in.Payload) > 0 {
-		raw, err := json.Marshal(in.Payload)
-		if err != nil {
-			return err
-		}
-		payload = raw
-	}
-	_, err := s.db.Exec(ctx, `
-		INSERT INTO acl_audit_events (event_type, actor_user_id, organization_id, subject_type, subject_id, payload)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, in.EventType, in.ActorUserID, in.OrganizationID, in.SubjectType, in.SubjectID, payload)
-	return err
+	return insertAuditEvent(ctx, s.db, "acl", AuditEventInput(in))
 }
 
 func createACLAuditEventTx(ctx context.Context, tx pgx.Tx, in ACLAuditEventInput) error {
-	payload := []byte(`{}`)
-	if len(in.Payload) > 0 {
-		raw, err := json.Marshal(in.Payload)
-		if err != nil {
-			return err
-		}
-		payload = raw
-	}
-	_, err := tx.Exec(ctx, `
-		INSERT INTO acl_audit_events (event_type, actor_user_id, organization_id, subject_type, subject_id, payload)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, in.EventType, in.ActorUserID, in.OrganizationID, in.SubjectType, in.SubjectID, payload)
-	return err
+	return insertAuditEvent(ctx, tx, "acl", AuditEventInput(in))
 }
 
 func (s *Store) ListACLAuditEvents(ctx context.Context, in ACLAuditEventListFilter) (ACLAuditEventPage, error) {
 	var total int
 	if err := s.db.QueryRow(ctx, `
 		SELECT count(*)::int
-		FROM acl_audit_events
-		WHERE ($1 = '' OR event_type = $1)
+		FROM audit_events
+		WHERE audit_domain = 'acl' AND ($1 = '' OR event_type = $1)
 		  AND ($2 = '' OR subject_type = $2)
 		  AND ($3 = '' OR organization_id::text = $3)
 	`, in.EventType, in.SubjectType, in.OrganizationID).Scan(&total); err != nil {
@@ -821,8 +797,8 @@ func (s *Store) ListACLAuditEvents(ctx context.Context, in ACLAuditEventListFilt
 	}
 	rows, err := s.db.Query(ctx, `
 		SELECT id::text, event_type, actor_user_id::text, organization_id::text, subject_type, subject_id, payload, created_at, updated_at
-		FROM acl_audit_events
-		WHERE ($1 = '' OR event_type = $1)
+		FROM audit_events
+		WHERE audit_domain = 'acl' AND ($1 = '' OR event_type = $1)
 		  AND ($2 = '' OR subject_type = $2)
 		  AND ($3 = '' OR organization_id::text = $3)
 		ORDER BY created_at ASC
