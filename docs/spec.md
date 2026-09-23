@@ -329,12 +329,12 @@ plus `organization_members`:
   activation, with no password or token exposed in provisioning responses.
 - `activation_mode=email` creates/reuses an eligible non-owner global user and
   sends its global activation/assignment email without exposing credentials.
-- `activation_mode=immediate` is accepted only when a staging/load-test feature
+- `activation_mode=immediate` is accepted only when the dev or staging test-account feature
   flag is enabled, only for `admin` or `member`, and only from an authenticated
   platform admin. It requires an initial password for a new user and records the
   actor, reason, target user, Brand Cloud, and rotation decision in audit.
 - Production rejects `immediate`. Existing global users keep their current
-  password unless guarded staging rotation is explicitly requested.
+  password unless guarded dev or staging rotation is explicitly requested.
 - Replays are idempotent and return `{user, member}`.
 
 ## [FEAT-AM-IDENTITY-001] Global human identity, tenant membership, credentials, and registry invariants
@@ -2820,7 +2820,8 @@ The unified human identity implementation is acceptable when:
 - Generic platform-admin provisioning returns global `{user, member}` resources
   only for non-owner membership and cannot mutate existing ownership. Initial
   owners are assigned atomically during cloud creation and activate by email
-  when pending; immediate bulk provisioning is staging-only for admin/member.
+  when pending; immediate bulk provisioning requires the dev or staging
+  test-account flag for admin/member.
 - `/v1/auth/*` is the only human authentication surface, `/v1/me` exposes all
   memberships/capabilities, and `/v1/brand-clouds/:tenantSlug/auth/*` returns
   `404`.

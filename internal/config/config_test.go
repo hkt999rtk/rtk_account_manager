@@ -179,6 +179,23 @@ func TestLoadReadsEnvironmentAndDurations(t *testing.T) {
 	if !cfg.AllowImmediateBrandAccounts {
 		t.Fatal("expected staging immediate Brand Cloud account provisioning to be enabled")
 	}
+	t.Setenv("ACCOUNT_MANAGER_ENV", "dev")
+	devCfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !devCfg.AllowImmediateBrandAccounts {
+		t.Fatal("expected explicitly enabled dev immediate Brand Cloud account provisioning")
+	}
+	t.Setenv("ACCOUNT_MANAGER_ALLOW_IMMEDIATE_BRAND_ACCOUNTS", "false")
+	devCfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if devCfg.AllowImmediateBrandAccounts {
+		t.Fatal("dev must not allow immediate Brand Cloud account provisioning by default")
+	}
+	t.Setenv("ACCOUNT_MANAGER_ALLOW_IMMEDIATE_BRAND_ACCOUNTS", "true")
 	t.Setenv("ACCOUNT_MANAGER_ENV", "production")
 	productionCfg, err := Load()
 	if err != nil {

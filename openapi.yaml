@@ -2483,7 +2483,7 @@ paths:
       security:
         - bearerAuth: []
       summary: Find or create a global user and assign a Brand Cloud membership.
-      description: "Owner provisioning always uses global email activation. `activation_mode=immediate` is restricted to audited staging creation of admin/member load-test accounts."
+      description: "Owner provisioning always uses global email activation. `activation_mode=immediate` requires the explicit dev or staging test-account flag and is restricted to audited admin/member test accounts."
       parameters:
         - $ref: "#/components/parameters/BrandCloudId"
       requestBody:
@@ -6213,7 +6213,7 @@ components:
         password:
           type: string
           minLength: 8
-          description: Accepted only for guarded staging immediate provisioning of admin/member accounts.
+          description: Accepted only for guarded dev or staging immediate provisioning of admin/member test accounts.
         display_name:
           type: string
         role:

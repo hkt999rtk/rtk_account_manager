@@ -326,7 +326,7 @@ func (s *Server) createBrandCloudUser(c *gin.Context) {
 		return
 	}
 	if activationMode == "immediate" && (!s.allowImmediateBrandAccounts || role == model.RoleOwner) {
-		writeError(c, http.StatusForbidden, "immediate_provisioning_forbidden", "immediate provisioning is restricted to audited staging member/admin creation")
+		writeError(c, http.StatusForbidden, "immediate_provisioning_forbidden", "immediate provisioning requires the dev or staging test-account flag and an admin/member role")
 		return
 	}
 	if activationMode == "email" && strings.TrimSpace(req.Password) != "" {
