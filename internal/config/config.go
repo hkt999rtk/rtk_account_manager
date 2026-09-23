@@ -642,7 +642,7 @@ func load() (Config, error) {
 		CloudDeletionLeaseDuration:      duration("CLOUD_DELETION_WORKER_LEASE_DURATION", 2*time.Minute),
 		CloudDeletionStepTimeout:        duration("CLOUD_DELETION_WORKER_STEP_TIMEOUT", 45*time.Second),
 		CloudDeletionBatchSize:          intValue("CLOUD_DELETION_WORKER_BATCH_SIZE", 10),
-		AllowImmediateBrandAccounts:     strings.EqualFold(strings.TrimSpace(os.Getenv("ACCOUNT_MANAGER_ENV")), "staging") && boolValue("ACCOUNT_MANAGER_ALLOW_IMMEDIATE_BRAND_ACCOUNTS", false),
+		AllowImmediateBrandAccounts:     allowsImmediateBrandAccounts(os.Getenv("ACCOUNT_MANAGER_ENV")) && boolValue("ACCOUNT_MANAGER_ALLOW_IMMEDIATE_BRAND_ACCOUNTS", false),
 		FactoryProductionJWTSecret:      os.Getenv("FACTORY_PRODUCTION_JWT_SECRET"),
 		FactoryEnrollmentToken:          os.Getenv("ACCOUNT_MANAGER_FACTORY_ENROLLMENT_TOKEN"),
 		FactoryProductionJWTAudience:    getenv("FACTORY_PRODUCTION_JWT_AUDIENCE", "factory-enroll"),
@@ -729,6 +729,15 @@ func boolValue(key string, fallback bool) bool {
 		return fallback
 	}
 	return parsed
+}
+
+func allowsImmediateBrandAccounts(environment string) bool {
+	switch strings.ToLower(strings.TrimSpace(environment)) {
+	case "dev", "staging":
+		return true
+	default:
+		return false
+	}
 }
 
 func stringList(key string, fallback []string) []string {
