@@ -53,7 +53,7 @@ func (c *Client) CloudDeletionPreflight(ctx context.Context, in CloudDeletionSco
 }
 
 func ValidateCloudDeletionPreflight(in CloudDeletionScope, out CloudDeletionPreflight, now time.Time) error {
-	if out.CloudDeletionScope != in || out.Currency != "TWD" || out.Blockers == nil || out.Eligible != (len(out.Blockers) == 0) ||
+	if out.CloudDeletionScope != in || out.Currency != CurrentCurrency || out.Blockers == nil || out.Eligible != (len(out.Blockers) == 0) ||
 		(out.Eligible && out.BalanceMinor != 0) || out.ObservedAt.After(now) || out.ObservedAt.Before(now.Add(-5*time.Minute)) ||
 		!out.ExpiresAt.After(now) || out.ExpiresAt.After(out.ObservedAt.Add(5*time.Minute)) {
 		return ErrUnavailable

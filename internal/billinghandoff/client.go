@@ -165,7 +165,7 @@ func (c *Client) Settlement(ctx context.Context, in Binding) (Settlement, error)
 	return decodeSettlement(raw, in)
 }
 func (c *Client) Confirm(ctx context.Context, in Binding, confirmation Confirmation) (Settlement, error) {
-	if (confirmation.UserID != in.SourceUserID && confirmation.UserID != in.TargetUserID) || confirmation.SnapshotVersion < 2 || confirmation.BalanceMinor < 0 || confirmation.Currency != "TWD" {
+	if (confirmation.UserID != in.SourceUserID && confirmation.UserID != in.TargetUserID) || confirmation.SnapshotVersion < 2 || confirmation.BalanceMinor < 0 || confirmation.Currency != CurrentCurrency {
 		return Settlement{}, ErrInvalid
 	}
 	raw, err := c.call(ctx, in, http.MethodPost, "confirm", confirmation, "settlement")
@@ -191,7 +191,7 @@ func decodeSettlement(raw []byte, in Binding) (Settlement, error) {
 	if out.Snapshot != nil {
 		var fields map[string]json.RawMessage
 		if json.Unmarshal(raw, &fields) != nil || !hasFields(fields["snapshot"], "version", "balance_minor", "currency", "cutoff", "source_confirmed", "target_confirmed") ||
-			out.Snapshot.Version < 2 || out.Snapshot.BalanceMinor < 0 || out.Snapshot.Currency != "TWD" || !out.Snapshot.Cutoff.Equal(in.Cutoff.UTC().Truncate(time.Microsecond)) || len(out.Blockers) != 0 || out.Phase != "prepared" {
+			out.Snapshot.Version < 2 || out.Snapshot.BalanceMinor < 0 || out.Snapshot.Currency != CurrentCurrency || !out.Snapshot.Cutoff.Equal(in.Cutoff.UTC().Truncate(time.Microsecond)) || len(out.Blockers) != 0 || out.Phase != "prepared" {
 			return Settlement{}, ErrUnavailable
 		}
 	} else if len(out.Blockers) == 0 {

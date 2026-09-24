@@ -172,7 +172,7 @@ func (s *Store) advanceHandoffPreparation(ctx context.Context, job HandoffJob, b
 			return HandoffStep{Outcome: "waiting_preparation"}, nil
 		}
 		snap := status.Snapshot
-		if status.OperationID != binding.OperationID || snap.Version < 2 || snap.BalanceMinor < 0 || snap.Currency != "TWD" || !snap.Cutoff.Equal(binding.Cutoff) {
+		if status.OperationID != binding.OperationID || snap.Version < 2 || snap.BalanceMinor < 0 || snap.Currency != billinghandoff.CurrentCurrency || !snap.Cutoff.Equal(binding.Cutoff) {
 			return handoffStepError(ErrHandoffUnavailable), nil
 		}
 		ack := HandoffPrepareAck{CloudID: binding.CloudID, OperationID: binding.OperationID, SourceUserID: binding.SourceUserID, TargetUserID: binding.TargetUserID, OwnershipVersion: binding.OwnershipVersion, Cutoff: binding.Cutoff, Participant: "billing",

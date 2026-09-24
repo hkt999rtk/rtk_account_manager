@@ -1212,6 +1212,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/readiness`: `TestRunSmokeSkipsWhenNoOrganizationsAreVisible`
 - `rtk_account_manager/internal/readiness`: `TestUtilityHelpersAndEnvFallbacks`
 - `rtk_account_manager/internal/schemamaintenance`: `TestMigrationDirectoryPrefersExplicitExistingDirectory`
+- `rtk_account_manager/internal/schemamaintenance`: `TestMigrationDirectoryRejectsMissingSource`
 - `rtk_account_manager/internal/store`: `TestACLExternalGroupMappingCreatesScopedAssignment`
 - `rtk_account_manager/internal/store`: `TestACLPlatformAssignmentsAuditAndErrorPaths`
 - `rtk_account_manager/internal/store`: `TestACLRoleAssignmentsAuthorizeInsideScopeOnly`

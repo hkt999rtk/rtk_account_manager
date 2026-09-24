@@ -89,7 +89,7 @@ func (s *Store) checkHandoffEligibility(ctx context.Context, in HandoffEligibili
 	return evidence, nil
 }
 func validateHandoffEligibility(evidence HandoffEligibility, in HandoffEligibilityRequest, now time.Time) error {
-	if evidence.Request != in || evidence.ReceiptID == "" || !handoffEvidenceDigest.MatchString(evidence.EvidenceSHA256) || evidence.Currency != "TWD" || !evidence.Complete ||
+	if evidence.Request != in || evidence.ReceiptID == "" || !handoffEvidenceDigest.MatchString(evidence.EvidenceSHA256) || evidence.Currency != billinghandoff.CurrentCurrency || !evidence.Complete ||
 		evidence.ObservedAt.After(now) || evidence.ObservedAt.Before(now.Add(-5*time.Minute)) || !evidence.ExpiresAt.After(now) || evidence.ExpiresAt.After(evidence.ObservedAt.Add(5*time.Minute)) {
 		return ErrHandoffUnavailable
 	}

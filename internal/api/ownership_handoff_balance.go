@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"rtk_account_manager/internal/auth"
+	"rtk_account_manager/internal/billinghandoff"
 	"rtk_account_manager/internal/model"
 	"rtk_account_manager/internal/store"
 )
@@ -59,7 +60,7 @@ func (s *Server) confirmOwnerHandoff(c *gin.Context) {
 	if !bindStrict(c, &req) {
 		return
 	}
-	if req.OwnershipVersion < 1 || req.BillingSnapshotVersion < 2 || req.BalanceMinor == nil || *req.BalanceMinor < 0 || req.Currency != "TWD" {
+	if req.OwnershipVersion < 1 || req.BillingSnapshotVersion < 2 || req.BalanceMinor == nil || *req.BalanceMinor < 0 || req.Currency != billinghandoff.CurrentCurrency {
 		writeError(c, http.StatusBadRequest, "invalid_request", "Explicit nonnegative balance, TWD currency and exact ownership/Billing versions are required")
 		return
 	}

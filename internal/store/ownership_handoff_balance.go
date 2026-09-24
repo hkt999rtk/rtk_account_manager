@@ -234,7 +234,7 @@ func (s *Store) recordHandoffBalance(ctx context.Context, in BrandCloudOwnerTran
 		return handoffView(view, "blocked", billingBlockers(status.Blockers)), nil
 	}
 	snapshot := status.Snapshot
-	if status.Phase != "prepared" || snapshot.Version < 2 || snapshot.BalanceMinor < 0 || snapshot.Currency != "TWD" || !snapshot.Cutoff.Equal(binding.Cutoff) {
+	if status.Phase != "prepared" || snapshot.Version < 2 || snapshot.BalanceMinor < 0 || snapshot.Currency != billinghandoff.CurrentCurrency || !snapshot.Cutoff.Equal(binding.Cutoff) {
 		return handoffView(view, "blocked", handoffBlockers("evidence_unavailable")), nil
 	}
 	if requestID != "" {
@@ -305,7 +305,7 @@ func sameHandoffBinding(a, b billinghandoff.Binding) bool {
 }
 
 func (s *Store) ConfirmOwnerHandoff(ctx context.Context, in HandoffConfirmationInput) (model.BrandCloudOwnerTransfer, error) {
-	if !handoffIdempotencyKey.MatchString(in.IdempotencyKey) || in.Snapshot.OwnershipVersion < 1 || in.Snapshot.BillingSnapshotVersion < 2 || in.Snapshot.BalanceMinor < 0 || in.Snapshot.Currency != "TWD" {
+	if !handoffIdempotencyKey.MatchString(in.IdempotencyKey) || in.Snapshot.OwnershipVersion < 1 || in.Snapshot.BillingSnapshotVersion < 2 || in.Snapshot.BalanceMinor < 0 || in.Snapshot.Currency != billinghandoff.CurrentCurrency {
 		return model.BrandCloudOwnerTransfer{}, ErrConflict
 	}
 	view, err := s.PreviewOwnerHandoff(ctx, in.Query)
