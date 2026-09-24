@@ -25,3 +25,12 @@ func TestMigrationDirectoryPrefersExplicitExistingDirectory(t *testing.T) {
 		t.Fatalf("fallback directory = %q, %v; want migrations", got, err)
 	}
 }
+
+func TestMigrationDirectoryRejectsMissingSource(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	t.Setenv("MIGRATIONS_DIR", filepath.Join(root, "missing"))
+	if _, err := findMigrationDir(); err == nil {
+		t.Fatal("offline schema maintenance must reject a missing migration source")
+	}
+}
