@@ -1,7 +1,7 @@
 # Developer Console test leases
 
 Migration 068 adds `test_lab_sessions`; it does not change device identifiers.
-Authenticated managed-cloud sessions can create a five-minute lease with
+Authenticated managed-cloud sessions can create an 11-minute lease with
 `POST /v1/developer/brand-clouds/{cloud}/test-lab/sessions`, supplying
 `product_id`, `device_id` and `account_id`. Creation checks cloud/device management permission,
 the existing runtime device binding and a per-user maximum of three active leases.
