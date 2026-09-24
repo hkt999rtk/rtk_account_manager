@@ -87,6 +87,33 @@ func TestServiceOptionSetsEqual(t *testing.T) {
 	}
 }
 
+func TestDeviceLogRetentionRequiresSelectedLogger(t *testing.T) {
+	base := model.DeviceItemProfile{
+		BrandCloudID: "brand", ProfileKey: "device", DisplayName: "Device",
+		Status: model.DeviceItemProfileStatusActive, Category: model.DeviceCategoryMQTT,
+		CAProfile: "ca", IssuerProfile: "issuer", ServiceOptions: []string{"mqtt", "device_logging"},
+	}
+	for _, days := range []int{7, 30, 90} {
+		profile := base
+		profile.LogRetentionDays = &days
+		if err := validateDeviceItemProfile(profile); err != nil {
+			t.Fatalf("%d days rejected: %v", days, err)
+		}
+	}
+	invalid := 8
+	base.LogRetentionDays = &invalid
+	if err := validateDeviceItemProfile(base); !errors.Is(err, ErrClaimUnsupportedService) {
+		t.Fatalf("invalid tier: %v", err)
+	}
+	base.ServiceOptions = []string{"mqtt"}
+	if err := validateDeviceItemProfile(base); !errors.Is(err, ErrClaimUnsupportedService) {
+		t.Fatalf("retention without logger: %v", err)
+	}
+	if got := normalizeLogRetention([]string{"mqtt", "device_logging"}, nil); got == nil || *got != 7 {
+		t.Fatalf("default retention = %v", got)
+	}
+}
+
 func TestDeviceItemProfileCRUDAndAudit(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()

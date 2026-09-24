@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ type DeviceItemProfileCreateInput struct {
 	CAProfile          string
 	IssuerProfile      string
 	ServiceOptions     []string
+	LogRetentionDays   *int
 	CatalogRevision    int64
 	ClaimPolicy        map[string]any
 	ProvisioningPolicy map[string]any
@@ -47,6 +49,7 @@ type DeviceItemProfileUpdateInput struct {
 	CAProfile          *string
 	IssuerProfile      *string
 	ServiceOptions     []string
+	LogRetentionDays   *int
 	CatalogRevision    int64
 	ClaimPolicy        map[string]any
 	ProvisioningPolicy map[string]any
@@ -76,6 +79,7 @@ func (s *Store) CreateDeviceItemProfile(ctx context.Context, in DeviceItemProfil
 }
 
 func createDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, in DeviceItemProfileCreateInput, dynamicOptions bool) (model.DeviceItemProfile, error) {
+	in.LogRetentionDays = normalizeLogRetention(in.ServiceOptions, in.LogRetentionDays)
 	if err := validateDeviceItemProfileCreateWithOptions(in, dynamicOptions); err != nil {
 		return model.DeviceItemProfile{}, err
 	}
@@ -112,15 +116,15 @@ func createDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, in DeviceItemProf
 		INSERT INTO device_item_profiles (
 			brand_cloud_id, profile_key, display_name, status, category, manufacturer, model,
 			metadata_defaults, metadata_schema, ca_profile, issuer_profile, service_options,
-			claim_policy, provisioning_policy, created_at, updated_at
+			log_retention_days, claim_policy, provisioning_policy, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, 'active', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
+		VALUES ($1, $2, $3, 'active', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
 		RETURNING id::text, brand_cloud_id::text, profile_key, display_name, status, category,
 			manufacturer, model, metadata_defaults, metadata_schema, ca_profile, issuer_profile,
-			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
+			service_options, log_retention_days, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 	`, in.BrandCloudID, strings.TrimSpace(in.ProfileKey), strings.TrimSpace(in.DisplayName), in.Category, in.Manufacturer, in.Model,
 		metadataDefaults, metadataSchema, strings.TrimSpace(in.CAProfile), strings.TrimSpace(in.IssuerProfile), serviceOptions,
-		claimPolicy, provisioningPolicy, now))
+		in.LogRetentionDays, claimPolicy, provisioningPolicy, now))
 	if err != nil {
 		if strings.Contains(err.Error(), "device_item_profiles_brand_key_unique") {
 			return model.DeviceItemProfile{}, ErrConflict
@@ -185,7 +189,7 @@ func (s *Store) ListDeviceItemProfiles(ctx context.Context, in DeviceItemProfile
 	rows, err := s.db.Query(ctx, `
 		SELECT id::text, brand_cloud_id::text, profile_key, display_name, status, category,
 			manufacturer, model, metadata_defaults, metadata_schema, ca_profile, issuer_profile,
-			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
+			service_options, log_retention_days, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 		FROM device_item_profiles dip
 		WHERE dip.brand_cloud_id = $1
 			AND ($2 = '' OR status = $2)
@@ -231,7 +235,7 @@ func getDeviceItemProfile(ctx context.Context, q rowQuerier, brandCloudID, profi
 	profile, err := scanDeviceItemProfile(q.QueryRow(ctx, `
 		SELECT id::text, brand_cloud_id::text, profile_key, display_name, status, category,
 			manufacturer, model, metadata_defaults, metadata_schema, ca_profile, issuer_profile,
-			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
+			service_options, log_retention_days, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 		FROM device_item_profiles
 		WHERE brand_cloud_id = $1 AND id = $2
 	`+suffix, brandCloudID, profileID))
@@ -290,6 +294,12 @@ func updateDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, in DeviceItemProf
 	if in.ServiceOptions != nil {
 		current.ServiceOptions = in.ServiceOptions
 	}
+	if in.LogRetentionDays != nil {
+		current.LogRetentionDays = in.LogRetentionDays
+	} else if in.ServiceOptions != nil && !slices.Contains(in.ServiceOptions, "device_logging") {
+		current.LogRetentionDays = nil
+	}
+	current.LogRetentionDays = normalizeLogRetention(current.ServiceOptions, current.LogRetentionDays)
 	if in.ClaimPolicy != nil {
 		current.ClaimPolicy = in.ClaimPolicy
 	}
@@ -344,16 +354,17 @@ func updateDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, in DeviceItemProf
 			ca_profile = $10,
 			issuer_profile = $11,
 			service_options = $12,
-			claim_policy = $13,
-			provisioning_policy = $14,
-			disabled_at = $15,
-			updated_at = $16
+			log_retention_days = $13,
+			claim_policy = $14,
+			provisioning_policy = $15,
+			disabled_at = $16,
+			updated_at = $17
 		WHERE brand_cloud_id = $1 AND id = $2
 		RETURNING id::text, brand_cloud_id::text, profile_key, display_name, status, category,
 			manufacturer, model, metadata_defaults, metadata_schema, ca_profile, issuer_profile,
-			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
+			service_options, log_retention_days, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 	`, in.BrandCloudID, in.ProfileID, current.DisplayName, current.Status, current.Category, current.Manufacturer, current.Model,
-		metadataDefaults, metadataSchema, current.CAProfile, current.IssuerProfile, serviceOptions, claimPolicy, provisioningPolicy, disabledAt, now))
+		metadataDefaults, metadataSchema, current.CAProfile, current.IssuerProfile, serviceOptions, current.LogRetentionDays, claimPolicy, provisioningPolicy, disabledAt, now))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.DeviceItemProfile{}, ErrNotFound
 	}
@@ -402,7 +413,7 @@ func disableDeviceItemProfileTx(ctx context.Context, tx pgx.Tx, brandCloudID, pr
 		WHERE brand_cloud_id = $1 AND id = $2
 		RETURNING id::text, brand_cloud_id::text, profile_key, display_name, status, category,
 			manufacturer, model, metadata_defaults, metadata_schema, ca_profile, issuer_profile,
-			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
+			service_options, log_retention_days, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 	`, brandCloudID, profileID, now))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.DeviceItemProfile{}, ErrNotFound
@@ -443,6 +454,7 @@ func validateDeviceItemProfileCreateWithOptions(in DeviceItemProfileCreateInput,
 		CAProfile:          strings.TrimSpace(in.CAProfile),
 		IssuerProfile:      strings.TrimSpace(in.IssuerProfile),
 		ServiceOptions:     in.ServiceOptions,
+		LogRetentionDays:   in.LogRetentionDays,
 		ClaimPolicy:        in.ClaimPolicy,
 		ProvisioningPolicy: in.ProvisioningPolicy,
 	}
@@ -481,14 +493,31 @@ func validateDeviceItemProfileWithOptions(profile model.DeviceItemProfile, dynam
 	if len(profile.ServiceOptions) == 0 {
 		return ErrClaimUnsupportedService
 	}
+	if slices.Contains(profile.ServiceOptions, "device_logging") {
+		if profile.LogRetentionDays == nil || !validLogRetention(*profile.LogRetentionDays) {
+			return ErrClaimUnsupportedService
+		}
+	} else if profile.LogRetentionDays != nil {
+		return ErrClaimUnsupportedService
+	}
 	return nil
+}
+
+func validLogRetention(days int) bool { return days == 7 || days == 30 || days == 90 }
+
+func normalizeLogRetention(options []string, days *int) *int {
+	if slices.Contains(options, "device_logging") && days == nil {
+		defaultDays := 7
+		return &defaultDays
+	}
+	return days
 }
 
 func getDeviceItemProfileByID(ctx context.Context, tx pgx.Tx, profileID string) (model.DeviceItemProfile, error) {
 	profile, err := scanDeviceItemProfile(tx.QueryRow(ctx, `
 		SELECT id::text, brand_cloud_id::text, profile_key, display_name, status, category,
 			manufacturer, model, metadata_defaults, metadata_schema, ca_profile, issuer_profile,
-			service_options, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
+			service_options, log_retention_days, claim_policy, provisioning_policy, disabled_at, created_at, updated_at, pki_status, pki_operation_id::text, COALESCE(pki_issuer_id::text,'')
 		FROM device_item_profiles
 		WHERE id = $1
 	`, profileID))
@@ -535,6 +564,7 @@ func scanDeviceItemProfile(row rowScanner) (model.DeviceItemProfile, error) {
 		&profile.CAProfile,
 		&profile.IssuerProfile,
 		&serviceOptions,
+		&profile.LogRetentionDays,
 		&claimPolicy,
 		&provisioningPolicy,
 		&profile.DisabledAt,

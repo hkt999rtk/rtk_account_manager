@@ -40,6 +40,7 @@ type deviceItemProfileRequest struct {
 	CAProfile          string         `json:"ca_profile,omitempty"`
 	IssuerProfile      string         `json:"issuer_profile,omitempty"`
 	ServiceOptions     []string       `json:"service_options"`
+	LogRetentionDays   *int           `json:"log_retention_days"`
 	CatalogRevision    int64          `json:"catalog_revision,omitempty"`
 	ClaimPolicy        map[string]any `json:"claim_policy"`
 	ProvisioningPolicy map[string]any `json:"provisioning_policy"`
@@ -175,6 +176,7 @@ func (s *Server) createDeviceItemProfile(c *gin.Context) {
 		CAProfile:          req.CAProfile,
 		IssuerProfile:      req.IssuerProfile,
 		ServiceOptions:     serviceOptions,
+		LogRetentionDays:   req.LogRetentionDays,
 		CatalogRevision:    req.CatalogRevision,
 		ClaimPolicy:        req.ClaimPolicy,
 		ProvisioningPolicy: req.ProvisioningPolicy,
@@ -283,6 +285,7 @@ func (s *Server) updateDeviceItemProfile(c *gin.Context) {
 		CAProfile:          caProfile,
 		IssuerProfile:      issuerProfile,
 		ServiceOptions:     serviceOptions,
+		LogRetentionDays:   req.LogRetentionDays,
 		CatalogRevision:    req.CatalogRevision,
 		ClaimPolicy:        req.ClaimPolicy,
 		ProvisioningPolicy: req.ProvisioningPolicy,
