@@ -55,7 +55,7 @@ func (s *Store) CreateTestLabSession(ctx context.Context, actor, cloud, product,
 	}
 	var out TestLabSession
 	err = tx.QueryRow(ctx, `INSERT INTO test_lab_sessions(user_id,brand_cloud_id,product_id,device_id,devid,expires_at,account_id)
-	 SELECT $1::uuid,d.organization_id,d.device_item_profile_id,d.id,d.metadata->>'video_cloud_devid',now()+interval '5 minutes',$5::uuid
+	 SELECT $1::uuid,d.organization_id,d.device_item_profile_id,d.id,d.metadata->>'video_cloud_devid',now()+interval '11 minutes',$5::uuid
 	 FROM devices d JOIN organization_members m ON m.organization_id=d.organization_id AND m.user_id::text=$1
 	 WHERE d.id::text=$4 AND d.organization_id::text=$2 AND d.device_item_profile_id::text=$3
 	 AND d.disabled_at IS NULL AND m.disabled_at IS NULL AND m.role<>'viewer'

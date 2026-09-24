@@ -6,6 +6,7 @@ import (
 	"rtk_account_manager/internal/model"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTestLabBindingLifecycleIsolationAndRevocation(t *testing.T) {
@@ -101,6 +102,9 @@ func TestTestLabBindingLifecycleIsolationAndRevocation(t *testing.T) {
 	lease, err := env.store.CreateTestLabSession(ctx, owner.User.ID, owner.BrandCloud.ID, p.ID, d.ID, account.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if remaining := time.Until(lease.ExpiresAt); remaining < 10*time.Minute || remaining > 12*time.Minute {
+		t.Fatalf("session expiry remaining = %s, want about 11 minutes", remaining)
 	}
 	if _, err = env.store.GetTestLabSession(ctx, lease.ID); err != nil {
 		t.Fatal(err)
