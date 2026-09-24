@@ -27,10 +27,11 @@ var (
 )
 
 type PlatformServiceOption struct {
-	Code        string   `json:"code"`
-	DisplayName string   `json:"display_name"`
-	Description string   `json:"description"`
-	Requires    []string `json:"requires,omitempty"`
+	Code             string   `json:"code"`
+	DisplayName      string   `json:"display_name"`
+	Description      string   `json:"description"`
+	Requires         []string `json:"requires,omitempty"`
+	LogRetentionDays []int    `json:"log_retention_days,omitempty"`
 }
 
 type PlatformServiceRegistration struct {
@@ -113,6 +114,16 @@ func ValidatePlatformServiceRegistration(r PlatformServiceRegistration) error {
 		}
 		if option.Code == "mqtt" && r.ServiceID != "mqtt" {
 			return ErrServiceRegistrationDenied
+		}
+		if option.Code == "device_logging" && r.ServiceID != "logger" {
+			return ErrServiceRegistrationDenied
+		}
+		if r.ServiceID == "logger" && option.Code == "device_logging" {
+			if !slices.Equal(option.LogRetentionDays, []int{7, 30, 90}) {
+				return ErrServiceRegistrationInvalid
+			}
+		} else if len(option.LogRetentionDays) != 0 {
+			return ErrServiceRegistrationInvalid
 		}
 		if option.Code == "mqtt" && len(option.Requires) != 0 {
 			return ErrServiceRegistrationInvalid

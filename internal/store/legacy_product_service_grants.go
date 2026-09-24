@@ -182,7 +182,7 @@ func (s *Store) BackfillLegacyProductServiceGrants(ctx context.Context, apply bo
 
 func knownLegacyProductOption(code string) bool {
 	switch code {
-	case "mqtt", "iot_shadow", "video_streaming", "video_storage":
+	case "mqtt", "iot_shadow", "video_streaming", "video_storage", "device_logging":
 		return true
 	default:
 		return false

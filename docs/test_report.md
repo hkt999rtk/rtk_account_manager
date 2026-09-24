@@ -1356,6 +1356,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestDeviceInventoryFiltersAndConveniencePathsIntegration`
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileBacksClaimTokenSnapshotAndResolve`
 - `rtk_account_manager/internal/store`: `TestDeviceItemProfileCRUDAndAudit`
+- `rtk_account_manager/internal/store`: `TestDeviceLogRetentionRequiresSelectedLogger`
 - `rtk_account_manager/internal/store`: `TestDeviceMessagePersistenceRejectsInvalidSchemaValues`
 - `rtk_account_manager/internal/store`: `TestDevicePKIReceiptRejectsInvalidAuthority`
 - `rtk_account_manager/internal/store`: `TestDevicePKIRequeuePreservesBusinessAndCancelledScopes`
@@ -1572,6 +1573,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestListInboxMessagesByStatusAndShowDetail`
 - `rtk_account_manager/internal/store`: `TestListOutboxMessagesByStatusFiltersLifecycleRows`
 - `rtk_account_manager/internal/store`: `TestListUserOrganizationPermissionsIncludesOwnerBillingOnlyInsideOrganization`
+- `rtk_account_manager/internal/store`: `TestLoggerServiceManifestAdvertisesRetentionChoices`
 - `rtk_account_manager/internal/store`: `TestLoginActivationTokenLifecycleAndScope`
 - `rtk_account_manager/internal/store`: `TestManagedCloudPatchScopeReplayAndHandoffFence`
 - `rtk_account_manager/internal/store`: `TestManagedCloudWriteConcurrentReplayAndQuota`

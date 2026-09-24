@@ -261,6 +261,7 @@ type DeviceItemProfile struct {
 	CAProfile          string                  `json:"ca_profile"`
 	IssuerProfile      string                  `json:"issuer_profile"`
 	ServiceOptions     []string                `json:"service_options"`
+	LogRetentionDays   *int                    `json:"log_retention_days,omitempty"`
 	ClaimPolicy        map[string]any          `json:"claim_policy"`
 	ProvisioningPolicy map[string]any          `json:"provisioning_policy"`
 	DisabledAt         *time.Time              `json:"disabled_at,omitempty"`
