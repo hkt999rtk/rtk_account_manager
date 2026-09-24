@@ -101,11 +101,8 @@ func VerifySimplification(ctx context.Context, db *pgxpool.Pool) error {
 	if err := db.QueryRow(ctx, `SELECT COALESCE(max(version),'') FROM schema_migrations`).Scan(&version); err != nil {
 		return err
 	}
-	var applied bool
-	if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)`, SimplificationVersion).Scan(&applied); err != nil {
-		return err
-	}
-	if !applied {
+	// Later migrations do not undo the retired-identity and audit checks below.
+	if version < SimplificationVersion {
 		return fmt.Errorf("schema incompatible: source=%s required=%s; run offline migrations", version, SimplificationVersion)
 	}
 	for _, table := range retiredIdentityTables {
