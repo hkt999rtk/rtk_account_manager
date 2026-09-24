@@ -75,7 +75,7 @@ func (c *Client) CheckOwnershipEligibility(ctx context.Context, in OwnershipElig
 }
 
 func validateOwnershipEligibility(in OwnershipEligibilityRequest, out OwnershipEligibility, now time.Time) error {
-	if out.Request != in || out.Currency != "TWD" || out.Blockers == nil || out.ObservedAt.After(now) || out.ObservedAt.Before(now.Add(-5*time.Minute)) || !out.ExpiresAt.After(now) || out.ExpiresAt.After(out.ObservedAt.Add(5*time.Minute)) {
+	if out.Request != in || out.Currency != CurrentCurrency || out.Blockers == nil || out.ObservedAt.After(now) || out.ObservedAt.Before(now.Add(-5*time.Minute)) || !out.ExpiresAt.After(now) || out.ExpiresAt.After(out.ObservedAt.Add(5*time.Minute)) {
 		return ErrUnavailable
 	}
 	if (out.Complete || out.ReceiptID != "" || out.EvidenceSHA256 != "") && (!validUUID(out.ReceiptID) || !digest(out.EvidenceSHA256)) {
