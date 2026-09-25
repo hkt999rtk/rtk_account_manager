@@ -49,6 +49,25 @@ func TestConfigureTestLabValidatesRuntimeEndpoint(t *testing.T) {
 	if server.testLab.client == nil || server.testLab.client.Timeout == 0 {
 		t.Fatal("runtime client was not configured")
 	}
+	redirects := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirects++
+		http.Redirect(w, r, "/next", http.StatusFound)
+	}))
+	defer upstream.Close()
+	server.ConfigureTestLab(nil, upstream.URL, "fixture-token")
+	request, err := http.NewRequest(http.MethodGet, upstream.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.testLab.client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusFound || redirects != 1 {
+		t.Fatalf("runtime client followed redirect: status=%d requests=%d", response.StatusCode, redirects)
+	}
 
 	for _, tc := range []struct{ origin, token string }{
 		{origin: "://bad", token: "token"},
@@ -161,6 +180,21 @@ func TestTestLabRequestValidationStopsBeforeStorage(t *testing.T) {
 		server.testLabDevices(ctx)
 		if recorder.Code != http.StatusBadRequest {
 			t.Fatalf("status=%d", recorder.Code)
+		}
+	})
+	t.Run("retirement requires operation scope", func(t *testing.T) {
+		ctx, recorder := validTestLabDeviceContext(t, "retire", "")
+		server.testLabDevices(ctx)
+		if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "invalid_scope") {
+			t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+		}
+	})
+	t.Run("binding requires device scope", func(t *testing.T) {
+		ctx, recorder := validTestLabDeviceContext(t, "bind", "")
+		ctx.Params = gin.Params{{Key: "brandCloudId", Value: testLabUUID}, {Key: "deviceId", Value: "wrong-device"}, {Key: "action", Value: "bind"}}
+		server.testLabDevices(ctx)
+		if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "invalid_scope") {
+			t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 		}
 	})
 	t.Run("provision metadata", func(t *testing.T) {
