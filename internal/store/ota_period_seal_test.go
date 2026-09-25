@@ -3,7 +3,9 @@ package store
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -62,5 +64,53 @@ func TestOTAPeriodGrantSealExplicitEmptySetAndMonthValidation(t *testing.T) {
 	}
 	if _, err := newOTAPeriodGrantSeal(org, start.Add(time.Hour), end, nil); err == nil {
 		t.Fatal("partial UTC month accepted")
+	}
+}
+
+func TestOTAPeriodGrantSealRejectsNonMonotonicGrantHistory(t *testing.T) {
+	org := "11111111-1111-4111-8111-111111111111"
+	product := "22222222-2222-4222-8222-222222222222"
+	start := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	base := []otaGrantHistoryRow{
+		{ProductID: product, Revision: 1, CreatedAt: start.Add(time.Hour), Options: []string{"ota"}, SnapshotSHA256: strings.Repeat("a", 64)},
+		{ProductID: product, Revision: 2, CreatedAt: start.Add(2 * time.Hour), Options: []string{"mqtt"}, SnapshotSHA256: strings.Repeat("b", 64)},
+	}
+	for _, tc := range []struct {
+		name   string
+		change func([]otaGrantHistoryRow)
+	}{
+		{"duplicate revision", func(rows []otaGrantHistoryRow) { rows[1].Revision = 1 }},
+		{"backdated revision", func(rows []otaGrantHistoryRow) { rows[1].CreatedAt = start }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			history := slices.Clone(base)
+			tc.change(history)
+			if _, err := newOTAPeriodGrantSeal(org, start, start.AddDate(0, 1, 0), history); !errors.Is(err, ErrOTAPeriodSealInvalid) {
+				t.Fatalf("non-monotonic grant history was sealed: %v", err)
+			}
+		})
+	}
+}
+
+func TestOTAPeriodGrantSealCanonicalizesGrantRowOrder(t *testing.T) {
+	org := "11111111-1111-4111-8111-111111111111"
+	start := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	rows := []otaGrantHistoryRow{
+		{ProductID: "22222222-2222-4222-8222-222222222222", Revision: 1, CreatedAt: start, Options: []string{"ota"}, SnapshotSHA256: strings.Repeat("a", 64)},
+		{ProductID: "33333333-3333-4333-8333-333333333333", Revision: 1, CreatedAt: start, Options: []string{"mqtt"}, SnapshotSHA256: strings.Repeat("b", 64)},
+	}
+	end := start.AddDate(0, 1, 0)
+	ascending, err := newOTAPeriodGrantSeal(org, start, end, slices.Clone(rows))
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Reverse(rows)
+	descending, err := newOTAPeriodGrantSeal(org, start, end, rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ascending.SealID != descending.SealID || ascending.SourceSHA256 != descending.SourceSHA256 ||
+		string(ascending.SourceHighWater) != string(descending.SourceHighWater) {
+		t.Fatalf("grant input order changed OTA period seal: %+v %+v", ascending, descending)
 	}
 }
