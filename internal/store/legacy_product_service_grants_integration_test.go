@@ -157,18 +157,24 @@ func TestLegacyProductGrantBackfillRejectsCorruptExistingDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dry, err := env.store.BackfillLegacyProductServiceGrants(ctx, false, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := env.store.BackfillLegacyProductServiceGrants(ctx, true, dry.SnapshotSHA256); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := env.db.Exec(ctx, `UPDATE product_service_grants SET snapshot_sha256=repeat('f',64) WHERE product_id=$1`, product.ID); err != nil {
+	// A bad imported grant can still be detected, but a recorded grant cannot
+	// be corrupted by UPDATE after migration 088.
+	if _, err := env.db.Exec(ctx, `
+		INSERT INTO product_service_grants
+		  (product_id, revision, brand_cloud_id, catalog_revision, options, bindings, snapshot_sha256, legacy)
+		SELECT p.id, 1, p.brand_cloud_id, 0, p.service_options, '[]'::jsonb, repeat('f',64), true
+		FROM device_item_profiles p WHERE p.id=$1
+	`, product.ID); err != nil {
 		t.Fatal(err)
 	}
 	report, err := env.store.BackfillLegacyProductServiceGrants(ctx, false, "")
 	if err != nil || report.Ready || report.IssueCount != 1 || report.Applied != 0 {
 		t.Fatalf("corrupt digest was not reported: %+v, %v", report, err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE product_service_grants SET snapshot_sha256=repeat('a',64) WHERE product_id=$1`, product.ID); err == nil {
+		t.Fatal("historical Product grant UPDATE unexpectedly succeeded")
+	}
+	if _, err := env.db.Exec(ctx, `DELETE FROM product_service_grants WHERE product_id=$1`, product.ID); err == nil {
+		t.Fatal("historical Product grant DELETE unexpectedly succeeded")
 	}
 }

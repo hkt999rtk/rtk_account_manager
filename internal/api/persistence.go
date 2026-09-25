@@ -96,6 +96,7 @@ type memberPersistence interface {
 }
 
 type devicePersistence interface {
+	GetProductOTAGrant(ctx context.Context, brandCloudID, productID string) (store.ProductOTAGrant, error)
 	CreateDeviceAsUser(ctx context.Context, actor, orgID string, in store.DeviceInput) (model.Device, error)
 	ListDevices(ctx context.Context, orgID string, limit, offset int) (store.DevicePage, error)
 	ListDevicesFiltered(ctx context.Context, in store.DeviceListFilter) (store.DevicePage, error)

@@ -295,6 +295,7 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/app/end-users/auth/refresh", s.appEndUserRefresh)
 	v1.POST("/internal/app-token-authorizations", s.handleInternalAppTokenAuthorization)
 	v1.GET("/internal/brand-clouds/:brandCloudId/products/:productId/log-policy", s.getInternalProductLogPolicy)
+	v1.GET("/internal/brand-clouds/:brandCloudId/products/:productId/ota-grant", s.getInternalProductOTAGrant)
 	v1.POST("/internal/job-authorizations/:authorizationId/exchange", s.exchangeJobAuthorization)
 	v1.POST("/internal/job-authorizations/:authorizationId/revoke", s.revokeJobAuthorization)
 	v1.POST("/internal/device-provisioning-results", s.handleInternalDeviceProvisioningResult)

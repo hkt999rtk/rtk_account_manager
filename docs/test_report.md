@@ -26,7 +26,7 @@ Generated: ci-candidate
 
 | Metric | Value |
 | --- | --- |
-| Go packages | 39 |
+| Go packages | 41 |
 | Test cases started | recorded in reports/test-events.json |
 | JSON pass events | recorded in reports/test-events.json |
 | JSON fail events | recorded in reports/test-events.json |
@@ -417,6 +417,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationInternalAppTokenAuthorization`
 - `rtk_account_manager/internal/api`: `TestIntegrationInternalDevicePresenceEvent`
 - `rtk_account_manager/internal/api`: `TestIntegrationInternalDeviceProvisioningResult`
+- `rtk_account_manager/internal/api`: `TestIntegrationInternalProductOTAGrantFailsClosed`
 - `rtk_account_manager/internal/api`: `TestIntegrationLastOwnerCannotBeRemovedOrDowngraded`
 - `rtk_account_manager/internal/api`: `TestIntegrationListPaginationMetadata`
 - `rtk_account_manager/internal/api`: `TestIntegrationLoginAppCertificateCSRRequired`
@@ -848,6 +849,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/wrong_target`
 - `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence/zero`
 - `rtk_account_manager/internal/billinghandoff`: `TestOwnershipEligibilityTransportValidatesBindingAndEvidence`
+- `rtk_account_manager/internal/billingotaseal`: `TestSubmitRequiresAuthenticatedExactBillingEcho`
 - `rtk_account_manager/internal/broker`: `TestAzureCheckpointFileDefaultsAndSanitizesComponents`
 - `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerAcknowledgesAndResumesFromCheckpoint`
 - `rtk_account_manager/internal/broker`: `TestAzureEventHubsConsumerCloseClosesPartitions`
@@ -1573,6 +1575,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestIdentityProviderRejectsRawClientSecretRef`
 - `rtk_account_manager/internal/store`: `TestIdentityProviderStoreCRUDAndMultipleEnabledProviders`
 - `rtk_account_manager/internal/store`: `TestIntegrationDatabaseSchemaInvariants`
+- `rtk_account_manager/internal/store`: `TestIntegrationOTAPeriodGrantSealExcludesPostSealInsertFromEarlierTransaction`
+- `rtk_account_manager/internal/store`: `TestIntegrationOTAPeriodGrantSealRejectsCorruptGrantSnapshot/bindings`
+- `rtk_account_manager/internal/store`: `TestIntegrationOTAPeriodGrantSealRejectsCorruptGrantSnapshot/options`
+- `rtk_account_manager/internal/store`: `TestIntegrationOTAPeriodGrantSealRejectsCorruptGrantSnapshot`
+- `rtk_account_manager/internal/store`: `TestIntegrationOTAPeriodGrantSealUsesHistoricalGrantRows`
+- `rtk_account_manager/internal/store`: `TestIntegrationOTAPeriodGrantSealWaitsForInFlightGrantInsert`
 - `rtk_account_manager/internal/store`: `TestJSONHelpers`
 - `rtk_account_manager/internal/store`: `TestJobAuthorizationLifecycle`
 - `rtk_account_manager/internal/store`: `TestLegacyProductGrantBackfillFlagsUnknownUnversionedOption`
@@ -1630,6 +1638,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestNormalizeTenantSlug`
 - `rtk_account_manager/internal/store`: `TestOIDCLoginStateRejectsExpiredState`
 - `rtk_account_manager/internal/store`: `TestOIDCLoginStateStoresHashesAndRejectsReplay`
+- `rtk_account_manager/internal/store`: `TestOTAPeriodGrantSealExplicitEmptySetAndMonthValidation`
+- `rtk_account_manager/internal/store`: `TestOTAPeriodGrantSealIncludesHistoricalZeroUsageProducts`
 - `rtk_account_manager/internal/store`: `TestOnlineChangedProjectionSetsStatusAndLastSeenAt`
 - `rtk_account_manager/internal/store`: `TestOnlineProjectionKeepsMappedIdentityAndObservationOrder`
 - `rtk_account_manager/internal/store`: `TestOnlineProjectionRequiresExistingVideoIdentity`
@@ -1664,6 +1674,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestPlatformServiceDigestIgnoresOptionOrderButBindsContents`
 - `rtk_account_manager/internal/store`: `TestPlatformServiceManifestValidation/duplicate`
 - `rtk_account_manager/internal/store`: `TestPlatformServiceManifestValidation/foreign-mqtt`
+- `rtk_account_manager/internal/store`: `TestPlatformServiceManifestValidation/foreign-ota`
 - `rtk_account_manager/internal/store`: `TestPlatformServiceManifestValidation/invalid-code`
 - `rtk_account_manager/internal/store`: `TestPlatformServiceManifestValidation/mqtt-cannot-advertise-plugin`
 - `rtk_account_manager/internal/store`: `TestPlatformServiceManifestValidation/mqtt-with-dependency`
