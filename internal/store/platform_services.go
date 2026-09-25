@@ -118,6 +118,15 @@ func ValidatePlatformServiceRegistration(r PlatformServiceRegistration) error {
 		if option.Code == "device_logging" && r.ServiceID != "logger" {
 			return ErrServiceRegistrationDenied
 		}
+		if option.Code == "ota" && r.ServiceID != "ota" {
+			return ErrServiceRegistrationDenied
+		}
+		if r.ServiceID == "ota" && option.Code != "ota" {
+			return ErrServiceRegistrationInvalid
+		}
+		if r.ServiceID == "ota" && !slices.Equal(option.Requires, []string{"mqtt"}) {
+			return ErrServiceRegistrationInvalid
+		}
 		if r.ServiceID == "logger" && option.Code == "device_logging" {
 			if !slices.Equal(option.LogRetentionDays, []int{7, 30, 90}) {
 				return ErrServiceRegistrationInvalid

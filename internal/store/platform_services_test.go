@@ -15,12 +15,25 @@ func TestPlatformServiceManifestValidation(t *testing.T) {
 	if err := ValidatePlatformServiceRegistration(base); err != nil {
 		t.Fatal(err)
 	}
+	ota := base
+	ota.ServiceID = "ota"
+	ota.Options = []PlatformServiceOption{{Code: "ota", DisplayName: "Firmware OTA", Requires: []string{"mqtt"}}}
+	if err := ValidatePlatformServiceRegistration(ota); err != nil {
+		t.Fatalf("OTA service registration rejected: %v", err)
+	}
+	ota.Options = []PlatformServiceOption{{Code: "ota", DisplayName: "Firmware OTA"}}
+	if err := ValidatePlatformServiceRegistration(ota); !errors.Is(err, ErrServiceRegistrationInvalid) {
+		t.Fatalf("OTA without MQTT dependency accepted: %v", err)
+	}
 	tests := []struct {
 		name   string
 		change func(*PlatformServiceRegistration)
 		want   error
 	}{
 		{"foreign-mqtt", func(r *PlatformServiceRegistration) { r.Options[0].Code = "mqtt"; r.Options[0].Requires = nil }, ErrServiceRegistrationDenied},
+		{"foreign-ota", func(r *PlatformServiceRegistration) {
+			r.Options[0] = PlatformServiceOption{Code: "ota", DisplayName: "Firmware OTA", Requires: []string{"mqtt"}}
+		}, ErrServiceRegistrationDenied},
 		{"unversioned", func(r *PlatformServiceRegistration) { r.ProtocolVersion = "2" }, ErrServiceRegistrationInvalid},
 		{"invalid-code", func(r *PlatformServiceRegistration) { r.Options[0].Code = "platform:admin" }, ErrServiceRegistrationInvalid},
 		{"duplicate", func(r *PlatformServiceRegistration) { r.Options = append(r.Options, r.Options[0]) }, ErrServiceRegistrationInvalid},
