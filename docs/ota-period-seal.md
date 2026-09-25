@@ -5,7 +5,7 @@ deployed or evidence of a completed OTA billing month.
 
 Owner: rtk_account_manager.
 
-Last reviewed: 2026-09-25.
+Last reviewed: 2026-09-26.
 
 Canonical contract:
 [Product OTA Delivery And Billing](rtk_cloud_contracts_doc/ota_delivery_and_billing.md).
@@ -13,9 +13,16 @@ Canonical contract:
 Account Manager supplies Billing's `platform_grants` seal. The independent
 OTA producer supplies its own receipt/fact seal. Billing requires both before
 closing a month with OTA pricing. The Platform seal contains the sorted
-Brand Cloud Product IDs whose immutable service-grant history included
-`ota` during any part of the UTC month, including zero-use Products. It has
-no OTA fact counts or fact digest. `source_sha256` hashes the complete
+Brand Cloud Product IDs with any immutable `ota`-enabled service-grant
+revision created before the UTC month's exclusive end, including disabled,
+retired and zero-use Products. This cumulative historical set permits
+later-month storage and bounded post-disable completion receipts, but does
+not grant new OTA access to a disabled Product. A post-disable device report
+requires a recorded matching artifact grant and must arrive no later than 48
+hours after that URL's exclusive expiry; any accepted download belongs to its
+server receipt month.
+
+The Platform seal has no OTA fact counts or fact digest. `source_sha256` hashes the complete
 observed grant history before the month end; the high-water JSON carries
 that digest and row count. A stable UUIDv8 seal identity makes exact retries
 safe.
@@ -53,10 +60,12 @@ must fail close when the seal is missing. Do not claim automatic collection
 or charge readiness until scheduling, alerting, and staging reconciliation
 are qualified.
 
-Grant `created_at` is the available historical effective-time source. The
-seal conservatively includes any Product whose `ota` option was effective
-for a positive interval of the month. This does not reconstruct historical
-Product active/inactive status or device entitlements, which lack equivalent
-month-snapshot evidence in this path. Those limits must be reviewed before
-commercial activation; they cannot be replaced with the current Product
-row or a zero-usage assumption.
+Grant `created_at` is the available historical time source. The seal includes
+every Product with an `ota`-enabled grant revision before `period_end`, even
+when OTA was removed before `period_start`. The producer and Billing fact
+Product sets must be subsets of this Platform set; a Product with no OTA
+grant history cannot be billed through an OTA producer claim. The seal does
+not reconstruct historical Product active/inactive status or device
+entitlements, which lack equivalent month-snapshot evidence in this path.
+Those limits must be reviewed before commercial activation; they cannot be
+replaced with the current Product row or a zero-usage assumption.
