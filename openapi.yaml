@@ -2239,6 +2239,48 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/admin/brand-clouds/{brandCloudId}/owner-transfer-limit:
+    get:
+      tags: [Brand Clouds]
+      operationId: getBrandCloudOwnerTransferLimit
+      security: [{ bearerAuth: [] }]
+      summary: Read a Brand Cloud's ownership transfer limit as platform admin.
+      parameters: [{ $ref: "#/components/parameters/BrandCloudId" }]
+      responses:
+        "200":
+          description: Ownership transfer limit and usage.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OwnerTransferQuota" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [Brand Clouds]
+      operationId: setBrandCloudOwnerTransferLimit
+      security: [{ bearerAuth: [] }]
+      summary: Set a Brand Cloud's lifetime ownership transfer limit as platform admin.
+      parameters: [{ $ref: "#/components/parameters/BrandCloudId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [owner_transfer_limit]
+              properties:
+                owner_transfer_limit: { type: integer, minimum: 0, maximum: 200 }
+      responses:
+        "200":
+          description: Updated ownership transfer limit and usage.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OwnerTransferQuota" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /v1/admin/brand-clouds/{brandCloudId}/device-item-profiles:
     post:
       tags:
@@ -7101,7 +7143,7 @@ components:
         description: { type: string, maxLength: 2000, default: '' }
     ManagedBrandCloud:
       type: object
-      required: [id, name, description, tenant_slug, owner_user_id, my_role, status, ownership_version, capabilities]
+      required: [id, name, description, tenant_slug, owner_user_id, my_role, status, ownership_version, capabilities, owner_transfer_limit, owner_transfer_used, owner_transfer_remaining]
       properties:
         pki_status: { type: string, enum: [pending, ready, failed, cancelled] }
         pki_operation_id: { type: string, format: uuid }
@@ -7114,7 +7156,17 @@ components:
         my_role: { type: string, enum: [owner, admin, member, viewer] }
         status: { type: string, enum: [pending_activation, active, disabled, deleted] }
         ownership_version: { type: integer, minimum: 1 }
+        owner_transfer_limit: { type: integer, minimum: 0, maximum: 200 }
+        owner_transfer_used: { type: integer, minimum: 0 }
+        owner_transfer_remaining: { type: integer, minimum: 0 }
         capabilities: { type: array, uniqueItems: true, items: { type: string } }
+    OwnerTransferQuota:
+      type: object
+      required: [owner_transfer_limit, owner_transfer_used, owner_transfer_remaining]
+      properties:
+        owner_transfer_limit: { type: integer, minimum: 0, maximum: 200 }
+        owner_transfer_used: { type: integer, minimum: 0 }
+        owner_transfer_remaining: { type: integer, minimum: 0 }
     ManagedCloudResponse:
       type: object
       required: [brand_cloud]

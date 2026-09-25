@@ -341,6 +341,9 @@ func (s *Store) CreateBrandCloudOwnerTransfer(ctx context.Context, in BrandCloud
 	if err := lockBrandCloudCollaborationTx(ctx, tx, in.BrandCloudID, in.RequestedByUserID, targetID); err != nil {
 		return model.BrandCloudOwnerTransfer{}, err
 	}
+	if err := checkOwnerTransferQuota(ctx, tx, in.BrandCloudID); err != nil {
+		return model.BrandCloudOwnerTransfer{}, err
+	}
 	currentVersion, err := handoffVersion(ctx, tx, in.BrandCloudID, in.RequestedByUserID, targetID)
 	if err != nil {
 		return model.BrandCloudOwnerTransfer{}, err

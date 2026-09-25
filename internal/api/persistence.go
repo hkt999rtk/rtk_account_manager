@@ -251,6 +251,8 @@ type brandCloudPersistence interface {
 	ListBrandClouds(ctx context.Context, limit, offset int) (store.OrganizationPage, error)
 	GetBrandCloud(ctx context.Context, orgID string) (model.Organization, error)
 	UpdateBrandCloud(ctx context.Context, actorUserID, orgID string, in store.BrandCloudInput) (model.Organization, error)
+	GetOwnerTransferQuota(ctx context.Context, cloudID string) (store.OwnerTransferQuota, error)
+	SetOwnerTransferLimit(ctx context.Context, actorID, cloudID string, limit int) (store.OwnerTransferQuota, error)
 	ProvisionBrandCloudAccount(ctx context.Context, actorUserID, orgID string, in store.BrandCloudAccountInput) (store.BrandCloudAccountResult, error)
 	ListBrandCloudAccounts(ctx context.Context, in store.BrandCloudAccountListFilter) (store.BrandCloudAccountPage, error)
 	DisableDeveloperBrandCloudMember(ctx context.Context, brandCloudID, userID string) (model.Member, error)

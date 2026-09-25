@@ -250,6 +250,9 @@ func (s *Store) acceptOwnerHandoff(ctx context.Context, target, token string, no
 	if requestedVersion == nil || *requestedVersion != version || currentVersion != version {
 		return model.BrandCloudOwnerTransfer{}, ErrConflict
 	}
+	if err := checkOwnerTransferQuota(ctx, tx, transfer.BrandCloudID); err != nil {
+		return model.BrandCloudOwnerTransfer{}, err
+	}
 	used, err := countCloudQuotaUsageTx(ctx, tx, target)
 	if err != nil {
 		return model.BrandCloudOwnerTransfer{}, err
