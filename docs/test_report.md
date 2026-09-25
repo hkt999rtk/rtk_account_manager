@@ -294,6 +294,13 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestConfigureVideoPresenceValidatesInternalOrigin/valid`
 - `rtk_account_manager/internal/api`: `TestConfigureVideoPresenceValidatesInternalOrigin`
 - `rtk_account_manager/internal/api`: `TestCreateDeviceEntitlementSnapshotHandlerUsesAuthenticatedActorAndReturnsRevision`
+- `rtk_account_manager/internal/api`: `TestCreateProductionRunRejectsInvalidAuthorizationBeforeStoreWrite/malformed_JSON`
+- `rtk_account_manager/internal/api`: `TestCreateProductionRunRejectsInvalidAuthorizationBeforeStoreWrite/missing_signer`
+- `rtk_account_manager/internal/api`: `TestCreateProductionRunRejectsInvalidAuthorizationBeforeStoreWrite/negative_quantity`
+- `rtk_account_manager/internal/api`: `TestCreateProductionRunRejectsInvalidAuthorizationBeforeStoreWrite/period_too_long`
+- `rtk_account_manager/internal/api`: `TestCreateProductionRunRejectsInvalidAuthorizationBeforeStoreWrite/reversed_period`
+- `rtk_account_manager/internal/api`: `TestCreateProductionRunRejectsInvalidAuthorizationBeforeStoreWrite/unsafe_intent`
+- `rtk_account_manager/internal/api`: `TestCreateProductionRunRejectsInvalidAuthorizationBeforeStoreWrite`
 - `rtk_account_manager/internal/api`: `TestDefaultChipsetFetcherDialGuards/disallowed_host`
 - `rtk_account_manager/internal/api`: `TestDefaultChipsetFetcherDialGuards/empty_resolver`
 - `rtk_account_manager/internal/api`: `TestDefaultChipsetFetcherDialGuards/invalid_address`
@@ -545,6 +552,9 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestPlatformServiceProductRejectsEmptyGrant`
 - `rtk_account_manager/internal/api`: `TestPostgresStoreSatisfiesAPIPersistenceBoundaries`
 - `rtk_account_manager/internal/api`: `TestProductScopeNeverFallsBackToTenantClaims`
+- `rtk_account_manager/internal/api`: `TestProductionRunReadAndStopReportStorageFailure/list`
+- `rtk_account_manager/internal/api`: `TestProductionRunReadAndStopReportStorageFailure/stop`
+- `rtk_account_manager/internal/api`: `TestProductionRunReadAndStopReportStorageFailure`
 - `rtk_account_manager/internal/api`: `TestPrometheusMetricHelpersFormatLabelsDeterministically`
 - `rtk_account_manager/internal/api`: `TestPrometheusMetricsRoute`
 - `rtk_account_manager/internal/api`: `TestPublicOwnerHandoffPreviewConfirmationAndReplay`
@@ -603,10 +613,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestTestLabHandlersRejectDisabledOrUnavailableRuntime`
 - `rtk_account_manager/internal/api`: `TestTestLabRequestValidationStopsBeforeStorage/account_fields`
 - `rtk_account_manager/internal/api`: `TestTestLabRequestValidationStopsBeforeStorage/binding_claim`
+- `rtk_account_manager/internal/api`: `TestTestLabRequestValidationStopsBeforeStorage/binding_requires_device_scope`
 - `rtk_account_manager/internal/api`: `TestTestLabRequestValidationStopsBeforeStorage/device_body`
 - `rtk_account_manager/internal/api`: `TestTestLabRequestValidationStopsBeforeStorage/device_query_scope`
 - `rtk_account_manager/internal/api`: `TestTestLabRequestValidationStopsBeforeStorage/provision_metadata`
 - `rtk_account_manager/internal/api`: `TestTestLabRequestValidationStopsBeforeStorage/provision_public_key`
+- `rtk_account_manager/internal/api`: `TestTestLabRequestValidationStopsBeforeStorage/retirement_requires_operation_scope`
 - `rtk_account_manager/internal/api`: `TestTestLabRequestValidationStopsBeforeStorage/session_one_object`
 - `rtk_account_manager/internal/api`: `TestTestLabRequestValidationStopsBeforeStorage/session_scope`
 - `rtk_account_manager/internal/api`: `TestTestLabRequestValidationStopsBeforeStorage/unknown_action`
