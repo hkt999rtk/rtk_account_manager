@@ -18,13 +18,14 @@ revision created before the UTC month's exclusive end, including disabled,
 retired and zero-use Products. This cumulative historical set permits
 later-month storage and bounded post-disable completion receipts, but does
 not grant new OTA access to a disabled Product. A post-disable device report
-requires a recorded matching artifact grant and must arrive no later than 48
+requires a previously issued matching artifact grant that passed an enabled
+Product-grant check at issuance and must arrive no later than 48
 hours after that URL's exclusive expiry; any accepted download belongs to its
 server receipt month.
 
-The Platform seal has no OTA fact counts or fact digest. `source_sha256` hashes the complete
-observed grant history before the month end; the high-water JSON carries
-that digest and row count. A stable UUIDv8 seal identity makes exact retries
+The Platform seal has no OTA fact counts or fact digest. `source_sha256` hashes
+the complete observed grant history before the month end; the high-water JSON
+carries that digest and row count. A stable UUIDv8 seal identity makes exact retries
 safe.
 
 Apply migration `088_product_service_grants_immutable.sql` before running
