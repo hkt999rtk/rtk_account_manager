@@ -176,20 +176,9 @@ func TestServiceRegistrationMTLSDrivesCatalogProductAndRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		// The signup's billing-creation outbox entry is immutable, so its
-		// Brand Cloud and owner must remain a consistent test-DB fixture.
-		// Remove only the Product/run records this test adds to that cloud.
-		for _, query := range []string{
-			`DELETE FROM factory_production_runs WHERE brand_cloud_id=$1`,
-			`DELETE FROM product_service_grants WHERE brand_cloud_id=$1`,
-			`DELETE FROM device_item_profiles WHERE brand_cloud_id=$1`,
-		} {
-			if _, err := db.Exec(context.Background(), query, owner.BrandCloud.ID); err != nil {
-				t.Errorf("clean up Product fixture: %v", err)
-			}
-		}
-	})
+	// Signup creates an immutable billing-creation outbox entry, and Product
+	// service grants are immutable history. Keep this uniquely named Brand
+	// Cloud, Product, and production run together as a consistent test fixture.
 	repository.ConfigurePlatformServiceProductWrites(environment, true)
 	productInput := store.DeviceItemProfileCreateInput{
 		ActorUserID: &owner.User.ID, BrandCloudID: owner.BrandCloud.ID,
