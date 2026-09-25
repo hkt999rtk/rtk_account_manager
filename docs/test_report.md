@@ -1638,8 +1638,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestNormalizeTenantSlug`
 - `rtk_account_manager/internal/store`: `TestOIDCLoginStateRejectsExpiredState`
 - `rtk_account_manager/internal/store`: `TestOIDCLoginStateStoresHashesAndRejectsReplay`
+- `rtk_account_manager/internal/store`: `TestOTAPeriodGrantSealCanonicalizesGrantRowOrder`
 - `rtk_account_manager/internal/store`: `TestOTAPeriodGrantSealExplicitEmptySetAndMonthValidation`
 - `rtk_account_manager/internal/store`: `TestOTAPeriodGrantSealIncludesHistoricalZeroUsageProducts`
+- `rtk_account_manager/internal/store`: `TestOTAPeriodGrantSealRejectsNonMonotonicGrantHistory/backdated_revision`
+- `rtk_account_manager/internal/store`: `TestOTAPeriodGrantSealRejectsNonMonotonicGrantHistory/duplicate_revision`
+- `rtk_account_manager/internal/store`: `TestOTAPeriodGrantSealRejectsNonMonotonicGrantHistory`
 - `rtk_account_manager/internal/store`: `TestOnlineChangedProjectionSetsStatusAndLastSeenAt`
 - `rtk_account_manager/internal/store`: `TestOnlineProjectionKeepsMappedIdentityAndObservationOrder`
 - `rtk_account_manager/internal/store`: `TestOnlineProjectionRequiresExistingVideoIdentity`
