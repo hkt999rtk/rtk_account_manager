@@ -184,12 +184,12 @@ paths:
     parameters:
       - {name: brandCloudId, in: path, required: true, schema: {type: string, format: uuid}}
       - {name: deviceId, in: path, required: true, schema: {type: string, format: uuid}}
-      - {name: action, in: path, required: true, schema: {type: string, enum: [grant, bind, unbind, provision]}}
+      - {name: action, in: path, required: true, schema: {type: string, enum: [grant, bind, unbind, provision, retire]}}
     post:
       operationId: developerTestLabpostdevicesdeviceIdaction
       summary: POST test-only /devices/{deviceId}/{action}
       tags: [Developer Brand Clouds]
-      description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. See docs/test-lab.md for exact request, response and revocation contracts. Unbind preserves the device and certificates.
+      description: Requires developer authentication, the non-production Test Lab gate and scoped account authorization. Retire requires `product_id` and a stable `operation_id` UUID, revokes access and certificates, and returns the durable retirement state. See docs/test-lab.md for the full request, response and retry contract. Unbind preserves the device and certificates.
       x-rtk-feature-id: FEAT-AM-IDENTITY-001
       x-rtk-requirement-ids: [REQ-AM-TEST-LAB-001, REQ-AM-TEST-LAB-WORKFLOW-001]
       requestBody:
@@ -200,7 +200,7 @@ paths:
       responses:
         '200': {description: Success}
         '201': {description: Created binding grant}
-        '202': {description: Provision queued}
+        '202': {description: Provision queued or retirement pending/failed with operation status}
         '400': {description: Invalid input}
         '401': {description: Authentication required}
         '403': {description: Permission denied}
@@ -2407,6 +2407,11 @@ paths:
       parameters:
         - $ref: "#/components/parameters/BrandCloudId"
         - $ref: "#/components/parameters/ProfileId"
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Stable per-submission key. A retry returns the same production run and factory JWT; a changed request with the same key is rejected.
+          schema: { type: string, maxLength: 200 }
       requestBody:
         required: true
         content:
@@ -4085,16 +4090,51 @@ paths:
       parameters:
         - $ref: "#/components/parameters/OrgId"
         - $ref: "#/components/parameters/ProfileId"
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Stable per-submission key. A retry returns the same production run and factory JWT; a changed request with the same key is rejected.
+          schema: { type: string, maxLength: 200 }
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: "#/components/schemas/ProductionRunRequest" }
       responses:
-        "201": { description: Production run created. }
+        "201":
+          description: Production run created; factory JWT shown on this response only.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProductionRunResponse" }
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
 
+  /v1/orgs/{orgId}/device-item-profiles/{profileId}/production-runs/{runId}/stop:
+    post:
+      tags: [Devices]
+      operationId: stopOrganizationProductionRun
+      x-rtk-feature-id: FEAT-PROV-ONBOARD-001
+      x-rtk-requirement-ids: [REQ-E2E-PROV-ACCOUNT-001]
+      summary: Stop future certificate issuance for a production run.
+      description: Requires Product management permission. Repeating a completed stop is safe.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/ProfileId"
+        - { name: runId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Production run stopped or already disabled.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [production_run]
+                properties:
+                  production_run: { $ref: "#/components/schemas/ProductionRun" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /v1/orgs/{orgId}/device-groups/aggregates:
     get:
       tags: [Device Groups]

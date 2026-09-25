@@ -23,6 +23,7 @@ type ProductionRunCreateInput struct {
 	ValidFrom           time.Time
 	ValidUntil          time.Time
 	Now                 time.Time
+	IdempotencyKey      string
 }
 
 func (s *Store) ListProductionRuns(ctx context.Context, brandCloudID, profileID string, limit, offset int) (ProductionRunPage, error) {
@@ -121,6 +122,40 @@ func (s *Store) IssueProductionRunAsUser(ctx context.Context, in ProductionRunCr
 	if err := authorizeProductUserMutationTx(ctx, tx, stringValue(in.ActorUserID), in.BrandCloudID, in.DeviceItemProfileID, in.PlatformOverride); err != nil {
 		return model.ProductionRun{}, "", err
 	}
+	if in.IdempotencyKey != "" {
+		actor := stringValue(in.ActorUserID)
+		if actor == "" || len(in.IdempotencyKey) > 200 {
+			return model.ProductionRun{}, "", ErrConflict
+		}
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, actor+":"+in.IdempotencyKey); err != nil {
+			return model.ProductionRun{}, "", err
+		}
+		var runID, profileKey, digest string
+		var optionsJSON []byte
+		err := tx.QueryRow(ctx, `SELECT id::text,issued_profile_key,issued_service_options,issued_service_grant_sha256 FROM factory_production_runs WHERE created_by::text=$1 AND idempotency_key=$2 FOR UPDATE`, actor, in.IdempotencyKey).Scan(&runID, &profileKey, &optionsJSON, &digest)
+		if err == nil {
+			run, err := scanProductionRun(tx.QueryRow(ctx, `SELECT id::text,brand_cloud_id::text,device_item_profile_id::text,factory_id,batch_id,status,allowed_quantity,issued_quantity,valid_from,valid_until,created_by::text,created_at,updated_at,product_service_revision FROM factory_production_runs WHERE id::text=$1`, runID))
+			if err != nil {
+				return model.ProductionRun{}, "", err
+			}
+			if run.BrandCloudID != in.BrandCloudID || run.DeviceItemProfileID != in.DeviceItemProfileID || run.FactoryID != strings.TrimSpace(in.FactoryID) || run.BatchID != strings.TrimSpace(in.BatchID) || run.AllowedQuantity != in.AllowedQuantity || run.ValidUntil.Sub(run.ValidFrom) != in.ValidUntil.Sub(in.ValidFrom) || run.Status != model.ProductionRunStatusActive || !time.Now().Before(run.ValidUntil) {
+				return model.ProductionRun{}, "", ErrConflict
+			}
+			var options []string
+			if err := json.Unmarshal(optionsJSON, &options); err != nil {
+				return model.ProductionRun{}, "", err
+			}
+			run.ServiceGrantSHA256 = digest
+			token, err := issue(run, model.DeviceItemProfile{ProfileKey: profileKey, ServiceOptions: options})
+			if err != nil || strings.TrimSpace(token) == "" {
+				return model.ProductionRun{}, "", ErrProductionRunSigning
+			}
+			return run, token, tx.Commit(ctx)
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return model.ProductionRun{}, "", err
+		}
+	}
 	run, profile, err := createProductionRunTx(ctx, tx, in, s.platformServiceProductWrites)
 	if err != nil {
 		return model.ProductionRun{}, "", err
@@ -171,19 +206,28 @@ func createProductionRunTx(ctx context.Context, tx pgx.Tx, in ProductionRunCreat
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
+	var intent any
+	if in.IdempotencyKey != "" {
+		intent = in.IdempotencyKey
+	}
+	issuedOptions, err := json.Marshal(profile.ServiceOptions)
+	if err != nil {
+		return model.ProductionRun{}, model.DeviceItemProfile{}, err
+	}
 
 	run, err := scanProductionRun(tx.QueryRow(ctx, `
 		INSERT INTO factory_production_runs (
 			brand_cloud_id, device_item_profile_id, factory_id, batch_id,
 			status, allowed_quantity, valid_from, valid_until, created_by, created_at, updated_at,
-			authorization_ownership_version, authorization_platform_override, product_service_revision
+			authorization_ownership_version, authorization_platform_override, product_service_revision,
+			idempotency_key,issued_profile_key,issued_service_options,issued_service_grant_sha256
 		)
 		VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $9,
-			(SELECT ownership_version FROM organizations WHERE id=$1), $10, $11)
+			(SELECT ownership_version FROM organizations WHERE id=$1), $10, $11, $12, $13, $14, $15)
 		RETURNING id::text, brand_cloud_id::text, device_item_profile_id::text, factory_id, batch_id,
 			status, allowed_quantity, issued_quantity, valid_from, valid_until, created_by::text, created_at, updated_at, product_service_revision
 	`, in.BrandCloudID, in.DeviceItemProfileID, strings.TrimSpace(in.FactoryID), strings.TrimSpace(in.BatchID),
-		in.AllowedQuantity, in.ValidFrom.UTC(), in.ValidUntil.UTC(), in.ActorUserID, now, in.PlatformOverride, serviceRevision))
+		in.AllowedQuantity, in.ValidFrom.UTC(), in.ValidUntil.UTC(), in.ActorUserID, now, in.PlatformOverride, serviceRevision, intent, profile.ProfileKey, issuedOptions, grantDigest))
 	if err != nil {
 		return model.ProductionRun{}, model.DeviceItemProfile{}, err
 	}

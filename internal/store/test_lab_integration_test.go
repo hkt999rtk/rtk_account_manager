@@ -178,7 +178,7 @@ func TestTestLabBindingLifecycleIsolationAndRevocation(t *testing.T) {
 		t.Fatalf("retired device admitted test access: %v", err)
 	}
 	devices, err = env.store.ListLabDevices(ctx, owner.User.ID, owner.BrandCloud.ID, p.ID, account.ID, 25, 0)
-	if err != nil || len(devices) != 1 || devices[0].RetirementStatus != "pending" || devices[0].Bound {
+	if err != nil || len(devices) != 1 || devices[0].RetirementStatus != "pending" || devices[0].Bound || devices[0].Bindable {
 		t.Fatalf("pending retirement disappeared from history: %+v %v", devices, err)
 	}
 	retirement, err = env.store.FinishLabDeviceRetirement(ctx, owner.User.ID, owner.BrandCloud.ID, p.ID, d.ID, operation, false)
