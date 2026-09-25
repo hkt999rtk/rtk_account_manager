@@ -2243,6 +2243,8 @@ paths:
     get:
       tags: [Brand Clouds]
       operationId: getBrandCloudOwnerTransferLimit
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001]
       security: [{ bearerAuth: [] }]
       summary: Read a Brand Cloud's ownership transfer limit as platform admin.
       parameters: [{ $ref: "#/components/parameters/BrandCloudId" }]
@@ -2258,6 +2260,8 @@ paths:
     patch:
       tags: [Brand Clouds]
       operationId: setBrandCloudOwnerTransferLimit
+      x-rtk-feature-id: FEAT-CONTRACT-MULTICLOUD-001
+      x-rtk-requirement-ids: [REQ-MULTICLOUD-HANDOFF-001]
       security: [{ bearerAuth: [] }]
       summary: Set a Brand Cloud's lifetime ownership transfer limit as platform admin.
       parameters: [{ $ref: "#/components/parameters/BrandCloudId" }]
