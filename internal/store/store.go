@@ -42,6 +42,7 @@ var (
 	ErrOIDCStateInvalid               = errors.New("oidc login state is invalid")
 	ErrOIDCStateExpired               = errors.New("oidc login state is expired")
 	ErrDeveloperCloudLimitExceeded    = errors.New("developer brand cloud limit exceeded")
+	ErrOwnerTransferLimitReached      = errors.New("brand cloud owner transfer limit reached")
 	ErrAccountNotActivated            = errors.New("account must complete email activation")
 	ErrHandoffUnavailable             = errors.New("trusted ownership handoff evidence unavailable")
 	ErrHandoffFinancialBlocked        = errors.New("ownership handoff financial conditions not satisfied")

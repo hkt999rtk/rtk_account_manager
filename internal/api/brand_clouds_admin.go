@@ -143,6 +143,36 @@ func (s *Server) updateBrandCloud(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"brand_cloud": org})
 }
 
+func (s *Server) getOwnerTransferLimit(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	quota, err := s.store.GetOwnerTransferQuota(c.Request.Context(), c.Param("brandCloudId"))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, quota)
+}
+
+func (s *Server) updateOwnerTransferLimit(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	var req struct {
+		Limit *int `json:"owner_transfer_limit" binding:"required"`
+	}
+	if !bindStrict(c, &req) {
+		return
+	}
+	if req.Limit == nil || *req.Limit < 0 || *req.Limit > 200 {
+		writeError(c, http.StatusBadRequest, "invalid_owner_transfer_limit", "owner_transfer_limit must be an integer from 0 to 200")
+		return
+	}
+	quota, err := s.store.SetOwnerTransferLimit(c.Request.Context(), currentUserID(c), c.Param("brandCloudId"), *req.Limit)
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, quota)
+}
+
 func (s *Server) createDeviceItemProfile(c *gin.Context) {
 	var req deviceItemProfileRequest
 	if !bindStrict(c, &req) {

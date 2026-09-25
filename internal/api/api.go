@@ -436,6 +436,8 @@ func (s *Server) Router() *gin.Engine {
 	protected.GET("/admin/brand-clouds", s.requirePlatformAdmin(), s.listBrandClouds)
 	protected.GET("/admin/brand-clouds/:brandCloudId", s.requirePlatformAdmin(), s.getBrandCloud)
 	protected.PATCH("/admin/brand-clouds/:brandCloudId", s.requirePlatformAdmin(), s.updateBrandCloud)
+	protected.GET("/admin/brand-clouds/:brandCloudId/owner-transfer-limit", s.requirePlatformAdmin(), s.getOwnerTransferLimit)
+	protected.PATCH("/admin/brand-clouds/:brandCloudId/owner-transfer-limit", s.requirePlatformAdmin(), s.updateOwnerTransferLimit)
 	protected.POST("/admin/brand-clouds/:brandCloudId/device-item-profiles", s.requirePlatformAdmin(), s.createDeviceItemProfile)
 	protected.GET("/admin/brand-clouds/:brandCloudId/device-item-profiles", s.requirePlatformAdmin(), s.listDeviceItemProfiles)
 	protected.GET("/admin/brand-clouds/:brandCloudId/device-item-profiles/:profileId", s.requirePlatformAdmin(), s.getDeviceItemProfile)
@@ -2069,6 +2071,8 @@ func writeStoreError(c *gin.Context, err error) {
 		writeError(c, http.StatusConflict, "EVALUATION_QUOTA_EXCEEDED", "Evaluation device quota exceeded")
 	case errors.Is(err, store.ErrDeveloperCloudLimitExceeded):
 		writeError(c, http.StatusConflict, "developer_cloud_limit_exceeded", "Developer brand cloud limit exceeded")
+	case errors.Is(err, store.ErrOwnerTransferLimitReached):
+		writeError(c, http.StatusConflict, "owner_transfer_limit_reached", "Brand Cloud ownership transfer limit reached")
 	case errors.Is(err, errOperationStateInconsistent):
 		writeError(c, http.StatusInternalServerError, "operation_state_inconsistent", err.Error())
 	case isUniqueViolation(err):

@@ -17,8 +17,9 @@ type ManagedBrandCloud struct {
 	OwnerUserID      string     `json:"owner_user_id"`
 	MyRole           model.Role `json:"my_role"`
 	OwnershipVersion int64      `json:"ownership_version"`
-	Capabilities     []string   `json:"capabilities"`
-	Operational      bool       `json:"-"`
+	OwnerTransferQuota
+	Capabilities []string `json:"capabilities"`
+	Operational  bool     `json:"-"`
 }
 
 type ManagedBrandCloudPage struct {
@@ -39,14 +40,14 @@ const managedCloudProjection = `SELECT o.id::text,o.name,o.tenant_slug,m.role,o.
                  THEN 'pending_activation' ELSE o.status END,
         o.tier,o.evaluation_device_quota,o.metadata,o.created_at,o.updated_at,o.pki_status,o.pki_operation_id::text,COALESCE(o.pki_issuer_id::text,''),o.description,
         (SELECT om.user_id::text FROM organization_members om WHERE om.organization_id=o.id AND om.role='owner'),
-        o.ownership_version,user_can_access_brand_cloud($1,o.id::text)`
+        o.ownership_version,user_can_access_brand_cloud($1,o.id::text),o.owner_transfer_limit,` + ownerTransferUsedSQL
 
 func scanManagedCloud(row scanner) (ManagedBrandCloud, error) {
 	var cloud ManagedBrandCloud
 	var metadata []byte
 	err := row.Scan(&cloud.ID, &cloud.Name, &cloud.TenantSlug, &cloud.Role, &cloud.OrganizationKind, &cloud.Status,
 		&cloud.Tier, &cloud.EvaluationDeviceQuota, &metadata, &cloud.CreatedAt, &cloud.UpdatedAt, &cloud.PKIStatus, &cloud.PKIOperationID, &cloud.PKIIssuerID, &cloud.Description,
-		&cloud.OwnerUserID, &cloud.OwnershipVersion, &cloud.Operational)
+		&cloud.OwnerUserID, &cloud.OwnershipVersion, &cloud.Operational, &cloud.Limit, &cloud.Used)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return cloud, ErrNotFound
 	}
@@ -57,6 +58,7 @@ func scanManagedCloud(row scanner) (ManagedBrandCloud, error) {
 		return cloud, err
 	}
 	cloud.MyRole = cloud.Role
+	cloud.Remaining = max(cloud.Limit-cloud.Used, 0)
 	cloud.Capabilities = []string{}
 	return cloud, nil
 }

@@ -328,6 +328,11 @@ func (s *Store) CreateBrandCloudOwnerTransfer(ctx context.Context, in BrandCloud
 	if err != nil {
 		return model.BrandCloudOwnerTransfer{}, err
 	}
+	// Avoid a remote eligibility check when the allowance is already exhausted.
+	// The transaction rechecks after locking the Cloud to close this read race.
+	if err := checkOwnerTransferQuota(ctx, s.db, in.BrandCloudID); err != nil {
+		return model.BrandCloudOwnerTransfer{}, err
+	}
 	evidence, err := s.checkHandoffEligibility(ctx, HandoffEligibilityRequest{CloudID: in.BrandCloudID, SourceUserID: in.RequestedByUserID, TargetUserID: targetID, Action: "request", OwnershipVersion: version}, time.Now().UTC())
 	if err != nil {
 		return model.BrandCloudOwnerTransfer{}, err
@@ -339,6 +344,9 @@ func (s *Store) CreateBrandCloudOwnerTransfer(ctx context.Context, in BrandCloud
 	defer tx.Rollback(ctx)
 
 	if err := lockBrandCloudCollaborationTx(ctx, tx, in.BrandCloudID, in.RequestedByUserID, targetID); err != nil {
+		return model.BrandCloudOwnerTransfer{}, err
+	}
+	if err := checkOwnerTransferQuota(ctx, tx, in.BrandCloudID); err != nil {
 		return model.BrandCloudOwnerTransfer{}, err
 	}
 	currentVersion, err := handoffVersion(ctx, tx, in.BrandCloudID, in.RequestedByUserID, targetID)

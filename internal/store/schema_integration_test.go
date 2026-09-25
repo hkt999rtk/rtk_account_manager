@@ -43,7 +43,7 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 	}
 
 	requiredColumns := map[string][]string{
-		"organizations": {"organization_kind", "status", "metadata", "tenant_slug"},
+		"organizations": {"organization_kind", "status", "metadata", "tenant_slug", "owner_transfer_limit"},
 		"users":         {"developer_cloud_limit"},
 		"auth_tokens":   {"user_id", "subject_type", "subject_id", "purpose", "scope", "token_hash", "expires_at", "consumed_at"},
 		"email_outbox":  {"idempotency_key", "message_type", "template_version", "payload_nonce", "payload_ciphertext", "status", "attempt_count", "available_at", "lease_until", "last_error", "expires_at", "sent_at"},
@@ -95,6 +95,7 @@ func TestIntegrationDatabaseSchemaInvariants(t *testing.T) {
 		{table: "organizations", name: "organizations_evaluation_device_quota_check"},
 		{table: "organizations", name: "organizations_kind_check"},
 		{table: "organizations", name: "organizations_status_check"},
+		{table: "organizations", name: "organizations_owner_transfer_limit_check"},
 		{table: "auth_tokens", name: "auth_tokens_purpose_check"},
 		{table: "email_outbox", name: "email_outbox_message_type_check"},
 		{table: "users", name: "users_email_normalized"},

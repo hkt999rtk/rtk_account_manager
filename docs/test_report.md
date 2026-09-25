@@ -520,6 +520,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestOIDCGroupsFromClaimsShapes`
 - `rtk_account_manager/internal/api`: `TestOwnerHandoffRequiresHumanSessionEvenForMatchingUUID`
 - `rtk_account_manager/internal/api`: `TestOwnerTransferFinancialBlockersHaveExplicitHTTPResults`
+- `rtk_account_manager/internal/api`: `TestOwnerTransferLimitAdminAPIAndDenial`
 - `rtk_account_manager/internal/api`: `TestOwnerTransferWithoutBillingAdapterFailsClosed`
 - `rtk_account_manager/internal/api`: `TestPKILastAdminGuardReturnsConflict`
 - `rtk_account_manager/internal/api`: `TestPKIOptionalUserMFAPolicy`
@@ -1230,6 +1231,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestACLRoleAssignmentsAuthorizeInsideScopeOnly`
 - `rtk_account_manager/internal/store`: `TestACLSeedPermissionCatalogAndSystemRoles`
 - `rtk_account_manager/internal/store`: `TestACLValueHelpers`
+- `rtk_account_manager/internal/store`: `TestAcceptedOwnerTransferCompletesAfterLimitIsLowered`
 - `rtk_account_manager/internal/store`: `TestAdminRecoveryExpiresAndRejectsDisabledTarget`
 - `rtk_account_manager/internal/store`: `TestAdminRecoveryRequiresIndependentLiveApprovals`
 - `rtk_account_manager/internal/store`: `TestAdminRecoveryWithoutMFAStillRequiresIndependentLiveApprovals`
@@ -1330,6 +1332,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestConcurrentAdministratorDisableLeavesOne/REPEATABLE_READ`
 - `rtk_account_manager/internal/store`: `TestConcurrentAdministratorDisableLeavesOne`
 - `rtk_account_manager/internal/store`: `TestConcurrentHandoffAcceptsCannotOverReserveTargetQuota`
+- `rtk_account_manager/internal/store`: `TestConcurrentOwnerTransferAcceptanceCannotStartTwoHandoffs`
 - `rtk_account_manager/internal/store`: `TestConcurrentProductPatchesPreserveDisjointFields`
 - `rtk_account_manager/internal/store`: `TestConfigureAuthTokenRateLimit`
 - `rtk_account_manager/internal/store`: `TestConfigureOwnershipHandoffValidatesAndCopiesInventory`
@@ -1632,6 +1635,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestOnlineProjectionRequiresExistingVideoIdentity`
 - `rtk_account_manager/internal/store`: `TestOutboxMessagePersistenceAndReadyList`
 - `rtk_account_manager/internal/store`: `TestOwnerTransferAndEmailOutboxCommitOrRollbackTogether`
+- `rtk_account_manager/internal/store`: `TestOwnerTransferLimitAppliesToRequestsAcceptanceAndLegacyHistory`
 - `rtk_account_manager/internal/store`: `TestPKIRolesDoNotImplyCustodianFromPlatformAdmin`
 - `rtk_account_manager/internal/store`: `TestPlatformACLWithoutMembershipRequiresEligibleGlobalUser/active`
 - `rtk_account_manager/internal/store`: `TestPlatformACLWithoutMembershipRequiresEligibleGlobalUser/disabled`

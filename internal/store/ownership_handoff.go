@@ -195,6 +195,11 @@ func (s *Store) acceptOwnerHandoff(ctx context.Context, target, token string, no
 		}
 		return model.BrandCloudOwnerTransfer{}, err
 	}
+	// A pending invitation cannot enter preparation after the limit is lowered.
+	// Recheck under the Cloud lock below because this read is only advisory.
+	if err := checkOwnerTransferQuota(ctx, s.db, transfer.BrandCloudID); err != nil {
+		return model.BrandCloudOwnerTransfer{}, err
+	}
 	evidence, err := s.checkHandoffEligibility(ctx, HandoffEligibilityRequest{CloudID: transfer.BrandCloudID, SourceUserID: transfer.RequestedByUserID, TargetUserID: target, TransferID: transfer.ID, Action: "accept", OwnershipVersion: version}, now)
 	if err != nil {
 		return model.BrandCloudOwnerTransfer{}, err
@@ -249,6 +254,9 @@ func (s *Store) acceptOwnerHandoff(ctx context.Context, target, token string, no
 	}
 	if requestedVersion == nil || *requestedVersion != version || currentVersion != version {
 		return model.BrandCloudOwnerTransfer{}, ErrConflict
+	}
+	if err := checkOwnerTransferQuota(ctx, tx, transfer.BrandCloudID); err != nil {
+		return model.BrandCloudOwnerTransfer{}, err
 	}
 	used, err := countCloudQuotaUsageTx(ctx, tx, target)
 	if err != nil {
