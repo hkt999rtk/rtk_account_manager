@@ -62,6 +62,10 @@ func (s *Server) createProductionRun(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "invalid_production_period", "valid_until must be after valid_from")
 		return
 	}
+	if req.ValidUntil.Sub(req.ValidFrom) > 7*24*time.Hour {
+		writeError(c, http.StatusBadRequest, "invalid_production_period", "production run validity must not exceed seven days")
+		return
+	}
 
 	brandCloudID := c.Param("brandCloudId")
 	if brandCloudID == "" {
@@ -108,6 +112,15 @@ func (s *Server) listOrganizationProductionRuns(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"production_runs": page.Runs, "pagination": page.Page})
+}
+
+func (s *Server) stopOrganizationProductionRun(c *gin.Context) {
+	run, err := s.store.StopProductionRunAsUser(c.Request.Context(), currentUserID(c), c.Param("orgId"), c.Param("profileId"), c.Param("runId"))
+	if err != nil {
+		writeStoreError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"production_run": run})
 }
 
 func (s *Server) signProductionJWT(run model.ProductionRun, profile model.DeviceItemProfile) (string, error) {

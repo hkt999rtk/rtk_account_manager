@@ -55,6 +55,40 @@ func (s *Store) ListProductionRuns(ctx context.Context, brandCloudID, profileID 
 	return ProductionRunPage{Runs: runs, Page: Page{Limit: limit, Offset: offset, Total: total}}, nil
 }
 
+// StopProductionRunAsUser serializes with enrollment reservations on the run
+// row. A completed stop is idempotent and cannot admit new reservations.
+func (s *Store) StopProductionRunAsUser(ctx context.Context, actor, cloudID, productID, runID string) (model.ProductionRun, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return model.ProductionRun{}, err
+	}
+	defer tx.Rollback(ctx)
+	if err := authorizeProductUserMutationTx(ctx, tx, actor, cloudID, productID, false); err != nil {
+		return model.ProductionRun{}, err
+	}
+	var status model.ProductionRunStatus
+	err = tx.QueryRow(ctx, `SELECT status FROM factory_production_runs WHERE id::text=$1 AND brand_cloud_id::text=$2 AND device_item_profile_id::text=$3 FOR UPDATE`, runID, cloudID, productID).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.ProductionRun{}, ErrNotFound
+	}
+	if err != nil {
+		return model.ProductionRun{}, err
+	}
+	if status == model.ProductionRunStatusActive {
+		if _, err := tx.Exec(ctx, `UPDATE factory_production_runs SET status='disabled',updated_at=clock_timestamp() WHERE id::text=$1`, runID); err != nil {
+			return model.ProductionRun{}, err
+		}
+		if err := createAuditEventTx(ctx, tx, AuditEventInput{EventType: "factory_production_run_stopped", ActorUserID: &actor, OrganizationID: &cloudID, SubjectType: "factory_production_run", SubjectID: runID, Payload: map[string]any{"brand_cloud_id": cloudID, "device_item_profile_id": productID}}); err != nil {
+			return model.ProductionRun{}, err
+		}
+	}
+	run, err := scanProductionRun(tx.QueryRow(ctx, `SELECT id::text,brand_cloud_id::text,device_item_profile_id::text,factory_id,batch_id,status,allowed_quantity,issued_quantity,valid_from,valid_until,created_by::text,created_at,updated_at,product_service_revision FROM factory_production_runs WHERE id::text=$1`, runID))
+	if err != nil {
+		return model.ProductionRun{}, err
+	}
+	return run, tx.Commit(ctx)
+}
+
 // Bootstrap/fixture persistence. HTTP uses IssueProductionRunAsUser.
 func (s *Store) CreateProductionRun(ctx context.Context, in ProductionRunCreateInput) (model.ProductionRun, error) {
 	tx, err := s.db.Begin(ctx)
