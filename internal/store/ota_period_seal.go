@@ -149,17 +149,14 @@ func newOTAPeriodGrantSeal(organizationID string, start, end time.Time, history 
 		canonical = append(canonical, []any{row.ProductID, row.Revision,
 			row.CreatedAt.UTC().Truncate(time.Microsecond).Format(time.RFC3339Nano),
 			options, row.SnapshotSHA256})
-		if !slices.Contains(options, "ota") {
-			continue
-		}
-		var nextAt time.Time
+		// Preserve the full revision chain even after OTA is removed. Stored
+		// artifacts and already-issued CDN grants can generate later usage.
 		if i+1 < len(history) && history[i+1].ProductID == row.ProductID {
 			if history[i+1].Revision <= row.Revision || history[i+1].CreatedAt.Before(row.CreatedAt) {
 				return OTAPeriodGrantSeal{}, ErrOTAPeriodSealInvalid
 			}
-			nextAt = history[i+1].CreatedAt
 		}
-		if !nextAt.IsZero() && (!nextAt.After(start) || !nextAt.After(row.CreatedAt)) {
+		if !slices.Contains(options, "ota") {
 			continue
 		}
 		if len(products) == 0 || products[len(products)-1] != row.ProductID {

@@ -30,8 +30,8 @@ func TestOTAPeriodGrantSealIncludesHistoricalZeroUsageProducts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(seal.ProductIDs, []string{p1, p2}) {
-		t.Fatalf("historical OTA Product set = %v, want first two", seal.ProductIDs)
+	if !reflect.DeepEqual(seal.ProductIDs, []string{p1, p2, p3}) {
+		t.Fatalf("historical OTA Product set = %v, want all historically granted", seal.ProductIDs)
 	}
 	if seal.IssuerKind != "platform_grants" || len(seal.MetricCounts) != 0 ||
 		seal.SealedAt != end || len(seal.SourceHighWater) == 0 {

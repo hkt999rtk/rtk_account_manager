@@ -21,8 +21,8 @@ func TestIntegrationOTAPeriodGrantSealUsesHistoricalGrantRows(t *testing.T) {
 		date   time.Time
 		opts   []string
 	}{
-		{1, time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC), []string{"mqtt", "ota"}},
-		{2, time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC), []string{"mqtt"}},
+		{1, time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC), []string{"mqtt", "ota"}},
+		{2, time.Date(2026, 2, 10, 0, 0, 0, 0, time.UTC), []string{"mqtt"}},
 	} {
 		optionsJSON, bindingsJSON, digest, err := encodeProductServiceGrant(
 			revision.opts, []PlatformServiceCatalogOption{})
@@ -38,7 +38,7 @@ func TestIntegrationOTAPeriodGrantSealUsesHistoricalGrantRows(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	start := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	end := start.AddDate(0, 1, 0)
 	seal, err := env.store.BuildOTAPeriodGrantSeal(ctx, owner.BrandCloud.ID, start, end)
 	if err != nil {
@@ -46,6 +46,11 @@ func TestIntegrationOTAPeriodGrantSealUsesHistoricalGrantRows(t *testing.T) {
 	}
 	if !reflect.DeepEqual(seal.ProductIDs, []string{product.ID}) {
 		t.Fatalf("disabled-before-month-end Product omitted: %v", seal.ProductIDs)
+	}
+	nextStart := end
+	nextSeal, err := env.store.BuildOTAPeriodGrantSeal(ctx, owner.BrandCloud.ID, nextStart, nextStart.AddDate(0, 1, 0))
+	if err != nil || !reflect.DeepEqual(nextSeal.ProductIDs, []string{product.ID}) {
+		t.Fatalf("retired OTA Product omitted from later period: %+v %v", nextSeal, err)
 	}
 	replay, err := env.store.BuildOTAPeriodGrantSeal(ctx, owner.BrandCloud.ID, start, end)
 	if err != nil || replay.SealID != seal.SealID || replay.SourceSHA256 != seal.SourceSHA256 {
