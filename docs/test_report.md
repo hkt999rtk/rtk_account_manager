@@ -1575,7 +1575,12 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestIdentityProviderRejectsRawClientSecretRef`
 - `rtk_account_manager/internal/store`: `TestIdentityProviderStoreCRUDAndMultipleEnabledProviders`
 - `rtk_account_manager/internal/store`: `TestIntegrationDatabaseSchemaInvariants`
+- `rtk_account_manager/internal/store`: `TestIntegrationOTAPeriodGrantSealExcludesPostSealInsertFromEarlierTransaction`
+- `rtk_account_manager/internal/store`: `TestIntegrationOTAPeriodGrantSealRejectsCorruptGrantSnapshot/bindings`
+- `rtk_account_manager/internal/store`: `TestIntegrationOTAPeriodGrantSealRejectsCorruptGrantSnapshot/options`
+- `rtk_account_manager/internal/store`: `TestIntegrationOTAPeriodGrantSealRejectsCorruptGrantSnapshot`
 - `rtk_account_manager/internal/store`: `TestIntegrationOTAPeriodGrantSealUsesHistoricalGrantRows`
+- `rtk_account_manager/internal/store`: `TestIntegrationOTAPeriodGrantSealWaitsForInFlightGrantInsert`
 - `rtk_account_manager/internal/store`: `TestJSONHelpers`
 - `rtk_account_manager/internal/store`: `TestJobAuthorizationLifecycle`
 - `rtk_account_manager/internal/store`: `TestLegacyProductGrantBackfillFlagsUnknownUnversionedOption`

@@ -28,16 +28,20 @@ the complete observed grant history before the month end; the high-water JSON
 carries that digest and row count. A stable UUIDv8 seal identity makes exact retries
 safe.
 
-Apply migration `088_product_service_grants_immutable.sql` before running
-this command. It rejects UPDATE and DELETE of historical grant rows;
-backfill and normal Product changes remain insert-only. An older database
-without that migration is not a qualified billing source.
+Apply migrations `088_product_service_grants_immutable.sql` and
+`089_ota_grant_insert_time.sql` before running this command. The first rejects
+UPDATE and DELETE of historical grant rows; the second records grant insertion
+time instead of transaction start. Backfill and normal Product changes remain
+insert-only. An older database without either migration is not a qualified
+billing source.
 
 ## Preview And Submit
 
-Run the command only after the selected UTC month has ended. It takes one
-repeatable-read database snapshot and rejects a period whose end is still in
-the future according to PostgreSQL's clock.
+Run the command only after the selected UTC month has ended. It waits for
+in-flight grant inserts, locks out later inserts while reading the committed
+history, and rejects a period whose end is still in the future according to
+PostgreSQL's clock. Later inserts get their actual insertion time. Each stored
+grant digest is checked against its options and bindings before sealing.
 
 ```sh
 DATABASE_URL='postgres://...' go run ./cmd/ota-period-seal \

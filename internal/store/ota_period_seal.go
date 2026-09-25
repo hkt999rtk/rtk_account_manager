@@ -36,28 +36,29 @@ type otaGrantHistoryRow struct {
 	Revision       int64
 	CreatedAt      time.Time
 	Options        []string
+	Bindings       []PlatformServiceCatalogOption
 	SnapshotSHA256 string
 }
 
-// BuildOTAPeriodGrantSeal takes one repeatable-read snapshot after the UTC
-// month ends. Rows created after period_end cannot revise this historical
-// Product set. Repeated generation yields the same payload and stable seal ID.
+// BuildOTAPeriodGrantSeal drains in-flight grant inserts before reading the
+// completed UTC month. New inserts use database insertion time, so a writer
+// that resumes after the fence cannot backdate the sealed Product set.
 func (s *Store) BuildOTAPeriodGrantSeal(ctx context.Context, organizationID string, start, end time.Time) (OTAPeriodGrantSeal, error) {
 	if !billingCreationUUID(organizationID) || !validOTAMonth(start, end) {
 		return OTAPeriodGrantSeal{}, ErrOTAPeriodSealInvalid
 	}
-	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return OTAPeriodGrantSeal{}, err
 	}
 	defer tx.Rollback(ctx)
-	var immutableMigrationReady bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(
-		SELECT 1 FROM schema_migrations WHERE version='088_product_service_grants_immutable.sql'
-	)`).Scan(&immutableMigrationReady); err != nil {
+	var requiredMigrationsReady bool
+	if err := tx.QueryRow(ctx, `SELECT count(*)=2 FROM schema_migrations WHERE version IN (
+		'088_product_service_grants_immutable.sql', '089_ota_grant_insert_time.sql'
+	)`).Scan(&requiredMigrationsReady); err != nil {
 		return OTAPeriodGrantSeal{}, err
 	}
-	if !immutableMigrationReady {
+	if !requiredMigrationsReady {
 		return OTAPeriodGrantSeal{}, ErrOTAPeriodSealInvalid
 	}
 	var databaseNow time.Time
@@ -75,8 +76,14 @@ func (s *Store) BuildOTAPeriodGrantSeal(ctx context.Context, organizationID stri
 	if !organizationExists {
 		return OTAPeriodGrantSeal{}, ErrNotFound
 	}
+	// SHARE conflicts with each INSERT's ROW EXCLUSIVE lock. After it has
+	// drained current writers, the next READ COMMITTED statement sees their
+	// committed rows; later inserts wait until this read is complete.
+	if _, err := tx.Exec(ctx, `LOCK TABLE product_service_grants IN SHARE MODE`); err != nil {
+		return OTAPeriodGrantSeal{}, err
+	}
 	rows, err := tx.Query(ctx, `
-		SELECT product_id::text, revision, created_at, options, snapshot_sha256
+		SELECT product_id::text, revision, created_at, options, bindings, snapshot_sha256
 		FROM product_service_grants
 		WHERE brand_cloud_id=$1 AND created_at < $2
 		ORDER BY product_id, revision
@@ -87,14 +94,23 @@ func (s *Store) BuildOTAPeriodGrantSeal(ctx context.Context, organizationID stri
 	history := make([]otaGrantHistoryRow, 0)
 	for rows.Next() {
 		var row otaGrantHistoryRow
-		var rawOptions []byte
-		if err := rows.Scan(&row.ProductID, &row.Revision, &row.CreatedAt, &rawOptions, &row.SnapshotSHA256); err != nil {
+		var rawOptions, rawBindings []byte
+		if err := rows.Scan(&row.ProductID, &row.Revision, &row.CreatedAt, &rawOptions, &rawBindings, &row.SnapshotSHA256); err != nil {
 			rows.Close()
 			return OTAPeriodGrantSeal{}, err
 		}
 		if err := json.Unmarshal(rawOptions, &row.Options); err != nil {
 			rows.Close()
-			return OTAPeriodGrantSeal{}, err
+			return OTAPeriodGrantSeal{}, ErrOTAPeriodSealInvalid
+		}
+		if err := json.Unmarshal(rawBindings, &row.Bindings); err != nil {
+			rows.Close()
+			return OTAPeriodGrantSeal{}, ErrOTAPeriodSealInvalid
+		}
+		_, _, digest, err := encodeProductServiceGrant(row.Options, row.Bindings)
+		if err != nil || digest != row.SnapshotSHA256 {
+			rows.Close()
+			return OTAPeriodGrantSeal{}, ErrOTAPeriodSealInvalid
 		}
 		history = append(history, row)
 	}
