@@ -11,7 +11,13 @@ import (
 func TestOwnerTransferLimitAppliesToRequestsAcceptanceAndLegacyHistory(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()
-	configureTestHandoff(t, env)
+	eligibilityCalls := 0
+	if err := env.store.ConfigureOwnershipHandoff(OwnershipHandoffOptions{Eligibility: handoffEligibilityFunc(func(_ context.Context, in HandoffEligibilityRequest) (HandoffEligibility, error) {
+		eligibilityCalls++
+		return syntheticEligibility(in), nil
+	}), Producers: RequiredHandoffProducers()}); err != nil {
+		t.Fatal(err)
+	}
 	source := handoffDeveloper(t, env, "limit-source")
 	target := handoffDeveloper(t, env, "limit-target")
 	other := handoffDeveloper(t, env, "limit-other")
@@ -27,6 +33,9 @@ func TestOwnerTransferLimitAppliesToRequestsAcceptanceAndLegacyHistory(t *testin
 	if _, err := env.store.CreateBrandCloudOwnerTransfer(ctx, request); !errors.Is(err, ErrOwnerTransferLimitReached) {
 		t.Fatalf("request at zero limit: %v", err)
 	}
+	if eligibilityCalls != 0 {
+		t.Fatalf("exhausted request called remote eligibility %d times", eligibilityCalls)
+	}
 	if _, err := env.store.SetOwnerTransferLimit(ctx, source.User.ID, source.BrandCloud.ID, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -39,6 +48,9 @@ func TestOwnerTransferLimitAppliesToRequestsAcceptanceAndLegacyHistory(t *testin
 	}
 	if _, err := env.store.AcceptBrandCloudOwnerTransfer(ctx, target.User.ID, request.TokenHash, time.Now()); !errors.Is(err, ErrOwnerTransferLimitReached) {
 		t.Fatalf("pending invitation accepted after limit lowered: %v", err)
+	}
+	if eligibilityCalls != 1 {
+		t.Fatalf("exhausted acceptance called remote eligibility: %d calls", eligibilityCalls)
 	}
 	if _, err := env.store.CancelBrandCloudOwnerTransfer(ctx, BrandCloudOwnerTransferQuery{BrandCloudID: source.BrandCloud.ID, TransferID: transfer.ID, RequesterID: source.User.ID}, time.Now()); err != nil {
 		t.Fatal(err)

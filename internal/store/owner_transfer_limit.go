@@ -76,8 +76,8 @@ func (s *Store) SetOwnerTransferLimit(ctx context.Context, actorID, cloudID stri
 	return quota, nil
 }
 
-func checkOwnerTransferQuota(ctx context.Context, tx pgx.Tx, cloudID string) error {
-	quota, err := ownerTransferQuota(ctx, tx, cloudID)
+func checkOwnerTransferQuota(ctx context.Context, q rowQuerier, cloudID string) error {
+	quota, err := ownerTransferQuota(ctx, q, cloudID)
 	if err != nil {
 		return err
 	}
