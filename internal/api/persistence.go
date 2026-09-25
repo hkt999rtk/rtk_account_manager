@@ -262,6 +262,7 @@ type brandCloudPersistence interface {
 	DisableDeviceItemProfileAsUser(ctx context.Context, brandCloudID, profileID, actor string, platform bool) (model.DeviceItemProfile, error)
 	IssueProductionRunAsUser(ctx context.Context, in store.ProductionRunCreateInput, issue store.ProductionRunIssuer) (model.ProductionRun, string, error)
 	ListProductionRuns(ctx context.Context, brandCloudID, profileID string, limit, offset int) (store.ProductionRunPage, error)
+	StopProductionRunAsUser(ctx context.Context, actor, cloudID, productID, runID string) (model.ProductionRun, error)
 }
 
 type auditPersistence interface {

@@ -162,4 +162,42 @@ func TestTestLabBindingLifecycleIsolationAndRevocation(t *testing.T) {
 	if err = act("grant", "takeover"); !errors.Is(err, ErrConflict) {
 		t.Fatalf("other user takeover admitted: %v", err)
 	}
+	operation := "77777777-7777-4777-8777-777777777777"
+	if _, err = env.store.BeginLabDeviceRetirement(ctx, other.User.ID, owner.BrandCloud.ID, p.ID, d.ID, operation); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-cloud retirement admitted: %v", err)
+	}
+	retirement, err := env.store.BeginLabDeviceRetirement(ctx, owner.User.ID, owner.BrandCloud.ID, p.ID, d.ID, operation)
+	if err != nil || retirement.Status != "pending" || retirement.OperationID != operation {
+		t.Fatalf("retirement did not start: %+v %v", retirement, err)
+	}
+	var disabled bool
+	if err = env.db.QueryRow(ctx, `SELECT disabled_at IS NOT NULL FROM device_user_bindings WHERE device_id=$1 AND end_user_id=$2`, d.ID, second.ID).Scan(&disabled); err != nil || !disabled {
+		t.Fatalf("shared binding survived retirement: %v", err)
+	}
+	if err = act("grant", "after-retirement"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("retired device admitted test access: %v", err)
+	}
+	devices, err = env.store.ListLabDevices(ctx, owner.User.ID, owner.BrandCloud.ID, p.ID, account.ID, 25, 0)
+	if err != nil || len(devices) != 1 || devices[0].RetirementStatus != "pending" || devices[0].Bound || devices[0].Bindable {
+		t.Fatalf("pending retirement disappeared from history: %+v %v", devices, err)
+	}
+	retirement, err = env.store.FinishLabDeviceRetirement(ctx, owner.User.ID, owner.BrandCloud.ID, p.ID, d.ID, operation, false)
+	if err != nil || retirement.Status != "failed" {
+		t.Fatalf("failed cross-service step hidden: %+v %v", retirement, err)
+	}
+	if _, err = env.store.BeginLabDeviceRetirement(ctx, owner.User.ID, owner.BrandCloud.ID, p.ID, d.ID, "88888888-8888-4888-8888-888888888888"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("different retirement operation reused prior request: %v", err)
+	}
+	retirement, err = env.store.BeginLabDeviceRetirement(ctx, owner.User.ID, owner.BrandCloud.ID, p.ID, d.ID, operation)
+	if err != nil || retirement.Status != "pending" || retirement.OperationID != operation {
+		t.Fatalf("retirement retry lost operation identity: %+v %v", retirement, err)
+	}
+	retirement, err = env.store.FinishLabDeviceRetirement(ctx, owner.User.ID, owner.BrandCloud.ID, p.ID, d.ID, operation, true)
+	if err != nil || retirement.Status != "completed" {
+		t.Fatalf("retirement did not complete: %+v %v", retirement, err)
+	}
+	retirement, err = env.store.BeginLabDeviceRetirement(ctx, owner.User.ID, owner.BrandCloud.ID, p.ID, d.ID, operation)
+	if err != nil || retirement.Status != "completed" {
+		t.Fatalf("completed retirement was not idempotent: %+v %v", retirement, err)
+	}
 }

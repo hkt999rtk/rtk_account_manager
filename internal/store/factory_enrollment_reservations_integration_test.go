@@ -36,6 +36,29 @@ func factoryResult(in FactoryEnrollmentAdmission, r FactoryEnrollmentReservation
 	return FactoryEnrollmentResult{CloudID: in.CloudID, RunID: in.RunID, ReservationID: r.ID, RequestSHA256: in.RequestSHA256, Status: status, EvidenceSHA256: strings.Repeat("b", 64)}
 }
 
+func TestStoppedProductionRunRejectsNewFactoryReservations(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	owner, in := factoryAdmissionFixture(t, env, 2)
+	first, err := env.store.ReserveFactoryEnrollment(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopped, err := env.store.StopProductionRunAsUser(ctx, owner.User.ID, in.CloudID, in.ProductID, in.RunID)
+	if err != nil || stopped.Status != model.ProductionRunStatusDisabled {
+		t.Fatalf("stop run: %+v %v", stopped, err)
+	}
+	newRequest := in
+	newRequest.RequestID = "request-after-stop"
+	newRequest.DeviceID = "device-after-stop"
+	if reservation, err := env.store.ReserveFactoryEnrollment(ctx, newRequest); !errors.Is(err, ErrNotFound) || reservation.ID != "" {
+		t.Fatalf("stopped run admitted new request: %+v %v", reservation, err)
+	}
+	if completed, err := env.store.CompleteFactoryEnrollment(ctx, factoryResult(in, first, "issued")); err != nil || completed.Status != "issued" {
+		t.Fatalf("existing reservation lost its terminal result: %+v %v", completed, err)
+	}
+}
+
 func TestFactoryEnrollmentReservationsSerializeQuotaAndReplayResults(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()

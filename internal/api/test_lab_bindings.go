@@ -1,13 +1,16 @@
 package api
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"github.com/gin-gonic/gin"
 	"net/http"
+	"net/url"
 	"regexp"
 	"rtk_account_manager/internal/auth"
 	"strings"
@@ -80,6 +83,44 @@ func (s *Server) testLabDevices(c *gin.Context) {
 		return
 	}
 	device, action := c.Param("deviceId"), c.Param("action")
+	if action == "retire" {
+		if !labUUID.MatchString(cloud) || !labUUID.MatchString(in.Product) || !labUUID.MatchString(device) || !labUUID.MatchString(in.Operation) {
+			writeError(c, 400, "invalid_scope", "Cloud, Product, device and operation IDs are required")
+			return
+		}
+		result, err := s.testLab.store.BeginLabDeviceRetirement(c.Request.Context(), actor, cloud, in.Product, device, in.Operation)
+		if err != nil {
+			writeStoreError(c, err)
+			return
+		}
+		if result.Status == "completed" {
+			c.JSON(200, result)
+			return
+		}
+		payload, _ := json.Marshal(map[string]string{"brand_cloud_id": cloud, "product_id": in.Product, "device_id": device})
+		request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, s.testLab.origin+"/v1/internal/account-manager/devices/"+url.PathEscape(device)+"/retire-test", bytes.NewReader(payload))
+		completed := false
+		if err == nil {
+			request.Header.Set("Authorization", "Bearer "+s.testLab.token)
+			request.Header.Set("Content-Type", "application/json")
+			response, callErr := s.testLab.client.Do(request)
+			if callErr == nil {
+				completed = response.StatusCode == http.StatusOK
+				response.Body.Close()
+			}
+		}
+		result, err = s.testLab.store.FinishLabDeviceRetirement(c.Request.Context(), actor, cloud, in.Product, device, result.OperationID, completed)
+		if err != nil {
+			writeStoreError(c, err)
+			return
+		}
+		if completed {
+			c.JSON(200, result)
+		} else {
+			c.JSON(202, result)
+		}
+		return
+	}
 	if !labUUID.MatchString(cloud) || !labUUID.MatchString(in.Product) || !labUUID.MatchString(in.Account) || !labUUID.MatchString(device) {
 		writeError(c, 400, "invalid_scope", "Cloud, Product, test account and device IDs are required")
 		return

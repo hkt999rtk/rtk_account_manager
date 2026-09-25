@@ -112,12 +112,14 @@ func labDeviceTx(ctx context.Context, tx pgx.Tx, actor, cloud, product, device s
 }
 
 type LabDevice struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Bound     bool   `json:"bound"`
-	Bindable  bool   `json:"bindable"`
-	Provision string `json:"provision_status"`
-	Status    string `json:"connection_status"`
+	ID                    string `json:"id"`
+	Name                  string `json:"name"`
+	Bound                 bool   `json:"bound"`
+	Bindable              bool   `json:"bindable"`
+	Provision             string `json:"provision_status"`
+	Status                string `json:"connection_status"`
+	RetirementStatus      string `json:"retirement_status"`
+	RetirementOperationID string `json:"retirement_operation_id,omitempty"`
 }
 
 func (s *Store) LabDeviceReady(ctx context.Context, actor, cloud, product, account, device string) (bool, error) {
@@ -149,7 +151,7 @@ func (s *Store) ListLabDevices(ctx context.Context, actor, cloud, product, accou
 	if err != nil {
 		return nil, err
 	}
-	rows, err := tx.Query(ctx, `SELECT d.id::text,d.name,EXISTS(SELECT 1 FROM device_user_bindings b WHERE b.device_id=d.id AND b.end_user_id::text=$4 AND b.disabled_at IS NULL),NOT EXISTS(SELECT 1 FROM device_user_bindings b WHERE b.device_id=d.id AND b.disabled_at IS NULL),COALESCE(d.metadata->>'video_cloud_activation_status','not_provisioned'),d.status FROM devices d WHERE d.organization_id::text=$1 AND d.device_item_profile_id::text=$2 AND d.metadata->>'purpose'='test' AND d.disabled_at IS NULL AND user_can_access_brand_cloud_product($3,$1,$2) AND EXISTS(SELECT 1 FROM factory_enrollment_reservations r JOIN factory_production_runs p ON p.id=r.production_run_id WHERE r.device_id=d.id::text AND r.status='issued' AND p.brand_cloud_id=d.organization_id AND p.device_item_profile_id=d.device_item_profile_id AND p.factory_id='developer-console' AND p.batch_id LIKE 'pki-test-%') ORDER BY d.created_at DESC,d.id LIMIT $5 OFFSET $6`, cloud, product, actor, a.EndUserID, limit, offset)
+	rows, err := tx.Query(ctx, `SELECT d.id::text,d.name,EXISTS(SELECT 1 FROM device_user_bindings b WHERE b.device_id=d.id AND b.end_user_id::text=$4 AND b.disabled_at IS NULL),d.disabled_at IS NULL AND t.device_id IS NULL AND NOT EXISTS(SELECT 1 FROM device_user_bindings b WHERE b.device_id=d.id AND b.disabled_at IS NULL),COALESCE(d.metadata->>'video_cloud_activation_status','not_provisioned'),d.status,COALESCE(t.status,''),COALESCE(t.operation_id::text,'') FROM devices d LEFT JOIN test_lab_device_retirements t ON t.device_id=d.id WHERE d.organization_id::text=$1 AND d.device_item_profile_id::text=$2 AND d.metadata->>'purpose'='test' AND (d.disabled_at IS NULL OR t.device_id IS NOT NULL) AND user_can_access_brand_cloud_product($3,$1,$2) AND EXISTS(SELECT 1 FROM factory_enrollment_reservations r JOIN factory_production_runs p ON p.id=r.production_run_id WHERE r.device_id=d.id::text AND r.status='issued' AND p.brand_cloud_id=d.organization_id AND p.device_item_profile_id=d.device_item_profile_id AND p.factory_id='developer-console' AND p.batch_id LIKE 'pki-test-%') ORDER BY CASE WHEN t.status='completed' THEN 1 ELSE 0 END,d.created_at DESC,d.id LIMIT $5 OFFSET $6`, cloud, product, actor, a.EndUserID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +159,7 @@ func (s *Store) ListLabDevices(ctx context.Context, actor, cloud, product, accou
 	out := []LabDevice{}
 	for rows.Next() {
 		var d LabDevice
-		if err = rows.Scan(&d.ID, &d.Name, &d.Bound, &d.Bindable, &d.Provision, &d.Status); err != nil {
+		if err = rows.Scan(&d.ID, &d.Name, &d.Bound, &d.Bindable, &d.Provision, &d.Status, &d.RetirementStatus, &d.RetirementOperationID); err != nil {
 			return nil, err
 		}
 		out = append(out, d)

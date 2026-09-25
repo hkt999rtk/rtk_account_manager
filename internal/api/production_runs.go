@@ -1,8 +1,6 @@
 package api
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"net/http"
 	"strings"
@@ -62,6 +60,15 @@ func (s *Server) createProductionRun(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "invalid_production_period", "valid_until must be after valid_from")
 		return
 	}
+	if req.ValidUntil.Sub(req.ValidFrom) > 7*24*time.Hour {
+		writeError(c, http.StatusBadRequest, "invalid_production_period", "production run validity must not exceed seven days")
+		return
+	}
+	key := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	if key != "" && (len(key) > 200 || strings.IndexFunc(key, func(ch rune) bool { return ch < 33 || ch > 126 }) >= 0) {
+		writeError(c, http.StatusBadRequest, "invalid_idempotency_key", "Idempotency-Key must be printable ASCII and at most 200 characters")
+		return
+	}
 
 	brandCloudID := c.Param("brandCloudId")
 	if brandCloudID == "" {
@@ -82,6 +89,7 @@ func (s *Server) createProductionRun(c *gin.Context) {
 		AllowedQuantity:     req.AllowedQuantity,
 		ValidFrom:           req.ValidFrom,
 		ValidUntil:          req.ValidUntil,
+		IdempotencyKey:      key,
 	}, s.signProductionJWT)
 	if err != nil {
 		if errors.Is(err, store.ErrProductionRunSigning) {
@@ -110,11 +118,16 @@ func (s *Server) listOrganizationProductionRuns(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"production_runs": page.Runs, "pagination": page.Page})
 }
 
-func (s *Server) signProductionJWT(run model.ProductionRun, profile model.DeviceItemProfile) (string, error) {
-	tokenID, err := randomJWTID()
+func (s *Server) stopOrganizationProductionRun(c *gin.Context) {
+	run, err := s.store.StopProductionRunAsUser(c.Request.Context(), currentUserID(c), c.Param("orgId"), c.Param("profileId"), c.Param("runId"))
 	if err != nil {
-		return "", err
+		writeStoreError(c, err)
+		return
 	}
+	c.JSON(http.StatusOK, gin.H{"production_run": run})
+}
+
+func (s *Server) signProductionJWT(run model.ProductionRun, profile model.DeviceItemProfile) (string, error) {
 	claims := productionJWTClaims{
 		ProductionRunID:        run.ID,
 		BrandCloudID:           run.BrandCloudID,
@@ -131,17 +144,9 @@ func (s *Server) signProductionJWT(run model.ProductionRun, profile model.Device
 			Audience:  jwt.ClaimStrings{s.productionJWTAudience},
 			NotBefore: jwt.NewNumericDate(run.ValidFrom),
 			ExpiresAt: jwt.NewNumericDate(run.ValidUntil),
-			IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
-			ID:        tokenID,
+			IssuedAt:  jwt.NewNumericDate(run.CreatedAt),
+			ID:        run.ID,
 		},
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(s.productionJWTSecret))
-}
-
-func randomJWTID() (string, error) {
-	var data [16]byte
-	if _, err := rand.Read(data[:]); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(data[:]), nil
 }

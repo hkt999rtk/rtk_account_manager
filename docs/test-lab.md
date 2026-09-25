@@ -40,12 +40,13 @@ require the existing managed human developer session plus the feature gate.
 | --- | --- |
 | POST `/accounts` | `{}` uses the Console login. Returns `{id,end_user_id,email,expires_at}` without a second login. |
 | DELETE `/accounts/{accountId}` | Revoke this developer's delegation; 204, idempotent. |
-| GET `/devices` | Query `account_id,product_id,limit,offset`; returns `devices,next_offset,has_more`. Rows include `id,name,bound,bindable,provision_status,connection_status`. |
+| GET `/devices` | Query `account_id,product_id,limit,offset`; returns `devices,next_offset,has_more`. Includes all completed developer-test factory issues in the Product, including unbound and retired rows, with binding, provisioning, connection and retirement status. |
 | GET `/devices/{deviceId}` | Same account/Product query; checks binding and returns `runtime_ready`. |
 | POST `/devices/{deviceId}/grant` | `{account_id,product_id}`; returns 120-second `claim_token`. |
 | POST `/devices/{deviceId}/bind` | Same scope plus `claim_token`; repeat while bound is idempotent. |
 | POST `/devices/{deviceId}/unbind` | Same scope; soft-disables only this end-user binding, revokes its grants/leases; preserves device/certs/other users. |
 | POST `/devices/{deviceId}/provision` | Same scope plus `operation_id,activity_id,clip_public_key` (SPKI RSA >=2048 bits); queues the ordinary lifecycle outbox, returns 202. |
+| POST `/devices/{deviceId}/retire` | `{account_id,product_id,operation_id}`; only a developer with management access to this Product may retire a verified developer-test-issued device. Returns `retirement_status` and is retryable with the same operation ID. |
 
 Access lasts 30 minutes and is automatically renewed from the Console login.
 Other-user binding/pending unbind/conflicting provisioning inputs return 409,
@@ -61,3 +62,11 @@ obtain a fresh grant. No UUID/devid conversion or destructive Unprovision is use
 Provisioning retains the first activity ID and public key; retries must reuse them.
 Unbind is blocked while provisioning is pending. Existing workers consume the
 normal outbox; binding alone neither provisions nor proves connectivity.
+
+Migration 086 records a durable retirement operation. Admission disables the
+registry device, all test bindings, grants and leases in one transaction and
+writes an audit event. The Video Cloud call revokes the entitlement and certificate
+and evicts the owner connection. A failed or interrupted call leaves a visible
+pending/failed state; a matching operation ID retries it without reopening access.
+Only successful downstream completion marks the device retired. Completed devices
+remain read-only and cannot be rebound; audit records are retained.

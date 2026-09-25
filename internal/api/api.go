@@ -444,6 +444,7 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/admin/brand-clouds/:brandCloudId/device-item-profiles/:profileId/production-runs", s.requirePlatformAdmin(), s.createProductionRun)
 	protected.GET("/orgs/:orgId/device-item-profiles/:profileId/production-runs", s.requirePermission("registry_device.read"), s.listOrganizationProductionRuns)
 	protected.POST("/orgs/:orgId/device-item-profiles/:profileId/production-runs", s.requirePermission("registry_device.manage"), s.createProductionRun)
+	protected.POST("/orgs/:orgId/device-item-profiles/:profileId/production-runs/:runId/stop", s.requirePermission("registry_device.manage"), s.stopOrganizationProductionRun)
 	protected.POST("/admin/brand-clouds/:brandCloudId/users", s.requirePlatformAdmin(), s.createBrandCloudUser)
 	protected.GET("/admin/brand-clouds/:brandCloudId/users", s.requirePlatformAdmin(), s.listBrandCloudUsers)
 	protected.POST("/admin/brand-clouds/:brandCloudId/users/:userId/disable", s.requirePlatformAdmin(), s.disableBrandCloudUser)

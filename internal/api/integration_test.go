@@ -2565,18 +2565,43 @@ func TestIntegrationPlatformAdminCreatesProductionRunJWT(t *testing.T) {
 	if invalidPeriodRes.Code != http.StatusBadRequest {
 		t.Fatalf("expected invalid production period 400, got %d: %s", invalidPeriodRes.Code, invalidPeriodRes.Body.String())
 	}
+	tooLongRes := performJSON(env.router, http.MethodPost, path, map[string]any{
+		"allowed_quantity": 10,
+		"valid_from":       validFrom.Format(time.RFC3339),
+		"valid_until":      validFrom.Add(8 * 24 * time.Hour).Format(time.RFC3339),
+	}, admin.Tokens.AccessToken)
+	if tooLongRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected long production run rejected, got %d: %s", tooLongRes.Code, tooLongRes.Body.String())
+	}
 
-	createRes := performJSON(env.router, http.MethodPost, path, map[string]any{
+	productionRequest := map[string]any{
 		"factory_id":       "factory-a",
 		"batch_id":         "batch-20260617",
 		"allowed_quantity": 250,
 		"valid_from":       validFrom.Format(time.RFC3339),
 		"valid_until":      validUntil.Format(time.RFC3339),
-	}, admin.Tokens.AccessToken)
+	}
+	createRes := performJSONWithKey(env.router, http.MethodPost, path, productionRequest, admin.Tokens.AccessToken, "factory-run-fixture")
 	if createRes.Code != http.StatusCreated {
 		t.Fatalf("expected production run create 201, got %d: %s", createRes.Code, createRes.Body.String())
 	}
 	body := decodeBody[productionRunBody](t, createRes)
+	replayed := performJSONWithKey(env.router, http.MethodPost, path, productionRequest, admin.Tokens.AccessToken, "factory-run-fixture")
+	if replayed.Code != http.StatusCreated {
+		t.Fatalf("retry status=%d body=%s", replayed.Code, replayed.Body.String())
+	}
+	replayBody := decodeBody[productionRunBody](t, replayed)
+	if replayBody.ProductionRun.ID != body.ProductionRun.ID || replayBody.FactoryJWT != body.FactoryJWT {
+		t.Fatal("same intent created a new run or changed its JWT")
+	}
+	var intentCount int
+	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM factory_production_runs WHERE created_by=$1 AND idempotency_key=$2`, admin.User.ID, "factory-run-fixture").Scan(&intentCount); err != nil || intentCount != 1 {
+		t.Fatalf("duplicate run: count=%d err=%v", intentCount, err)
+	}
+	changedRequest := map[string]any{"factory_id": "factory-a", "batch_id": "batch-20260617", "allowed_quantity": 251, "valid_from": validFrom.Format(time.RFC3339), "valid_until": validUntil.Format(time.RFC3339)}
+	if got := performJSONWithKey(env.router, http.MethodPost, path, changedRequest, admin.Tokens.AccessToken, "factory-run-fixture"); got.Code != http.StatusConflict {
+		t.Fatalf("changed retry status=%d body=%s", got.Code, got.Body.String())
+	}
 	if body.ProductionRun.BrandCloudID != brand.BrandCloud.ID ||
 		body.ProductionRun.DeviceItemProfileID != profile.DeviceItemProfile.ID ||
 		body.ProductionRun.AllowedQuantity != 250 ||
@@ -2623,6 +2648,20 @@ func TestIntegrationPlatformAdminCreatesProductionRunJWT(t *testing.T) {
 	listRes := performJSON(env.router, http.MethodGet, listPath, nil, admin.Tokens.AccessToken)
 	if listRes.Code != http.StatusOK || !bytes.Contains(listRes.Body.Bytes(), []byte(body.ProductionRun.ID)) {
 		t.Fatalf("expected production run list 200 with created run, got %d: %s", listRes.Code, listRes.Body.String())
+	}
+	stopPath := listPath + "/" + body.ProductionRun.ID + "/stop"
+	deniedStop := performJSON(env.router, http.MethodPost, stopPath, nil, nonAdmin.Tokens.AccessToken)
+	if deniedStop.Code != http.StatusNotFound {
+		t.Fatalf("expected out-of-scope stop 404, got %d", deniedStop.Code)
+	}
+	for i := 0; i < 2; i++ {
+		stopped := performJSON(env.router, http.MethodPost, stopPath, nil, admin.Tokens.AccessToken)
+		if stopped.Code != http.StatusOK || !bytes.Contains(stopped.Body.Bytes(), []byte(`"status":"disabled"`)) {
+			t.Fatalf("stop #%d failed: %d %s", i, stopped.Code, stopped.Body.String())
+		}
+	}
+	if got := performJSONWithKey(env.router, http.MethodPost, path, productionRequest, admin.Tokens.AccessToken, "factory-run-fixture"); got.Code != http.StatusConflict {
+		t.Fatalf("stopped authorization replay status=%d body=%s", got.Code, got.Body.String())
 	}
 }
 
@@ -7434,6 +7473,17 @@ func performJSON(router *gin.Engine, method, path string, body any, accessToken 
 		payload, _ = json.Marshal(body)
 	}
 	return performRaw(router, method, path, payload, accessToken)
+}
+
+func performJSONWithKey(router *gin.Engine, method, path string, body any, accessToken, key string) *httptest.ResponseRecorder {
+	payload, _ := json.Marshal(body)
+	req := httptest.NewRequest(method, path, bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Idempotency-Key", key)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	return res
 }
 
 func performRaw(router *gin.Engine, method, path string, payload []byte, accessToken string) *httptest.ResponseRecorder {
