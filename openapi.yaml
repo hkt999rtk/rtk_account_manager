@@ -5544,6 +5544,37 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+  /v1/internal/brand-clouds/{brandCloudId}/billing-tier:
+    get:
+      operationId: getInternalBrandCloudBillingTier
+      tags: [Brand Clouds]
+      x-rtk-feature-id: FEAT-AM-INVOICE-001
+      x-rtk-requirement-ids: [REQ-AM-PRICING-VERSION-001]
+      summary: Read historical Brand Cloud tier evidence for one complete UTC billing month
+      description: Only trusted workloads may read this append-only history. Existing clouds have evidence beginning at migration time, not from creation. A fully commercial month is tier evidence only; contract and Billing account applicability are separate decisions.
+      security: [{ internalServiceToken: [] }]
+      parameters:
+        - { name: brandCloudId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: period_start, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: period_end, in: query, required: true, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Tier evidence for the requested UTC month
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [brand_cloud_id, history_covers_start, changed_within_period, commercial_for_full_period]
+                properties:
+                  brand_cloud_id: { type: string, format: uuid }
+                  tier: { type: string, enum: [evaluation, commercial] }
+                  covered_from: { type: string, format: date-time }
+                  history_covers_start: { type: boolean }
+                  changed_within_period: { type: boolean }
+                  commercial_for_full_period: { type: boolean }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
     internalServiceToken:

@@ -415,6 +415,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestIntegrationFleetGroupsAndTags`
 - `rtk_account_manager/internal/api`: `TestIntegrationGlobalLoginExplicitlyRotatesAppCertificate`
 - `rtk_account_manager/internal/api`: `TestIntegrationInternalAppTokenAuthorization`
+- `rtk_account_manager/internal/api`: `TestIntegrationInternalBrandCloudBillingTierHistory`
 - `rtk_account_manager/internal/api`: `TestIntegrationInternalDevicePresenceEvent`
 - `rtk_account_manager/internal/api`: `TestIntegrationInternalDeviceProvisioningResult`
 - `rtk_account_manager/internal/api`: `TestIntegrationInternalProductOTAGrantFailsClosed`
