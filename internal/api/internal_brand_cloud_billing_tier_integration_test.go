@@ -16,6 +16,7 @@ func TestIntegrationInternalBrandCloudBillingTierHistory(t *testing.T) {
 	env.server.ConfigureInternalAuthToken("tier-internal-token")
 	owner := verifiedDeveloperForTest(t, env, "ota-tier-history@example.test")
 	markEvaluationOrg(t, env, owner.BrandCloudID, 5)
+	contract := newResponseContract(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
 	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, 1, 0)
@@ -36,6 +37,7 @@ func TestIntegrationInternalBrandCloudBillingTierHistory(t *testing.T) {
 		if r.Code != http.StatusOK || r.Header().Get("Cache-Control") != "no-store" {
 			t.Fatalf("tier status=%d cache=%q body=%s", r.Code, r.Header().Get("Cache-Control"), r.Body.String())
 		}
+		contract.validate(t, http.MethodGet, path(from, until), r)
 		var result store.BrandCloudBillingTierPeriod
 		if err := json.Unmarshal(r.Body.Bytes(), &result); err != nil {
 			t.Fatal(err)
