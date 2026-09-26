@@ -5548,6 +5548,8 @@ paths:
     get:
       operationId: getInternalBrandCloudBillingTier
       tags: [Brand Clouds]
+      x-rtk-feature-id: FEAT-AM-INVOICE-001
+      x-rtk-requirement-ids: [REQ-AM-PRICING-VERSION-001]
       summary: Read historical Brand Cloud tier evidence for one complete UTC billing month
       description: Only trusted workloads may read this append-only history. Existing clouds have evidence beginning at migration time, not from creation. A fully commercial month is tier evidence only; contract and Billing account applicability are separate decisions.
       security: [{ internalServiceToken: [] }]
