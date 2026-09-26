@@ -5484,6 +5484,8 @@ paths:
     get:
       operationId: getInternalProductOTAGrant
       tags: [Product Services]
+      x-rtk-feature-id: FEAT-CONTRACT-SERVICE-REGISTRATION-001
+      x-rtk-requirement-ids: [REQ-CONTRACT-SVCREG-PRODUCT-001]
       summary: Read the current OTA Product grant for a trusted service
       description: The active and enabled decision is based on the current Product and latest immutable service grant. It is unsuitable as proof for a historical billable event.
       security: [{ internalServiceToken: [] }]
@@ -5512,6 +5514,8 @@ paths:
     get:
       operationId: getInternalHistoricalProductOTAGrant
       tags: [Product Services]
+      x-rtk-feature-id: FEAT-CONTRACT-SERVICE-REGISTRATION-001
+      x-rtk-requirement-ids: [REQ-CONTRACT-SVCREG-PRODUCT-001]
       summary: Read one immutable Product OTA grant revision and its validity interval
       description: Billing compares a receipt's exact revision and digest with this record and checks the receipt's original authorization time in [valid_from, valid_until). A current Product disable does not erase prior grant evidence. Source services must also enforce Product lifecycle and device authorization when the operation occurs.
       security: [{ internalServiceToken: [] }]
