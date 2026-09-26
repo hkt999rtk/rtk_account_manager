@@ -74,3 +74,18 @@ not reconstruct historical Product active/inactive status or device
 entitlements, which lack equivalent month-snapshot evidence in this path.
 Those limits must be reviewed before commercial activation; they cannot be
 replaced with the current Product row or a zero-usage assumption.
+
+## Historical Receipt Verification
+
+Trusted internal services can read one immutable revision at
+`GET /v1/internal/brand-clouds/{brandCloudId}/products/{productId}/ota-grants/{revision}`.
+The response recomputes the stored snapshot digest, reports whether that
+revision selected `ota`, and gives its validity interval from grant insertion
+to the next revision. A disabled Product does not erase an earlier revision.
+Billing must compare the exact Product, revision, digest and original
+authorization time carried by each OTA source receipt; membership in the
+monthly Platform Product set alone is insufficient. A missing or corrupted
+revision fails closed. The source must separately establish that the Product
+and device were authorized when the task, URL grant or object creation was
+performed, since grant history alone cannot reconstruct historical Product
+active state or device entitlements.

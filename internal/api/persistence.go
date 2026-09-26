@@ -109,6 +109,7 @@ type memberPersistence interface {
 type devicePersistence interface {
 	GetDeviceEntitlementReadModel(ctx context.Context, cloudID, deviceID string) (*int64, *int64, *model.DeviceEntitlementResult, error)
 	GetProductOTAGrant(ctx context.Context, brandCloudID, productID string) (store.ProductOTAGrant, error)
+	GetHistoricalProductOTAGrant(ctx context.Context, brandCloudID, productID string, revision int64) (store.HistoricalProductOTAGrant, error)
 	CreateDeviceAsUser(ctx context.Context, actor, orgID string, in store.DeviceInput) (model.Device, error)
 	ListDevices(ctx context.Context, orgID string, limit, offset int) (store.DevicePage, error)
 	ListDevicesFiltered(ctx context.Context, in store.DeviceListFilter) (store.DevicePage, error)
