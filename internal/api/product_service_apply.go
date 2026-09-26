@@ -26,7 +26,12 @@ func (s *Server) admitProductServiceApply(c *gin.Context) {
 	if !bindStrict(c, &req) {
 		return
 	}
-	job, err := s.store.AdmitProductServiceApply(c.Request.Context(), currentUserID(c), c.Param("orgId"), c.Param("profileId"), strings.TrimSpace(req.JobID), strings.TrimSpace(req.PreviewToken))
+	jobID, previewToken := strings.TrimSpace(req.JobID), strings.TrimSpace(req.PreviewToken)
+	if jobID == "" || previewToken == "" {
+		writeError(c, http.StatusBadRequest, "invalid_request", "Job id and preview token are required")
+		return
+	}
+	job, err := s.store.AdmitProductServiceApply(c.Request.Context(), currentUserID(c), c.Param("orgId"), c.Param("profileId"), jobID, previewToken)
 	if err != nil {
 		writeStoreError(c, err)
 		return

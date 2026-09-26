@@ -123,6 +123,46 @@ func TestRegisteredOptionsPinProductRunAndFactoryGrant(t *testing.T) {
 	if _, err := env.store.ReserveFactoryEnrollment(ctx, bad); !errors.Is(err, ErrConflict) {
 		t.Fatalf("tampered grant admitted: %v", err)
 	}
+	if _, err := env.store.SetPlatformServiceStatus(ctx, environment, "shadow", "active", owner.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err = env.store.ListPlatformServiceOptions(ctx, environment, time.Now().UTC())
+	if err != nil || !catalog.Options[1].Selectable {
+		t.Fatalf("reactivated Shadow catalog = %+v, %v", catalog, err)
+	}
+	addShadow := DeviceItemProfileUpdateInput{ActorUserID: &owner.User.ID, BrandCloudID: owner.BrandCloud.ID,
+		ProfileID: profile.ID, ServiceOptions: []string{"mqtt", "iot_shadow"}, CatalogRevision: catalog.CatalogRevision}
+	staleAdd := addShadow
+	staleAdd.CatalogRevision--
+	if _, err := env.store.UpdateDeviceItemProfileAsUser(ctx, staleAdd); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale catalog added new Product option: %v", err)
+	}
+	updated, err := env.store.UpdateDeviceItemProfileAsUser(ctx, addShadow)
+	if err != nil || !serviceOptionSetsEqual(updated.ServiceOptions, addShadow.ServiceOptions) {
+		t.Fatalf("registered option addition = %+v, %v", updated, err)
+	}
+	if _, err := env.store.SetPlatformServiceStatus(ctx, environment, "shadow", "suspended", owner.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.UpdateDeviceItemProfileAsUser(ctx, DeviceItemProfileUpdateInput{
+		ActorUserID: &owner.User.ID, BrandCloudID: owner.BrandCloud.ID, ProfileID: profile.ID, ServiceOptions: []string{"mqtt"},
+	}); err != nil {
+		t.Fatalf("suspended option removal: %v", err)
+	}
+	catalog, err = env.store.ListPlatformServiceOptions(ctx, environment, time.Now().UTC())
+	if err != nil || catalog.Options[1].Selectable {
+		t.Fatalf("suspended Shadow catalog = %+v, %v", catalog, err)
+	}
+	addShadow.CatalogRevision = catalog.CatalogRevision
+	if _, err := env.store.UpdateDeviceItemProfileAsUser(ctx, addShadow); !errors.Is(err, ErrConflict) {
+		t.Fatalf("unavailable option was newly selected: %v", err)
+	}
+	if _, err := env.store.UpdateDeviceItemProfileAsUser(ctx, DeviceItemProfileUpdateInput{
+		ActorUserID: &owner.User.ID, BrandCloudID: owner.BrandCloud.ID, ProfileID: profile.ID,
+		ServiceOptions: []string{"mqtt", "ota"}, CatalogRevision: catalog.CatalogRevision,
+	}); !errors.Is(err, ErrClaimUnsupportedService) {
+		t.Fatalf("unregistered OTA option was newly selected: %v", err)
+	}
 	stale := create
 	stale.ProfileKey = "stale-product"
 	stale.CatalogRevision--
