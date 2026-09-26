@@ -33,6 +33,8 @@ tags:
     description: Organization membership and member lifecycle management.
   - name: Devices
     description: Account-side device registry operations.
+  - name: Product Services
+    description: Trusted current and immutable historical Product service grant reads.
   - name: Device Tags
     description: Device tag assignment and removal.
   - name: Device Groups
@@ -5478,8 +5480,72 @@ paths:
         '204': { description: Authorization revoked idempotently. }
         '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+  /v1/internal/brand-clouds/{brandCloudId}/products/{productId}/ota-grant:
+    get:
+      operationId: getInternalProductOTAGrant
+      tags: [Product Services]
+      summary: Read the current OTA Product grant for a trusted service
+      description: The active and enabled decision is based on the current Product and latest immutable service grant. It is unsuitable as proof for a historical billable event.
+      security: [{ internalServiceToken: [] }]
+      parameters:
+        - { name: brandCloudId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: productId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Current OTA Product decision
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [brand_cloud_id, product_id, service_code, active, enabled, product_service_revision, service_grant_sha256]
+                properties:
+                  brand_cloud_id: { type: string, format: uuid }
+                  product_id: { type: string, format: uuid }
+                  service_code: { type: string, enum: [ota] }
+                  active: { type: boolean }
+                  enabled: { type: boolean }
+                  product_service_revision: { type: integer, format: int64 }
+                  service_grant_sha256: { type: string }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /v1/internal/brand-clouds/{brandCloudId}/products/{productId}/ota-grants/{revision}:
+    get:
+      operationId: getInternalHistoricalProductOTAGrant
+      tags: [Product Services]
+      summary: Read one immutable Product OTA grant revision and its validity interval
+      description: Billing compares a receipt's exact revision and digest with this record and checks the receipt's original authorization time in [valid_from, valid_until). A current Product disable does not erase prior grant evidence. Source services must also enforce Product lifecycle and device authorization when the operation occurs.
+      security: [{ internalServiceToken: [] }]
+      parameters:
+        - { name: brandCloudId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: productId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: revision, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+      responses:
+        '200':
+          description: Historical grant with a recomputed and verified snapshot digest
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [brand_cloud_id, product_id, service_code, enabled, product_service_revision, service_grant_sha256, valid_from]
+                properties:
+                  brand_cloud_id: { type: string, format: uuid }
+                  product_id: { type: string, format: uuid }
+                  service_code: { type: string, enum: [ota] }
+                  enabled: { type: boolean }
+                  product_service_revision: { type: integer, format: int64 }
+                  service_grant_sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+                  valid_from: { type: string, format: date-time }
+                  valid_until: { type: string, format: date-time, nullable: true }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
+    internalServiceToken:
+      type: http
+      scheme: bearer
+      description: Trusted internal service credential configured by ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN; not a browser or human token.
     jobAuthorizationService:
       type: http
       scheme: bearer
