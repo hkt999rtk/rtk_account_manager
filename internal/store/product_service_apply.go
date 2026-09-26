@@ -291,6 +291,9 @@ func (s *Store) AdmitProductServiceApply(ctx context.Context, actor, cloud, prod
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 		RETURNING id::text,organization_id::text,product_id::text,target_revision,target_digest,total_devices,status,created_at`,
 		jobID, cloud, product, actor, preview.TargetRevision, preview.TargetDigest, optionsJSON, preview.retention, previewToken, preview.TotalDevices))
+	if isUniqueViolation(err) {
+		return ProductServiceApplyJob{}, ErrConflict
+	}
 	if err != nil {
 		return ProductServiceApplyJob{}, err
 	}
