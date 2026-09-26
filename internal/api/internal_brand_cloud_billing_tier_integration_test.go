@@ -15,8 +15,10 @@ func TestIntegrationInternalBrandCloudBillingTierHistory(t *testing.T) {
 	env := newIntegrationEnv(t)
 	env.server.ConfigureInternalAuthToken("tier-internal-token")
 	owner := verifiedDeveloperForTest(t, env, "ota-tier-history@example.test")
+	markEvaluationOrg(t, env, owner.BrandCloudID, 5)
 	ctx := context.Background()
-	start := time.Date(time.Now().UTC().Year(), time.Now().UTC().Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, 1, 0)
+	now := time.Now().UTC()
+	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, 1, 0)
 	end := start.AddDate(0, 1, 0)
 	path := func(from, until time.Time) string {
 		return "/v1/internal/brand-clouds/" + owner.BrandCloudID + "/billing-tier?period_start=" +
