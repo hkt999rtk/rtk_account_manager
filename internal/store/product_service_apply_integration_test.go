@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -576,5 +577,194 @@ func TestProductServiceApplyReadModelRequiresExactAppliedReceipt(t *testing.T) {
 	canceled, err = env.store.FinishProductServiceApply(ctx, owner.User.ID, owner.BrandCloud.ID, product.ID, failedJobID, "cancel")
 	if err != nil || canceled.Status != "canceled" {
 		t.Fatalf("cancel replay = %+v, %v", canceled, err)
+	}
+}
+
+func TestProductServiceApplyRemovalRejectsChangedOrUntrustedDeviceGrants(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	owner := handoffDeveloper(t, env, "product-apply-removal")
+	input := authorizedProductInput(owner.User.ID, owner.BrandCloud.ID, "product-apply-removal")
+	input.ServiceOptions = []string{"mqtt", "iot_shadow"}
+	product, err := env.store.CreateDeviceItemProfile(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := env.db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := insertProductServiceGrantTx(ctx, tx, product.ID, owner.BrandCloud.ID, input.ServiceOptions, nil, 1, &owner.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	device, err := env.store.CreateDeviceAsUser(ctx, owner.User.ID, owner.BrandCloud.ID, DeviceInput{
+		Name: "Old Shadow device", Category: product.Category, DeviceItemProfileID: &product.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.store.ConfigurePlatformServiceProductWrites("test-apply-removal", true)
+	provisionID := "apply-removal-provision"
+	_, err = env.store.StartDeviceLifecycleOperation(ctx, DeviceLifecycleOperationInput{
+		OperationID: provisionID, CorrelationID: provisionID, MessageID: provisionID + "-message",
+		OrganizationID: owner.BrandCloud.ID, DeviceID: device.ID, OperationType: model.DeviceOperationTypeProvision,
+		RequestedBy: &owner.User.ID, RequestPayload: map[string]any{"activity_id": "activity", "clip_public_key": "clip-key"},
+		OutboxMessageType: string(channel.MessageTypeDeviceProvisionRequested),
+		OutboxPayload: map[string]any{"org_id": owner.BrandCloud.ID, "account_device_id": device.ID,
+			"video_cloud_devid": device.ID, "activity_id": "activity", "clip_public_key": "clip-key", "requested_by": owner.User.ID},
+		Now: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE device_operations SET status='succeeded',completed_at=now() WHERE operation_id=$1`, provisionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE devices SET metadata=jsonb_set(metadata,'{video_cloud_devid}',to_jsonb($2::text),true) WHERE id=$1`, device.ID, device.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.UpdateDeviceItemProfile(ctx, DeviceItemProfileUpdateInput{
+		BrandCloudID: owner.BrandCloud.ID, ProfileID: product.ID, ServiceOptions: []string{"mqtt"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	tx, err = env.db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := insertProductServiceGrantTx(ctx, tx, product.ID, owner.BrandCloud.ID, []string{"mqtt"}, nil, 1, &owner.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := env.store.PreviewProductServiceApply(ctx, owner.User.ID, owner.BrandCloud.ID, product.ID)
+	if err != nil || preview.TargetRevision != 2 || preview.TotalDevices != 1 || len(preview.Blockers) != 0 ||
+		preview.AddedCount != 0 || preview.RemovedCount != 1 || !slices.Equal(preview.RemovedOptions, []string{"iot_shadow"}) {
+		t.Fatalf("feature removal preview = %+v, %v", preview, err)
+	}
+	jobID := "job-111111111111111111111111"
+	if _, err := env.store.AdmitProductServiceApply(ctx, owner.User.ID, owner.BrandCloud.ID, product.ID, jobID, preview.PreviewToken); err != nil {
+		t.Fatal(err)
+	}
+	page, err := env.store.ListProductServiceApplyItems(ctx, owner.User.ID, owner.BrandCloud.ID, product.ID, jobID, 251, 0)
+	if err != nil || page.Total != 1 || len(page.Items) != 1 {
+		t.Fatalf("bounded results page = %+v, %v", page, err)
+	}
+	outsider := handoffDeveloper(t, env, "product-apply-removal-outsider")
+	for _, tc := range []struct {
+		name string
+		read func() error
+	}{
+		{"preview", func() error {
+			_, err := env.store.PreviewProductServiceApply(ctx, outsider.User.ID, owner.BrandCloud.ID, product.ID)
+			return err
+		}},
+		{"admit", func() error {
+			_, err := env.store.AdmitProductServiceApply(ctx, outsider.User.ID, owner.BrandCloud.ID, product.ID, jobID, preview.PreviewToken)
+			return err
+		}},
+		{"job", func() error {
+			_, err := env.store.GetProductServiceApplyJob(ctx, outsider.User.ID, owner.BrandCloud.ID, product.ID, jobID)
+			return err
+		}},
+		{"item", func() error {
+			_, err := env.store.GetProductServiceApplyItem(ctx, outsider.User.ID, owner.BrandCloud.ID, product.ID, jobID, device.ID)
+			return err
+		}},
+		{"page", func() error {
+			_, err := env.store.ListProductServiceApplyItems(ctx, outsider.User.ID, owner.BrandCloud.ID, product.ID, jobID, 10, 0)
+			return err
+		}},
+		{"finish", func() error {
+			_, err := env.store.FinishProductServiceApply(ctx, outsider.User.ID, owner.BrandCloud.ID, product.ID, jobID, "cancel")
+			return err
+		}},
+	} {
+		t.Run("other cloud cannot "+tc.name, func(t *testing.T) {
+			if err := tc.read(); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("foreign Product batch data exposed: %v", err)
+			}
+		})
+	}
+	revision := preview.TargetRevision
+	base := DeviceEntitlementSnapshotInput{BatchJobID: jobID, OperationID: jobID + "/" + device.ID,
+		CorrelationID: jobID + "/" + device.ID, MessageID: "removal-message", OrganizationID: owner.BrandCloud.ID,
+		DeviceID: device.ID, RequestedBy: owner.User.ID, TargetProductServiceRevision: &revision,
+		ServiceOptions: []string{"mqtt"}, State: "active", Now: time.Now().UTC()}
+	for _, tc := range []struct {
+		name   string
+		change func(*DeviceEntitlementSnapshotInput)
+		want   error
+	}{
+		{"missing actor", func(in *DeviceEntitlementSnapshotInput) { in.RequestedBy = "" }, ErrConflict},
+		{"invalid state", func(in *DeviceEntitlementSnapshotInput) { in.State = "pending" }, ErrConflict},
+		{"empty options", func(in *DeviceEntitlementSnapshotInput) { in.ServiceOptions = []string{} }, ErrClaimUnsupportedService},
+		{"invalid revision", func(in *DeviceEntitlementSnapshotInput) { zero := int64(0); in.TargetProductServiceRevision = &zero }, ErrConflict},
+		{"unknown batch", func(in *DeviceEntitlementSnapshotInput) { in.BatchJobID = "job-222222222222222222222222" }, ErrNotFound},
+		{"wrong operation", func(in *DeviceEntitlementSnapshotInput) { in.OperationID = "other-operation" }, ErrConflict},
+		{"wrong target options", func(in *DeviceEntitlementSnapshotInput) { in.ServiceOptions = []string{"mqtt", "iot_shadow"} }, ErrConflict},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := base
+			tc.change(&in)
+			if _, err := env.store.StartDeviceEntitlementSnapshot(ctx, in); !errors.Is(err, tc.want) {
+				t.Fatalf("batch mutation = %v, want %v", err, tc.want)
+			}
+		})
+	}
+	manual := base
+	manual.BatchJobID = ""
+	manual.OperationID = "removal-manual-override"
+	manual.CorrelationID = manual.OperationID
+	manual.MessageID = manual.OperationID + "-message"
+	manual.State = "suspended"
+	changed, err := env.store.StartDeviceEntitlementSnapshot(ctx, manual)
+	if err != nil || changed.Snapshot.Revision != 1 {
+		t.Fatalf("concurrent device change = %+v, %v", changed, err)
+	}
+	if _, err := env.db.Exec(ctx, `UPDATE device_operations SET status='succeeded',completed_at=now() WHERE operation_id=$1`, manual.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.DispatchProductServiceApplyItem(ctx, owner.User.ID, owner.BrandCloud.ID, product.ID, jobID, device.ID, "stale-removal"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("frozen batch overwrote a newer device grant: %v", err)
+	}
+	var oldDigest string
+	if err := env.db.QueryRow(ctx, `SELECT snapshot_sha256 FROM product_service_grants WHERE product_id=$1 AND revision=1`, product.ID).Scan(&oldDigest); err != nil {
+		t.Fatal(err)
+	}
+	insertHistoricalSnapshot := func(operation string, snapshotRevision, grantRevision int64, digest string) {
+		t.Helper()
+		if _, err := env.db.Exec(ctx, `INSERT INTO device_operations
+			(operation_id,correlation_id,organization_id,device_id,operation_type,status)
+			VALUES($1,$1,$2,$3,'entitlement_update','succeeded')`, operation, owner.BrandCloud.ID, device.ID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := env.db.Exec(ctx, `INSERT INTO device_entitlement_snapshots
+			(organization_id,account_device_id,video_cloud_devid,revision,product_id,product_service_revision,
+			 service_grant_sha256,service_options,entitlement_state,operation_id,created_by)
+			 VALUES($1,$2::uuid,$2::text,$3,$4,$5,$6,'["mqtt"]','active',$7,$8)`, owner.BrandCloud.ID, device.ID,
+			snapshotRevision, product.ID, grantRevision, digest, operation, owner.User.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insertHistoricalSnapshot("removal-missing-grant", 2, 99, oldDigest)
+	blocked, err := env.store.PreviewProductServiceApply(ctx, owner.User.ID, owner.BrandCloud.ID, product.ID)
+	if err != nil || len(blocked.Blockers) != 1 || blocked.Blockers[0].Code != "missing_grant" {
+		t.Fatalf("missing historical grant was accepted: %+v, %v", blocked, err)
+	}
+	insertHistoricalSnapshot("removal-bad-digest", 3, 1, strings.Repeat("a", 64))
+	blocked, err = env.store.PreviewProductServiceApply(ctx, owner.User.ID, owner.BrandCloud.ID, product.ID)
+	if err != nil || len(blocked.Blockers) != 1 || blocked.Blockers[0].Code != "untrusted_entitlement" {
+		t.Fatalf("mismatched historical grant was accepted: %+v, %v", blocked, err)
+	}
+	if _, err := env.store.FinishProductServiceApply(ctx, owner.User.ID, owner.BrandCloud.ID, product.ID, jobID, "cancel"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.DispatchProductServiceApplyItem(ctx, owner.User.ID, owner.BrandCloud.ID, product.ID, jobID, device.ID, "after-cancel"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("canceled batch dispatched a device grant: %v", err)
 	}
 }
