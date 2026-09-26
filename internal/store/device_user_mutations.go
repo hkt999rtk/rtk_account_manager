@@ -129,7 +129,8 @@ func mergeUserDeviceMetadata(incoming, current map[string]any) (map[string]any, 
 }
 
 func serviceOwnedDeviceMetadataKey(key string) bool {
-	return strings.HasPrefix(key, "video_cloud_") || key == model.DeviceMetadataServiceOptions
+	return strings.HasPrefix(key, "video_cloud_") || key == model.DeviceMetadataServiceOptions ||
+		key == "product_service_revision" || key == "service_grant_sha256" || key == "log_retention_days"
 }
 
 func (s *Store) UpdateDeviceStatusAsUser(ctx context.Context, actor, org, device string, status model.DeviceStatus, lastSeenAt *time.Time) (model.Device, error) {

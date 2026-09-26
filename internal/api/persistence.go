@@ -28,6 +28,17 @@ type Store interface {
 	chipsetProviderPersistence
 	productCollaborationPersistence
 	factoryEnrollmentPersistence
+	productServiceApplyPersistence
+}
+
+type productServiceApplyPersistence interface {
+	PreviewProductServiceApply(ctx context.Context, actor, cloud, product string) (store.ProductServiceApplyPreview, error)
+	AdmitProductServiceApply(ctx context.Context, actor, cloud, product, jobID, previewToken string) (store.ProductServiceApplyJob, error)
+	GetProductServiceApplyJob(ctx context.Context, actor, cloud, product, jobID string) (store.ProductServiceApplyJob, error)
+	ListProductServiceApplyItems(ctx context.Context, actor, cloud, product, jobID string, limit, offset int) (store.ProductServiceApplyItemPage, error)
+	GetProductServiceApplyItem(ctx context.Context, actor, cloud, product, jobID, deviceID string) (store.ProductServiceApplyItem, error)
+	DispatchProductServiceApplyItem(ctx context.Context, actor, cloud, product, jobID, deviceID, messageID string) (store.ProductServiceApplyItem, error)
+	FinishProductServiceApply(ctx context.Context, actor, cloud, product, jobID, action string) (store.ProductServiceApplyJob, error)
 }
 
 type productCollaborationPersistence interface {
@@ -96,6 +107,7 @@ type memberPersistence interface {
 }
 
 type devicePersistence interface {
+	GetDeviceEntitlementReadModel(ctx context.Context, cloudID, deviceID string) (*int64, *int64, *model.DeviceEntitlementResult, error)
 	GetProductOTAGrant(ctx context.Context, brandCloudID, productID string) (store.ProductOTAGrant, error)
 	CreateDeviceAsUser(ctx context.Context, actor, orgID string, in store.DeviceInput) (model.Device, error)
 	ListDevices(ctx context.Context, orgID string, limit, offset int) (store.DevicePage, error)
@@ -261,6 +273,7 @@ type brandCloudPersistence interface {
 	CreateDeviceItemProfileAsUser(ctx context.Context, in store.DeviceItemProfileCreateInput) (model.DeviceItemProfile, error)
 	ListDeviceItemProfiles(ctx context.Context, in store.DeviceItemProfileListFilter) (store.DeviceItemProfilePage, error)
 	GetDeviceItemProfile(ctx context.Context, brandCloudID, profileID string) (model.DeviceItemProfile, error)
+	GetCurrentProductGrantSummary(ctx context.Context, brandCloudID, profileID string) (store.ProductGrantSummary, error)
 	UpdateDeviceItemProfileAsUser(ctx context.Context, in store.DeviceItemProfileUpdateInput) (model.DeviceItemProfile, error)
 	DisableDeviceItemProfileAsUser(ctx context.Context, brandCloudID, profileID, actor string, platform bool) (model.DeviceItemProfile, error)
 	IssueProductionRunAsUser(ctx context.Context, in store.ProductionRunCreateInput, issue store.ProductionRunIssuer) (model.ProductionRun, string, error)

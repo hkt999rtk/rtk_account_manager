@@ -44,4 +44,14 @@ func TestJobAuthorizationLifecycle(t *testing.T) {
 	if _, err = env.store.ValidateJobAuthorization(ctx, grant.ID, now.Add(3*time.Minute)); !errors.Is(err, ErrJobAuthorizationRevoked) {
 		t.Fatalf("revoked grant validated: %v", err)
 	}
+	input.JobID = "job-aaaaaaaaaaaaaaaaaaaaaaaa"
+	input.ScopeHash = strings.Repeat("b", 64)
+	input.Capability = "product_services.apply"
+	applyGrant, err := env.store.CreateJobAuthorization(ctx, input, now)
+	if err != nil || applyGrant.Capability != input.Capability || applyGrant.JobID != input.JobID {
+		t.Fatalf("apply authorization: %+v %v", applyGrant, err)
+	}
+	if _, err := env.store.ValidateJobAuthorization(ctx, applyGrant.ID, now.Add(time.Minute)); err != nil {
+		t.Fatalf("validate apply authorization: %v", err)
+	}
 }

@@ -262,6 +262,8 @@ type DeviceItemProfile struct {
 	IssuerProfile      string                  `json:"issuer_profile"`
 	ServiceOptions     []string                `json:"service_options"`
 	LogRetentionDays   *int                    `json:"log_retention_days,omitempty"`
+	GrantRevision      int64                   `json:"grant_revision,omitempty"`
+	GrantDigest        string                  `json:"grant_digest,omitempty"`
 	ClaimPolicy        map[string]any          `json:"claim_policy"`
 	ProvisioningPolicy map[string]any          `json:"provisioning_policy"`
 	DisabledAt         *time.Time              `json:"disabled_at,omitempty"`
@@ -551,21 +553,31 @@ type ProductCollaboratorInvitation struct {
 }
 
 type Device struct {
-	ID                  string         `json:"id"`
-	OrganizationID      string         `json:"organization_id"`
-	DeviceItemProfileID *string        `json:"device_item_profile_id,omitempty"`
-	Name                string         `json:"name"`
-	Category            DeviceCategory `json:"category"`
-	SerialNumber        *string        `json:"serial_number,omitempty"`
-	MACAddress          *string        `json:"mac_address,omitempty"`
-	Manufacturer        *string        `json:"manufacturer,omitempty"`
-	Model               *string        `json:"model,omitempty"`
-	Status              DeviceStatus   `json:"status"`
-	LastSeenAt          *time.Time     `json:"last_seen_at,omitempty"`
-	Metadata            map[string]any `json:"metadata"`
-	CreatedAt           time.Time      `json:"created_at"`
-	UpdatedAt           time.Time      `json:"updated_at"`
-	DisabledAt          *time.Time     `json:"disabled_at,omitempty"`
+	ID                   string                   `json:"id"`
+	AppliedGrantRevision *int64                   `json:"applied_grant_revision,omitempty"`
+	PendingGrantRevision *int64                   `json:"pending_grant_revision,omitempty"`
+	EntitlementResult    *DeviceEntitlementResult `json:"entitlement_result,omitempty"`
+	OrganizationID       string                   `json:"organization_id"`
+	DeviceItemProfileID  *string                  `json:"device_item_profile_id,omitempty"`
+	Name                 string                   `json:"name"`
+	Category             DeviceCategory           `json:"category"`
+	SerialNumber         *string                  `json:"serial_number,omitempty"`
+	MACAddress           *string                  `json:"mac_address,omitempty"`
+	Manufacturer         *string                  `json:"manufacturer,omitempty"`
+	Model                *string                  `json:"model,omitempty"`
+	Status               DeviceStatus             `json:"status"`
+	LastSeenAt           *time.Time               `json:"last_seen_at,omitempty"`
+	Metadata             map[string]any           `json:"metadata"`
+	CreatedAt            time.Time                `json:"created_at"`
+	UpdatedAt            time.Time                `json:"updated_at"`
+	DisabledAt           *time.Time               `json:"disabled_at,omitempty"`
+}
+
+type DeviceEntitlementResult struct {
+	OperationID string `json:"operation_id"`
+	Status      string `json:"status"`
+	ErrorCode   string `json:"error_code,omitempty"`
+	Retryable   bool   `json:"retryable,omitempty"`
 }
 
 type DeviceGroup struct {

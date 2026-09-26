@@ -7,7 +7,8 @@ does not enable that gate or register any service.
 The existing `device_item_profiles.service_options` array is the source for
 legacy Products. The backfill inserts revision 1 only where no immutable grant
 exists. Such rows have `legacy=true`, `catalog_revision=0`, empty manifest
-bindings, and a digest of the recorded option set. They are not checked against
+bindings, and a digest of the recorded option set and any existing logging
+retention setting. They are not checked against
 today's service catalog and never acquire MQTT or another option implicitly.
 Products with an existing grant are verified against their current options but
 not rewritten. Existing production runs keep a null service revision; runs
@@ -18,7 +19,7 @@ Shadow Product remains HTTP-only until explicitly migrated.
 
 1. Take a matched database backup and freeze Product/production-run writes.
    Keep Product write gate and all optional-service cutover flags off. Apply
-   schema migrations through `080_legacy_product_service_grants.sql` using the
+   schema migrations through `092_product_service_apply_authorization.sql` using the
    normal migration deployment. Use the appropriate Account Manager
    `DATABASE_URL` for the environment.
 2. Run `go run ./cmd/migrate -service-grant-backfill-report`. This command is
@@ -26,8 +27,9 @@ Shadow Product remains HTTP-only until explicitly migrated.
    `products`, `already_versioned`, `needs_backfill`, `without_mqtt`,
    `option_counts`, and every `issues` entry. The command exits nonzero when
    `ready=false`. Investigate malformed or mismatched rows; do not normalize
-   them automatically. A Product with no grant and an option outside the four
-   historical codes (`mqtt`, `iot_shadow`, `video_streaming`, `video_storage`)
+   them automatically. A Product with no grant and an option outside the five
+   historical codes (`mqtt`, `iot_shadow`, `video_streaming`, `video_storage`,
+   `device_logging`)
    is also blocked for explicit reconciliation. This legacy-only guard does
    not constrain already-versioned Products or future registered plugins.
 3. When the report is approved, run

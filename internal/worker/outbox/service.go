@@ -224,7 +224,9 @@ func (s *Service) recordRetry(ctx context.Context, message model.DeviceMessageOu
 
 func (s *Service) recordDeadLetter(ctx context.Context, message model.DeviceMessageOutbox, attemptCount int, attemptedAt time.Time, cause error) (bool, error) {
 	lastError := cause.Error()
-	retryable := false
+	// Exhausting automatic attempts still permits an explicit retry of a
+	// transient delivery failure with the original operation identity.
+	retryable := broker.IsTransient(cause)
 	return s.recordTransition(ctx, message, store.OutboxPublishTransitionInput{
 		MessageStatus:         model.DeviceMessageOutboxStatusDeadLettered,
 		AttemptCount:          attemptCount,

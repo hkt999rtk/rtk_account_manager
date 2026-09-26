@@ -1186,6 +1186,9 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/lifecyclehttp`: `TestNewPublisherRejectsUnsafeConfiguration/relative_URL`
 - `rtk_account_manager/internal/lifecyclehttp`: `TestNewPublisherRejectsUnsafeConfiguration`
 - `rtk_account_manager/internal/lifecyclehttp`: `TestPublisherCallsInternalLifecycleAPIAndProjectsSuccess`
+- `rtk_account_manager/internal/lifecyclehttp`: `TestPublisherDoesNotProjectAcceptedOrMismatchedSnapshotReceipt/accepted`
+- `rtk_account_manager/internal/lifecyclehttp`: `TestPublisherDoesNotProjectAcceptedOrMismatchedSnapshotReceipt/wrong-revision`
+- `rtk_account_manager/internal/lifecyclehttp`: `TestPublisherDoesNotProjectAcceptedOrMismatchedSnapshotReceipt`
 - `rtk_account_manager/internal/lifecyclehttp`: `TestPublisherForwardsRevisionedProductGrantToInternalActivation`
 - `rtk_account_manager/internal/lifecyclehttp`: `TestPublisherMakesProjectionFailureRetryable`
 - `rtk_account_manager/internal/lifecyclehttp`: `TestPublisherProjectsStaleActivityConflictWithoutRetry`
@@ -1680,6 +1683,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestPlatformServiceManifestValidation/foreign-mqtt`
 - `rtk_account_manager/internal/store`: `TestPlatformServiceManifestValidation/foreign-ota`
 - `rtk_account_manager/internal/store`: `TestPlatformServiceManifestValidation/invalid-code`
+- `rtk_account_manager/internal/store`: `TestPlatformServiceManifestValidation/missing-mqtt-foundation`
 - `rtk_account_manager/internal/store`: `TestPlatformServiceManifestValidation/mqtt-cannot-advertise-plugin`
 - `rtk_account_manager/internal/store`: `TestPlatformServiceManifestValidation/mqtt-with-dependency`
 - `rtk_account_manager/internal/store`: `TestPlatformServiceManifestValidation/self-dependency`
@@ -1699,6 +1703,10 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestProductMutationAuditAndCommitFailuresRollBack/update/audit`
 - `rtk_account_manager/internal/store`: `TestProductMutationAuditAndCommitFailuresRollBack/update/commit`
 - `rtk_account_manager/internal/store`: `TestProductMutationAuditAndCommitFailuresRollBack`
+- `rtk_account_manager/internal/store`: `TestProductRetentionEditCreatesPinnedGrantRevision`
+- `rtk_account_manager/internal/store`: `TestProductServiceApplyAcceptsTrustedLegacyDeviceWithoutMQTT`
+- `rtk_account_manager/internal/store`: `TestProductServiceApplyFreezesMoreThan250DevicesAndRequiresAppliedReceipt`
+- `rtk_account_manager/internal/store`: `TestProductServiceApplyRejectsChangedGrantAndMembership`
 - `rtk_account_manager/internal/store`: `TestProductServiceOptionCodeValidationRejectsAmbiguousGrants`
 - `rtk_account_manager/internal/store`: `TestProductServiceSelectionRequiresRegisteredFoundationAndDependencies/duplicate`
 - `rtk_account_manager/internal/store`: `TestProductServiceSelectionRequiresRegisteredFoundationAndDependencies/missing-foundation`

@@ -191,6 +191,9 @@ func TestRunOnceDeadLettersExhaustedPublishFailures(t *testing.T) {
 	if transition.OperationCompletedAt == nil || !transition.OperationCompletedAt.Equal(now) {
 		t.Fatalf("expected completed_at on dead letter, got %+v", transition.OperationCompletedAt)
 	}
+	if transition.OperationRetryable == nil || !*transition.OperationRetryable {
+		t.Fatalf("transient exhausted delivery must permit explicit retry: %+v", transition.OperationRetryable)
+	}
 }
 
 func TestRunOnceDeadLettersInvalidOutboxPayload(t *testing.T) {
@@ -212,6 +215,9 @@ func TestRunOnceDeadLettersInvalidOutboxPayload(t *testing.T) {
 	}
 	if stats.DeadLettered != 1 {
 		t.Fatalf("unexpected stats: %+v", stats)
+	}
+	if transition := outboxStore.transitions[0]; transition.OperationRetryable == nil || *transition.OperationRetryable {
+		t.Fatalf("invalid outbox payload must remain permanent: %+v", transition.OperationRetryable)
 	}
 }
 

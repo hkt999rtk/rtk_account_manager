@@ -87,7 +87,7 @@ func (p *Publisher) Publish(ctx context.Context, stream string, envelope channel
 		return err
 	}
 
-	method, action, deviceID, body, err := directRequest(payload)
+	method, action, deviceID, body, err := directRequest(payload, envelope.OperationID)
 	if err != nil {
 		return err
 	}
@@ -111,6 +111,16 @@ func (p *Publisher) Publish(ctx context.Context, stream string, envelope channel
 	if typed, ok := payload.(*channel.DeviceProvisionRequestedPayload); ok && response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices {
 		if err := validateActivationReceipt(response, typed); err != nil {
 			return broker.Transient(fmt.Errorf("video activation acknowledgement: %w", err))
+		}
+	}
+	if typed, ok := payload.(*channel.DeviceEntitlementSnapshotRequestedPayload); ok {
+		if response.StatusCode == http.StatusAccepted {
+			return broker.Transient(fmt.Errorf("video entitlement snapshot was accepted but not applied"))
+		}
+		if response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices {
+			if err := validateEntitlementReceipt(response, envelope.OperationID, typed); err != nil {
+				return broker.Transient(fmt.Errorf("video entitlement acknowledgement: %w", err))
+			}
 		}
 	}
 
@@ -168,7 +178,43 @@ func validateActivationReceipt(response *http.Response, command *channel.DeviceP
 	return nil
 }
 
-func directRequest(payload channel.Payload) (method, action, deviceID string, body []byte, err error) {
+func validateEntitlementReceipt(response *http.Response, operationID string, command *channel.DeviceEntitlementSnapshotRequestedPayload) error {
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected success status %d", response.StatusCode)
+	}
+	const maxReceiptBytes = 4096
+	raw, err := io.ReadAll(io.LimitReader(response.Body, maxReceiptBytes+1))
+	if err != nil || len(raw) > maxReceiptBytes {
+		return fmt.Errorf("unreadable or oversized receipt")
+	}
+	var receipt struct {
+		Status                      string `json:"status"`
+		DeviceID                    string `json:"devid"`
+		OperationID                 string `json:"operation_id"`
+		AppliedRevision             int64  `json:"applied_revision"`
+		PlatformEntitlementRevision int64  `json:"platform_entitlement_revision"`
+		ProductServiceRevision      int64  `json:"product_service_revision"`
+		ServiceGrantSHA256          string `json:"service_grant_sha256"`
+		LogRetentionDays            *int   `json:"log_retention_days"`
+		State                       string `json:"state"`
+	}
+	if json.Unmarshal(raw, &receipt) != nil {
+		return fmt.Errorf("invalid receipt JSON")
+	}
+	if receipt.Status != "ok" || receipt.DeviceID != command.VideoCloudDevid || receipt.OperationID != operationID ||
+		receipt.AppliedRevision != command.PlatformEntitlementRevision ||
+		receipt.PlatformEntitlementRevision != command.PlatformEntitlementRevision ||
+		receipt.ProductServiceRevision != command.ProductServiceRevision ||
+		receipt.ServiceGrantSHA256 != command.ServiceGrantSHA256 || receipt.State != command.State ||
+		!sameOptionalInt(receipt.LogRetentionDays, command.LogRetentionDays) {
+		return fmt.Errorf("receipt does not match entitlement command")
+	}
+	return nil
+}
+
+func sameOptionalInt(a, b *int) bool { return a == nil && b == nil || a != nil && b != nil && *a == *b }
+
+func directRequest(payload channel.Payload, operationID string) (method, action, deviceID string, body []byte, err error) {
 	switch typed := payload.(type) {
 	case *channel.DeviceProvisionRequestedPayload:
 		request := map[string]any{
@@ -183,6 +229,9 @@ func directRequest(payload channel.Payload) (method, action, deviceID string, bo
 			request["product_id"] = typed.ProductID
 			request["product_service_revision"] = *typed.ProductServiceRevision
 			request["service_grant_sha256"] = typed.ServiceGrantSHA256
+			if typed.LogRetentionDays != nil {
+				request["log_retention_days"] = *typed.LogRetentionDays
+			}
 		}
 		body, err = json.Marshal(request)
 		return http.MethodPost, "activate", typed.VideoCloudDevid, body, err
@@ -193,14 +242,19 @@ func directRequest(payload channel.Payload) (method, action, deviceID string, bo
 		body, err = json.Marshal(map[string]string{"devid": typed.VideoCloudDevid})
 		return http.MethodPost, "unprovision", typed.VideoCloudDevid, body, err
 	case *channel.DeviceEntitlementSnapshotRequestedPayload:
-		body, err = json.Marshal(map[string]any{
+		request := map[string]any{
 			"devid": typed.VideoCloudDevid, "brand_cloud_id": typed.OrgID,
 			"account_device_id": typed.AccountDeviceID, "product_id": typed.ProductID,
+			"operation_id":                  operationID,
 			"product_service_revision":      typed.ProductServiceRevision,
 			"service_grant_sha256":          typed.ServiceGrantSHA256,
 			"platform_entitlement_revision": typed.PlatformEntitlementRevision,
 			"service_options":               typed.ServiceOptions, "state": typed.State,
-		})
+		}
+		if typed.LogRetentionDays != nil {
+			request["log_retention_days"] = *typed.LogRetentionDays
+		}
+		body, err = json.Marshal(request)
 		return http.MethodPut, "entitlement", typed.VideoCloudDevid, body, err
 	default:
 		return "", "", "", nil, fmt.Errorf("unsupported direct lifecycle payload %T", payload)

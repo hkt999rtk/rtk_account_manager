@@ -66,6 +66,10 @@ func TestRegisteredOptionsPinProductRunAndFactoryGrant(t *testing.T) {
 	if err != nil || !catalog.Options[1].Selectable {
 		t.Fatalf("activated Shadow unavailable: %+v %v", catalog, err)
 	}
+	expired, err := env.store.ListPlatformServiceOptions(ctx, environment, now.Add(PlatformServiceLeaseDuration+time.Second))
+	if err != nil || expired.Options[0].UnavailableReason != "lease_expired" || expired.Options[1].UnavailableReason != "dependency_unavailable" {
+		t.Fatalf("expired foundation reasons = %+v %v", expired, err)
+	}
 	create.CatalogRevision = catalog.CatalogRevision
 	profile, err := env.store.CreateDeviceItemProfileAsUser(ctx, create)
 	if err != nil {
@@ -94,8 +98,16 @@ func TestRegisteredOptionsPinProductRunAndFactoryGrant(t *testing.T) {
 	if err != nil || firstRun.ProductServiceRevision == nil || firstRun.ServiceGrantSHA256 == "" || !slices.Equal(issuedOptions, []string{"iot_shadow", "mqtt"}) {
 		t.Fatalf("first run = %+v, options=%v, error=%v", firstRun, issuedOptions, err)
 	}
-	if _, err := env.store.UpdateDeviceItemProfileAsUser(ctx, DeviceItemProfileUpdateInput{ActorUserID: &owner.User.ID, BrandCloudID: owner.BrandCloud.ID, ProfileID: profile.ID, ServiceOptions: []string{"mqtt"}, CatalogRevision: catalog.CatalogRevision}); err != nil {
+	if _, err := env.store.SetPlatformServiceStatus(ctx, environment, "shadow", "suspended", owner.User.ID); err != nil {
 		t.Fatal(err)
+	}
+	newName := "Renamed while Shadow is unavailable"
+	renamed, err := env.store.UpdateDeviceItemProfileAsUser(ctx, DeviceItemProfileUpdateInput{ActorUserID: &owner.User.ID, BrandCloudID: owner.BrandCloud.ID, ProfileID: profile.ID, DisplayName: &newName})
+	if err != nil || !serviceOptionSetsEqual(renamed.ServiceOptions, []string{"mqtt", "iot_shadow"}) {
+		t.Fatalf("retained unavailable option blocked metadata edit: %+v %v", renamed, err)
+	}
+	if _, err := env.store.UpdateDeviceItemProfileAsUser(ctx, DeviceItemProfileUpdateInput{ActorUserID: &owner.User.ID, BrandCloudID: owner.BrandCloud.ID, ProfileID: profile.ID, ServiceOptions: []string{"mqtt"}, CatalogRevision: catalog.CatalogRevision}); err != nil {
+		t.Fatalf("unavailable option blocked removal: %v", err)
 	}
 	secondRun, _, err := env.store.IssueProductionRunAsUser(ctx, runInput, func(run model.ProductionRun, p model.DeviceItemProfile) (string, error) { return "signed-fixture", nil })
 	if err != nil || secondRun.ProductServiceRevision == nil || *secondRun.ProductServiceRevision <= *firstRun.ProductServiceRevision {

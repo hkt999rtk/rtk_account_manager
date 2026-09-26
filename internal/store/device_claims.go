@@ -107,7 +107,9 @@ func createDeviceClaimTokenTx(ctx context.Context, tx pgx.Tx, in DeviceClaimToke
 	category := in.Category
 	serviceOptionValues := in.ServiceOptions
 	grantBound := false
+	productBound := false
 	if in.DeviceItemProfileID != nil && strings.TrimSpace(*in.DeviceItemProfileID) != "" {
+		productBound = true
 		profile, err := getDeviceItemProfileByID(ctx, tx, *in.DeviceItemProfileID)
 		if err != nil {
 			return model.DeviceClaimToken{}, err
@@ -145,7 +147,7 @@ func createDeviceClaimTokenTx(ctx context.Context, tx pgx.Tx, in DeviceClaimToke
 			grantBound = true
 		} else if serviceOptionValues == nil || len(serviceOptionValues) == 0 {
 			serviceOptionValues = profile.ServiceOptions
-		} else if err := validateClaimServiceOptions(serviceOptionValues); err != nil {
+		} else if err := validateProductServiceOptions(serviceOptionValues); err != nil {
 			return model.DeviceClaimToken{}, err
 		} else if !serviceOptionSetsEqual(serviceOptionValues, profile.ServiceOptions) {
 			return model.DeviceClaimToken{}, ErrClaimServiceOptionsMismatch
@@ -170,7 +172,7 @@ func createDeviceClaimTokenTx(ctx context.Context, tx pgx.Tx, in DeviceClaimToke
 		serviceOptionValues = []string{}
 	}
 	var optionsErr error
-	if grantBound {
+	if grantBound || productBound {
 		optionsErr = validateProductServiceOptions(serviceOptionValues)
 	} else {
 		optionsErr = validateClaimServiceOptions(serviceOptionValues)

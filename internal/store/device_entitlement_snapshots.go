@@ -15,6 +15,7 @@ import (
 )
 
 type DeviceEntitlementSnapshotInput struct {
+	BatchJobID                   string
 	OperationID                  string
 	CorrelationID                string
 	MessageID                    string
@@ -36,6 +37,7 @@ type DeviceEntitlementSnapshot struct {
 	ProductServiceRevision int64     `json:"product_service_revision"`
 	ServiceGrantSHA256     string    `json:"service_grant_sha256"`
 	ServiceOptions         []string  `json:"service_options"`
+	LogRetentionDays       *int      `json:"log_retention_days,omitempty"`
 	State                  string    `json:"state"`
 	OperationID            string    `json:"operation_id"`
 	CreatedBy              string    `json:"created_by"`
@@ -79,8 +81,10 @@ func (s *Store) StartDeviceEntitlementSnapshot(ctx context.Context, in DeviceEnt
 		return DeviceEntitlementSnapshotResult{}, err
 	}
 	defer tx.Rollback(ctx)
-	if err := authorizeDeviceUserMutationTx(ctx, tx, in.RequestedBy, in.OrganizationID, in.DeviceID, "lifecycle_operation.provision"); err != nil {
-		return DeviceEntitlementSnapshotResult{}, err
+	if in.BatchJobID == "" {
+		if err := authorizeDeviceUserMutationTx(ctx, tx, in.RequestedBy, in.OrganizationID, in.DeviceID, "lifecycle_operation.provision"); err != nil {
+			return DeviceEntitlementSnapshotResult{}, err
+		}
 	}
 	device, err := getDeviceForUpdateTx(ctx, tx, in.OrganizationID, in.DeviceID)
 	if err != nil {
@@ -92,8 +96,16 @@ func (s *Store) StartDeviceEntitlementSnapshot(ctx context.Context, in DeviceEnt
 	if err := authorizeProductUserMutationTx(ctx, tx, in.RequestedBy, in.OrganizationID, *device.DeviceItemProfileID, false); err != nil {
 		return DeviceEntitlementSnapshotResult{}, err
 	}
+	if in.BatchJobID != "" {
+		if err := validateProductApplyItemTx(ctx, tx, in.BatchJobID, in.OrganizationID, *device.DeviceItemProfileID, in.DeviceID, in.OperationID, in.TargetProductServiceRevision, requested); err != nil {
+			return DeviceEntitlementSnapshotResult{}, err
+		}
+	}
 	requestPayload := map[string]any{"requested_by": in.RequestedBy, "state": in.State, "service_options": requested,
 		"target_product_service_revision": in.TargetProductServiceRevision}
+	if in.BatchJobID != "" {
+		requestPayload["batch_job_id"] = in.BatchJobID
+	}
 	opInput := DeviceLifecycleOperationInput{OperationID: in.OperationID, CorrelationID: in.CorrelationID, MessageID: in.MessageID,
 		OrganizationID: in.OrganizationID, DeviceID: in.DeviceID, OperationType: model.DeviceOperationTypeEntitlementUpdate,
 		RequestedBy: &in.RequestedBy, RequestPayload: requestPayload, Now: in.Now}
@@ -105,6 +117,11 @@ func (s *Store) StartDeviceEntitlementSnapshot(ctx context.Context, in DeviceEnt
 		snapshot, err := getDeviceEntitlementSnapshotByOperationTx(ctx, tx, in.OperationID)
 		if err != nil {
 			return DeviceEntitlementSnapshotResult{}, err
+		}
+		if in.BatchJobID != "" {
+			if err := validateProductApplyReplayTx(ctx, tx, device, snapshot); err != nil {
+				return DeviceEntitlementSnapshotResult{}, err
+			}
 		}
 		message, err := getLatestOutboxMessageByOperationTx(ctx, tx, in.OperationID)
 		if err != nil {
@@ -119,15 +136,20 @@ func (s *Store) StartDeviceEntitlementSnapshot(ctx context.Context, in DeviceEnt
 	if err != nil {
 		return DeviceEntitlementSnapshotResult{}, err
 	}
+	if in.BatchJobID != "" {
+		if err := validateProductApplyBaselineTx(ctx, tx, in.BatchJobID, in.DeviceID, baseline); err != nil {
+			return DeviceEntitlementSnapshotResult{}, err
+		}
+	}
 	grantRevision := baseline.ProductServiceRevision
 	if in.TargetProductServiceRevision != nil {
 		grantRevision = *in.TargetProductServiceRevision
 	}
-	productOptions, bindings, digest, latestRevision, err := productGrantForEntitlementTx(ctx, tx, *device.DeviceItemProfileID, in.OrganizationID, grantRevision)
+	productOptions, bindings, digest, logRetentionDays, latestRevision, err := productGrantForEntitlementTx(ctx, tx, *device.DeviceItemProfileID, in.OrganizationID, grantRevision)
 	if err != nil {
 		return DeviceEntitlementSnapshotResult{}, err
 	}
-	if in.TargetProductServiceRevision != nil && grantRevision != latestRevision ||
+	if in.TargetProductServiceRevision != nil && in.BatchJobID == "" && grantRevision != latestRevision ||
 		in.TargetProductServiceRevision == nil && digest != baseline.ServiceGrantSHA256 {
 		return DeviceEntitlementSnapshotResult{}, ErrConflict
 	}
@@ -138,21 +160,25 @@ func (s *Store) StartDeviceEntitlementSnapshot(ctx context.Context, in DeviceEnt
 	if err := validateEffectiveDeviceServices(options, productOptions, bindings); err != nil {
 		return DeviceEntitlementSnapshotResult{}, err
 	}
+	if !slices.Contains(options, "device_logging") {
+		logRetentionDays = nil
+	}
 	snapshot := DeviceEntitlementSnapshot{OrganizationID: in.OrganizationID, AccountDeviceID: in.DeviceID,
 		VideoCloudDevid: baseline.VideoCloudDevid, Revision: baseline.Revision + 1, ProductID: *device.DeviceItemProfileID,
 		ProductServiceRevision: grantRevision, ServiceGrantSHA256: digest, ServiceOptions: options, State: in.State,
-		OperationID: in.OperationID, CreatedBy: in.RequestedBy, CreatedAt: in.Now}
+		LogRetentionDays: logRetentionDays,
+		OperationID:      in.OperationID, CreatedBy: in.RequestedBy, CreatedAt: in.Now}
 	optionsJSON, err := json.Marshal(options)
 	if err != nil {
 		return DeviceEntitlementSnapshotResult{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO device_entitlement_snapshots
 		(organization_id,account_device_id,video_cloud_devid,revision,product_id,product_service_revision,
-		service_grant_sha256,service_options,entitlement_state,operation_id,created_by,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		service_grant_sha256,service_options,entitlement_state,operation_id,created_by,created_at,log_retention_days)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
 		snapshot.OrganizationID, snapshot.AccountDeviceID, snapshot.VideoCloudDevid, snapshot.Revision,
 		snapshot.ProductID, snapshot.ProductServiceRevision, snapshot.ServiceGrantSHA256, optionsJSON,
-		snapshot.State, snapshot.OperationID, snapshot.CreatedBy, snapshot.CreatedAt); err != nil {
+		snapshot.State, snapshot.OperationID, snapshot.CreatedBy, snapshot.CreatedAt, snapshot.LogRetentionDays); err != nil {
 		return DeviceEntitlementSnapshotResult{}, err
 	}
 	opInput.OutboxMessageType = string(channel.MessageTypeDeviceEntitlementSnapshotRequested)
@@ -161,6 +187,9 @@ func (s *Store) StartDeviceEntitlementSnapshot(ctx context.Context, in DeviceEnt
 		"product_service_revision": snapshot.ProductServiceRevision, "service_grant_sha256": snapshot.ServiceGrantSHA256,
 		"platform_entitlement_revision": snapshot.Revision, "service_options": snapshot.ServiceOptions,
 		"state": snapshot.State, "requested_by": in.RequestedBy}
+	if snapshot.LogRetentionDays != nil {
+		opInput.OutboxPayload["log_retention_days"] = *snapshot.LogRetentionDays
+	}
 	message, err := createOutboxMessageTx(ctx, tx, operation, opInput)
 	if err != nil {
 		return DeviceEntitlementSnapshotResult{}, err
@@ -181,11 +210,14 @@ func (s *Store) StartDeviceEntitlementSnapshot(ctx context.Context, in DeviceEnt
 func latestDeviceEntitlementBaselineTx(ctx context.Context, tx pgx.Tx, device model.Device) (DeviceEntitlementSnapshot, error) {
 	snapshot, err := scanDeviceEntitlementSnapshot(tx.QueryRow(ctx, `SELECT organization_id::text,account_device_id::text,video_cloud_devid,
 		revision,product_id::text,product_service_revision,service_grant_sha256,service_options,entitlement_state,
-		operation_id,created_by::text,created_at FROM device_entitlement_snapshots
+		operation_id,created_by::text,created_at,log_retention_days FROM device_entitlement_snapshots
 		WHERE organization_id=$1 AND account_device_id=$2 ORDER BY revision DESC LIMIT 1`, device.OrganizationID, device.ID))
 	if err == nil {
 		if device.DeviceItemProfileID == nil || snapshot.ProductID != *device.DeviceItemProfileID {
 			return DeviceEntitlementSnapshot{}, ErrConflict
+		}
+		if status, _ := lifecycleMetadataString(device.Metadata, model.DeviceMetadataVideoCloudActivationStatus); status == string(model.VideoCloudActivationStatusDeactivated) && snapshot.State == "active" {
+			snapshot.State = "suspended"
 		}
 		return snapshot, nil
 	}
@@ -210,36 +242,50 @@ func latestDeviceEntitlementBaselineTx(ctx context.Context, tx pgx.Tx, device mo
 		len(provision.ServiceOptions) == 0 || strings.TrimSpace(provision.VideoCloudDevid) == "" {
 		return DeviceEntitlementSnapshot{}, ErrConflict
 	}
+	state := "active"
+	if status, _ := lifecycleMetadataString(device.Metadata, model.DeviceMetadataVideoCloudActivationStatus); status == string(model.VideoCloudActivationStatusDeactivated) {
+		state = "suspended"
+	}
 	return DeviceEntitlementSnapshot{OrganizationID: device.OrganizationID, AccountDeviceID: device.ID,
 		VideoCloudDevid: provision.VideoCloudDevid, ProductID: provision.ProductID,
 		ProductServiceRevision: *provision.ProductServiceRevision, ServiceGrantSHA256: provision.ServiceGrantSHA256,
-		ServiceOptions: provision.ServiceOptions, State: "active"}, nil
+		ServiceOptions: provision.ServiceOptions, LogRetentionDays: provision.LogRetentionDays, State: state}, nil
 }
 
-func productGrantForEntitlementTx(ctx context.Context, tx pgx.Tx, productID, cloudID string, revision int64) ([]string, []PlatformServiceCatalogOption, string, int64, error) {
+func productGrantForEntitlementTx(ctx context.Context, tx pgx.Tx, productID, cloudID string, revision int64) ([]string, []PlatformServiceCatalogOption, string, *int, int64, error) {
 	var optionsJSON, bindingsJSON []byte
 	var digest string
+	var logRetentionDays *int
 	var latest int64
-	err := tx.QueryRow(ctx, `SELECT options,bindings,snapshot_sha256,
+	err := tx.QueryRow(ctx, `SELECT options,bindings,snapshot_sha256,log_retention_days,
 		(SELECT MAX(revision) FROM product_service_grants WHERE product_id=$1 AND brand_cloud_id=$2)
 		FROM product_service_grants WHERE product_id=$1 AND brand_cloud_id=$2 AND revision=$3`, productID, cloudID, revision).
-		Scan(&optionsJSON, &bindingsJSON, &digest, &latest)
+		Scan(&optionsJSON, &bindingsJSON, &digest, &logRetentionDays, &latest)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil, "", 0, ErrConflict
+		return nil, nil, "", nil, 0, ErrConflict
 	}
 	if err != nil {
-		return nil, nil, "", 0, err
+		return nil, nil, "", nil, 0, err
 	}
 	var options []string
 	var bindings []PlatformServiceCatalogOption
 	if err := json.Unmarshal(optionsJSON, &options); err != nil || validateProductServiceOptions(options) != nil ||
 		json.Unmarshal(bindingsJSON, &bindings) != nil || len(options) == 0 {
-		return nil, nil, "", 0, ErrConflict
+		return nil, nil, "", nil, 0, ErrConflict
 	}
-	return options, bindings, digest, latest, nil
+	return options, bindings, digest, logRetentionDays, latest, nil
 }
 
 func validateEffectiveDeviceServices(effective, product []string, bindings []PlatformServiceCatalogOption) error {
+	if !slices.Contains(effective, "mqtt") {
+		return ErrClaimUnsupportedService
+	}
+	return validateHistoricalDeviceServices(effective, product, bindings)
+}
+
+// Historical grants can predate mandatory MQTT. Their options still need to
+// belong to the immutable grant before a Product-wide upgrade may replace it.
+func validateHistoricalDeviceServices(effective, product []string, bindings []PlatformServiceCatalogOption) error {
 	if len(effective) == 0 || validateProductServiceOptions(effective) != nil {
 		return ErrClaimUnsupportedService
 	}
@@ -253,9 +299,6 @@ func validateEffectiveDeviceServices(effective, product []string, bindings []Pla
 			return ErrClaimUnsupportedService
 		}
 		selected[option] = true
-	}
-	if !selected["mqtt"] {
-		return ErrClaimUnsupportedService
 	}
 	for _, binding := range bindings {
 		if selected[binding.Code] {
@@ -272,7 +315,7 @@ func validateEffectiveDeviceServices(effective, product []string, bindings []Pla
 func getDeviceEntitlementSnapshotByOperationTx(ctx context.Context, tx pgx.Tx, operationID string) (DeviceEntitlementSnapshot, error) {
 	snapshot, err := scanDeviceEntitlementSnapshot(tx.QueryRow(ctx, `SELECT organization_id::text,account_device_id::text,video_cloud_devid,
 		revision,product_id::text,product_service_revision,service_grant_sha256,service_options,entitlement_state,
-		operation_id,created_by::text,created_at FROM device_entitlement_snapshots WHERE operation_id=$1`, operationID))
+		operation_id,created_by::text,created_at,log_retention_days FROM device_entitlement_snapshots WHERE operation_id=$1`, operationID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DeviceEntitlementSnapshot{}, ErrNotFound
 	}
@@ -284,7 +327,7 @@ func scanDeviceEntitlementSnapshot(row rowScanner) (DeviceEntitlementSnapshot, e
 	var optionsJSON []byte
 	err := row.Scan(&snapshot.OrganizationID, &snapshot.AccountDeviceID, &snapshot.VideoCloudDevid,
 		&snapshot.Revision, &snapshot.ProductID, &snapshot.ProductServiceRevision, &snapshot.ServiceGrantSHA256,
-		&optionsJSON, &snapshot.State, &snapshot.OperationID, &snapshot.CreatedBy, &snapshot.CreatedAt)
+		&optionsJSON, &snapshot.State, &snapshot.OperationID, &snapshot.CreatedBy, &snapshot.CreatedAt, &snapshot.LogRetentionDays)
 	if err != nil {
 		return DeviceEntitlementSnapshot{}, err
 	}

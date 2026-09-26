@@ -4551,6 +4551,138 @@ paths:
               schema: { $ref: "#/components/schemas/DeviceItemProfileResponse" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /v1/orgs/{orgId}/device-item-profiles/{profileId}/service-apply-preview:
+    get:
+      tags: [Devices]
+      operationId: previewProductServiceApply
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
+      summary: Preview applying the current Product grant to all existing devices.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - $ref: '#/components/parameters/ProfileId'
+      responses:
+        '200': { description: Immutable target and per-device blockers., content: { application/json: { schema: { $ref: '#/components/schemas/ProductServiceApplyPreview' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /v1/orgs/{orgId}/device-item-profiles/{profileId}/service-apply-jobs:
+    post:
+      tags: [Devices]
+      operationId: admitProductServiceApply
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
+      summary: Confirm a reviewed preview and freeze the Product device set.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - $ref: '#/components/parameters/ProfileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [job_id, preview_token]
+              properties:
+                job_id: { type: string, pattern: '^job-[0-9a-f]{24}$' }
+                preview_token: { type: string, pattern: '^[0-9a-f]{64}$' }
+      responses:
+        '202': { description: Batch admitted., content: { application/json: { schema: { type: object, properties: { job: { $ref: '#/components/schemas/ProductServiceApplyJob' } } } } } }
+        '409': { $ref: '#/components/responses/Error' }
+  /v1/orgs/{orgId}/device-item-profiles/{profileId}/service-apply-jobs/{jobId}:
+    get:
+      tags: [Devices]
+      operationId: getProductServiceApplyJob
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
+      summary: Read a Product service apply job.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - $ref: '#/components/parameters/ProfileId'
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Job state., content: { application/json: { schema: { type: object, properties: { job: { $ref: '#/components/schemas/ProductServiceApplyJob' } } } } } }
+  /v1/orgs/{orgId}/device-item-profiles/{profileId}/service-apply-jobs/{jobId}/items:
+    get:
+      tags: [Devices]
+      operationId: listProductServiceApplyItems
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
+      summary: Page through every device in the frozen batch.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - $ref: '#/components/parameters/ProfileId'
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 250 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0 } }
+      responses:
+        '200': { description: Paged device results., content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/ProductServiceApplyItem' } }, total: { type: integer } } } } } }
+  /v1/orgs/{orgId}/device-item-profiles/{profileId}/service-apply-jobs/{jobId}/items/{deviceId}:
+    get:
+      tags: [Devices]
+      operationId: getProductServiceApplyItem
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
+      summary: Read the acknowledged result for one batch device.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - $ref: '#/components/parameters/ProfileId'
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+        - { name: deviceId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Device result., content: { application/json: { schema: { type: object, properties: { item: { $ref: '#/components/schemas/ProductServiceApplyItem' } } } } } }
+  /v1/orgs/{orgId}/device-item-profiles/{profileId}/service-apply-jobs/{jobId}/items/{deviceId}/dispatch:
+    post:
+      tags: [Devices]
+      operationId: dispatchProductServiceApplyItem
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
+      summary: Idempotently dispatch one frozen device snapshot.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - $ref: '#/components/parameters/ProfileId'
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+        - { name: deviceId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses:
+        '202': { description: Accepted; poll until applied., content: { application/json: { schema: { type: object, properties: { item: { $ref: '#/components/schemas/ProductServiceApplyItem' } } } } } }
+        '200': { description: Already applied., content: { application/json: { schema: { type: object, properties: { item: { $ref: '#/components/schemas/ProductServiceApplyItem' } } } } } }
+        '409': { $ref: '#/components/responses/Error' }
+  /v1/orgs/{orgId}/device-item-profiles/{profileId}/service-apply-jobs/{jobId}/cancel:
+    post:
+      tags: [Devices]
+      operationId: cancelProductServiceApply
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
+      summary: Stop further dispatch while retaining accepted results.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - $ref: '#/components/parameters/ProfileId'
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses:
+        '200': { description: Job canceled., content: { application/json: { schema: { type: object, properties: { job: { $ref: '#/components/schemas/ProductServiceApplyJob' } } } } } }
+  /v1/orgs/{orgId}/device-item-profiles/{profileId}/service-apply-jobs/{jobId}/complete:
+    post:
+      tags: [Devices]
+      operationId: completeProductServiceApply
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
+      summary: Complete a batch only after every device acknowledged the target.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/OrgId'
+        - $ref: '#/components/parameters/ProfileId'
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses:
+        '200': { description: Job completed., content: { application/json: { schema: { type: object, properties: { job: { $ref: '#/components/schemas/ProductServiceApplyJob' } } } } } }
+        '409': { $ref: '#/components/responses/Error' }
   /v1/orgs/{orgId}/devices:
     get:
       tags:
@@ -7968,6 +8100,51 @@ components:
           required: [access_scope]
           properties:
             access_scope: { $ref: '#/components/schemas/CloudViewerScope' }
+    ProductServiceApplyPreview:
+      type: object
+      required: [preview_token, target_revision, target_digest, total_devices, added_count, removed_count, added_options, removed_options, blockers]
+      properties:
+        preview_token: { type: string }
+        target_revision: { type: integer }
+        target_digest: { type: string }
+        total_devices: { type: integer }
+        added_count: { type: integer }
+        removed_count: { type: integer }
+        added_options: { type: array, items: { type: string } }
+        removed_options: { type: array, items: { type: string } }
+        blockers:
+          type: array
+          items:
+            type: object
+            required: [device_id, code]
+            properties:
+              device_id: { type: string, format: uuid }
+              code: { type: string }
+    ProductServiceApplyJob:
+      type: object
+      required: [id, organization_id, product_id, target_revision, target_digest, total_devices, status, created_at]
+      properties:
+        id: { type: string }
+        organization_id: { type: string, format: uuid }
+        product_id: { type: string, format: uuid }
+        target_revision: { type: integer }
+        target_digest: { type: string }
+        total_devices: { type: integer }
+        status: { type: string, enum: [active, completed, canceled] }
+        created_at: { type: string, format: date-time }
+    ProductServiceApplyItem:
+      type: object
+      required: [device_id, operation_id, status, baseline_revision, baseline_digest, baseline_state, retryable]
+      properties:
+        device_id: { type: string, format: uuid }
+        operation_id: { type: string }
+        status: { type: string, enum: [pending, accepted, applied, failed] }
+        baseline_revision: { type: integer }
+        baseline_digest: { type: string }
+        baseline_state: { type: string, enum: [active, suspended, revoked] }
+        applied_revision: { type: integer }
+        retryable: { type: boolean }
+        error_code: { type: string }
     DeviceItemProfile:
       type: object
       required: [id, brand_cloud_id, profile_key, display_name, status, category, metadata_defaults, metadata_schema, ca_profile, issuer_profile, service_options, claim_policy, provisioning_policy, created_at, updated_at]
@@ -8005,6 +8182,9 @@ components:
           type: string
         service_options:
           $ref: "#/components/schemas/ServiceOptions"
+        log_retention_days: { type: integer, enum: [7, 30, 90] }
+        grant_revision: { type: integer }
+        grant_digest: { type: string }
         claim_policy:
           type: object
           additionalProperties: true
@@ -8075,6 +8255,15 @@ components:
           type: string
           format: uuid
           description: Canonical Product/device profile assigned during the provision or claim flow.
+        applied_grant_revision: { type: integer }
+        pending_grant_revision: { type: integer }
+        entitlement_result:
+          type: object
+          properties:
+            operation_id: { type: string }
+            status: { type: string }
+            error_code: { type: string }
+            retryable: { type: boolean }
         name:
           type: string
         category:

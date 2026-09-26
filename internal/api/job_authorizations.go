@@ -120,13 +120,21 @@ func (s *Server) validateDelegatedJobRequest(c *gin.Context, claims *auth.Claims
 		return false
 	}
 	path := c.FullPath()
-	allowedPath := path == "/v1/orgs/:orgId/devices/:deviceId/provision" || path == "/v1/orgs/:orgId/devices/:deviceId/provisioning" || path == "/v1/orgs/:orgId/devices/:deviceId" || path == "/v1/orgs/:orgId/device-item-profiles/:profileId"
-	if claims.Capability != "provisioning.create" || c.Param("orgId") != claims.BrandCloudID || !allowedPath {
+	provisionPath := path == "/v1/orgs/:orgId/devices/:deviceId/provision" || path == "/v1/orgs/:orgId/devices/:deviceId/provisioning" || path == "/v1/orgs/:orgId/devices/:deviceId" || path == "/v1/orgs/:orgId/device-item-profiles/:profileId"
+	applyPath := path == "/v1/orgs/:orgId/device-item-profiles/:profileId/service-apply-jobs/:jobId" ||
+		path == "/v1/orgs/:orgId/device-item-profiles/:profileId/service-apply-jobs/:jobId/items" ||
+		path == "/v1/orgs/:orgId/device-item-profiles/:profileId/service-apply-jobs/:jobId/items/:deviceId" ||
+		path == "/v1/orgs/:orgId/device-item-profiles/:profileId/service-apply-jobs/:jobId/items/:deviceId/dispatch" ||
+		path == "/v1/orgs/:orgId/device-item-profiles/:profileId/service-apply-jobs/:jobId/cancel" ||
+		path == "/v1/orgs/:orgId/device-item-profiles/:profileId/service-apply-jobs/:jobId/complete"
+	if c.Param("orgId") != claims.BrandCloudID ||
+		!(claims.Capability == "provisioning.create" && provisionPath ||
+			claims.Capability == "product_services.apply" && applyPath && c.Param("jobId") == claims.JobID) {
 		writeError(c, http.StatusForbidden, "job_scope_forbidden", "Job token cannot access this operation")
 		return false
 	}
 	resourceProductID := c.Param("profileId")
-	if deviceID := c.Param("deviceId"); deviceID != "" {
+	if deviceID := c.Param("deviceId"); deviceID != "" && claims.Capability == "provisioning.create" {
 		device, err := s.store.GetDevice(c.Request.Context(), claims.BrandCloudID, deviceID)
 		if err != nil || device.DeviceItemProfileID == nil {
 			writeError(c, http.StatusNotFound, "not_found", "Resource not found")

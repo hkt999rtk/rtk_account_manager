@@ -38,6 +38,7 @@ func TestPlatformServiceManifestValidation(t *testing.T) {
 		{"invalid-code", func(r *PlatformServiceRegistration) { r.Options[0].Code = "platform:admin" }, ErrServiceRegistrationInvalid},
 		{"duplicate", func(r *PlatformServiceRegistration) { r.Options = append(r.Options, r.Options[0]) }, ErrServiceRegistrationInvalid},
 		{"self-dependency", func(r *PlatformServiceRegistration) { r.Options[0].Requires = []string{"iot_shadow"} }, ErrServiceRegistrationInvalid},
+		{"missing-mqtt-foundation", func(r *PlatformServiceRegistration) { r.Options[0].Requires = nil }, ErrServiceRegistrationInvalid},
 		{"mqtt-with-dependency", func(r *PlatformServiceRegistration) {
 			r.ServiceID = "mqtt"
 			r.Options = []PlatformServiceOption{{Code: "mqtt", DisplayName: "MQTT", Requires: []string{"iot_shadow"}}}

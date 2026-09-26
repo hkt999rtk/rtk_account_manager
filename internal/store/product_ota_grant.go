@@ -26,14 +26,15 @@ func (s *Store) GetProductOTAGrant(ctx context.Context, brandCloudID, productID 
 	var status string
 	var profileOptionsJSON, grantOptionsJSON, grantBindingsJSON []byte
 	var out ProductOTAGrant
+	var logRetentionDays *int
 	err := s.db.QueryRow(ctx, `
 		SELECT p.brand_cloud_id::text, p.id::text, p.status, p.service_options,
 		       COALESCE(g.revision, 0), COALESCE(g.options, '[]'::jsonb),
 		       COALESCE(g.bindings, 'null'::jsonb),
-		       COALESCE(g.snapshot_sha256, '')
+		       COALESCE(g.snapshot_sha256, ''), g.log_retention_days
 		FROM device_item_profiles p
 		LEFT JOIN LATERAL (
-			SELECT revision, options, bindings, snapshot_sha256
+			SELECT revision, options, bindings, snapshot_sha256, log_retention_days
 			FROM product_service_grants
 			WHERE product_id = p.id AND brand_cloud_id = p.brand_cloud_id
 			ORDER BY revision DESC LIMIT 1
@@ -42,7 +43,7 @@ func (s *Store) GetProductOTAGrant(ctx context.Context, brandCloudID, productID 
 	`, brandCloudID, productID).Scan(
 		&out.BrandCloudID, &out.ProductID, &status, &profileOptionsJSON,
 		&out.ProductServiceRevision, &grantOptionsJSON, &grantBindingsJSON,
-		&out.ServiceGrantSHA256,
+		&out.ServiceGrantSHA256, &logRetentionDays,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ProductOTAGrant{}, ErrNotFound
@@ -63,7 +64,7 @@ func (s *Store) GetProductOTAGrant(ctx context.Context, brandCloudID, productID 
 	}
 	slices.Sort(profileOptions)
 	slices.Sort(grantOptions)
-	_, _, expectedDigest, err := encodeProductServiceGrant(grantOptions, bindings)
+	_, _, expectedDigest, err := encodeProductServiceGrantWithRetention(grantOptions, bindings, logRetentionDays)
 	if err != nil {
 		return ProductOTAGrant{}, err
 	}
