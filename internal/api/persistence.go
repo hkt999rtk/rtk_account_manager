@@ -85,6 +85,7 @@ type userPersistence interface {
 }
 
 type organizationPersistence interface {
+	GetBrandCloudBillingTierPeriod(ctx context.Context, brandCloudID string, start, end time.Time) (store.BrandCloudBillingTierPeriod, error)
 	ListOrganizations(ctx context.Context, userID string, limit, offset int) (store.OrganizationPage, error)
 	CreateOrganization(ctx context.Context, userID, name string) (model.Organization, error)
 	GetOrganization(ctx context.Context, orgID, userID string) (model.Organization, error)
