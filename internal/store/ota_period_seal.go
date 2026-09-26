@@ -32,12 +32,13 @@ type OTAPeriodGrantSeal struct {
 }
 
 type otaGrantHistoryRow struct {
-	ProductID      string
-	Revision       int64
-	CreatedAt      time.Time
-	Options        []string
-	Bindings       []PlatformServiceCatalogOption
-	SnapshotSHA256 string
+	ProductID        string
+	Revision         int64
+	CreatedAt        time.Time
+	Options          []string
+	Bindings         []PlatformServiceCatalogOption
+	LogRetentionDays *int
+	SnapshotSHA256   string
 }
 
 // BuildOTAPeriodGrantSeal drains in-flight grant inserts before reading the
@@ -83,7 +84,7 @@ func (s *Store) BuildOTAPeriodGrantSeal(ctx context.Context, organizationID stri
 		return OTAPeriodGrantSeal{}, err
 	}
 	rows, err := tx.Query(ctx, `
-		SELECT product_id::text, revision, created_at, options, bindings, snapshot_sha256
+		SELECT product_id::text, revision, created_at, options, bindings, snapshot_sha256, log_retention_days
 		FROM product_service_grants
 		WHERE brand_cloud_id=$1 AND created_at < $2
 		ORDER BY product_id, revision
@@ -95,7 +96,7 @@ func (s *Store) BuildOTAPeriodGrantSeal(ctx context.Context, organizationID stri
 	for rows.Next() {
 		var row otaGrantHistoryRow
 		var rawOptions, rawBindings []byte
-		if err := rows.Scan(&row.ProductID, &row.Revision, &row.CreatedAt, &rawOptions, &rawBindings, &row.SnapshotSHA256); err != nil {
+		if err := rows.Scan(&row.ProductID, &row.Revision, &row.CreatedAt, &rawOptions, &rawBindings, &row.SnapshotSHA256, &row.LogRetentionDays); err != nil {
 			rows.Close()
 			return OTAPeriodGrantSeal{}, err
 		}
@@ -107,7 +108,7 @@ func (s *Store) BuildOTAPeriodGrantSeal(ctx context.Context, organizationID stri
 			rows.Close()
 			return OTAPeriodGrantSeal{}, ErrOTAPeriodSealInvalid
 		}
-		_, _, digest, err := encodeProductServiceGrant(row.Options, row.Bindings)
+		_, _, digest, err := encodeProductServiceGrantWithRetention(row.Options, row.Bindings, row.LogRetentionDays)
 		if err != nil || digest != row.SnapshotSHA256 {
 			rows.Close()
 			return OTAPeriodGrantSeal{}, ErrOTAPeriodSealInvalid

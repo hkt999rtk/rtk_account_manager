@@ -54,7 +54,7 @@ func (s *Store) CreateJobAuthorization(ctx context.Context, in JobAuthorizationI
 	in.ExpiresAt = in.ExpiresAt.UTC().Truncate(time.Microsecond)
 	in.JobID, in.BrandCloudID, in.ActorUserID = strings.TrimSpace(in.JobID), strings.TrimSpace(in.BrandCloudID), strings.TrimSpace(in.ActorUserID)
 	in.ScopeHash, in.Capability = strings.ToLower(strings.TrimSpace(in.ScopeHash)), strings.TrimSpace(in.Capability)
-	if in.Capability != "provisioning.create" || len(in.ScopeHash) != 64 || len(in.ProductIDs) == 0 || !in.ExpiresAt.After(now) || in.ExpiresAt.After(now.Add(7*24*time.Hour)) {
+	if (in.Capability != "provisioning.create" && in.Capability != "product_services.apply") || len(in.ScopeHash) != 64 || len(in.ProductIDs) == 0 || !in.ExpiresAt.After(now) || in.ExpiresAt.After(now.Add(7*24*time.Hour)) {
 		return JobAuthorization{}, ErrConflict
 	}
 	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
@@ -63,6 +63,10 @@ func (s *Store) CreateJobAuthorization(ctx context.Context, in JobAuthorizationI
 	}
 	defer tx.Rollback(ctx)
 	var authorizationVersion, ownershipVersion int64
+	requiredPermission := "lifecycle_operation.provision"
+	if in.Capability == "product_services.apply" {
+		requiredPermission = "registry_device.manage"
+	}
 	err = tx.QueryRow(ctx, `
 		SELECT o.authorization_version,o.ownership_version
 		FROM organizations o
@@ -74,9 +78,9 @@ func (s *Store) CreateJobAuthorization(ctx context.Context, in JobAuthorizationI
 		    SELECT 1 FROM role_assignments ra JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL
 		    JOIN role_permissions rp ON rp.role_id=r.id JOIN permissions p ON p.id=rp.permission_id
 		    WHERE ra.actor_type='user' AND ra.actor_id=$2 AND ra.organization_id=o.id AND ra.disabled_at IS NULL
-		      AND p.name='lifecycle_operation.provision' AND brand_cloud_permission_allowed($2,$1,p.name)
+		      AND p.name=$3 AND brand_cloud_permission_allowed($2,$1,p.name)
 		  )
-		FOR UPDATE OF o`, in.BrandCloudID, in.ActorUserID).Scan(&authorizationVersion, &ownershipVersion)
+		FOR UPDATE OF o`, in.BrandCloudID, in.ActorUserID, requiredPermission).Scan(&authorizationVersion, &ownershipVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return JobAuthorization{}, ErrNotFound
 	}
@@ -120,7 +124,7 @@ func (s *Store) ValidateJobAuthorization(ctx context.Context, authorizationID st
 		      AND user_can_access_brand_cloud(j.actor_user_id::text,j.brand_cloud_id::text)
 		      AND EXISTS (SELECT 1 FROM role_assignments ra JOIN roles r ON r.id=ra.role_id AND r.disabled_at IS NULL JOIN role_permissions rp ON rp.role_id=r.id JOIN permissions p ON p.id=rp.permission_id
 		        WHERE ra.actor_type='user' AND ra.actor_id=j.actor_user_id::text AND ra.organization_id=j.brand_cloud_id AND ra.disabled_at IS NULL
-		          AND p.name=CASE j.capability WHEN 'provisioning.create' THEN 'lifecycle_operation.provision' END
+			          AND p.name=CASE j.capability WHEN 'provisioning.create' THEN 'lifecycle_operation.provision' WHEN 'product_services.apply' THEN 'registry_device.manage' END
 		          AND brand_cloud_permission_allowed(j.actor_user_id::text,j.brand_cloud_id::text,p.name)))`, authorizationID, now))
 	if errors.Is(err, ErrNotFound) {
 		invalidated, updateErr := scanJobAuthorization(s.db.QueryRow(ctx, `UPDATE job_authorizations SET status=CASE WHEN expires_at<=$2 THEN 'expired' ELSE 'revoked' END,revoked_at=CASE WHEN expires_at>$2 THEN COALESCE(revoked_at,$2) ELSE revoked_at END,updated_at=$2 WHERE id::text=$1 AND status='active' RETURNING `+jobAuthorizationColumns, authorizationID, now))

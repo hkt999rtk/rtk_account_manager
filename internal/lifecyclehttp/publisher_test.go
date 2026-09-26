@@ -157,6 +157,9 @@ func TestPublisherSendsEntitlementSnapshotByPUTAndProjectsResult(t *testing.T) {
 			t.Error(err)
 		}
 		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "devid": "video-1", "operation_id": requestBody["operation_id"],
+			"applied_revision": 3, "platform_entitlement_revision": 3, "product_service_revision": 2,
+			"service_grant_sha256": strings.Repeat("a", 64), "state": "revoked"})
 	}))
 	defer server.Close()
 	publisher, err := NewPublisher(Options{BaseURL: server.URL, Token: "token", Now: func() time.Time { return now },
@@ -202,7 +205,14 @@ func TestPublisherRetriesSnapshotAfterReceiverCommitsButReturnsUnavailable(t *te
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
 		w.WriteHeader(http.StatusOK) // identical revision replay repaired the cache
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "devid": "video-1", "operation_id": body["operation_id"],
+			"applied_revision": 1, "platform_entitlement_revision": 1, "product_service_revision": 2,
+			"service_grant_sha256": strings.Repeat("a", 64), "state": "revoked"})
 	}))
 	defer server.Close()
 	publisher, err := NewPublisher(Options{BaseURL: server.URL, Token: "token", Project: func(context.Context, broker.Message) error {
@@ -223,6 +233,38 @@ func TestPublisherRetriesSnapshotAfterReceiverCommitsButReturnsUnavailable(t *te
 	}
 	if err := publisher.Publish(context.Background(), channel.StreamAccountVideoCommands, envelope); err != nil || projected != 1 || requests != 2 {
 		t.Fatalf("replay err=%v projected=%d requests=%d", err, projected, requests)
+	}
+}
+
+func TestPublisherDoesNotProjectAcceptedOrMismatchedSnapshotReceipt(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"accepted", http.StatusAccepted, `{}`},
+		{"wrong-revision", http.StatusOK, `{"status":"ok","devid":"video-1","operation_id":"wrong","applied_revision":1,"platform_entitlement_revision":1,"product_service_revision":2,"service_grant_sha256":"` + strings.Repeat("a", 64) + `","state":"revoked"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			projected := false
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			publisher, err := NewPublisher(Options{BaseURL: server.URL, Token: "token", Project: func(context.Context, broker.Message) error { projected = true; return nil }})
+			if err != nil {
+				t.Fatal(err)
+			}
+			envelope := requestEnvelope(t, channel.MessageTypeDeviceEntitlementSnapshotRequested, &channel.DeviceEntitlementSnapshotRequestedPayload{
+				OrgID: testOrgID, AccountDeviceID: testAccountID, VideoCloudDevid: "video-1", ProductID: "33333333-3333-4333-8333-333333333333",
+				ProductServiceRevision: 2, ServiceGrantSHA256: strings.Repeat("a", 64), PlatformEntitlementRevision: 1,
+				ServiceOptions: []string{"mqtt"}, State: "revoked", RequestedBy: "user-1",
+			})
+			if err := publisher.Publish(context.Background(), channel.StreamAccountVideoCommands, envelope); !broker.IsTransient(err) || projected {
+				t.Fatalf("unexpected publication: err=%v projected=%t", err, projected)
+			}
+		})
 	}
 }
 

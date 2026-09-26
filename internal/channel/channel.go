@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -91,6 +92,7 @@ type DeviceProvisionRequestedPayload struct {
 	ProductID              string   `json:"product_id,omitempty"`
 	ProductServiceRevision *int64   `json:"product_service_revision,omitempty"`
 	ServiceGrantSHA256     string   `json:"service_grant_sha256,omitempty"`
+	LogRetentionDays       *int     `json:"log_retention_days,omitempty"`
 	TransferReservationID  string   `json:"transfer_reservation_id,omitempty"`
 	RequestedBy            string   `json:"requested_by"`
 }
@@ -178,6 +180,7 @@ type DeviceEntitlementSnapshotRequestedPayload struct {
 	ServiceGrantSHA256          string   `json:"service_grant_sha256"`
 	PlatformEntitlementRevision int64    `json:"platform_entitlement_revision"`
 	ServiceOptions              []string `json:"service_options"`
+	LogRetentionDays            *int     `json:"log_retention_days,omitempty"`
 	State                       string   `json:"state"`
 	RequestedBy                 string   `json:"requested_by"`
 }
@@ -438,6 +441,9 @@ func (p *DeviceProvisionRequestedPayload) Validate() error {
 	if err := validateServiceOptions("payload.service_options", p.ServiceOptions); err != nil {
 		return err
 	}
+	if err := validateLogRetentionDays(p.ServiceOptions, p.LogRetentionDays); err != nil {
+		return err
+	}
 	if p.ProductID != "" || p.ProductServiceRevision != nil || p.ServiceGrantSHA256 != "" {
 		if err := requireUUID("payload.product_id", p.ProductID); err != nil {
 			return err
@@ -673,6 +679,9 @@ func (p *DeviceEntitlementSnapshotRequestedPayload) Validate() error {
 	if err := validateServiceOptions("payload.service_options", p.ServiceOptions); err != nil {
 		return err
 	}
+	if err := validateLogRetentionDays(p.ServiceOptions, p.LogRetentionDays); err != nil {
+		return err
+	}
 	if p.State != "active" && p.State != "suspended" && p.State != "revoked" {
 		return fieldError("payload.state", "unsupported entitlement state")
 	}
@@ -680,6 +689,16 @@ func (p *DeviceEntitlementSnapshotRequestedPayload) Validate() error {
 }
 
 func (p *DeviceEntitlementSnapshotRequestedPayload) PartitionKey() string { return p.AccountDeviceID }
+
+func validateLogRetentionDays(options []string, days *int) error {
+	if days == nil {
+		return nil
+	} // Historical messages did not carry pinned settings.
+	if *days != 7 && *days != 30 && *days != 90 || !slices.Contains(options, "device_logging") {
+		return fieldError("payload.log_retention_days", "requires device_logging and 7, 30, or 90 days")
+	}
+	return nil
+}
 
 func (p *DeviceEntitlementSnapshotSucceededPayload) Validate() error {
 	if err := validateLifecyclePayloadIDs(p.OrgID, p.AccountDeviceID); err != nil {

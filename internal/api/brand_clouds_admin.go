@@ -215,7 +215,20 @@ func (s *Server) createDeviceItemProfile(c *gin.Context) {
 		writeStoreError(c, err)
 		return
 	}
+	if !s.attachProductGrantSummary(c, &profile) {
+		return
+	}
 	c.JSON(http.StatusCreated, deviceItemProfileResponse{DeviceItemProfile: profile})
+}
+
+func (s *Server) attachProductGrantSummary(c *gin.Context, profile *model.DeviceItemProfile) bool {
+	grant, err := s.store.GetCurrentProductGrantSummary(c.Request.Context(), profile.BrandCloudID, profile.ID)
+	if err != nil {
+		writeStoreError(c, err)
+		return false
+	}
+	profile.GrantRevision, profile.GrantDigest = grant.Revision, grant.Digest
+	return true
 }
 
 func (s *Server) listDeviceItemProfiles(c *gin.Context) {
@@ -244,6 +257,9 @@ func (s *Server) listDeviceItemProfiles(c *gin.Context) {
 	}
 	for i := range page.Profiles {
 		page.Profiles[i].CurrentUserRole, _ = s.store.GetUserProductCollaboratorRole(c.Request.Context(), currentUserID(c), profileBrandCloudID(c), page.Profiles[i].ID)
+		if !s.attachProductGrantSummary(c, &page.Profiles[i]) {
+			return
+		}
 	}
 	c.JSON(http.StatusOK, deviceItemProfilesResponse{DeviceItemProfiles: page.Profiles, Pagination: page.Page})
 }
@@ -255,6 +271,9 @@ func (s *Server) getDeviceItemProfile(c *gin.Context) {
 		return
 	}
 	profile.CurrentUserRole, _ = s.store.GetUserProductCollaboratorRole(c.Request.Context(), currentUserID(c), profileBrandCloudID(c), profile.ID)
+	if !s.attachProductGrantSummary(c, &profile) {
+		return
+	}
 	c.JSON(http.StatusOK, deviceItemProfileResponse{DeviceItemProfile: profile})
 }
 
@@ -322,6 +341,9 @@ func (s *Server) updateDeviceItemProfile(c *gin.Context) {
 	})
 	if err != nil {
 		writeStoreError(c, err)
+		return
+	}
+	if !s.attachProductGrantSummary(c, &profile) {
 		return
 	}
 	c.JSON(http.StatusOK, deviceItemProfileResponse{DeviceItemProfile: profile})

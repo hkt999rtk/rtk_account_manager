@@ -115,6 +115,9 @@ func ValidatePlatformServiceRegistration(r PlatformServiceRegistration) error {
 		if option.Code == "mqtt" && r.ServiceID != "mqtt" {
 			return ErrServiceRegistrationDenied
 		}
+		if slices.Contains([]string{"iot_shadow", "video_streaming", "video_storage", "device_logging", "ota"}, option.Code) && !slices.Contains(option.Requires, "mqtt") {
+			return ErrServiceRegistrationInvalid
+		}
 		if option.Code == "device_logging" && r.ServiceID != "logger" {
 			return ErrServiceRegistrationDenied
 		}
@@ -219,8 +222,12 @@ func validateProductServiceSelection(options []string, catalog PlatformServiceCa
 	return bindings, nil
 }
 
-func insertProductServiceGrantTx(ctx context.Context, tx pgx.Tx, productID, brandCloudID string, options []string, bindings []PlatformServiceCatalogOption, catalogRevision int64, actor *string) error {
-	optionsJSON, bindingsJSON, digest, err := encodeProductServiceGrant(options, bindings)
+func insertProductServiceGrantTx(ctx context.Context, tx pgx.Tx, productID, brandCloudID string, options []string, bindings []PlatformServiceCatalogOption, catalogRevision int64, actor *string, retention ...*int) error {
+	var days *int
+	if len(retention) != 0 {
+		days = retention[0]
+	}
+	optionsJSON, bindingsJSON, digest, err := encodeProductServiceGrantWithRetention(options, bindings, days)
 	if err != nil {
 		return err
 	}
@@ -228,7 +235,7 @@ func insertProductServiceGrantTx(ctx context.Context, tx pgx.Tx, productID, bran
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(revision),0)+1 FROM product_service_grants WHERE product_id=$1`, productID).Scan(&revision); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO product_service_grants(product_id,revision,brand_cloud_id,catalog_revision,options,bindings,snapshot_sha256,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, productID, revision, brandCloudID, catalogRevision, optionsJSON, bindingsJSON, digest, actor)
+	_, err = tx.Exec(ctx, `INSERT INTO product_service_grants(product_id,revision,brand_cloud_id,catalog_revision,options,bindings,snapshot_sha256,created_by,log_retention_days) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, productID, revision, brandCloudID, catalogRevision, optionsJSON, bindingsJSON, digest, actor, days)
 	return err
 }
 
@@ -251,6 +258,28 @@ func encodeProductServiceGrant(options []string, bindings []PlatformServiceCatal
 		return nil, nil, "", err
 	}
 	digest := sha256.Sum256(digestData)
+	return optionsJSON, bindingsJSON, hex.EncodeToString(digest[:]), nil
+}
+
+// Historical grants used the original digest shape. New logging grants include
+// retention in the digest while preserving verification of immutable history.
+func encodeProductServiceGrantWithRetention(options []string, bindings []PlatformServiceCatalogOption, days *int) ([]byte, []byte, string, error) {
+	optionsJSON, bindingsJSON, legacyDigest, err := encodeProductServiceGrant(options, bindings)
+	if err != nil || days == nil {
+		return optionsJSON, bindingsJSON, legacyDigest, err
+	}
+	if !slices.Contains(options, "device_logging") || !validLogRetention(*days) {
+		return nil, nil, "", ErrClaimUnsupportedService
+	}
+	data, err := json.Marshal(struct {
+		Options          json.RawMessage `json:"options"`
+		Bindings         json.RawMessage `json:"bindings"`
+		LogRetentionDays int             `json:"log_retention_days"`
+	}{optionsJSON, bindingsJSON, *days})
+	if err != nil {
+		return nil, nil, "", err
+	}
+	digest := sha256.Sum256(data)
 	return optionsJSON, bindingsJSON, hex.EncodeToString(digest[:]), nil
 }
 
@@ -718,7 +747,8 @@ func readPlatformServiceOptions(ctx context.Context, q platformCatalogReader, en
 		return result, err
 	}
 	rows, err := q.Query(ctx, `SELECT s.service_id,s.published_version,s.status,m.options,EXISTS(
-		SELECT 1 FROM platform_service_instances i WHERE i.environment=s.environment AND i.service_id=s.service_id AND i.manifest_version=s.published_version AND i.ready AND i.lease_expires_at>$2)
+		SELECT 1 FROM platform_service_instances i WHERE i.environment=s.environment AND i.service_id=s.service_id AND i.manifest_version=s.published_version AND i.ready AND i.lease_expires_at>$2),EXISTS(
+		SELECT 1 FROM platform_service_instances i WHERE i.environment=s.environment AND i.service_id=s.service_id AND i.manifest_version=s.published_version AND i.ready)
 		FROM platform_services s JOIN platform_service_manifests m ON m.environment=s.environment AND m.service_id=s.service_id AND m.manifest_version=s.published_version WHERE s.environment=$1 ORDER BY s.service_id`, environment, now)
 	if err != nil {
 		return result, err
@@ -727,8 +757,8 @@ func readPlatformServiceOptions(ctx context.Context, q platformCatalogReader, en
 	for rows.Next() {
 		var serviceID, version, status string
 		var raw []byte
-		var ready bool
-		if err := rows.Scan(&serviceID, &version, &status, &raw, &ready); err != nil {
+		var ready, hasReadyInstance bool
+		if err := rows.Scan(&serviceID, &version, &status, &raw, &ready, &hasReadyInstance); err != nil {
 			return result, err
 		}
 		var options []PlatformServiceOption
@@ -739,6 +769,8 @@ func readPlatformServiceOptions(ctx context.Context, q platformCatalogReader, en
 			entry := PlatformServiceCatalogOption{PlatformServiceOption: option, ServiceID: serviceID, ManifestVersion: version, Selectable: status == "active" && ready}
 			if status != "active" {
 				entry.UnavailableReason = "service_" + status
+			} else if !ready && hasReadyInstance {
+				entry.UnavailableReason = "lease_expired"
 			} else if !ready {
 				entry.UnavailableReason = "service_unavailable"
 			}

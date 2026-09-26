@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -71,7 +74,7 @@ func (s *Store) CreateDeviceItemProfileAsUser(ctx context.Context, in DeviceItem
 			return profile, err
 		}
 		if s.platformServiceProductWrites {
-			if err := insertProductServiceGrantTx(ctx, tx, profile.ID, in.BrandCloudID, options, bindings, in.CatalogRevision, in.ActorUserID); err != nil {
+			if err := insertProductServiceGrantTx(ctx, tx, profile.ID, in.BrandCloudID, options, bindings, in.CatalogRevision, in.ActorUserID, profile.LogRetentionDays); err != nil {
 				return model.DeviceItemProfile{}, err
 			}
 		}
@@ -81,37 +84,122 @@ func (s *Store) CreateDeviceItemProfileAsUser(ctx context.Context, in DeviceItem
 
 func (s *Store) UpdateDeviceItemProfileAsUser(ctx context.Context, in DeviceItemProfileUpdateInput) (model.DeviceItemProfile, error) {
 	return s.mutateDeviceItemProfileAsUser(ctx, stringValue(in.ActorUserID), in.BrandCloudID, in.ProfileID, in.PlatformOverride, func(tx pgx.Tx) (model.DeviceItemProfile, error) {
-		changed := false
-		var options []string
-		var bindings []PlatformServiceCatalogOption
-		if s.platformServiceProductWrites && in.ServiceOptions != nil {
-			current, err := getDeviceItemProfile(ctx, tx, in.BrandCloudID, in.ProfileID, true)
+		var current model.DeviceItemProfile
+		var err error
+		if s.platformServiceProductWrites {
+			current, err = getDeviceItemProfile(ctx, tx, in.BrandCloudID, in.ProfileID, true)
 			if err != nil {
 				return model.DeviceItemProfile{}, err
-			}
-			oldOptions := slices.Clone(current.ServiceOptions)
-			options = slices.Clone(in.ServiceOptions)
-			slices.Sort(oldOptions)
-			slices.Sort(options)
-			changed = !slices.Equal(oldOptions, options)
-			if changed {
-				bindings, err = s.validateProductServiceSelectionTx(ctx, tx, options, in.CatalogRevision, time.Now().UTC())
-				if err != nil {
-					return model.DeviceItemProfile{}, err
-				}
 			}
 		}
 		profile, err := updateDeviceItemProfileTx(ctx, tx, in, s.platformServiceProductWrites)
 		if err != nil {
 			return profile, err
 		}
-		if changed {
-			if err := insertProductServiceGrantTx(ctx, tx, profile.ID, in.BrandCloudID, options, bindings, in.CatalogRevision, in.ActorUserID); err != nil {
-				return model.DeviceItemProfile{}, err
+		if s.platformServiceProductWrites {
+			oldOptions, options := slices.Clone(current.ServiceOptions), slices.Clone(profile.ServiceOptions)
+			slices.Sort(oldOptions)
+			slices.Sort(options)
+			if !slices.Equal(oldOptions, options) || !sameRetention(current.LogRetentionDays, profile.LogRetentionDays) {
+				bindings, catalogRevision, err := s.validateProductServiceUpdateTx(ctx, tx, profile.ID, in.BrandCloudID, oldOptions, options, in.CatalogRevision, time.Now().UTC())
+				if err != nil {
+					return model.DeviceItemProfile{}, err
+				}
+				if err := insertProductServiceGrantTx(ctx, tx, profile.ID, in.BrandCloudID, options, bindings, catalogRevision, in.ActorUserID, profile.LogRetentionDays); err != nil {
+					return model.DeviceItemProfile{}, err
+				}
 			}
 		}
 		return profile, nil
 	})
+}
+
+func sameRetention(a, b *int) bool {
+	return a == nil && b == nil || a != nil && b != nil && *a == *b
+}
+
+// Existing selections retain their immutable binding even if their service is
+// temporarily unavailable. Only newly added options require a live catalog.
+func (s *Store) validateProductServiceUpdateTx(ctx context.Context, tx pgx.Tx, productID, cloudID string, oldOptions, options []string, observedRevision int64, now time.Time) ([]PlatformServiceCatalogOption, int64, error) {
+	if validateProductServiceOptions(options) != nil || !slices.Contains(options, "mqtt") {
+		return nil, 0, ErrClaimUnsupportedService
+	}
+	var raw []byte
+	var catalogRevision int64
+	err := tx.QueryRow(ctx, `SELECT bindings,catalog_revision FROM product_service_grants WHERE product_id=$1 AND brand_cloud_id=$2 ORDER BY revision DESC LIMIT 1`, productID, cloudID).Scan(&raw, &catalogRevision)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, 0, ErrConflict
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+	var oldBindings []PlatformServiceCatalogOption
+	if err := json.Unmarshal(raw, &oldBindings); err != nil {
+		return nil, 0, ErrConflict
+	}
+	oldSet := make(map[string]bool, len(oldOptions))
+	for _, code := range oldOptions {
+		oldSet[code] = true
+	}
+	bindings := make([]PlatformServiceCatalogOption, 0, len(options))
+	var additions []string
+	for _, code := range options {
+		if !oldSet[code] {
+			additions = append(additions, code)
+			continue
+		}
+		for _, binding := range oldBindings {
+			if binding.Code == code {
+				bindings = append(bindings, binding)
+				break
+			}
+		}
+	}
+	if len(additions) != 0 {
+		if observedRevision < 1 {
+			return nil, 0, ErrConflict
+		}
+		if _, err := lockCatalogRevision(ctx, tx, s.platformServiceEnvironment); err != nil {
+			return nil, 0, err
+		}
+		catalog, err := readPlatformServiceOptions(ctx, tx, s.platformServiceEnvironment, now)
+		if err != nil {
+			return nil, 0, err
+		}
+		if catalog.CatalogRevision != observedRevision {
+			return nil, 0, ErrConflict
+		}
+		for _, code := range additions {
+			found := false
+			for _, candidate := range catalog.Options {
+				if candidate.Code == code {
+					if !candidate.Selectable {
+						return nil, 0, ErrConflict
+					}
+					bindings = append(bindings, candidate)
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, 0, ErrClaimUnsupportedService
+			}
+		}
+		catalogRevision = observedRevision
+	}
+	selected := make(map[string]bool, len(options))
+	for _, code := range options {
+		selected[code] = true
+	}
+	for _, binding := range bindings {
+		for _, dependency := range binding.Requires {
+			if !selected[dependency] {
+				return nil, 0, ErrClaimUnsupportedService
+			}
+		}
+	}
+	slices.SortFunc(bindings, func(a, b PlatformServiceCatalogOption) int { return strings.Compare(a.Code, b.Code) })
+	return bindings, catalogRevision, nil
 }
 
 func (s *Store) DisableDeviceItemProfileAsUser(ctx context.Context, cloud, product, actor string, platform bool) (model.DeviceItemProfile, error) {

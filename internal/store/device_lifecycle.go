@@ -85,12 +85,13 @@ func bindProvisionServiceGrantTx(ctx context.Context, tx pgx.Tx, device model.De
 	var revision int64
 	var raw []byte
 	var digest string
+	var logRetentionDays *int
 	if pin == nil {
-		err = tx.QueryRow(ctx, `SELECT revision,options,snapshot_sha256 FROM product_service_grants
-			WHERE product_id=$1 AND brand_cloud_id=$2 ORDER BY revision DESC LIMIT 1`, *device.DeviceItemProfileID, device.OrganizationID).Scan(&revision, &raw, &digest)
+		err = tx.QueryRow(ctx, `SELECT revision,options,snapshot_sha256,log_retention_days FROM product_service_grants
+			WHERE product_id=$1 AND brand_cloud_id=$2 ORDER BY revision DESC LIMIT 1`, *device.DeviceItemProfileID, device.OrganizationID).Scan(&revision, &raw, &digest, &logRetentionDays)
 	} else {
-		err = tx.QueryRow(ctx, `SELECT revision,options,snapshot_sha256 FROM product_service_grants
-			WHERE product_id=$1 AND brand_cloud_id=$2 AND revision=$3`, *device.DeviceItemProfileID, device.OrganizationID, pin.revision).Scan(&revision, &raw, &digest)
+		err = tx.QueryRow(ctx, `SELECT revision,options,snapshot_sha256,log_retention_days FROM product_service_grants
+			WHERE product_id=$1 AND brand_cloud_id=$2 AND revision=$3`, *device.DeviceItemProfileID, device.OrganizationID, pin.revision).Scan(&revision, &raw, &digest, &logRetentionDays)
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrConflict
@@ -127,6 +128,10 @@ func bindProvisionServiceGrantTx(ctx context.Context, tx pgx.Tx, device model.De
 	in.OutboxPayload["product_id"] = *device.DeviceItemProfileID
 	in.OutboxPayload["product_service_revision"] = revision
 	in.OutboxPayload["service_grant_sha256"] = digest
+	if logRetentionDays != nil {
+		in.OutboxPayload["log_retention_days"] = *logRetentionDays
+		in.MetadataPatch["log_retention_days"] = *logRetentionDays
+	}
 	in.MetadataPatch[model.DeviceMetadataServiceOptions] = slices.Clone(approved)
 	in.MetadataPatch["product_service_revision"] = revision
 	in.MetadataPatch["service_grant_sha256"] = digest

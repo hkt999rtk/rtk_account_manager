@@ -402,6 +402,16 @@ func (s *Server) Router() *gin.Engine {
 	protected.POST("/orgs/:orgId/device-item-profiles", s.requirePermission("registry_device.manage"), s.createDeviceItemProfile)
 	protected.PATCH("/orgs/:orgId/device-item-profiles/:profileId", s.requirePermission("registry_device.manage"), s.updateDeviceItemProfile)
 	protected.POST("/orgs/:orgId/device-item-profiles/:profileId/disable", s.requirePermission("registry_device.manage"), s.disableDeviceItemProfile)
+	if s.platformServiceProductWrites {
+		protected.GET("/orgs/:orgId/device-item-profiles/:profileId/service-apply-preview", s.requirePermission("registry_device.manage"), s.previewProductServiceApply)
+		protected.POST("/orgs/:orgId/device-item-profiles/:profileId/service-apply-jobs", s.requirePermission("registry_device.manage"), s.admitProductServiceApply)
+		protected.GET("/orgs/:orgId/device-item-profiles/:profileId/service-apply-jobs/:jobId", s.requirePermission("registry_device.manage"), s.getProductServiceApplyJob)
+		protected.GET("/orgs/:orgId/device-item-profiles/:profileId/service-apply-jobs/:jobId/items", s.requirePermission("registry_device.manage"), s.listProductServiceApplyItems)
+		protected.GET("/orgs/:orgId/device-item-profiles/:profileId/service-apply-jobs/:jobId/items/:deviceId", s.requirePermission("registry_device.manage"), s.getProductServiceApplyItem)
+		protected.POST("/orgs/:orgId/device-item-profiles/:profileId/service-apply-jobs/:jobId/items/:deviceId/dispatch", s.requirePermission("registry_device.manage"), s.dispatchProductServiceApplyItem)
+		protected.POST("/orgs/:orgId/device-item-profiles/:profileId/service-apply-jobs/:jobId/cancel", s.requirePermission("registry_device.manage"), s.cancelProductServiceApply)
+		protected.POST("/orgs/:orgId/device-item-profiles/:profileId/service-apply-jobs/:jobId/complete", s.requirePermission("registry_device.manage"), s.completeProductServiceApply)
+	}
 
 	protected.POST("/orgs/:orgId/devices", s.requirePermission("registry_device.manage"), s.createDevice)
 	protected.GET("/orgs/:orgId/devices", s.requirePermission("registry_device.read"), s.listDevices)
@@ -1554,6 +1564,13 @@ func (s *Server) getDevice(c *gin.Context) {
 		writeStoreError(c, err)
 		return
 	}
+	if s.platformServiceProductWrites {
+		device.AppliedGrantRevision, device.PendingGrantRevision, device.EntitlementResult, err = s.store.GetDeviceEntitlementReadModel(c.Request.Context(), c.Param("orgId"), c.Param("deviceId"))
+		if err != nil {
+			writeStoreError(c, err)
+			return
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"device": device})
 }
 
@@ -1861,7 +1878,9 @@ func (s *Server) requirePermission(permission string) gin.HandlerFunc {
 		}
 		var allowed bool
 		var err error
-		if deviceID := c.Param("deviceId"); deviceID != "" {
+		if profileID := c.Param("profileId"); profileID != "" && strings.Contains(c.FullPath(), "/service-apply-jobs") {
+			allowed, err = s.store.HasUserPermissionForResource(c.Request.Context(), currentUserID(c), c.Param("orgId"), permission, store.ScopeTypeProduct, profileID)
+		} else if deviceID := c.Param("deviceId"); deviceID != "" {
 			allowed, err = s.store.HasUserDevicePermission(c.Request.Context(), currentUserID(c), c.Param("orgId"), permission, deviceID)
 		} else if profileID := c.Param("profileId"); profileID != "" {
 			allowed, err = s.store.HasUserPermissionForResource(c.Request.Context(), currentUserID(c), c.Param("orgId"), permission, store.ScopeTypeProduct, profileID)

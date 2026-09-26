@@ -31,6 +31,7 @@ type LegacyProductServiceGrantReport struct {
 type legacyProductServiceGrant struct {
 	productID, brandCloudID string
 	options                 []string
+	logRetentionDays        *int
 }
 
 // BackfillLegacyProductServiceGrants never infers MQTT or consults the current
@@ -64,8 +65,8 @@ func (s *Store) BackfillLegacyProductServiceGrants(ctx context.Context, apply bo
 			return report, err
 		}
 	}
-	rows, err := tx.Query(ctx, `SELECT p.id::text,p.brand_cloud_id::text,p.service_options,g.revision,g.options,
-		g.brand_cloud_id::text,g.bindings,g.snapshot_sha256,to_jsonb(g)
+	rows, err := tx.Query(ctx, `SELECT p.id::text,p.brand_cloud_id::text,p.service_options,p.log_retention_days,g.revision,g.options,
+		g.brand_cloud_id::text,g.bindings,g.snapshot_sha256,g.log_retention_days,to_jsonb(g)
 		FROM device_item_profiles p LEFT JOIN LATERAL (
 			SELECT * FROM product_service_grants
 			WHERE product_id=p.id ORDER BY revision DESC LIMIT 1
@@ -80,18 +81,20 @@ func (s *Store) BackfillLegacyProductServiceGrants(ctx context.Context, apply bo
 		var profileJSON, grantJSON, bindingsJSON, grantRecordJSON []byte
 		var revision sql.NullInt64
 		var grantCloud, storedDigest sql.NullString
-		if err := rows.Scan(&productID, &brandCloudID, &profileJSON, &revision, &grantJSON, &grantCloud, &bindingsJSON, &storedDigest, &grantRecordJSON); err != nil {
+		var profileRetention, grantRetention *int
+		if err := rows.Scan(&productID, &brandCloudID, &profileJSON, &profileRetention, &revision, &grantJSON, &grantCloud, &bindingsJSON, &storedDigest, &grantRetention, &grantRecordJSON); err != nil {
 			rows.Close()
 			return report, err
 		}
 		// Hash raw JSONB and current grant presence before normalizing options.
 		// This binds apply to the exact report snapshot, including malformed rows.
 		fingerprintRow, err := json.Marshal(struct {
-			ProductID      string          `json:"product_id"`
-			BrandCloudID   string          `json:"brand_cloud_id"`
-			ServiceOptions json.RawMessage `json:"service_options"`
-			GrantRecord    json.RawMessage `json:"grant_record"`
-		}{productID, brandCloudID, profileJSON, grantRecordJSON})
+			ProductID        string          `json:"product_id"`
+			BrandCloudID     string          `json:"brand_cloud_id"`
+			ServiceOptions   json.RawMessage `json:"service_options"`
+			LogRetentionDays *int            `json:"log_retention_days"`
+			GrantRecord      json.RawMessage `json:"grant_record"`
+		}{productID, brandCloudID, profileJSON, profileRetention, grantRecordJSON})
 		if err != nil {
 			rows.Close()
 			return report, err
@@ -112,6 +115,11 @@ func (s *Store) BackfillLegacyProductServiceGrants(ctx context.Context, apply bo
 		for _, code := range options {
 			report.OptionCounts[code]++
 		}
+		if slices.Contains(options, "device_logging") && (profileRetention == nil || !validLogRetention(*profileRetention)) ||
+			!slices.Contains(options, "device_logging") && profileRetention != nil {
+			report.addIssue(productID, "invalid Product log_retention_days")
+			continue
+		}
 		if !slices.Contains(options, "mqtt") {
 			report.WithoutMQTT++
 		}
@@ -119,6 +127,10 @@ func (s *Store) BackfillLegacyProductServiceGrants(ctx context.Context, apply bo
 			var grantOptions []string
 			if err := json.Unmarshal(grantJSON, &grantOptions); err != nil || validateProductServiceOptions(grantOptions) != nil || !serviceOptionSetsEqual(options, grantOptions) {
 				report.addIssue(productID, "latest grant differs from Product service_options")
+				continue
+			}
+			if !sameRetention(profileRetention, grantRetention) {
+				report.addIssue(productID, "latest grant differs from Product log_retention_days")
 				continue
 			}
 			if !grantCloud.Valid || grantCloud.String != brandCloudID {
@@ -129,7 +141,7 @@ func (s *Store) BackfillLegacyProductServiceGrants(ctx context.Context, apply bo
 				report.addIssue(productID, "latest grant bindings are invalid")
 				continue
 			}
-			_, _, wantDigest, err := encodeProductServiceGrant(grantOptions, bindings)
+			_, _, wantDigest, err := encodeProductServiceGrantWithRetention(grantOptions, bindings, grantRetention)
 			if err != nil || !storedDigest.Valid || storedDigest.String != wantDigest {
 				report.addIssue(productID, "latest grant digest is invalid")
 			}
@@ -145,7 +157,7 @@ func (s *Store) BackfillLegacyProductServiceGrants(ctx context.Context, apply bo
 		if unknown {
 			continue
 		}
-		missing = append(missing, legacyProductServiceGrant{productID: productID, brandCloudID: brandCloudID, options: options})
+		missing = append(missing, legacyProductServiceGrant{productID: productID, brandCloudID: brandCloudID, options: options, logRetentionDays: profileRetention})
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -163,13 +175,13 @@ func (s *Store) BackfillLegacyProductServiceGrants(ctx context.Context, apply bo
 	}
 	for _, product := range missing {
 		options := slices.Clone(product.options)
-		optionsJSON, bindingsJSON, digest, err := encodeProductServiceGrant(options, []PlatformServiceCatalogOption{})
+		optionsJSON, bindingsJSON, digest, err := encodeProductServiceGrantWithRetention(options, []PlatformServiceCatalogOption{}, product.logRetentionDays)
 		if err != nil {
 			return report, err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO product_service_grants
-			(product_id,revision,brand_cloud_id,catalog_revision,options,bindings,snapshot_sha256,legacy)
-			VALUES($1,1,$2,0,$3,$4,$5,true)`, product.productID, product.brandCloudID, optionsJSON, bindingsJSON, digest); err != nil {
+			(product_id,revision,brand_cloud_id,catalog_revision,options,bindings,snapshot_sha256,legacy,log_retention_days)
+			VALUES($1,1,$2,0,$3,$4,$5,true,$6)`, product.productID, product.brandCloudID, optionsJSON, bindingsJSON, digest, product.logRetentionDays); err != nil {
 			return report, err
 		}
 	}
