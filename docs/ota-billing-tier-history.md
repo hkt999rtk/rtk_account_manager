@@ -14,7 +14,11 @@ month. A missing baseline, evaluation tier, or mid-month change fails this
 proof. The endpoint requires `ACCOUNT_MANAGER_INTERNAL_AUTH_TOKEN` and sends
 `Cache-Control: no-store`.
 
-This is **tier evidence**, not a paid contract decision. Billing must also
-verify the applicable Managed Cloud agreement and active billing account
-before charging. Product OTA grant history remains a separate check for each
-OTA usage fact. No OTA price card is activated by this migration or endpoint.
+Paid Managed Cloud eligibility for an OTA usage month is this endpoint's
+`commercial_for_full_period=true` evidence **plus** a Billing
+`commercial_accounts.state=active` account at settlement. No additional
+contract or plan approval marker is required. Billing applies both checks
+before issuing an OTA-bearing invoice and withholds OTA estimates when the
+evidence is unavailable. Product OTA grant history remains a separate check
+for each OTA usage fact. No OTA price card is activated by this migration or
+endpoint.
