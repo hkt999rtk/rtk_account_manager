@@ -4555,6 +4555,8 @@ paths:
     get:
       tags: [Devices]
       operationId: previewProductServiceApply
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
       summary: Preview applying the current Product grant to all existing devices.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -4567,6 +4569,8 @@ paths:
     post:
       tags: [Devices]
       operationId: admitProductServiceApply
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
       summary: Confirm a reviewed preview and freeze the Product device set.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -4589,6 +4593,8 @@ paths:
     get:
       tags: [Devices]
       operationId: getProductServiceApplyJob
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
       summary: Read a Product service apply job.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -4601,6 +4607,8 @@ paths:
     get:
       tags: [Devices]
       operationId: listProductServiceApplyItems
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
       summary: Page through every device in the frozen batch.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -4615,6 +4623,8 @@ paths:
     get:
       tags: [Devices]
       operationId: getProductServiceApplyItem
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
       summary: Read the acknowledged result for one batch device.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -4628,6 +4638,8 @@ paths:
     post:
       tags: [Devices]
       operationId: dispatchProductServiceApplyItem
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
       summary: Idempotently dispatch one frozen device snapshot.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -4644,6 +4656,8 @@ paths:
     post:
       tags: [Devices]
       operationId: cancelProductServiceApply
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
       summary: Stop further dispatch while retaining accepted results.
       security: [{ bearerAuth: [] }]
       parameters:
@@ -4657,6 +4671,8 @@ paths:
     post:
       tags: [Devices]
       operationId: completeProductServiceApply
+      x-rtk-feature-id: FEAT-AM-REGISTERED-SERVICES-001
+      x-rtk-requirement-ids: [REQ-AM-REGISTERED-SERVICES-001]
       summary: Complete a batch only after every device acknowledged the target.
       security: [{ bearerAuth: [] }]
       parameters:
