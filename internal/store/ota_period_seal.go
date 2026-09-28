@@ -41,11 +41,52 @@ type otaGrantHistoryRow struct {
 	SnapshotSHA256   string
 }
 
-// ListOTAPeriodSealBrandCloudIDs includes inactive and soft-deleted Clouds:
-// previously authorized tasks or stored objects can remain billable after disable.
+// ListOTAPeriodSealBrandCloudIDs freezes one shared, immutable Cloud inventory
+// for both seal producers. Inactive and soft-deleted Clouds remain billable.
 func (s *Store) ListOTAPeriodSealBrandCloudIDs(ctx context.Context, periodEnd time.Time) ([]string, error) {
-	rows, err := s.db.Query(ctx, `SELECT id::text FROM organizations
-		WHERE organization_kind='brand_cloud' AND created_at < $1 ORDER BY id`, periodEnd)
+	if periodEnd.IsZero() || periodEnd.Location() != time.UTC || periodEnd.Day() != 1 ||
+		periodEnd.Hour() != 0 || periodEnd.Minute() != 0 || periodEnd.Second() != 0 || periodEnd.Nanosecond() != 0 {
+		return nil, ErrOTAPeriodSealInvalid
+	}
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	var databaseNow time.Time
+	if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&databaseNow); err != nil {
+		return nil, err
+	}
+	if databaseNow.Before(periodEnd) {
+		return nil, ErrOTAPeriodSealInvalid
+	}
+	// The first reader blocks other freezers, then waits for in-flight Cloud
+	// inserts before recording the set. Later readers only use this snapshot.
+	if _, err := tx.Exec(ctx, `LOCK TABLE ota_period_brand_cloud_inventory_freezes IN EXCLUSIVE MODE`); err != nil {
+		return nil, err
+	}
+	var frozen bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM ota_period_brand_cloud_inventory_freezes WHERE period_end=$1)`, periodEnd).Scan(&frozen); err != nil {
+		return nil, err
+	}
+	if !frozen {
+		if _, err := tx.Exec(ctx, `LOCK TABLE organizations IN SHARE MODE`); err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO ota_period_brand_cloud_inventory_freezes(period_end,frozen_at,cloud_count) VALUES($1,clock_timestamp(),0)`, periodEnd); err != nil {
+			return nil, err
+		}
+		inserted, err := tx.Exec(ctx, `INSERT INTO ota_period_brand_cloud_inventory(period_end,organization_id)
+			SELECT $1,id FROM organizations WHERE organization_kind='brand_cloud' AND created_at < $1`, periodEnd)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE ota_period_brand_cloud_inventory_freezes SET cloud_count=$2 WHERE period_end=$1`, periodEnd, inserted.RowsAffected()); err != nil {
+			return nil, err
+		}
+	}
+	rows, err := tx.Query(ctx, `SELECT organization_id::text FROM ota_period_brand_cloud_inventory
+		WHERE period_end=$1 ORDER BY organization_id`, periodEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +99,14 @@ func (s *Store) ListOTAPeriodSealBrandCloudIDs(ctx context.Context, periodEnd ti
 		}
 		ids = append(ids, id)
 	}
-	return ids, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 // BuildOTAPeriodGrantSeal drains in-flight grant inserts before reading the

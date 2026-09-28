@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 )
@@ -210,10 +211,51 @@ func TestIntegrationListOTAPeriodSealBrandCloudIDsIncludesDisabledHistory(t *tes
 	ctx := context.Background()
 	first := handoffDeveloper(t, env, "ota-seal-batch-first")
 	second := handoffDeveloper(t, env, "ota-seal-batch-second")
+	periodEnd := time.Date(time.Now().UTC().Year(), time.Now().UTC().Month(), 1, 0, 0, 0, 0, time.UTC)
+	if _, err := env.db.Exec(ctx, `UPDATE organizations SET created_at=$2 WHERE id IN ($1,$3)`, first.BrandCloud.ID, periodEnd.AddDate(0, -1, 0).Add(time.Hour), second.BrandCloud.ID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := env.db.Exec(ctx, `UPDATE organizations SET status='disabled' WHERE id=$1`, second.BrandCloud.ID); err != nil {
 		t.Fatal(err)
 	}
-	ids, err := env.store.ListOTAPeriodSealBrandCloudIDs(ctx, time.Now().UTC().Add(time.Hour))
+	pending, err := env.db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pending.Rollback(ctx)
+	var pendingID string
+	if err := pending.QueryRow(ctx, `INSERT INTO organizations(name,organization_kind,status,tenant_slug,created_at)
+		VALUES('pending OTA Cloud','brand_cloud','active',gen_random_uuid()::text,$1) RETURNING id::text`,
+		periodEnd.AddDate(0, -1, 0).Add(time.Hour)).Scan(&pendingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pending.Exec(ctx, `INSERT INTO organization_members(organization_id,user_id,role) VALUES($1,$2,'owner')`, pendingID, first.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	type inventoryResult struct {
+		ids []string
+		err error
+	}
+	result := make(chan inventoryResult, 1)
+	go func() {
+		ids, err := env.store.ListOTAPeriodSealBrandCloudIDs(ctx, periodEnd)
+		result <- inventoryResult{ids: ids, err: err}
+	}()
+	select {
+	case got := <-result:
+		t.Fatalf("inventory froze before in-flight Cloud insertion committed: %+v", got)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err := pending.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	select {
+	case got := <-result:
+		ids, err = got.ids, got.err
+	case <-time.After(5 * time.Second):
+		t.Fatal("inventory did not resume after Cloud insertion committed")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +263,15 @@ func TestIntegrationListOTAPeriodSealBrandCloudIDsIncludesDisabledHistory(t *tes
 	for _, id := range ids {
 		seen[id] = true
 	}
-	if !seen[first.BrandCloud.ID] || !seen[second.BrandCloud.ID] {
+	if !seen[first.BrandCloud.ID] || !seen[second.BrandCloud.ID] || !seen[pendingID] {
 		t.Fatalf("historical Brand Cloud omitted from Platform seal batch")
+	}
+	late := handoffDeveloper(t, env, "ota-seal-batch-late")
+	if _, err := env.db.Exec(ctx, `UPDATE organizations SET created_at=$2 WHERE id=$1`, late.BrandCloud.ID, periodEnd.AddDate(0, -1, 0).Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	again, err := env.store.ListOTAPeriodSealBrandCloudIDs(ctx, periodEnd)
+	if err != nil || !slices.Equal(ids, again) {
+		t.Fatalf("frozen inventory changed after a backdated Cloud commit: first=%v again=%v err=%v", ids, again, err)
 	}
 }

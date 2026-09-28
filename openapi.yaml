@@ -5582,7 +5582,7 @@ paths:
       x-rtk-feature-id: FEAT-AM-INVOICE-001
       x-rtk-requirement-ids: [REQ-AM-PRICING-VERSION-001]
       summary: List every historical Brand Cloud for a completed UTC OTA seal month
-      description: Trusted OTA producer uses the same Brand Cloud inventory as the Platform seal, including disabled and zero-use Clouds. This is an all-or-error snapshot; a missing response must not be treated as an empty list.
+      description: Trusted OTA producer uses the same database-fenced, immutable monthly Brand Cloud inventory as the Platform seal, including disabled and zero-use Clouds. The first completed-month request waits for in-flight Cloud inserts before freezing the set. This is an all-or-error snapshot; a missing response must not be treated as an empty list.
       security: [{ internalServiceToken: [] }]
       parameters:
         - { name: month, in: query, required: true, schema: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' } }
