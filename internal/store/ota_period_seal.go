@@ -41,6 +41,26 @@ type otaGrantHistoryRow struct {
 	SnapshotSHA256   string
 }
 
+// ListOTAPeriodSealBrandCloudIDs includes inactive and soft-deleted Clouds:
+// previously authorized tasks or stored objects can remain billable after disable.
+func (s *Store) ListOTAPeriodSealBrandCloudIDs(ctx context.Context, periodEnd time.Time) ([]string, error) {
+	rows, err := s.db.Query(ctx, `SELECT id::text FROM organizations
+		WHERE organization_kind='brand_cloud' AND created_at < $1 ORDER BY id`, periodEnd)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // BuildOTAPeriodGrantSeal drains in-flight grant inserts before reading the
 // completed UTC month. New inserts use database insertion time, so a writer
 // that resumes after the fence cannot backdate the sealed Product set.

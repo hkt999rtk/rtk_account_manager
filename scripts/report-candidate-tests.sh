@@ -78,6 +78,7 @@ for executable in \
 	bin/rtk-account-manager-cleanup-tokens \
 	bin/rtk-account-manager-cloud-deletion-worker \
 	bin/rtk-account-manager-handoff-worker \
+	bin/rtk-account-manager-ota-period-seal \
 	deploy/install.sh \
 	deploy/verify.sh; do
 	printf '#!/usr/bin/env sh\nexit 0\n' >"$release_dir/$executable"

@@ -204,3 +204,24 @@ func TestIntegrationOTAPeriodGrantSealRejectsCorruptGrantSnapshot(t *testing.T) 
 		})
 	}
 }
+
+func TestIntegrationListOTAPeriodSealBrandCloudIDsIncludesDisabledHistory(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	first := handoffDeveloper(t, env, "ota-seal-batch-first")
+	second := handoffDeveloper(t, env, "ota-seal-batch-second")
+	if _, err := env.db.Exec(ctx, `UPDATE organizations SET status='disabled' WHERE id=$1`, second.BrandCloud.ID); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := env.store.ListOTAPeriodSealBrandCloudIDs(ctx, time.Now().UTC().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, id := range ids {
+		seen[id] = true
+	}
+	if !seen[first.BrandCloud.ID] || !seen[second.BrandCloud.ID] {
+		t.Fatalf("historical Brand Cloud omitted from Platform seal batch")
+	}
+}
