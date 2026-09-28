@@ -1,7 +1,7 @@
 # OTA Platform Product-Grant Period Seal
 
-Status: local implementation for operator-run generation and delivery; not
-deployed or evidence of a completed OTA billing month.
+Status: local single-Cloud and retryable batch commands; neither is deployed or
+evidence of a completed OTA billing month. Scheduled execution and alerting remain release gates.
 
 Owner: rtk_account_manager.
 
@@ -58,7 +58,25 @@ other service credential. The client refuses redirects, bounds response
 size and time, and accepts only an exact seal echo. Changed replay gets a
 conflict; an uncertain response can be retried.
 
-The command is currently operator-run, not a scheduled worker. This is a
+The LKE image now packages `/app/rtk-account-manager-ota-period-seal`. An
+operator can submit every Brand Cloud that existed before the selected UTC
+month ended, including disabled or soft-deleted Clouds, using:
+
+```sh
+DATABASE_URL='postgres://...' \
+BILLING_OTA_PERIOD_SEAL_BASE_URL='https://billing.example.test' \
+BILLING_OTA_PLATFORM_SEAL_TOKEN='...' \
+/app/rtk-account-manager-ota-period-seal --all-brand-clouds --month previous --submit
+```
+
+`previous` is evaluated in UTC when the command starts. Exact `YYYY-MM` is
+required for older-month recovery. Each Cloud has a bounded attempt; an
+ambiguous Billing response is retried with the same deterministic seal. A
+partial failure makes the process exit nonzero after attempting the remaining
+Clouds. Logs report counts and SHA-256 Cloud references, not raw Cloud IDs.
+An exact replay is accepted as a duplicate.
+
+The command is still operator-run, not a scheduled worker. This is a
 remaining release gate: every charged Brand Cloud and UTC month needs an
 authenticated Platform seal, including months with no OTA Products. Billing
 must fail close when the seal is missing. Do not claim automatic collection
