@@ -69,6 +69,15 @@ BILLING_OTA_PLATFORM_SEAL_TOKEN='...' \
 /app/rtk-account-manager-ota-period-seal --all-brand-clouds --month previous --submit
 ```
 
+The first Platform batch or authenticated OTA producer inventory request for
+a completed month freezes one shared Brand Cloud set in Account Manager
+(`094_ota_period_brand_cloud_inventory.sql`). The freeze waits for in-flight
+Cloud inserts and commits the inventory atomically. Both producers replay
+that exact set; a Cloud committed after the freeze does not silently change
+an already reviewed month's completeness. New organization timestamps use
+database insertion time so a long-running transaction cannot backdate a
+Cloud created after the UTC boundary.
+
 `previous` is evaluated in UTC when the command starts. Exact `YYYY-MM` is
 required for older-month recovery. Each Cloud has a bounded attempt; an
 ambiguous Billing response is retried with the same deterministic seal. A
