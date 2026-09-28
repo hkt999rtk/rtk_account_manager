@@ -298,6 +298,7 @@ func (s *Server) Router() *gin.Engine {
 	v1.GET("/internal/brand-clouds/:brandCloudId/products/:productId/ota-grant", s.getInternalProductOTAGrant)
 	v1.GET("/internal/brand-clouds/:brandCloudId/products/:productId/ota-grants/:revision", s.getInternalHistoricalProductOTAGrant)
 	v1.GET("/internal/brand-clouds/:brandCloudId/billing-tier", s.getInternalBrandCloudBillingTier)
+	v1.GET("/internal/ota-period-brand-clouds", s.listInternalOTAPeriodBrandClouds)
 	v1.POST("/internal/job-authorizations/:authorizationId/exchange", s.exchangeJobAuthorization)
 	v1.POST("/internal/job-authorizations/:authorizationId/revoke", s.revokeJobAuthorization)
 	v1.POST("/internal/device-provisioning-results", s.handleInternalDeviceProvisioningResult)

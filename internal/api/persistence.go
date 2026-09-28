@@ -29,6 +29,7 @@ type Store interface {
 	productCollaborationPersistence
 	factoryEnrollmentPersistence
 	productServiceApplyPersistence
+	ListOTAPeriodSealBrandCloudIDs(context.Context, time.Time) ([]string, error)
 }
 
 type productServiceApplyPersistence interface {

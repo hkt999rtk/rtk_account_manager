@@ -5575,6 +5575,34 @@ paths:
         '400': { $ref: '#/components/responses/Error' }
         '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+  /v1/internal/ota-period-brand-clouds:
+    get:
+      operationId: listInternalOTAPeriodBrandClouds
+      tags: [Brand Clouds]
+      x-rtk-feature-id: FEAT-AM-INVOICE-001
+      x-rtk-requirement-ids: [REQ-AM-PRICING-VERSION-001]
+      summary: List every historical Brand Cloud for a completed UTC OTA seal month
+      description: Trusted OTA producer uses the same Brand Cloud inventory as the Platform seal, including disabled and zero-use Clouds. This is an all-or-error snapshot; a missing response must not be treated as an empty list.
+      security: [{ internalServiceToken: [] }]
+      parameters:
+        - { name: month, in: query, required: true, schema: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' } }
+      responses:
+        '200':
+          description: Complete historical Brand Cloud IDs created before the selected month's exclusive end
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [month, brand_cloud_ids]
+                properties:
+                  month: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' }
+                  brand_cloud_ids:
+                    type: array
+                    uniqueItems: true
+                    items: { type: string, format: uuid }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '500': { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
     internalServiceToken:
