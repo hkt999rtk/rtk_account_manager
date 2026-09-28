@@ -22,6 +22,7 @@ required_executables=(
   bin/rtk-account-manager-cleanup-tokens
   bin/rtk-account-manager-cloud-deletion-worker
   bin/rtk-account-manager-handoff-worker
+  bin/rtk-account-manager-ota-period-seal
   deploy/install.sh
   deploy/verify.sh
 )

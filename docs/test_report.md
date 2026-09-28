@@ -163,6 +163,9 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/cmd/linode-object-storage`: `TestObjectExistsReportsServerError`
 - `rtk_account_manager/cmd/linode-object-storage`: `TestPutDownloadCatAndExistsUseSignedPathStyleRequests`
 - `rtk_account_manager/cmd/linode-object-storage`: `TestStoreFromEnvPrefersLinodeCredentials`
+- `rtk_account_manager/cmd/ota-period-seal`: `TestParseOTAMonthPreviousUsesUTC`
+- `rtk_account_manager/cmd/ota-period-seal`: `TestSubmitAllBrandCloudsFailsClosedOnListError`
+- `rtk_account_manager/cmd/ota-period-seal`: `TestSubmitAllBrandCloudsRetainsPartialFailureForRetry`
 - `rtk_account_manager/cmd/server`: `TestServiceRegistrationCRLRejectsStaleAndWrongIssuer`
 - `rtk_account_manager/cmd/server`: `TestServiceRegistrationCRLReloadAndRevocation`
 - `rtk_account_manager/cmd/server`: `TestServiceRegistrationCRLRevokesExistingKeepAliveConnection`
@@ -1584,6 +1587,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestIdentityProviderRejectsRawClientSecretRef`
 - `rtk_account_manager/internal/store`: `TestIdentityProviderStoreCRUDAndMultipleEnabledProviders`
 - `rtk_account_manager/internal/store`: `TestIntegrationDatabaseSchemaInvariants`
+- `rtk_account_manager/internal/store`: `TestIntegrationListOTAPeriodSealBrandCloudIDsIncludesDisabledHistory`
 - `rtk_account_manager/internal/store`: `TestIntegrationOTAPeriodGrantSealExcludesPostSealInsertFromEarlierTransaction`
 - `rtk_account_manager/internal/store`: `TestIntegrationOTAPeriodGrantSealRejectsCorruptGrantSnapshot/bindings`
 - `rtk_account_manager/internal/store`: `TestIntegrationOTAPeriodGrantSealRejectsCorruptGrantSnapshot/options`
