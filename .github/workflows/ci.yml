@@ -24,6 +24,7 @@ jobs:
         ports:
           - 5432/tcp
         options: >-
+          --tmpfs /var/lib/postgresql/data:rw,size=2g
           --health-cmd "pg_isready -U rtk -d rtk_account_manager"
           --health-interval 10s
           --health-timeout 5s
