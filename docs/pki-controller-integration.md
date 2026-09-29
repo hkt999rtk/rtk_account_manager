@@ -8,6 +8,16 @@ and not production-qualified. Startup bootstrap is now sealed after its first su
 Apply migrations `074_pki_roles.sql` through `077_admin_recovery.sql`. Migration 074 creates `pki_admin`,
 `security_custodian`, and `pki_auditor` roles but assigns them to nobody.
 Existing Platform Admin permissions do not imply either approval role.
+These roles remain for historical operations. For initial environment PKI and later Service credential updates, the
+selected environment's operator is the sole human executor. A distinct
+`pki_admin` account and second-person approval are not required. The new
+`/operations/{id}/authorize` route binds the configured operator and exact
+request digest. Set `PKI_OPERATOR_USER_ID` to the same Account Manager user ID
+on both services and set `PKI_OPERATOR_SIGNER_REF` on the controller before
+cutover. The local environment SecretStore and controller must agree on both
+values. A missing setting retains the older approval flow until that
+environment's controlled cutover; do not create a second account to work around it.
+See `platform_pki.md` §7 and the workspace operator-authority test plan.
 
 The migration runner recognizes the historical Test Lab filename sequences
 `068_test_lab_sessions.sql` / `069_test_lab_bindings.sql` /
@@ -27,6 +37,8 @@ Configure:
   mTLS identity with CN `account-manager`.
 - `PKI_CONTROLLER_CA`: controller server trust bundle.
 - `PKI_ENVIRONMENT`: exact registry/Video Cloud environment identifier.
+- `PKI_OPERATOR_USER_ID`: environment operator's Account Manager user ID; when
+  configured, mutating PKI proxy calls from other users are rejected.
 - `PKI_REQUIRE_USER_MFA`: optional future human-login MFA enforcement; defaults
   to `false`. Configure the same policy on the controller. Ordinary authenticated
   users with current roles may use PKI without MFA when disabled.
@@ -45,7 +57,7 @@ The resulting access token carries the original `auth_time`. With optional MFA
 enabled, PKI requests require verified MFA within five minutes. Refresh tokens
 carry no MFA authority; they require a new step-up only under that enabled policy.
 With the default policy, valid ordinary/local user login is sufficient for the
-authentication boundary; current roles and distinct approvals still apply.
+authentication boundary; exact live role and configured operator checks still apply.
 Ordinary assertions carry `mfa=false` and `auth_time=0`, never fabricated assurance.
 
 Each proxy call rechecks exact active local role assignments. Provisioning and
@@ -94,9 +106,11 @@ state to the original session and provider, rejects a different returning user,
 and checks the new access token against the PKI controller or Account Manager’s
 local recovery authorization before updating the server-side session. Tokens are never returned by the console callback.
 
-## Independently approved administrator recovery
+## Current administrator recovery implementation
 
-Apply migration `077_admin_recovery.sql`. Recovery is owned by Account Manager
+Apply migration `077_admin_recovery.sql`. The flow below is the currently
+implemented account-recovery mechanism, not the target Service certificate
+deployment flow. Recovery is owned by Account Manager
 and remains available when the PKI controller is down. It requires sealed
 bootstrap, a verified active requester with `platform_admin` or `pki_admin`, and
 an existing verified active target account distinct from the requester.

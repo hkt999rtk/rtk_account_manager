@@ -531,6 +531,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestPKILastAdminGuardReturnsConflict`
 - `rtk_account_manager/internal/api`: `TestPKIOptionalUserMFAPolicy`
 - `rtk_account_manager/internal/api`: `TestPKIProxyForwardsAuthorizedHumanRequest`
+- `rtk_account_manager/internal/api`: `TestPKIProxyRejectsDifferentEnvironmentOperatorBeforeForwarding`
 - `rtk_account_manager/internal/api`: `TestPKIProxyRejectsUserWithoutPKIRole`
 - `rtk_account_manager/internal/api`: `TestPKISocketPreservesSignedRequestAndFailsWithoutOwner`
 - `rtk_account_manager/internal/api`: `TestPKISocketRejectsUnsafePaths`
