@@ -556,8 +556,8 @@ func TestPlatformServiceDeregisterAndAdministrativeFailureModes(t *testing.T) {
 	if _, err := env.store.SetPlatformServiceStatus(ctx, environment, "mqtt", "suspended", owner.User.ID); err != nil {
 		t.Fatalf("suspend service = %v", err)
 	}
-	if _, err := env.store.PublishPlatformServiceManifest(ctx, "mqtt", "1", "2", principal, now.Add(2*time.Second)); !errors.Is(err, ErrConflict) {
-		t.Fatalf("suspended publication = %v", err)
+	if _, err := env.store.PublishPlatformServiceManifest(ctx, "mqtt", "1", "2", principal, now.Add(2*time.Second)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing suspended manifest publication = %v", err)
 	}
 	if _, err := env.store.SetPlatformServiceStatus(ctx, environment, "mqtt", "active", owner.User.ID); err != nil {
 		t.Fatalf("reactivate service = %v", err)
