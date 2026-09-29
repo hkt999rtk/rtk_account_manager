@@ -98,3 +98,23 @@ func TestPKIProxyRejectsUserWithoutPKIRole(t *testing.T) {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestPKIProxyRejectsDifferentEnvironmentOperatorBeforeForwarding(t *testing.T) {
+	authService := auth.NewService("access", "refresh", time.Minute, time.Hour)
+	access, _, err := authService.IssueAccessToken("other-admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := New(pkiProxyTestStore{roles: []string{"platform_admin"}}, authService)
+	base, _ := url.Parse("https://controller.invalid")
+	server.pkiClient = &pkiProxy{base: base, client: http.DefaultClient, environment: "dev", operatorID: "configured-operator"}
+	router := gin.New()
+	router.POST("/v1/pki/*path", server.proxyPKI)
+	req := httptest.NewRequest(http.MethodPost, "/v1/pki/operations/11111111-1111-4111-8111-111111111111/authorize", strings.NewReader(`{"request_sha256":"abc"}`))
+	req.Header.Set("Authorization", "Bearer "+access)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
