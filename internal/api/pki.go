@@ -23,6 +23,7 @@ type pkiProxy struct {
 	base           *url.URL
 	client         *http.Client
 	environment    string
+	operatorID     string
 }
 type pkiRoleStore interface {
 	PKIRoles(context.Context, string) ([]string, error)
@@ -89,7 +90,11 @@ func (s *Server) ConfigurePKIFromEnv() error {
 		}
 		client = &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{identity}, RootCAs: pool}}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}
-	s.pkiClient = &pkiProxy{requireUserMFA: requireUserMFA, base: u, environment: environment, client: client}
+	operatorID := os.Getenv("PKI_OPERATOR_USER_ID")
+	if operatorID != strings.TrimSpace(operatorID) {
+		return fmt.Errorf("PKI_OPERATOR_USER_ID must be a canonical user ID")
+	}
+	s.pkiClient = &pkiProxy{requireUserMFA: requireUserMFA, base: u, environment: environment, client: client, operatorID: operatorID}
 	return nil
 }
 
@@ -149,6 +154,10 @@ func (s *Server) proxyPKI(c *gin.Context) {
 		writeError(c, 403, "pki_denied", "PKI role required")
 		return
 	}
+	if s.pkiClient.operatorID != "" && c.Request.Method != http.MethodGet && claims.UserID != s.pkiClient.operatorID {
+		writeError(c, 403, "pki_denied", "Configured environment operator required")
+		return
+	}
 	body, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, 256<<10))
 	if err != nil {
 		writeError(c, 400, "invalid_request", "Invalid PKI request")
@@ -162,7 +171,7 @@ func (s *Server) proxyPKI(c *gin.Context) {
 	}
 	input := auth.PKIAssertionInput{UserID: claims.UserID, Roles: roles, AuthenticationTime: claims.AuthenticationTime, Environment: s.pkiClient.environment, Method: c.Request.Method, Path: path, Body: body, IdempotencyKey: c.GetHeader("Idempotency-Key")}
 	input.MFA = claims.MFA && claims.AuthenticationTime >= now.Add(-5*time.Minute).Unix() && claims.AuthenticationTime <= now.Unix()+30
-	if c.Request.Method == "POST" && (len(parts) == 1 || (len(parts) == 3 && (parts[2] == "provision" || parts[2] == "activate"))) {
+	if c.Request.Method == "POST" && (len(parts) == 1 || (len(parts) == 3 && (parts[2] == "authorize" || parts[2] == "provision" || parts[2] == "activate"))) {
 		var scope struct {
 			CloudID     string `json:"brand_cloud_id"`
 			ProductID   string `json:"device_item_profile_id"`
