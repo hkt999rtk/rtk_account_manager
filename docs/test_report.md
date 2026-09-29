@@ -1800,6 +1800,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/store`: `TestStartDeviceLifecycleOperationPersistsPendingProvisionMetadata`
 - `rtk_account_manager/internal/store`: `TestStoppedProductionRunRejectsNewFactoryReservations`
 - `rtk_account_manager/internal/store`: `TestStoreOperationsRespectCanceledContextIntegration`
+- `rtk_account_manager/internal/store`: `TestSuspendedPlatformServicePublishesReadyRevisionWithoutActivation`
 - `rtk_account_manager/internal/store`: `TestTestLabBindingLifecycleIsolationAndRevocation`
 - `rtk_account_manager/internal/store`: `TestThirdPartyOptionRequiresRegistrationBeforeProductAndRun`
 - `rtk_account_manager/internal/store`: `TestUnprovisionDeviceRetainsClaimHistoryAndAllowsReplacementClaim`
