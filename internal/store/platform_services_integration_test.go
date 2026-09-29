@@ -358,6 +358,56 @@ func TestServicePublicationRequiresReadyRevisionAndDoesNotRollBackOnOldHeartbeat
 	}
 }
 
+func TestSuspendedPlatformServicePublishesReadyRevisionWithoutActivation(t *testing.T) {
+	env := newStoreIntegrationEnv(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	environment := "integration-suspended-publication-" + strconv.FormatInt(now.UnixNano(), 10)
+	cleanupServiceEnvironment(t, env, environment)
+	owner := handoffDeveloper(t, env, "service-suspended-publication")
+	principal := PlatformServicePrincipal{Environment: environment, CertificateSubject: "service:mqtt", IssuerFingerprint: strings.Repeat("e", 64)}
+	if err := env.store.ApprovePlatformServiceWorkload(ctx, PlatformServiceWorkloadApproval{
+		Environment: environment, ServiceID: "mqtt", InstanceID: "mqtt-1",
+		CertificateSubject: principal.CertificateSubject, IssuerFingerprint: principal.IssuerFingerprint,
+		AllowedOptionCodes: []string{"mqtt"}, ApprovedBy: owner.User.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	manifest := PlatformServiceRegistration{
+		RequestID: "mqtt-v1", ServiceID: "mqtt", InstanceID: "mqtt-1",
+		ManifestVersion: "1", ProtocolVersion: "1", EndpointRef: "mqtt-v1", Ready: true,
+		Options: []PlatformServiceOption{{Code: "mqtt", DisplayName: "MQTT"}},
+	}
+	if _, err := env.store.RegisterPlatformServiceInstance(ctx, manifest, principal, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.SetPlatformServiceStatus(ctx, environment, "mqtt", "suspended", owner.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	manifest.RequestID, manifest.ManifestVersion, manifest.EndpointRef = "mqtt-v2", "2", "mqtt-v2"
+	if _, err := env.store.RegisterPlatformServiceInstance(ctx, manifest, principal, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.PublishPlatformServiceManifest(ctx, "mqtt", "1", "2", principal, now); err != nil {
+		t.Fatalf("publish ready suspended revision: %v", err)
+	}
+	catalog, err := env.store.ListPlatformServiceOptions(ctx, environment, now)
+	if err != nil || len(catalog.Options) != 1 || catalog.Options[0].ManifestVersion != "2" ||
+		catalog.Options[0].Selectable || catalog.Options[0].UnavailableReason != "service_suspended" {
+		t.Fatalf("suspended publication changed availability: %+v %v", catalog, err)
+	}
+	manifest.RequestID, manifest.ManifestVersion, manifest.EndpointRef = "mqtt-v3", "3", "mqtt-v3"
+	if _, err := env.store.RegisterPlatformServiceInstance(ctx, manifest, principal, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.SetPlatformServiceStatus(ctx, environment, "mqtt", "retired", owner.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.store.PublishPlatformServiceManifest(ctx, "mqtt", "2", "3", principal, now); !errors.Is(err, ErrConflict) {
+		t.Fatalf("retired service publication = %v", err)
+	}
+}
+
 func TestPlatformServiceDeregisterAndAdministrativeFailureModes(t *testing.T) {
 	env := newStoreIntegrationEnv(t)
 	ctx := context.Background()
@@ -506,8 +556,8 @@ func TestPlatformServiceDeregisterAndAdministrativeFailureModes(t *testing.T) {
 	if _, err := env.store.SetPlatformServiceStatus(ctx, environment, "mqtt", "suspended", owner.User.ID); err != nil {
 		t.Fatalf("suspend service = %v", err)
 	}
-	if _, err := env.store.PublishPlatformServiceManifest(ctx, "mqtt", "1", "2", principal, now.Add(2*time.Second)); !errors.Is(err, ErrConflict) {
-		t.Fatalf("suspended publication = %v", err)
+	if _, err := env.store.PublishPlatformServiceManifest(ctx, "mqtt", "1", "2", principal, now.Add(2*time.Second)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing suspended manifest publication = %v", err)
 	}
 	if _, err := env.store.SetPlatformServiceStatus(ctx, environment, "mqtt", "active", owner.User.ID); err != nil {
 		t.Fatalf("reactivate service = %v", err)

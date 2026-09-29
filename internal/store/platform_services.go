@@ -629,7 +629,9 @@ func (s *Store) PublishPlatformServiceManifest(ctx context.Context, serviceID, e
 		}
 		return 0, err
 	}
-	if currentVersion != expectedVersion || status != "active" {
+	// Publication selects a ready revision; activation is a separate admin
+	// decision. A suspended service must remain unavailable after publication.
+	if currentVersion != expectedVersion || status == "retired" {
 		return 0, ErrConflict
 	}
 	var raw []byte
