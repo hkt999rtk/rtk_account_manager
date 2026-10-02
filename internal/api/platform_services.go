@@ -54,6 +54,7 @@ func (s *Server) productServiceOptions(c *gin.Context, raw []string) ([]string, 
 func (s *Server) ServiceRouter() *gin.Engine {
 	r := gin.New()
 	r.Use(s.requestLogger(), s.recoveryLogger())
+	r.GET("/v1/internal/ota-period-brand-clouds", s.listServiceOTAPeriodBrandClouds)
 	r.PUT("/v1/platform/services/:serviceId/instances/:instanceId", s.registerPlatformService)
 	r.POST("/v1/platform/services/:serviceId/instances/:instanceId/heartbeat", s.heartbeatPlatformService)
 	r.DELETE("/v1/platform/services/:serviceId/instances/:instanceId", s.deregisterPlatformService)
