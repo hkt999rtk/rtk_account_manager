@@ -597,6 +597,15 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestRequireAuthRejectsRefreshTokenAsBearer`
 - `rtk_account_manager/internal/api`: `TestRetiredTenantTokenRejectedWithoutPersistence`
 - `rtk_account_manager/internal/api`: `TestRootRouteDescribesAPIService`
+- `rtk_account_manager/internal/api`: `TestServiceOTAPeriodInventoryRejectsAnotherIssuerAtTLSListener`
+- `rtk_account_manager/internal/api`: `TestServiceOTAPeriodInventoryRequiresVerifiedOTAIdentityAndBearer/CA_leaf`
+- `rtk_account_manager/internal/api`: `TestServiceOTAPeriodInventoryRequiresVerifiedOTAIdentityAndBearer/expired_certificate`
+- `rtk_account_manager/internal/api`: `TestServiceOTAPeriodInventoryRequiresVerifiedOTAIdentityAndBearer/no_certificate`
+- `rtk_account_manager/internal/api`: `TestServiceOTAPeriodInventoryRequiresVerifiedOTAIdentityAndBearer/open_month`
+- `rtk_account_manager/internal/api`: `TestServiceOTAPeriodInventoryRequiresVerifiedOTAIdentityAndBearer/other_service`
+- `rtk_account_manager/internal/api`: `TestServiceOTAPeriodInventoryRequiresVerifiedOTAIdentityAndBearer/unverified_certificate`
+- `rtk_account_manager/internal/api`: `TestServiceOTAPeriodInventoryRequiresVerifiedOTAIdentityAndBearer/wrong_bearer`
+- `rtk_account_manager/internal/api`: `TestServiceOTAPeriodInventoryRequiresVerifiedOTAIdentityAndBearer`
 - `rtk_account_manager/internal/api`: `TestServiceRegistrationRequiresVerifiedClientChain`
 - `rtk_account_manager/internal/api`: `TestSignupLimiterEvictsStaleEntries`
 - `rtk_account_manager/internal/api`: `TestSocialLoginActivatesExistingPendingUser/matched_by_email`
