@@ -116,36 +116,18 @@ VERSION=v0.1.0 make release
 ```
 
 This writes `dist/rtk_account_manager-$VERSION.tar.gz`. The release workflow
-also publishes formal release objects to Linode Object Storage using the
-workspace artifact governance shape:
+publishes the bundle, checksum, and manifest to Linode Object Storage.
+Bucket and object-key naming follow the workspace [Object Storage policy](https://github.com/hkt999rtk/rtk_cloud_workspace/blob/main/docs/object-storage-policy.md).
+Use the exact published keys from the workflow rather than deriving a prefix.
+GitHub Actions artifacts and GitHub Releases remain debug/mirror surfaces.
 
-```text
-releases/rtk_account_manager-$VERSION/$VERSION.tar.gz
-releases/rtk_account_manager-$VERSION/$VERSION.tar.gz.sha256
-releases/rtk_account_manager-$VERSION/manifest.json
-```
-
-GitHub Actions artifacts and GitHub Releases are debug/mirror surfaces. Linode
-Object Storage is the durable release store.
-
-Developer self-check with the AWS CLI as an S3-compatible client for Linode
-Object Storage:
+Download the three objects with `go run ./cmd/linode-object-storage download`,
+using `--key` for the published key and `--out` for its local file. Save them in
+`.artifacts/release-download/$VERSION/` as `$VERSION.tar.gz`,
+`$VERSION.tar.gz.sha256`, and `manifest.json`, respectively. These local filenames
+are required by the verifier. Then run:
 
 ```sh
-aws s3 ls "s3://$LINODE_OBJ_BUCKET/releases/rtk_account_manager-$VERSION/" \
-  --endpoint-url "$LINODE_OBJ_ENDPOINT"
-
-mkdir -p ".artifacts/release-download/$VERSION"
-aws s3 cp "s3://$LINODE_OBJ_BUCKET/releases/rtk_account_manager-$VERSION/$VERSION.tar.gz" \
-  ".artifacts/release-download/$VERSION/$VERSION.tar.gz" \
-  --endpoint-url "$LINODE_OBJ_ENDPOINT"
-aws s3 cp "s3://$LINODE_OBJ_BUCKET/releases/rtk_account_manager-$VERSION/$VERSION.tar.gz.sha256" \
-  ".artifacts/release-download/$VERSION/$VERSION.tar.gz.sha256" \
-  --endpoint-url "$LINODE_OBJ_ENDPOINT"
-aws s3 cp "s3://$LINODE_OBJ_BUCKET/releases/rtk_account_manager-$VERSION/manifest.json" \
-  ".artifacts/release-download/$VERSION/manifest.json" \
-  --endpoint-url "$LINODE_OBJ_ENDPOINT"
-
 scripts/verify-linode-release-objects.sh "$VERSION" ".artifacts/release-download/$VERSION"
 ```
 
@@ -236,37 +218,16 @@ printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | \
   sudo tee /var/lib/rtk-account-manager/last-db-backup-ok >/dev/null
 ```
 
-Release artifacts are published to Linode Object Storage through its
-S3-compatible API. The release workflow may use AWS CLI as an S3-compatible
-client, but the durable artifact backend is Linode Object Storage, not AWS
-storage.
-
-Expected Object Storage prefix:
-
-```text
-releases/rtk_account_manager-<version>/
-```
-
-Required objects:
-
-```text
-releases/rtk_account_manager-<version>/<version>.tar.gz
-releases/rtk_account_manager-<version>/<version>.tar.gz.sha256
-releases/rtk_account_manager-<version>/manifest.json
-```
-
-Developer self-check:
-
-```sh
-aws s3 ls "s3://$LINODE_OBJ_BUCKET/releases/rtk_account_manager-$VERSION/" \
-  --endpoint-url "$LINODE_OBJ_ENDPOINT"
-aws s3 cp "s3://$LINODE_OBJ_BUCKET/releases/rtk_account_manager-$VERSION/manifest.json" - \
-  --endpoint-url "$LINODE_OBJ_ENDPOINT"
-```
+Release storage names and retention follow the workspace [Object Storage policy](https://github.com/hkt999rtk/rtk_cloud_workspace/blob/main/docs/object-storage-policy.md).
+The manual `.github/workflows/deploy-local.yml` workflow downloads the GitHub
+Release mirror asset `rtk_account_manager-$VERSION.tar.gz` with `gh release download`
+into `dist/` and validates its bundle contract with `deploy/check-release.sh`.
+The Linode checksum and manifest verification above is a separate manual procedure;
+files downloaded by that procedure are not inputs to this workflow.
 
 Deploy sequence:
 
-1. Download the release tarball.
+1. Download the release tarball from GitHub Releases.
 2. Validate the release bundle with `deploy/check-release.sh`.
 3. Install binaries, migrations, systemd units, and env examples with
    `deploy/install.sh`.
