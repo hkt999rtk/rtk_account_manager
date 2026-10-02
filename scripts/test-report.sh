@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 
-set -u -o pipefail
+set -euo pipefail
+
+export GOWORK=off
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$repo_root"
 
 REPORT_DIR="${REPORT_DIR:-reports}"
 REPORT_FILE="${REPORT_FILE:-docs/test_report.md}"
@@ -8,6 +12,25 @@ COVERAGE_THRESHOLD="${COVERAGE_THRESHOLD:-80.0}"
 TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgres://rtk:rtk_password@localhost:5432/rtk_account_manager?sslmode=disable}"
 
 mkdir -p "$REPORT_DIR" "$(dirname "$REPORT_FILE")"
+if ! mkdir "$REPORT_DIR/.test-report.lock" 2>/dev/null; then
+	echo "another report execution owns this evidence directory: $REPORT_DIR" >&2
+	exit 1
+fi
+report_temporary=""
+report_lock=""
+cleanup() {
+	[ -z "$report_temporary" ] || rm -f "$report_temporary"
+	[ -z "$report_lock" ] || rmdir "$report_lock"
+	rmdir "$REPORT_DIR/.test-report.lock"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+if ! mkdir "$REPORT_FILE.lock" 2>/dev/null; then
+	echo "another report execution owns this candidate: $REPORT_FILE" >&2
+	exit 1
+fi
+report_lock="$REPORT_FILE.lock"
 
 TEST_EVENTS="$REPORT_DIR/test-events.json"
 COVERAGE_OUT="$REPORT_DIR/coverage.out"
@@ -49,32 +72,46 @@ build_status=0
 coverage_status=0
 correctness_status=0
 
-require_postgres
+for tool in go gofmt git python3; do
+	command -v "$tool" >/dev/null || { echo "required report tool is unavailable: $tool" >&2; exit 1; }
+done
 
-gofmt -l . >"$FORMAT_OUT"
-if [ -s "$FORMAT_OUT" ]; then
-	format_status=1
-fi
-
-# Integration packages intentionally share TEST_DATABASE_URL. Run packages one at
-# a time so a slow package cannot spend its entire per-package test timeout queued
-# behind another package's database-wide advisory lock.
-TEST_DATABASE_URL="$TEST_DATABASE_URL" go test -p=1 -json -count=1 ./... -coverpkg=./internal/... -coverprofile="$COVERAGE_OUT" -covermode=atomic | tee "$TEST_EVENTS" >/dev/null
-test_status=${PIPESTATUS[0]}
-if [ "$test_status" -ne 0 ]; then
-	echo "go test failed with status $test_status. Failed test events:" >&2
-	grep '"Action":"fail"' "$TEST_EVENTS" >&2 || true
-	grep '"Action":"fail".*"Test":' "$TEST_EVENTS" \
-		| sed -E 's/.*"Test":"([^"]+)".*/\1/' \
-		| LC_ALL=C sort -u \
-		| while IFS= read -r failed_test; do
-			if [ -n "$failed_test" ]; then
-				echo "Events for failed test $failed_test:" >&2
-				grep '"Test":"'"$failed_test"'"' "$TEST_EVENTS" >&2 || true
-			fi
+if [ -n "${REPORT_REUSE_DIR:-}" ]; then
+	if [ "$(cd "$REPORT_REUSE_DIR" && pwd)" != "$(cd "$REPORT_DIR" && pwd)" ] && [ -d "$REPORT_REUSE_DIR/.test-report.lock" ]; then
+		echo "the source evidence directory has an active writer; choose a completed execution" >&2
+		exit 1
+	fi
+	python3 scripts/test-report-evidence.py validate "$REPORT_REUSE_DIR"
+	if [ "$(cd "$REPORT_REUSE_DIR" && pwd)" != "$(cd "$REPORT_DIR" && pwd)" ]; then
+		for artifact in test-events.json coverage.out gofmt.txt build.txt execution-evidence.json; do
+			cp "$REPORT_REUSE_DIR/$artifact" "$REPORT_DIR/$artifact"
 		done
-	echo "Last 80 go test events:" >&2
-	tail -80 "$TEST_EVENTS" >&2 || true
+		# Detect a source writer starting between validation and the copy. Only a
+		# complete destination packet with matching hashes can be rendered.
+		python3 scripts/test-report-evidence.py validate "$REPORT_DIR"
+	fi
+else
+	# Invalidate an earlier pass before any preflight can fail. Expensive tests
+	# begin only after formatting, dependencies and PostgreSQL are ready.
+	rm -f "$REPORT_DIR/execution-evidence.json"
+	gofmt -l . >"$FORMAT_OUT"
+	if [ -s "$FORMAT_OUT" ]; then
+		echo "formatting check failed; see $FORMAT_OUT" >&2
+		exit 1
+	fi
+	go list -deps -test ./... >/dev/null
+	require_postgres
+	python3 scripts/test-report-evidence.py begin "$REPORT_DIR"
+	# Integration packages share a database-wide advisory lock. Running packages
+	# serially avoids spending their timeout queued behind another package.
+	if ! TEST_DATABASE_URL="$TEST_DATABASE_URL" go test -p=1 -json -count=1 -timeout=20m ./... -coverpkg=./internal/... -coverprofile="$COVERAGE_OUT" -covermode=atomic >"$TEST_EVENTS" 2>"$REPORT_DIR/test-stderr.txt"; then
+		echo "go test failed; inspect $TEST_EVENTS and $REPORT_DIR/test-stderr.txt locally. No maintained report was replaced." >&2
+		exit 1
+	fi
+	if ! go build ./... >"$BUILD_OUT" 2>&1; then
+		echo "build failed; inspect $BUILD_OUT locally. No maintained report was replaced." >&2
+		exit 1
+	fi
 fi
 
 if [ -f "$COVERAGE_OUT" ]; then
@@ -84,9 +121,6 @@ else
 	: >"$COVERAGE_FUNC"
 	coverage_status=1
 fi
-
-go build ./... >"$BUILD_OUT" 2>&1
-build_status=$?
 
 coverage_total="0.0%"
 if [ -s "$COVERAGE_FUNC" ]; then
@@ -107,10 +141,10 @@ test_count_display="$test_count"
 pass_count_display="$pass_count"
 fail_count_display="$fail_count"
 if [ "${REPORT_CANONICAL:-false}" = "true" ]; then
-	coverage_total_display="recorded in $COVERAGE_FUNC"
-	test_count_display="recorded in $TEST_EVENTS"
-	pass_count_display="recorded in $TEST_EVENTS"
-	fail_count_display="recorded in $TEST_EVENTS"
+	coverage_total_display="recorded in reports/coverage.txt"
+	test_count_display="recorded in reports/test-events.json"
+	pass_count_display="recorded in reports/test-events.json"
+	fail_count_display="recorded in reports/test-events.json"
 fi
 
 grep '"Action":"pass".*"Test":' "$TEST_EVENTS" 2>/dev/null \
@@ -189,10 +223,16 @@ require_passed_test "Configuration and maintenance" "TestLoadReadsEnvironmentAnd
 
 overall_status="PASS"
 if [ "$format_status" -ne 0 ] || [ "$test_status" -ne 0 ] || [ "$build_status" -ne 0 ] || [ "$coverage_status" -ne 0 ] || [ "$correctness_status" -ne 0 ]; then
-	overall_status="FAIL"
+	echo "coverage or required correctness gates failed; see $COVERAGE_FUNC and $CORRECTNESS_GATES. No maintained report was replaced." >&2
+	exit 1
 fi
 
-cat >"$REPORT_FILE" <<EOF
+if [ -z "${REPORT_REUSE_DIR:-}" ]; then
+	python3 scripts/test-report-evidence.py seal "$REPORT_DIR"
+fi
+
+report_temporary="$(mktemp "$(dirname "$REPORT_FILE")/.test-report.XXXXXX")"
+cat >"$report_temporary" <<EOF
 # Test Report
 
 Generated: $started_at
@@ -302,7 +342,7 @@ $(if [ -s "$TEST_CASES_MD" ]; then cat "$TEST_CASES_MD"; else echo "No test case
 
 \`\`\`sh
 gofmt -l .
-TEST_DATABASE_URL='***' go test -p=1 -json -count=1 ./... -coverpkg=./internal/... -coverprofile=$COVERAGE_OUT -covermode=atomic
+GOWORK=off TEST_DATABASE_URL='***' go test -p=1 -json -count=1 -timeout=20m ./... -coverpkg=./internal/... -coverprofile=$COVERAGE_OUT -covermode=atomic
 go tool cover -func=$COVERAGE_OUT
 go tool cover -html=$COVERAGE_OUT -o $COVERAGE_HTML
 go build ./...
@@ -320,6 +360,7 @@ go build ./...
 | $BUILD_OUT | Build output, empty when build passes. |
 | $TEST_CASES_MD | Markdown list of passing test cases captured from Go JSON events. |
 | $CORRECTNESS_GATES | Required correctness behavior gates and pass/fail status. |
+| $REPORT_DIR/execution-evidence.json | Completed execution provenance and artifact hashes; required for report-only rendering. |
 
 ## Coverage Gaps To Watch
 
@@ -328,8 +369,16 @@ go build ./...
 - Add or update tests whenever authorization, membership, token, migration, device lifecycle, or cross-service channel validation behavior changes.
 EOF
 
-cat "$REPORT_FILE"
-
-if [ "$overall_status" != "PASS" ]; then
-	exit 1
+if [ "${REPORT_CANONICAL:-false}" = "true" ]; then
+	# Canonical references are stable across local and CI evidence directories.
+	python3 - "$report_temporary" "$REPORT_DIR" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+path.write_text(path.read_text().replace(sys.argv[2].rstrip('/') + '/', 'reports/'))
+PY
 fi
+./scripts/validate-report-candidate.sh docs/test_report.md "$report_temporary" >/dev/null
+mv "$report_temporary" "$REPORT_FILE"
+report_temporary=""
+echo "test report PASS: $REPORT_FILE (execution evidence: $REPORT_DIR/execution-evidence.json)"
