@@ -31,6 +31,7 @@ jobs:
           --health-retries 5
 
     env:
+      GOWORK: "off"
       JWT_ACCESS_SECRET: ci-access-secret
       JWT_REFRESH_SECRET: ci-refresh-secret
       ACCESS_TOKEN_TTL: 15m
@@ -49,20 +50,22 @@ jobs:
           cache: false
 
       - name: Configure job-local PostgreSQL endpoint
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
         run: |
           database_url="postgres://rtk:rtk_password@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/rtk_account_manager?sslmode=disable"
           printf 'DATABASE_URL=%s\nTEST_DATABASE_URL=%s\n' "$database_url" "$database_url" >> "$GITHUB_ENV"
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Verify formatting
-        run: test -z "$(gofmt -l .)"
+          fixture_id="$(docker inspect --format '{{.Image}}' "$POSTGRES_CONTAINER_ID")"
+          printf 'REPORT_FIXTURE_ID=%s\n' "$fixture_id" >> "$GITHUB_ENV"
 
       - name: Test email signup IMAP helper
         run: make test-email-signup-helper
 
+      - name: Check report candidate scripts
+        run: make check-report-candidates
+
       - name: Run tests and generate report
+        id: test_report
         run: |
           REPORT_FILE=.artifacts/report-candidates/docs/test_report.md \
             REPORT_GENERATED_AT=ci-candidate \
@@ -71,6 +74,7 @@ jobs:
           ./scripts/validate-report-candidate.sh \
             docs/test_report.md \
             .artifacts/report-candidates/docs/test_report.md
+          cp reports/execution-evidence.json .artifacts/report-candidates/execution-evidence.json
 
       - name: Check committed test report drift
         run: |
@@ -85,17 +89,21 @@ jobs:
             exit 1
           fi
 
+      - name: Upload validated test report candidate and provenance
+        if: ${{ always() && steps.test_report.outcome == 'success' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-report-candidate
+          path: .artifacts/report-candidates/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
+
       - name: Run repeatability smoke
         run: make test-repeat
 
-      - name: Build packages
-        run: go build ./...
-
       - name: Check release bundle
         run: VERSION="ci-${GITHUB_SHA::12}" make release
-
-      - name: Check report candidate scripts
-        run: make check-report-candidates
 
   deep-test:
     runs-on: [self-hosted, Linux, X64]

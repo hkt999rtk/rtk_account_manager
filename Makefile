@@ -26,6 +26,7 @@ test-report:
 
 check-report-candidates:
 	./scripts/report-candidate-tests.sh
+	$(PYTHON) ./scripts/test_report_evidence_test.py
 
 test-race:
 	@mkdir -p $(REPORT_DIR)

@@ -1944,7 +1944,7 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 
 ```sh
 gofmt -l .
-TEST_DATABASE_URL='***' go test -p=1 -json -count=1 ./... -coverpkg=./internal/... -coverprofile=reports/coverage.out -covermode=atomic
+GOWORK=off TEST_DATABASE_URL='***' go test -p=1 -json -count=1 -timeout=20m ./... -coverpkg=./internal/... -coverprofile=reports/coverage.out -covermode=atomic
 go tool cover -func=reports/coverage.out
 go tool cover -html=reports/coverage.out -o reports/coverage.html
 go build ./...
@@ -1962,6 +1962,7 @@ go build ./...
 | reports/build.txt | Build output, empty when build passes. |
 | reports/test-cases.md | Markdown list of passing test cases captured from Go JSON events. |
 | reports/correctness-gates.md | Required correctness behavior gates and pass/fail status. |
+| reports/execution-evidence.json | Completed execution provenance and artifact hashes; required for report-only rendering. |
 
 ## Coverage Gaps To Watch
 

@@ -8,7 +8,7 @@ The backend uses these test layers:
 | --- | --- | --- |
 | Unit tests | `make test` | Fast package-level checks that do not require Postgres unless `TEST_DATABASE_URL` is set. |
 | Integration tests | `make integration-test` | Runs the API, store, migrations, auth, authorization, and device lifecycle tests against Postgres. |
-| Full report | `make test-report` | Runs formatting, integration-aware tests, coverage, build validation, and writes `docs/test_report.md`. |
+| Full report | `make test-report` | Runs prerequisite checks, one PostgreSQL test/coverage execution, and build validation; atomically publishes `docs/test_report.md` after every gate passes. |
 | Race tests | `make test-race` | Runs Go's race detector against packages that do not need the shared integration database. |
 | Repeatability smoke | `make test-repeat` | Runs selected unit packages with `-shuffle=on -count=3` to catch order coupling and flakes. |
 | Fuzz smoke | `make fuzz-smoke` | Runs short seeded fuzz checks for strict JSON and contract parser behavior. |
@@ -18,7 +18,11 @@ The backend uses these test layers:
 
 `make integration-test` and `make test-report` expect Postgres to be reachable at `TEST_DATABASE_URL`.
 For the default local setup, start it first with `make db-up`.
-`make test-report` now fails fast with that prerequisite message instead of overwriting `docs/test_report.md` with a misleading low-coverage report.
+Finish known code and documentation changes, review them, and run focused tests
+before starting the complete report gate. The report script checks required tools
+(`go`, `gofmt`, `git`, `python3`), formatting, dependency resolution and PostgreSQL
+reachability before the expensive suite. A failed or interrupted run keeps the
+previous maintained report and cannot supply reusable passing evidence.
 
 Integration tests share one Postgres database and use an advisory lock through
 `internal/testutil.LockIntegrationDatabase`. Do not make these tests parallel
@@ -30,7 +34,7 @@ is changed first.
 `make test-report` measures statement coverage with:
 
 ```sh
-go test -json ./... -coverpkg=./internal/... -coverprofile=reports/coverage.out -covermode=atomic
+GOWORK=off go test -p=1 -json -count=1 -timeout=20m ./... -coverpkg=./internal/... -coverprofile=reports/coverage.out -covermode=atomic
 ```
 
 The default minimum total coverage is `80.0%`. Override it only when intentionally changing the project baseline:
@@ -73,6 +77,8 @@ Update tests whenever changing:
 | `reports/coverage.html` | HTML coverage report. |
 | `reports/gofmt.txt` | Files that need formatting, empty when formatting passes. |
 | `reports/build.txt` | Build output, empty when build passes. |
+| `reports/test-stderr.txt` | Local test/compiler diagnostics; not uploaded with the public candidate. |
+| `reports/execution-evidence.json` | Completed execution status, source/configuration and toolchain fingerprints, original commit, fixture identity, expected packages, command and artifact hashes. |
 | `reports/test-cases.md` | Passing test case list extracted from Go JSON events. |
 | `reports/correctness-gates.md` | Required behavior gates and representative passing tests. |
 | `reports/test-repeat.txt` | `make test-repeat` output when that target runs. |
@@ -80,6 +86,63 @@ Update tests whenever changing:
 | `reports/fuzz-smoke-*.txt` | `make fuzz-smoke` output when that target runs. |
 
 `reports/` is ignored by git. Commit `docs/test_report.md` when intentionally refreshing the maintained report.
+
+### Reuse the completed execution when only the report needs publishing
+
+The workspace pre-PR gate invokes this same script against its own disposable
+PostgreSQL fixture and reads the resulting `test-events.json` and `coverage.out`
+for governed coverage. It does not run a second Account Manager test suite to
+produce the maintained report. `REPORT_DIR` chooses the evidence directory;
+`REPORT_FILE` chooses the candidate destination. With `REPORT_CANONICAL=true`,
+artifact references remain `reports/...` regardless of the physical directory.
+
+To render another canonical candidate from an existing completed execution:
+
+```sh
+REPORT_REUSE_DIR=/absolute/path/to/completed-evidence \
+  REPORT_DIR=.artifacts/report-recovery/evidence \
+  REPORT_FILE=.artifacts/report-recovery/docs/test_report.md \
+  REPORT_CANONICAL=true REPORT_GENERATED_AT=ci-candidate make test-report
+```
+
+This mode validates the sealed manifest, copies the verified evidence into the
+new output directory, and recomputes the coverage/correctness presentation. It
+does not connect to PostgreSQL, run tests or rebuild packages. The original
+fixture identity remains recorded; a new database cannot improve old evidence.
+Set `REPORT_FIXTURE_ID` to the owned PostgreSQL image ID for a fresh run. Manual
+fixtures without that setting are explicitly identified as `operator-postgres`.
+Never put a DSN, token or password in this identifier.
+
+Reuse rejects missing, failed, interrupted or altered artifacts; incomplete
+package/test events; non-atomic coverage; and changed source, tests,
+configuration, dependencies, effective Go build settings or test/application
+environment. Environment values are hashed, never stored in the manifest. Only
+the primary ephemeral database URLs, report-output controls and known shell/CI
+metadata are excluded; keep the same test settings when rendering existing
+evidence. The original full-integration fixture identity is mandatory even though
+rendering needs no live database. The input fingerprint includes all
+tracked/nonignored repository files and the local `.env` content as hashes,
+excluding only the generated `docs/test_report.md` and execution output
+directory. The existing `docs/rtk_cloud_contracts_doc` link also includes the
+linked repository's file contents and modes; missing versus available contracts
+are distinct inputs. Other unverified symlinks prevent reuse. Thus committing
+the generated report or an equivalent merge commit
+does not require repeating coverage. Other documentation changes are handled
+conservatively by this helper and can require a fresh execution. Optional
+cross-repository binaries, external contract endpoints and PKCS#11 hardware
+fixtures make an execution ineligible for this reuse mode: a pathname alone
+cannot prove that the external input is unchanged. These hashes
+detect stale or modified evidence; they are not a cryptographic attestation
+against an operator who can rewrite both artifacts and manifest.
+
+Each evidence directory and candidate path admits one writer. Use distinct paths
+for independent runs. Copying evidence revalidates the destination packet, and
+an active source writer prevents reuse. After an uncatchable process termination,
+remove a stale `.test-report.lock` or candidate `.lock` directory only after
+confirming its run has ended. Raw event
+and build logs stay local because tests may include credential fixtures. The
+script prints a short status with artifact locations, not raw logs or the full
+maintained report.
 
 ## Readiness Smoke Artifact
 
@@ -209,8 +272,20 @@ The v2 test report must distinguish coverage from correctness by naming represen
 ## CI
 
 GitHub Actions runs `make test-report` and `make test-repeat` on pushes to
-`main` and on pull requests. The workflow starts a Postgres service, runs the
-report, builds all packages, and uploads the report artifacts.
+`main` and on pull requests. The workflow starts a disposable Postgres service,
+records its image ID, and generates the report with the same full test and build
+path used locally. Report-helper checks run before the full suite. The build
+inside `make test-report` is reused; release-bundle validation remains a separate
+gate because it builds and verifies distributable assets.
+
+After a successful report execution, CI uploads `test-report-candidate` even if
+comparison with the committed report fails. The artifact contains the validated
+`docs/test_report.md` candidate and its hash/provenance manifest; raw test events,
+environment values, DSNs and build logs are excluded. Import that candidate with
+the **Import Report Candidate** workflow, or download and review it locally.
+Report drift is a publication problem after passing execution; inspect the
+diff and reuse the candidate instead of rerunning the same tests just to obtain
+the file. Required remote CI still applies to the resulting PR revision.
 
 Scheduled/manual CI also runs the heavier `make test-race` and
 `make fuzz-smoke` targets. These are kept out of the normal PR critical path so
