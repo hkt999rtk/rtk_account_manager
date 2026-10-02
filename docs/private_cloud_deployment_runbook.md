@@ -122,8 +122,10 @@ Use the exact published keys from the workflow rather than deriving a prefix.
 GitHub Actions artifacts and GitHub Releases remain debug/mirror surfaces.
 
 Download the three objects with `go run ./cmd/linode-object-storage download`,
-using `--key` for the published key and `--out` for its local file. Keep the
-bundle and checksum filenames recorded in the manifest, then run:
+using `--key` for the published key and `--out` for its local file. Save them in
+`.artifacts/release-download/$VERSION/` as `$VERSION.tar.gz`,
+`$VERSION.tar.gz.sha256`, and `manifest.json`, respectively. These local filenames
+are required by the verifier. Then run:
 
 ```sh
 scripts/verify-linode-release-objects.sh "$VERSION" ".artifacts/release-download/$VERSION"
@@ -217,11 +219,15 @@ printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | \
 ```
 
 Release storage names and retention follow the workspace [Object Storage policy](https://github.com/hkt999rtk/rtk_cloud_workspace/blob/main/docs/object-storage-policy.md).
-Use the verified versioned release and the download procedure above.
+The manual `.github/workflows/deploy-local.yml` workflow downloads the GitHub
+Release mirror asset `rtk_account_manager-$VERSION.tar.gz` with `gh release download`
+into `dist/` and validates its bundle contract with `deploy/check-release.sh`.
+The Linode checksum and manifest verification above is a separate manual procedure;
+files downloaded by that procedure are not inputs to this workflow.
 
 Deploy sequence:
 
-1. Download the release tarball.
+1. Download the release tarball from GitHub Releases.
 2. Validate the release bundle with `deploy/check-release.sh`.
 3. Install binaries, migrations, systemd units, and env examples with
    `deploy/install.sh`.
