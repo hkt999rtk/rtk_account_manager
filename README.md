@@ -2,6 +2,9 @@
 
 Backend account and device manager for organization-scoped users and registry-only IoT devices.
 
+Object Storage bucket names, object-key families, ownership, and retention follow the
+workspace [Object Storage policy](https://github.com/hkt999rtk/rtk_cloud_workspace/blob/main/docs/object-storage-policy.md). The link also works from a standalone checkout.
+
 ## Local Development
 
 1. Copy environment defaults:
