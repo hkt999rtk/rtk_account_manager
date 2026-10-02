@@ -63,6 +63,102 @@ func TestServiceRegistrationRequiresVerifiedClientChain(t *testing.T) {
 	}
 }
 
+func TestServiceOTAPeriodInventoryRequiresVerifiedOTAIdentityAndBearer(t *testing.T) {
+	now := time.Now().UTC()
+	valid := &x509.Certificate{Subject: pkix.Name{CommonName: "service:ota"}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour)}
+	expired := &x509.Certificate{Subject: valid.Subject, NotBefore: now.Add(-2 * time.Hour), NotAfter: now.Add(-time.Hour)}
+	wrongSubject := &x509.Certificate{Subject: pkix.Name{CommonName: "service:logger"}, NotBefore: valid.NotBefore, NotAfter: valid.NotAfter}
+	caLeaf := &x509.Certificate{Subject: valid.Subject, NotBefore: valid.NotBefore, NotAfter: valid.NotAfter, IsCA: true}
+	server := New(nil, nil)
+	server.ConfigurePlatformServices(&stubPlatformServices{}, "staging")
+	server.ConfigureInternalAuthToken("inventory-token")
+	router := server.ServiceRouter()
+	path := "/v1/internal/ota-period-brand-clouds?month=" + now.Format("2006-01")
+	request := func(leaf *x509.Certificate, token string, verified bool) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		if leaf != nil {
+			req.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{leaf}}
+			if verified {
+				req.TLS.VerifiedChains = [][]*x509.Certificate{{leaf, {Raw: []byte("issuer")}}}
+			}
+		}
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		return res
+	}
+	for _, tc := range []struct {
+		name     string
+		leaf     *x509.Certificate
+		token    string
+		verified bool
+		want     int
+	}{
+		{name: "no certificate", token: "inventory-token", want: http.StatusUnauthorized},
+		{name: "unverified certificate", leaf: valid, token: "inventory-token", want: http.StatusUnauthorized},
+		{name: "other service", leaf: wrongSubject, token: "inventory-token", verified: true, want: http.StatusForbidden},
+		{name: "expired certificate", leaf: expired, token: "inventory-token", verified: true, want: http.StatusUnauthorized},
+		{name: "CA leaf", leaf: caLeaf, token: "inventory-token", verified: true, want: http.StatusUnauthorized},
+		{name: "wrong bearer", leaf: valid, token: "wrong", verified: true, want: http.StatusUnauthorized},
+		{name: "open month", leaf: valid, token: "inventory-token", verified: true, want: http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if res := request(tc.leaf, tc.token, tc.verified); res.Code != tc.want {
+				t.Fatalf("inventory status=%d, want %d: %s", res.Code, tc.want, res.Body.String())
+			}
+		})
+	}
+	server.ConfigurePlatformServices(nil, "staging")
+	if res := request(valid, "inventory-token", true); res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("missing service registry status=%d", res.Code)
+	}
+	server.ConfigurePlatformServices(&stubPlatformServices{}, "")
+	if res := request(valid, "inventory-token", true); res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("missing listener environment status=%d", res.Code)
+	}
+}
+
+func TestServiceOTAPeriodInventoryRejectsAnotherIssuerAtTLSListener(t *testing.T) {
+	now := time.Now().UTC()
+	selectedIssuer, selectedKey := registeredFactoryServiceIssuer(t, now)
+	otherIssuer, otherKey := registeredFactoryServiceIssuer(t, now)
+	roots := x509.NewCertPool()
+	roots.AddCert(selectedIssuer)
+	server := New(nil, nil)
+	server.ConfigurePlatformServices(&stubPlatformServices{}, "staging")
+	server.ConfigureInternalAuthToken("inventory-token")
+	listener := httptest.NewUnstartedServer(server.ServiceRouter())
+	listener.TLS = &tls.Config{MinVersion: tls.VersionTLS13, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: roots}
+	listener.StartTLS()
+	defer listener.Close()
+	request := func(cert tls.Certificate) (*http.Response, error) {
+		transport := listener.Client().Transport.(*http.Transport).Clone()
+		transport.TLSClientConfig = transport.TLSClientConfig.Clone()
+		transport.TLSClientConfig.Certificates = []tls.Certificate{cert}
+		defer transport.CloseIdleConnections()
+		req, err := http.NewRequest(http.MethodGet, listener.URL+"/v1/internal/ota-period-brand-clouds?month="+now.Format("2006-01"), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer inventory-token")
+		return (&http.Client{Transport: transport}).Do(req)
+	}
+	valid := registeredFactoryServiceCert(t, selectedIssuer, selectedKey, now, "service:ota", 2)
+	res, err := request(valid)
+	if err != nil {
+		t.Fatalf("selected issuer rejected: %v", err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("selected issuer status=%d", res.StatusCode)
+	}
+	other := registeredFactoryServiceCert(t, otherIssuer, otherKey, now, "service:ota", 3)
+	if res, err := request(other); err == nil {
+		res.Body.Close()
+		t.Fatalf("another issuer reached inventory: %d", res.StatusCode)
+	}
+}
+
 type recordingPlatformServices struct {
 	stubPlatformServices
 	err          error

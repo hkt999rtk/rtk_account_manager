@@ -7,6 +7,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// The service listener verifies the environment's client CA and CRL before
+// routing. The producer inventory accepts only the OTA Service subject, then
+// applies the same internal bearer and completed-month checks as the HTTP API.
+func (s *Server) listServiceOTAPeriodBrandClouds(c *gin.Context) {
+	principal, ok := s.servicePrincipal(c)
+	if !ok {
+		return
+	}
+	if principal.Environment != s.platformServiceEnvironment || principal.CertificateSubject != "service:ota" {
+		writeError(c, http.StatusForbidden, "service_identity_denied", "Service identity is not authorized")
+		return
+	}
+	s.listInternalOTAPeriodBrandClouds(c)
+}
+
 // The producer seal must include Clouds with no OTA rows, including disabled
 // Clouds whose earlier tasks or stored objects may remain billable.
 func (s *Server) listInternalOTAPeriodBrandClouds(c *gin.Context) {

@@ -78,6 +78,15 @@ an already reviewed month's completeness. New organization timestamps use
 database insertion time so a long-running transaction cannot backdate a
 Cloud created after the UTC boundary.
 
+The OTA producer can read this inventory through
+`GET /v1/internal/ota-period-brand-clouds?month=YYYY-MM` on Account Manager's
+private service mTLS listener. It requires a verified `service:ota` client
+certificate from the listener's configured environment CA and the existing
+internal bearer token; the listener also enforces the current service CRL.
+The original internal HTTP route remains available for existing callers.
+Both routes reject an unfinished UTC month and return the same frozen set,
+including disabled and zero-use Clouds, with `Cache-Control: no-store`.
+
 `previous` is evaluated in UTC when the command starts. Exact `YYYY-MM` is
 required for older-month recovery. Each Cloud has a bounded attempt; an
 ambiguous Billing response is retried with the same deterministic seal. A

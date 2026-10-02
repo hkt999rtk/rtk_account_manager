@@ -2,8 +2,12 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -49,5 +53,32 @@ func TestIntegrationInternalOTAPeriodBrandCloudInventory(t *testing.T) {
 	}
 	if !seen[first.BrandCloudID] || !seen[second.BrandCloudID] {
 		t.Fatalf("disabled or zero-use Brand Cloud omitted")
+	}
+	env.server.ConfigurePlatformServices(env.store, "staging")
+	serviceRequest := httptest.NewRequest(http.MethodGet, path, nil)
+	serviceRequest.Header.Set("Authorization", "Bearer ota-inventory-token")
+	serviceRequest.TLS = &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{
+		{Subject: pkix.Name{CommonName: "service:ota"}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour)},
+		{Raw: []byte("staging-service-issuer")},
+	}}}
+	serviceResponse := httptest.NewRecorder()
+	env.server.ServiceRouter().ServeHTTP(serviceResponse, serviceRequest)
+	if serviceResponse.Code != http.StatusOK || serviceResponse.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("service inventory status=%d cache=%q body=%s", serviceResponse.Code, serviceResponse.Header().Get("Cache-Control"), serviceResponse.Body.String())
+	}
+	var serviceInventory struct {
+		Month         string   `json:"month"`
+		BrandCloudIDs []string `json:"brand_cloud_ids"`
+	}
+	if err := json.Unmarshal(serviceResponse.Body.Bytes(), &serviceInventory); err != nil {
+		t.Fatal(err)
+	}
+	if serviceInventory.Month != got.Month || len(serviceInventory.BrandCloudIDs) != len(got.BrandCloudIDs) {
+		t.Fatalf("service inventory differs from HTTP inventory: %+v vs %+v", serviceInventory, got)
+	}
+	for _, id := range serviceInventory.BrandCloudIDs {
+		if !seen[id] {
+			t.Fatalf("service inventory included unexpected Brand Cloud %q", id)
+		}
 	}
 }
