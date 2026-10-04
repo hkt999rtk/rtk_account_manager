@@ -500,12 +500,14 @@ Bootstrap rules:
   `ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_EMAIL` and
   `ACCOUNT_MANAGER_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD` when creating the first
   root account for a private cloud.
-- For production, use the one-time, two-person-approved, sealed and audited
-  bootstrap required by `platform_pki.md`; remove the bootstrap credential and
+- For the accepted production target, the selected environment operator performs
+  the one-time, sealed and audited bootstrap in `platform_pki.md`. No second
+  human countersignature is required. Remove the bootstrap credential and
   workload configuration after first-login rotation and recovery enrollment.
+  This is a target procedure; validate the implementation before live use.
 - Use an audited SQL migration or controlled DBA procedure only when env-based
   bootstrap is unavailable.
-- Record who approved the bootstrap and when.
+- Record the environment operator, exact bootstrap request and outcome.
 - Do not share operator passwords or JWTs in tickets.
 
 Example service env bootstrap:
