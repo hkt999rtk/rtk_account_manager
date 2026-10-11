@@ -163,6 +163,8 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/cmd/linode-object-storage`: `TestObjectExistsReportsServerError`
 - `rtk_account_manager/cmd/linode-object-storage`: `TestPutDownloadCatAndExistsUseSignedPathStyleRequests`
 - `rtk_account_manager/cmd/linode-object-storage`: `TestStoreFromEnvPrefersLinodeCredentials`
+- `rtk_account_manager/cmd/server`: `TestDeploymentCapabilitiesBypassRuntimeAndRejectOtherArguments`
+- `rtk_account_manager/cmd/server`: `TestNativeDeploymentCapabilityModePrecedesConfiguration`
 - `rtk_account_manager/cmd/server`: `TestServiceRegistrationCRLRejectsStaleAndWrongIssuer`
 - `rtk_account_manager/cmd/server`: `TestServiceRegistrationCRLReloadAndRevocation`
 - `rtk_account_manager/cmd/server`: `TestServiceRegistrationCRLRevokesExistingKeepAliveConnection`
@@ -526,6 +528,16 @@ Coverage is only a signal that code executed. Correctness is validated by assert
 - `rtk_account_manager/internal/api`: `TestOwnerTransferWithoutBillingAdapterFailsClosed`
 - `rtk_account_manager/internal/api`: `TestPKILastAdminGuardReturnsConflict`
 - `rtk_account_manager/internal/api`: `TestPKIOptionalUserMFAPolicy`
+- `rtk_account_manager/internal/api`: `TestPKIProxyFinalizesOnlyExactAuthenticatedOperatorSession/caller-proof`
+- `rtk_account_manager/internal/api`: `TestPKIProxyFinalizesOnlyExactAuthenticatedOperatorSession/foreign-operator`
+- `rtk_account_manager/internal/api`: `TestPKIProxyFinalizesOnlyExactAuthenticatedOperatorSession/invalid-session`
+- `rtk_account_manager/internal/api`: `TestPKIProxyFinalizesOnlyExactAuthenticatedOperatorSession/nil-session`
+- `rtk_account_manager/internal/api`: `TestPKIProxyFinalizesOnlyExactAuthenticatedOperatorSession/operator`
+- `rtk_account_manager/internal/api`: `TestPKIProxyFinalizesOnlyExactAuthenticatedOperatorSession/other-bootstrap-route`
+- `rtk_account_manager/internal/api`: `TestPKIProxyFinalizesOnlyExactAuthenticatedOperatorSession/pki-admin`
+- `rtk_account_manager/internal/api`: `TestPKIProxyFinalizesOnlyExactAuthenticatedOperatorSession/read-session`
+- `rtk_account_manager/internal/api`: `TestPKIProxyFinalizesOnlyExactAuthenticatedOperatorSession/viewer`
+- `rtk_account_manager/internal/api`: `TestPKIProxyFinalizesOnlyExactAuthenticatedOperatorSession`
 - `rtk_account_manager/internal/api`: `TestPKIProxyForwardsAuthorizedHumanRequest`
 - `rtk_account_manager/internal/api`: `TestPKIProxyRejectsDifferentEnvironmentOperatorBeforeForwarding`
 - `rtk_account_manager/internal/api`: `TestPKIProxyRejectsUserWithoutPKIRole`
