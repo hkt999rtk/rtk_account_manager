@@ -66,6 +66,19 @@ a request-bound, one-minute assertion; the browser never receives that assertion
 or controller workload credentials. Controller errors are returned without
 provider credentials or private CA material.
 
+`POST /v1/platform/pki/deployment-bootstrap/<canonical-session-UUID>/finalize`
+uses the same current authenticated user, optional MFA policy and configured
+operator restriction. It additionally requires a current `platform_admin` or
+`pki_admin` role and an empty body. The request-bound assertion declares active
+operator context; the native controller resolves the original session and
+verifies real workload and cleanup evidence. Callers cannot provide a replacement
+receipt, session identity or cleanup proof.
+
+`server --deployment-capabilities` emits the strict
+`rtk-cloud.deployment-capabilities/v1` feature `deployment-bootstrap-finalize-v1`
+before configuration, authentication or database access. Fresh deployment probes
+the exact formal CI image; local source tests cannot qualify an older image.
+
 Normal Cloud/Product creation automatically records a durable PKI job in the same
 database transaction. A service-authenticated worker resolves current active
 business context and requests the immutable Cloud/Product scope, never human

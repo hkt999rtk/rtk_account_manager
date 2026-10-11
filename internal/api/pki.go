@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,6 +30,8 @@ type pkiProxy struct {
 type pkiRoleStore interface {
 	PKIRoles(context.Context, string) ([]string, error)
 }
+
+var pkiBootstrapSessionPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 func pkiStepUpLocation(location string) (string, error) {
 	acr := os.Getenv("PKI_OIDC_MFA_ACR")
@@ -165,11 +169,22 @@ func (s *Server) proxyPKI(c *gin.Context) {
 	}
 	path := "/v1/pki" + c.Param("path")
 	parts := strings.Split(strings.Trim(c.Param("path"), "/"), "/")
-	if len(parts) == 0 || (parts[0] != "operations" && parts[0] != "issuers") || strings.Contains(path, "..") {
+	finalize := false
+	if len(parts) == 3 && parts[0] == "deployment-bootstrap" && parts[2] == "finalize" {
+		finalize = pkiBootstrapSessionPattern.MatchString(parts[1]) && parts[1] != "00000000-0000-0000-0000-000000000000" && c.Request.Method == http.MethodPost && c.Request.URL.RawPath == "" && c.Request.URL.RawQuery == "" && !c.Request.URL.ForceQuery
+	}
+	if len(parts) == 0 || (parts[0] != "operations" && parts[0] != "issuers" && !finalize) || strings.Contains(path, "..") {
 		writeError(c, 404, "not_found", "Unknown PKI route")
 		return
 	}
+	if finalize && (len(bytes.TrimSpace(body)) != 0 || !slices.Contains(roles, "platform_admin") && !slices.Contains(roles, "pki_admin")) {
+		writeError(c, http.StatusForbidden, "pki_denied", "Bootstrap finalization requires an empty request and the current environment operator role")
+		return
+	}
 	input := auth.PKIAssertionInput{UserID: claims.UserID, Roles: roles, AuthenticationTime: claims.AuthenticationTime, Environment: s.pkiClient.environment, Method: c.Request.Method, Path: path, Body: body, IdempotencyKey: c.GetHeader("Idempotency-Key")}
+	// Native finalization resolves the immutable session and cleanup owners. The
+	// caller provides no receipt, identity substitution or cleanup authorization.
+	input.ActiveContext = finalize
 	input.MFA = claims.MFA && claims.AuthenticationTime >= now.Add(-5*time.Minute).Unix() && claims.AuthenticationTime <= now.Unix()+30
 	if c.Request.Method == "POST" && (len(parts) == 1 || (len(parts) == 3 && (parts[2] == "authorize" || parts[2] == "provision" || parts[2] == "activate"))) {
 		var scope struct {
