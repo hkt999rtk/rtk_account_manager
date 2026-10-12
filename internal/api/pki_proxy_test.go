@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -116,5 +118,67 @@ func TestPKIProxyRejectsDifferentEnvironmentOperatorBeforeForwarding(t *testing.
 	router.ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPKIProxyFinalizesOnlyExactAuthenticatedOperatorSession(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := auth.RS256TokenSigner{Signer: key, PublicKey: &key.PublicKey}
+	authService := auth.NewServiceWithSigners(signer, signer, time.Minute, time.Hour)
+	path := "/v1/pki/deployment-bootstrap/11111111-1111-4111-8111-111111111111/finalize"
+	for _, tc := range []struct {
+		name, role, user, method, path, body string
+		want                                 int
+	}{
+		{"operator", "platform_admin", "operator", http.MethodPost, path, "", http.StatusOK},
+		{"pki-admin", "pki_admin", "operator", http.MethodPost, path, "", http.StatusOK},
+		{"viewer", "pki_viewer", "operator", http.MethodPost, path, "", http.StatusForbidden},
+		{"foreign-operator", "platform_admin", "other", http.MethodPost, path, "", http.StatusForbidden},
+		{"caller-proof", "platform_admin", "operator", http.MethodPost, path, `{"cleanup_sha256":"caller-proof"}`, http.StatusForbidden},
+		{"read-session", "platform_admin", "operator", http.MethodGet, path, "", http.StatusNotFound},
+		{"invalid-session", "platform_admin", "operator", http.MethodPost, "/v1/pki/deployment-bootstrap/not-a-session/finalize", "", http.StatusNotFound},
+		{"nil-session", "platform_admin", "operator", http.MethodPost, "/v1/pki/deployment-bootstrap/00000000-0000-0000-0000-000000000000/finalize", "", http.StatusNotFound},
+		{"other-bootstrap-route", "platform_admin", "operator", http.MethodPost, strings.TrimSuffix(path, "finalize") + "issue", "", http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			controller := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				parts := strings.Split(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), ".")
+				if len(parts) != 3 {
+					t.Fatal("finalization did not use an authentic signed human assertion")
+				}
+				raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+				var assertion map[string]any
+				if err != nil || json.Unmarshal(raw, &assertion) != nil || assertion["active_context"] != true || assertion["sub"] != "operator" || assertion["environment"] != "dev" || assertion["method"] != http.MethodPost || assertion["path"] != path || assertion["mfa"] != false {
+					t.Fatal("finalization assertion changed operator/environment, scope or manufactured assurance", assertion, err)
+				}
+				if r.URL.Path != path || r.Method != http.MethodPost {
+					t.Fatal("finalization selected an unowned controller route")
+				}
+				_, _ = io.WriteString(w, `{"session_id":"11111111-1111-4111-8111-111111111111"}`)
+			}))
+			defer controller.Close()
+			base, _ := url.Parse(controller.URL)
+			server := New(pkiProxyTestStore{roles: []string{tc.role}}, authService)
+			server.pkiClient = &pkiProxy{base: base, client: controller.Client(), environment: "dev", operatorID: "operator"}
+			router := gin.New()
+			router.Any("/v1/pki/*path", server.proxyPKI)
+			access, _, err := authService.IssueAccessToken(tc.user)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			request.Header.Set("Authorization", "Bearer "+access)
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			if response.Code != tc.want || calls != map[bool]int{true: 1, false: 0}[tc.want == http.StatusOK] {
+				t.Fatal("invalid finalization admission or unauthorized controller access", response.Code, response.Body.String(), calls)
+			}
+		})
 	}
 }
