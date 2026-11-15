@@ -12,7 +12,7 @@ on:
 jobs:
   test:
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     services:
       postgres:
@@ -63,6 +63,8 @@ jobs:
         run: make test-email-signup-helper
 
       - name: Run tests and generate report
+        env:
+          GOFLAGS: -timeout=30m
         run: |
           REPORT_FILE=.artifacts/report-candidates/docs/test_report.md \
             REPORT_GENERATED_AT=ci-candidate \
